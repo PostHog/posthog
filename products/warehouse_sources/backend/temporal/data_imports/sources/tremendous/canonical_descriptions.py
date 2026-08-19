@@ -107,4 +107,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "meta": "Method-specific metadata (e.g. current balance, card details).",
         },
     },
+    "balance_transactions": {
+        "description": "Ledger of every transaction against the organization's Tremendous balance, including order payments, refunds, fees, and deposits.",
+        "docs_url": "https://developers.tremendous.com/reference/list-balance-transactions",
+        "columns": {
+            "id": "Stable identifier computed by PostHog from the transaction's unchanging fields; the Tremendous API returns no ID for balance transactions.",
+            "created_at": "Date the transaction was created.",
+            "amount": "Amount of the transaction, denominated in currency_code.",
+            "currency_code": "Currency of the transaction and the balance. Always matches the organization's currency.",
+            "balance": "Running account balance after the transaction. May be delayed and contain null.",
+            "action": "The action that was performed (e.g. Deposit).",
+            "description": "Brief description of the transaction.",
+            "order": "Details of the order associated with the transaction, if any (ID, external ID, and payment breakdown).",
+        },
+    },
 }

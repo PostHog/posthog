@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.errors import QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import DatabaseField
@@ -159,6 +160,14 @@ INTEGER_RUNTIME_TYPE = RuntimeType(family="integer", signed=True, bits=64)
 FLOAT_RUNTIME_TYPE = RuntimeType(family="float", bits=64)
 DATE_RUNTIME_TYPE = RuntimeType(family="date")
 DATETIME_RUNTIME_TYPE = RuntimeType(family="datetime")
+
+# Families least_common_runtime_type() already unifies with boolean (bool literals read as 0/1).
+_BOOLEAN_COMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"boolean", "integer", "float", "decimal"})
+
+# JSON is what a property access falls back to when no property-definition metadata is available,
+# and it also covers native JSON/Dynamic columns. Either way the family says nothing about the type
+# ClickHouse ends up with, so a mismatch against it is never trustworthy enough to raise on.
+_UNTRUSTWORTHY_BRANCH_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"json"})
 
 
 _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
@@ -726,6 +735,72 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
 
 
+def _branch_type_is_untrustworthy(branch_type: ast.ConstantType, expr: Optional[ast.Expr]) -> bool:
+    """Whether a branch's inferred type is too weak a signal to raise a user-facing error over.
+
+    A property access (`properties.blocked`) is typed from property-definition metadata, which the
+    resolver frequently does not have loaded - it then falls back to the JSON type of the parent
+    `properties` column, regardless of what the property actually holds. The printer resolves the
+    physical read separately, so `coalesce(properties.blocked, false)` reaches ClickHouse with two
+    compatible branches even though inference reports JSON and Boolean.
+
+    Every property access is skipped, not only the metadata-missing fallback: a loaded property
+    definition types the property from the values seen so far, which is still a guess about what a
+    given row holds, so it is no safer to raise on than the JSON fallback."""
+    if runtime_type_from_constant_type(branch_type).family in _UNTRUSTWORTHY_BRANCH_FAMILIES:
+        return True
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr is not None and isinstance(expr.type, ast.PropertyType)
+
+
+def _branch_supertype_or_raise(
+    branch_types: list[ast.ConstantType],
+    branch_args: Sequence[Optional[ast.Expr]],
+    dialect: HogQLDialect,
+    function_name: str,
+) -> ast.ConstantType:
+    """Like least_common_supertype, but raises a user-facing error naming the conflicting branch
+    types and their source span when a boolean branch is mixed with a non-numeric branch, rather
+    than silently degrading to UnknownType and failing downstream in ClickHouse.
+
+    Scoped to boolean mismatches specifically (the reported symptom: `if(cond, false, someDate)`)
+    rather than raising on every family combination with no explicit unification rule: many
+    generated queries elsewhere in the codebase mix families (e.g. DateTime with a String
+    placeholder, JSON with a String default) that silently degrade to UnknownType today and work
+    fine against ClickHouse, so raising there would be a false positive. Branches whose inferred
+    type is a guess rather than a fact are skipped for the same reason - see
+    _branch_type_is_untrustworthy."""
+    result = least_common_supertype(branch_types, dialect=dialect)
+    if not isinstance(result, ast.UnknownType) or result.unanalyzable:
+        return result
+    known = [
+        (branch_type, branch_args[index] if index < len(branch_args) else None)
+        for index, branch_type in enumerate(branch_types)
+        if not isinstance(branch_type, ast.UnknownType)
+    ]
+    if len(known) < 2:
+        return result
+    if any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
+        return result
+    families = {runtime_type_from_constant_type(branch_type).family for branch_type, _ in known}
+    if "boolean" not in families or not (families - _BOOLEAN_COMPATIBLE_FAMILIES):
+        return result
+    type_names = sorted({branch_type.print_type() for branch_type, _ in known})
+    positions = [
+        (expr.start, expr.end)
+        for _, expr in known
+        if expr is not None and expr.start is not None and expr.end is not None
+    ]
+    start = min((position[0] for position in positions), default=None)
+    end = max((position[1] for position in positions), default=None)
+    raise QueryError(
+        f"Cannot find a common type between `{function_name}` branches of type {' and '.join(type_names)}",
+        start=start,
+        end=end,
+    )
+
+
 def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDialect = "clickhouse") -> RuntimeType:
     nullable = any(type_.nullable for type_ in runtime_types)
     # An unanalyzable branch could be any type, so it poisons the result; a vacuous unknown
@@ -844,7 +919,7 @@ def infer_function_return_type(
     dialect: HogQLDialect = "clickhouse",
 ) -> FunctionTypeInference:
     normalized_name = name.lower()
-    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect)
+    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect, meta=meta)
     if generic_type is not None:
         return FunctionTypeInference(
             return_type=generic_type,
@@ -952,6 +1027,7 @@ def _infer_generic_function_type(
     arg_types: list[ast.ConstantType],
     args: Optional[list[ast.Expr]],
     dialect: HogQLDialect,
+    meta: Optional[HogQLFunctionMeta] = None,
 ) -> ast.ConstantType | None:
     if normalized_name in {
         "equals",
@@ -986,17 +1062,28 @@ def _infer_generic_function_type(
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name == "if":
-        return least_common_supertype(arg_types[1:], dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        branch_types = arg_types[1:]
+        return _branch_supertype_or_raise(branch_types, (args or [])[1:], dialect=dialect, function_name="if")
 
     if normalized_name == "ifnull":
-        return least_common_supertype(arg_types, dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="ifNull")
 
     if normalized_name == "multiif":
         if len(arg_types) < 3:
             return ast.UnknownType()
-        return least_common_supertype([*arg_types[1::2], arg_types[-1]], dialect=dialect)
+        branch_indices = [*range(1, len(arg_types) - 1, 2), len(arg_types) - 1]
+        branch_types = [arg_types[i] for i in branch_indices]
+        branch_args = [args[i] if args is not None and i < len(args) else None for i in branch_indices]
+        return _branch_supertype_or_raise(branch_types, branch_args, dialect=dialect, function_name="multiIf")
 
-    if normalized_name in {"coalesce", "least", "greatest"}:
+    if normalized_name == "coalesce":
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="coalesce")
+
+    if normalized_name in {"least", "greatest"}:
         return least_common_supertype(arg_types, dialect=dialect)
 
     if normalized_name == "nullif" and arg_types:
@@ -1151,10 +1238,10 @@ def _infer_generic_function_type(
         return ast.DecimalType(nullable=True)
 
     if normalized_name in {"todate", "to_date", "_todate"}:
-        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name in {"todatetime", "todatetime64", "todatetimeus", "parsedatetime", "parsedatetimebesteffort"}:
-        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name.startswith("tointerval"):
         return ast.IntervalType(nullable=False)
@@ -1343,10 +1430,41 @@ def _infer_generic_function_type(
     return None
 
 
-def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]) -> bool:
+# HogQL date conversions whose printed ClickHouse function depends on the argument: `toDate` ->
+# `toDateOrNull`, `toDateTime` -> `parseDateTime64BestEffortOrNull`, `toDateTimeUS` ->
+# `parseDateTime64BestEffortUSOrNull`, each falling back to a plain constructor for the argument
+# types in its `overloads` (and `toDateTimeUS` declares none, so it always parses). Nullability
+# has to follow whichever name is actually printed: claiming non-nullable for a parse path makes
+# a caller's `assumeNotNull(...)` look redundant when it is load-bearing. Deliberately excludes
+# `_toDate`, which always prints the plain, non-nullable `toDate`.
+_ARGUMENT_DEPENDENT_DATE_CONVERSIONS = {"todate", "to_date", "todatetime", "todatetimeus"}
+
+
+def _printed_clickhouse_name(meta: Optional[HogQLFunctionMeta], arg_types: list[ast.ConstantType]) -> Optional[str]:
+    """The ClickHouse function the printer will emit, mirroring its overload selection."""
+    if meta is None:
+        return None
+    if meta.overloads and arg_types:
+        for overload_types, overload_clickhouse_name in meta.overloads:
+            if isinstance(arg_types[0], overload_types):
+                return overload_clickhouse_name
+    return meta.clickhouse_name
+
+
+def _conversion_nullable(
+    normalized_name: str,
+    arg_types: list[ast.ConstantType],
+    meta: Optional[HogQLFunctionMeta] = None,
+) -> bool:
     if normalized_name.endswith("orzero") or normalized_name.endswith("ordefault"):
         return False
-    return any(arg_type.nullable for arg_type in arg_types) or normalized_name in {
+    if any(arg_type.nullable for arg_type in arg_types):
+        return True
+    if normalized_name in _ARGUMENT_DEPENDENT_DATE_CONVERSIONS:
+        printed_name = _printed_clickhouse_name(meta, arg_types)
+        # Without meta the winning overload is unknowable, so assume the parse path and stay nullable.
+        return printed_name is None or printed_name.lower().endswith("ornull")
+    return normalized_name in {
         "toint",
         "tofloat",
         "tobool",

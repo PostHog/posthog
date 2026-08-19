@@ -16,6 +16,7 @@ import type {
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
+    HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
@@ -35,6 +36,8 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogInvocationCancelRequestApi,
+    HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
@@ -43,6 +46,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
+    PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -330,6 +334,25 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getHogFlowsActionsEmailPartialUpdateUrl = (projectId: string, id: string, actionId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/actions/${actionId}/email/`
+}
+
+export const hogFlowsActionsEmailPartialUpdate = async (
+    projectId: string,
+    id: string,
+    actionId: string,
+    patchedHogFlowActionEmailUpdateApi?: PatchedHogFlowActionEmailUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsActionsEmailPartialUpdateUrl(projectId, id, actionId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowActionEmailUpdateApi),
+    })
+}
+
 export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsAssetsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -421,6 +444,33 @@ export const hogFlowsBatchJobsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
     })
+}
+
+export const getHogFlowsBatchJobsCancelCreateUrl = (projectId: string, id: string, batchJobId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/${batchJobId}/cancel/`
+}
+
+/**
+ * Stop a batch run: no more of its audience is enrolled, and every run of it
+ * still in flight is canceled.
+ *
+ * Stopping is asynchronous: runs are flagged here, then terminated by the
+ * workflow workers. Steps that already executed, like sent messages, are not
+ * undone. Already-finished batch runs are left untouched.
+ */
+export const hogFlowsBatchJobsCancelCreate = async (
+    projectId: string,
+    id: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<HogFlowBatchJobCancelResponseApi> => {
+    return apiMutator<HogFlowBatchJobCancelResponseApi>(
+        getHogFlowsBatchJobsCancelCreateUrl(projectId, id, batchJobId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
@@ -522,6 +572,32 @@ export const hogFlowsInvocationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowInvocationApi),
+    })
+}
+
+export const getHogFlowsInvocationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocations/cancel/`
+}
+
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers, promptly for parked runs (delays and waits) and at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationCancelRequestApi?: HogInvocationCancelRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationCancelResponseApi> => {
+    return apiMutator<HogInvocationCancelResponseApi>(getHogFlowsInvocationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationCancelRequestApi),
     })
 }
 
@@ -879,9 +955,9 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: Hog
 
 /**
  * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
- * the fly from app metrics: a project-wide aggregate plus per-workflow rows (worst first,
- * capped). Display only — reputation judgment and enforcement live with AWS SES tenant
- * management, which attributes sends per team.
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,
@@ -908,6 +984,21 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsAccountAudienceCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/account_audience`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver to page an account audience.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsAccountAudienceCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsAccountAudienceCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
     })
 }
 

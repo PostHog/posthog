@@ -12,6 +12,7 @@ policy re-runs it in this run (the workflow swallows the failure if retries exha
 import time
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
 from typing import Any
 
@@ -27,11 +28,16 @@ from temporalio.exceptions import ApplicationError
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_maintenance_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionUnpartitionableError,
@@ -42,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
+    is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
     maybe_flag_for_repartition,
     target_partition_bytes,
@@ -50,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_DURATION_SECONDS,
     DELTA_REPARTITION_TOTAL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 
 LOGGER = get_logger(__name__)
 
@@ -77,7 +85,38 @@ _TRANSIENT_ERROR_SNIPPETS = (
     "reduce your request rate",  # S3 503 SlowDown surfaced by the delta kernel as OSError
     "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
     "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
+    # S3 NoSuchKey from an s3fs purge/swap op (`_copy`/`_rm`/`_find`) that raced a concurrent delete —
+    # a temp file swept by another attempt, not a bug. A hollow *live* table surfaces the missing file
+    # with its path embedded and is routed to a revive inside `repartition_table_in_place` before it
+    # ever reaches here, so this bare, pathless variant only ever means a raced object-store operation.
+    "the specified key does not exist",
 )
+
+
+# How much of the activity's budget to leave unused when the rewrite gives up, so the failed attempt
+# can still be recorded before Temporal kills the activity. Only the bookkeeping needs covering: a
+# couple of writes to the schema row and one event.
+REWRITE_DEADLINE_MARGIN = dt.timedelta(minutes=5)
+
+
+def _rewrite_deadline() -> float | None:
+    """Monotonic time by which the rewrite must stop to leave room to record its own failure.
+
+    None when there is no budget to derive one from: outside an activity context (direct calls from
+    tests), when the activity declares no `start_to_close_timeout`, or when that timeout is shorter
+    than the margin. In each case the rewrite runs unbounded, which is the behavior that predates
+    this deadline rather than an instant give-up.
+    """
+    try:
+        info = activity.info()
+    except RuntimeError:
+        return None
+    if info.start_to_close_timeout is None:
+        return None
+    budget = (info.start_to_close_timeout - REWRITE_DEADLINE_MARGIN).total_seconds()
+    if budget <= 0:
+        return None
+    return time.monotonic() + budget
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
@@ -124,18 +163,21 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
     read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
     against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
     flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
+
+    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
+    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
     """
-    if not enabled:
-        return False
     if schema.sync_type == ExternalDataSchema.SyncType.CDC:
         return False
-    return True
+    if schema.coarsen_requested is not None:
+        return True
+    return enabled
 
 
 def _maybe_flag_pre_extraction(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     enabled: bool,
 ) -> dict[str, Any] | None:
@@ -152,15 +194,23 @@ def _maybe_flag_pre_extraction(
     instead of paying for a second flag evaluation.
     """
     try:
-        delta_table = async_to_sync(helper.get_delta_table)()
+        delta_table = async_to_sync(table_ref.get_delta_table)()
         if delta_table is None:
             logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
-        # Detection is best-effort; a failure here must not block the sync.
-        logger.warning("repartition: pre-extraction detection failed", exc_info=True)
-        capture_exception(e)
+        # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
+        # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
+        # see its own docstring — and resolving `job.folder_path()` on a pooled app-DB connection can
+        # raise OperationalError/InterfaceError the same way. `is_transient_maintenance_error` covers
+        # both, so this is the layer that must apply it before reporting, same as the other best-effort
+        # call sites around this table.
+        if is_transient_maintenance_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient infra error")
+        else:
+            logger.warning("repartition: pre-extraction detection failed", exc_info=True)
+            capture_exception(e)
         return None
     return schema.repartition_pending
 
@@ -189,7 +239,9 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
     try:
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        schema = retry_on_db_connection_drop(
+            lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        )
     except ExternalDataSchema.DoesNotExist:
         logger.warning(
             f"repartition: schema not found, skipping activity schema_id={inputs.schema_id}",
@@ -228,6 +280,30 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     pending = schema.repartition_pending
     swap = schema.repartition_swap
 
+    # The flag has to stop a queued rewrite too, not only detection. Once a table is flagged, the
+    # rewrite runs ahead of extraction on every sync, so a rewrite that can't finish delays the sync
+    # by the full activity budget indefinitely; the flag is the only lever support has to release
+    # such a table, and it does nothing here if it only gates detection. Each auto-staged trigger
+    # family answers to the flag that staged it, and any other reason fails open: operator-staged
+    # work (admin, coarsening nominations) was queued knowing that syncing on the old layout is the
+    # worse option, so it must never dead-end on a rollout flag. A staged swap is always driven to
+    # completion because temp is the source of truth in that window and live may already be deleted.
+    if pending is not None and swap is None:
+        reason = pending.get("trigger_reason")
+        if reason in ("proactive_threshold", "oom_history"):
+            release = not enabled
+        elif reason == "coarsening":
+            release = not is_auto_coarsen_enabled(schema)
+        else:
+            release = False
+        if release:
+            logger.info(
+                f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
+                schema_id=str(schema.id),
+                trigger_reason=reason,
+            )
+            return
+
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
     # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
@@ -236,7 +312,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         return
 
     try:
-        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        job = retry_on_db_connection_drop(lambda: ExternalDataJob.objects.get(id=inputs.job_id))
     except ExternalDataJob.DoesNotExist:
         logger.warning(
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
@@ -244,18 +320,32 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         return
 
+    # Attach the same source/schema identity the import activity does, so an exception captured
+    # anywhere below (budget exhaustion, an unexpected rewrite failure) can be attributed to a
+    # connector and table instead of landing in error tracking with no sync context.
+    bind_job_context(
+        team_id=inputs.team_id,
+        source_type=schema.source.source_type,
+        external_data_source_id=inputs.source_id,
+        external_data_schema_id=inputs.schema_id,
+        external_data_job_id=inputs.job_id,
+        schema_name=schema.name,
+        sync_type=schema.sync_type,
+        pipeline_version=job.pipeline_version,
+    )
+
     # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
     resource_name = schema.resolved_s3_folder_name or schema.name
-    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
+    table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
         # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
         # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, helper, logger, enabled)
+        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
@@ -283,17 +373,32 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
         with HeartbeaterSync(logger=logger):
             result = async_to_sync(repartition_table_in_place)(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
+                deadline=_rewrite_deadline(),
             )
+    except RepartitionBudgetExceededError as e:
+        # The rewrite didn't fit in one activity's budget. Checkpoint/resume lets a large table
+        # converge across runs, so an attempt that advanced the checkpoint is progress, not a failure,
+        # and must not burn an attempt (see `_handle_budget_exceeded`); only a stuck one that made no
+        # progress counts toward `MAX_REPARTITION_ATTEMPTS` so a doomed rewrite still gives up.
+        logger.warning(f"repartition: {e}")
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id),
+            outcome=_handle_budget_exceeded(inputs, schema, pending, trigger_reason, e, claim_token, logger),
+        ).inc()
+        return
     except RepartitionSupersededError:
-        # A newer attempt claimed the schema and owns the table now. Stop quietly: recording a failure
-        # here would burn an attempt and double-report the run the newer claimant is already handling.
+        # A newer attempt claimed the schema and owns the table now. Stop without recording a *failure*
+        # (that would burn an attempt and double-report the run the newer claimant is already handling),
+        # but still emit the skip: a started event with no terminal event leaves `repartition_pending`
+        # set and no way to tell a stood-down attempt from one that vanished.
         logger.info("repartition: superseded by a newer attempt, standing down")
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        _capture_stood_down(schema, inputs, trigger_reason, "superseded", logger)
         return
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
@@ -303,6 +408,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # daily instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
+        schema.clear_repartition_rewrite()
         schema.stamp_last_repartition_at()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
@@ -330,11 +436,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # failure would burn an attempt and pollute error tracking with self-inflicted noise.
             logger.info("repartition: failed after being superseded, standing down", exc_info=True)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            _capture_stood_down(schema, inputs, trigger_reason, "superseded_after_error", logger)
             return
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
             # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
-            # retrying is always safe. Don't consume an attempt or emit a failure event.
+            # retrying is always safe. Don't consume an attempt, emit a failure event, or report to
+            # error tracking — a condition nobody can act on (e.g. a pgbouncer login-retry cooldown)
+            # shouldn't trip an issue there; the log line, the transient metric, and the skipped
+            # event's reason="transient_infra_error" already carry the visibility.
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             if trigger_reason == "admin":
                 # An operator staged this rewrite precisely because syncing on the old layout is
@@ -352,7 +462,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                     type="TransientRepartitionError",
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
-            capture_exception(e)
+            _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error", logger)
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
@@ -376,6 +486,106 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         outcome=outcome,
         duration_seconds=duration,
     )
+
+
+def _capture_stood_down(
+    schema: ExternalDataSchema,
+    inputs: RepartitionActivityInputs,
+    trigger_reason: str,
+    reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Emit the closing event for an attempt that stopped without finishing or failing.
+
+    These paths deliberately record no failure, but without a closing event a rewrite that stood down
+    is indistinguishable from one that disappeared mid-flight — both leave `repartition_pending` set
+    and a lone `warehouse_repartition_started`. Reported as skipped so failure dashboards stay clean,
+    and `terminal=False` because the pending marker survives: a later run retries the rewrite, unlike
+    the skips that clear it.
+    """
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, "reason": reason, "terminal": False})
+    try:
+        capture_repartition_event("warehouse_repartition_skipped", props)
+    except Exception:
+        # Every caller is an except-handler whose contract is to swallow, so a telemetry failure must
+        # not escape: it would fail an activity that deliberately stood down and trigger a retry.
+        logger.warning("repartition: failed to capture stand-down event", exc_info=True)
+
+
+def _handle_budget_exceeded(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    pending: dict[str, Any] | None,
+    trigger_reason: str,
+    error: RepartitionBudgetExceededError,
+    claim_token: str,
+    logger: FilteringBoundLogger,
+) -> str:
+    """Record a rewrite that ran out of one activity's budget, distinguishing progress from a stall.
+
+    Checkpoint/resume lets a table too large to rewrite in one activity converge across runs (see
+    `RepartitionBudgetExceededError`), so an attempt that appended new rows is forward progress, not a
+    failure: counting it against the finite `MAX_REPARTITION_ATTEMPTS` would abandon a table that simply
+    needs more than three budgets mid-convergence and leave it un-repartitioned. Only an attempt that
+    appended nothing this run is stuck; that one falls through to `_handle_failure` so a rewrite which
+    genuinely can't advance in one budget still gives up.
+
+    Progress means this attempt left the rewrite further along than it found it. Neither row count
+    alone can say that. A cumulative temp size against a stored high-water mark is not monotonic,
+    because the rewrite restarts from row 0 whenever its checkpoint is discarded (the source's Delta
+    version moved between runs), so a fresh rebuild reading back below an earlier attempt's mark was
+    charged a spurious failure. But the rows written this attempt cannot say it either: a rewrite that
+    restarts every run writes hundreds of millions of rows each time, clears any `> 0` test, and ends
+    exactly where it began. Three schemas sat in that loop for six weeks, each burning a full budget per
+    run and finishing nothing, because the cap could never count to three.
+
+    Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
+    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
+    keeps that first attempt apart from a restart that inherited nothing because it discarded an
+    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
+    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+
+    Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
+    the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
+    """
+    schema.refresh_from_db(fields=["sync_type_config"])
+    claim = schema.repartition_claim
+    if not (claim and claim.get("token") == claim_token):
+        logger.info("repartition: superseded (claim changed under us), standing down without recording failure")
+        return "superseded"
+
+    pending = schema.repartition_pending or pending or {}
+    resumed_and_advanced = error.resumed_from > 0 and error.rows_written > 0
+    # A first attempt inherits nothing, so `resumed_from` is 0, but saving a fresh checkpoint the next
+    # run resumes from is still forward progress. Only a restart that discarded an existing checkpoint
+    # (`had_prior_checkpoint`) re-covered ground already covered — that one is the treadmill to stop.
+    fresh_and_checkpointed = not error.had_prior_checkpoint and error.checkpoint_saved
+    if resumed_and_advanced or fresh_and_checkpointed:
+        # Forward progress this attempt: keep the checkpoint and reset the failure counter — a rewrite
+        # still advancing is not the doomed one the cap exists to stop. The next run resumes from the
+        # checkpoint rather than giving up.
+        schema.set_repartition_pending({**pending, "attempts": 0})
+        logger.info(
+            f"repartition: over budget but rewrite advanced {error.rows_written} rows past the "
+            f"{error.resumed_from} it inherited, resuming next run",
+            rows_written=error.rows_written,
+            resumed_from=error.resumed_from,
+        )
+        _capture_stood_down(schema, inputs, trigger_reason, "rewrite_progressing", logger)
+        return "progressing"
+
+    # Either this attempt inherited nothing (so it re-streamed ground already covered) or it inherited
+    # a checkpoint and appended nothing. Both mean the rewrite can't converge on the budget it has, so
+    # count a real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
+    logger.info(
+        f"repartition: over budget without converging (resumed_from={error.resumed_from} "
+        f"rows_written={error.rows_written})",
+        rows_written=error.rows_written,
+        resumed_from=error.resumed_from,
+    )
+    return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger)
 
 
 def _handle_failure(
@@ -417,6 +627,14 @@ def _handle_failure(
         props["final"] = True
         schema.clear_repartition_pending()
         schema.clear_repartition_swap()
+        # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
+        # resume the same doomed temp instead of giving up, so the give-up would never take effect.
+        schema.clear_repartition_rewrite()
+        # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
+        # this rewrite (the largest partition is over budget) is just as true on the next sync and
+        # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
+        # at 0 and the three attempts start over. The cooldown re-evaluates at most daily instead.
+        schema.stamp_last_repartition_at()
     else:
         updated = {**pending, "attempts": attempts}
         schema.set_repartition_pending(updated)

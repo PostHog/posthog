@@ -16,8 +16,35 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
+
+
+class TestLinkSharedUrlRegion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("us_host", ["https://us.posthog.com/project/2/insights/abc"], "US"),
+            ("legacy_app_host", ["https://app.posthog.com/i/abc"], "US"),
+            ("eu_host", ["https://eu.posthog.com/project/2/insights/abc"], "EU"),
+            ("bare_domain_names_no_region", ["https://posthog.com/i/abc"], None),
+            (
+                "conflicting_regions",
+                ["https://us.posthog.com/i/abc", "https://eu.posthog.com/i/def"],
+                None,
+            ),
+            # A replay link can never unfurl, so it must not speak for the event's region either.
+            (
+                "unfurlable_links_only",
+                ["https://eu.posthog.com/project/2/replay/abc", "https://us.posthog.com/i/abc"],
+                "US",
+            ),
+        ]
+    )
+    def test_region_from_link_hosts(self, _name: str, urls: list[str], expected: str | None) -> None:
+        from products.slack_app.backend.api import _link_shared_url_region
+
+        event = {"type": "link_shared", "links": [{"url": url} for url in urls]}
+        assert _link_shared_url_region(event) == expected
 
 
 class TestPostHogCodeEventHandler(SimpleTestCase):
@@ -27,13 +54,13 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
 
     def _post_event(self, payload: dict, **extra_headers) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
             **extra_headers,
         )
 
@@ -54,12 +81,16 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
     def test_retry_returns_200(self, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         response = self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"},
+            headers={
+                "x-slack-signature": signed.signature,
+                "x-slack-request-timestamp": signed.timestamp,
+                "x-slack-retry-num": "1",
+            },
         )
         assert response.status_code == 200
 
@@ -74,6 +105,7 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
+            ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
             ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
@@ -196,6 +228,63 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         mock_asyncio_run.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("fans_out_to_other_region", False, 1),
+            ("proxied_does_not_fan_out_again", True, 0),
+        ]
+    )
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_clears_workspace_profile_cache(
+        self, _name, proxied: bool, expected_proxy_calls: int, mock_proxy
+    ):
+        # An uninstall must clear the workspace's cached Slack profiles (stale emails
+        # otherwise break user resolution after a reinstall) while leaving other
+        # workspaces' cache rows and the Integration row itself untouched.
+        other_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T99999",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        SlackUserProfileCache.objects.create(
+            integration=other_integration,
+            slack_user_id="U999",
+            email="other@example.com",
+        )
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        headers = {"x-posthog-region-proxied": "1"} if proxied else {}
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com", headers=headers)
+        result = route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not SlackUserProfileCache.objects.filter(integration=self.posthog_code_integration).exists()
+        assert SlackUserProfileCache.objects.filter(integration=other_integration).exists()
+        assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
+        assert mock_proxy.call_count == expected_proxy_calls
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_db_failure_still_acks_and_fans_out(self, mock_filter, mock_proxy):
+        # A transient DB error during the cache clear must not raise: Slack acks
+        # retries without reprocessing, so a 500 would lose the event — and the
+        # cross-region fan-out that follows the clear would be skipped too.
+        from django.db.utils import DatabaseError
+
+        mock_filter.side_effect = DatabaseError("connection lost")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_proxy.assert_called_once()
 
     @parameterized.expand(
         [
@@ -467,7 +556,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         # The user belongs to ``self.organization`` only, so only that integration
         # should be the mention target — ``other_integration`` is filtered out.
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
@@ -521,7 +610,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
         assert workflow_inputs.integration_id != private_integration.id
 
@@ -538,7 +627,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -656,6 +745,173 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_unfurl.assert_called_once()
         passed_integration = mock_unfurl.call_args[0][1]
         assert passed_integration.id == self.posthog_code_integration.id
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_routes_to_project_integration(self, mock_claims, mock_unfurl):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        task_id = "e1452e73-2055-4305-a9de-c9912efa78a3"
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "links": [{"url": f"https://us.posthog.com/project/{other_team.id}/tasks/{task_id}"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once_with(event, other_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_without_project_id_follows_workspace_default(self, mock_unfurl):
+        # A short ``/i/:short_id`` link names no project, so the workspace default is the only
+        # signal about which connected project the workspace works in. Picking the oldest install
+        # instead sends the lookup to a team that doesn't hold the insight, and nothing unfurls.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id="T12345",
+            slack_user_id=None,
+            default_integration=other_integration,
+        )
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": "https://us.posthog.com/i/abc123"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once_with(event, other_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_ignores_project_named_only_by_an_unfurlable_link(self, mock_unfurl):
+        # Sharing a replay link next to an insight link is routine. The replay carries a project id
+        # but can never be unfurled, so letting it name the project sends the insight lookup to a
+        # team that doesn't hold it — or, across two projects, suppresses the message entirely.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [
+                {"url": f"https://us.posthog.com/project/{other_team.id}/replay/abc"},
+                {"url": f"https://us.posthog.com/project/{self.team.pk}/insights/abc123"},
+            ],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once_with(event, self.posthog_code_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=None)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_for_this_region_skips_precedence_probe(self, mock_claims, mock_unfurl):
+        # A link whose host names this region belongs here. Deferring to the other region on an
+        # inconclusive probe would hand it to a region that cannot resolve it, and the unfurl is lost.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": f"https://us.posthog.com/project/{self.team.pk}/insights/abc123"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_claims.assert_not_called()
+        mock_unfurl.assert_called_once_with(event, self.posthog_code_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_for_other_region_forwards_before_resolving(self, mock_proxy, mock_unfurl):
+        # Project ids are issued per region, so this region holding a project of the same number
+        # means nothing for an eu.posthog.com link. Resolving it locally looks the resource up in an
+        # unrelated project, finds nothing, and stays silent — the event has to cross first.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": f"https://eu.posthog.com/project/{self.team.pk}/insights/abc123"}],
+        }
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == "proxied"
+        mock_proxy.assert_called_once()
+        mock_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_without_region_in_host_yields_to_workspace_owner(self, mock_claims, mock_proxy, mock_unfurl):
+        # A bare posthog.com link names no region, so ownership falls back to the workspace-level
+        # precedence every other surface uses. Asking per-project instead compares team ids across
+        # two independent numbering spaces, which answers "no" and pins the event to this region.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": "https://posthog.com/i/abc123"}],
+        }
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == "proxied"
+        assert "team_id" not in mock_claims.call_args.kwargs
+        mock_unfurl.assert_not_called()
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -1136,13 +1392,13 @@ class TestChannelApprovalGate(TestCase):
             "event": {"type": "app_mention", "channel": "C_EXT", "user": "U123", "ts": "1.0"},
         }
         body = json.dumps(envelope).encode()
-        signature, ts = sign_slack_request(body, "secret")
+        signed = sign_slack_request(body, "secret")
         APIClient().post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
         mock_route.assert_called_once()
@@ -1193,7 +1449,8 @@ class TestAssistantEvents(TestCase):
             else UserAndIntegrationsResolution(failure_reason="user_not_found")
         )
         resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
+        # The route's kill-switch is the flag alone — missing scopes get a reply, not silence.
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_flag_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         return load, resolve, enabled_p, usp, slack
@@ -1254,7 +1511,7 @@ class TestAssistantEvents(TestCase):
                     "ts": "111.222",
                 }
             )
-            slack_cls.return_value.client.assistant_threads_setStatus.assert_called_once()
+            slack_cls.return_value.client.assistant_threads_setStatus.assert_not_called()
             mock_start.assert_called_once()
 
     def test_dm_message_ignores_bot_and_non_im(self):
@@ -1371,16 +1628,15 @@ class TestQueueWorkflowDispatch(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.SlackIntegration")
-    @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_flag_on_signal_with_starts_conversation_workflow(
-        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
+    def test_signal_with_starts_conversation_workflow(
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_slack
     ):
-        # With the flag on, every message in a conversation must land in ONE
-        # per-thread workflow via signal-with-start — the conversation ID
-        # anchors on the thread root so followups reach the same instance.
+        # Every message in a conversation must land in ONE per-thread workflow
+        # via signal-with-start — the conversation ID anchors on the thread
+        # root so followups reach the same instance.
         from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region

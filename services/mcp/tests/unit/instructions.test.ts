@@ -171,6 +171,36 @@ describe('buildToolDomainsCompact', () => {
     it('returns an empty string for an empty array', () => {
         expect(buildToolDomainsCompact([])).toBe('')
     })
+
+    // A tight budget must cost sub-family precision, never whole families: the caller
+    // renders this into a payload a client will hard-truncate, and a family that isn't
+    // named at all is a product the agent believes has no tools.
+    it('collapses sub-families to fit a character budget instead of dropping domains', () => {
+        // 30 scout-* tools across 3 sub-families exceeds MAX_FAMILY_SIZE (25), so the
+        // unbudgeted render splits them; `survey` is the family that a truncation would
+        // take off the end.
+        const tools = [
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-config-${i}`, category: 'Signals' })),
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-notes-${i}`, category: 'Signals' })),
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-record-${i}`, category: 'Signals' })),
+            { name: 'survey-create', category: 'Surveys' },
+        ]
+        expect(buildToolDomainsCompact(tools)).toBe('scout-config|scout-notes|scout-record|survey')
+
+        const budgeted = buildToolDomainsCompact(tools, 20)
+        expect(budgeted).toBe('scout|survey')
+        expect(budgeted.length).toBeLessThanOrEqual(20)
+    })
+
+    // The floor is one domain per root. Returning an over-budget string is deliberate:
+    // the budget test that calls this must fail loudly rather than see a silent trim.
+    it('returns the fully collapsed index when even that exceeds the budget', () => {
+        const tools = [
+            { name: 'experiment-create', category: 'Experiments' },
+            { name: 'survey-create', category: 'Surveys' },
+        ]
+        expect(buildToolDomainsCompact(tools, 5)).toBe('experiment|survey')
+    })
 })
 
 describe('QueryToolCatalog', () => {

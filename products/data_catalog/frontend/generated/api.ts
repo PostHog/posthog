@@ -188,7 +188,7 @@ export const getDataCatalogMetricsListUrl = (projectId: string, params?: DataCat
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsList = async (
     projectId: string,
@@ -226,7 +226,7 @@ export const getDataCatalogMetricsRetrieveUrl = (projectId: string, name: string
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsRetrieve = async (
     projectId: string,
@@ -244,7 +244,7 @@ export const getDataCatalogMetricsUpdateUrl = (projectId: string, name: string) 
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsUpdate = async (
     projectId: string,
@@ -265,7 +265,7 @@ export const getDataCatalogMetricsPartialUpdateUrl = (projectId: string, name: s
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsPartialUpdate = async (
     projectId: string,
@@ -286,7 +286,7 @@ export const getDataCatalogMetricsDestroyUrl = (projectId: string, name: string)
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsDestroy = async (
     projectId: string,

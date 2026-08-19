@@ -1,7 +1,9 @@
 import { useActions } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconBook, IconGear } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -28,6 +30,10 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
 
+    const captureClick = (action: string): void => {
+        posthog.capture(`product empty state ${action}`, { product_key: config.productKey, mode })
+    }
+
     // Mode-specific text overrides the base; missing fields fall back to it.
     const text: ProductEmptyStateText = { ...config.text['needs-setup'], ...config.text[mode] }
 
@@ -37,6 +43,33 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const manualUrl = config.manualSetupUrl ?? config.docsUrl
     const Hedgehog = config.hedgehog
     const Preview = config.Preview
+
+    const { primaryAction } = config
+    const primaryActionButton = primaryAction ? (
+        <LemonButton
+            type="primary"
+            to={primaryAction.to}
+            onClick={() => {
+                captureClick('primary action clicked')
+                primaryAction.onClick?.()
+            }}
+            className="self-start"
+            data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
+        >
+            {primaryAction.label}
+        </LemonButton>
+    ) : null
+    const guardedPrimaryAction =
+        primaryActionButton && primaryAction?.accessControl ? (
+            <AccessControlAction
+                resourceType={primaryAction.accessControl.resourceType}
+                minAccessLevel={primaryAction.accessControl.minAccessLevel}
+            >
+                {primaryActionButton}
+            </AccessControlAction>
+        ) : (
+            primaryActionButton
+        )
 
     return (
         <div
@@ -65,18 +98,24 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
                 {showWizard ? (
-                    <TerminalCard command={wizardCommand} copyLabel={`${config.productName} wizard command`} />
-                ) : config.primaryAction ? (
+                    <TerminalCard
+                        command={wizardCommand}
+                        copyLabel={`${config.productName} wizard command`}
+                        onCopy={() => captureClick('wizard command copied')}
+                    />
+                ) : config.PrimaryAction ? (
+                    <config.PrimaryAction />
+                ) : guardedPrimaryAction ? (
+                    guardedPrimaryAction
+                ) : manualUrl ? (
                     <LemonButton
                         type="primary"
-                        to={config.primaryAction.to}
-                        onClick={config.primaryAction.onClick}
+                        to={manualUrl}
+                        targetBlank
                         className="self-start"
+                        onClick={() => captureClick('manual setup clicked')}
+                        data-attr="product-empty-state-manual-setup"
                     >
-                        {config.primaryAction.label}
-                    </LemonButton>
-                ) : manualUrl ? (
-                    <LemonButton type="primary" to={manualUrl} targetBlank className="self-start">
                         Set up {config.productName}
                     </LemonButton>
                 ) : null}
@@ -85,23 +124,47 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
 
                 <div className="flex items-center gap-4">
                     {showWizard && manualUrl ? (
-                        <LemonButton type="secondary" icon={<IconGear />} to={manualUrl} targetBlank>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGear />}
+                            to={manualUrl}
+                            targetBlank
+                            onClick={() => captureClick('manual setup clicked')}
+                            data-attr="product-empty-state-manual-setup"
+                        >
                             Configure manually
                         </LemonButton>
                     ) : null}
                     {config.docsUrl ? (
-                        <LemonButton size="xsmall" type="tertiary" icon={<IconBook />} to={config.docsUrl} targetBlank>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            icon={<IconBook />}
+                            to={config.docsUrl}
+                            targetBlank
+                            onClick={() => captureClick('docs clicked')}
+                            data-attr="product-empty-state-docs"
+                        >
                             Read the docs
                         </LemonButton>
                     ) : null}
-                    <LemonButton size="xsmall" type="tertiary" onClick={skipEmptyState}>
-                        Skip for now
-                    </LemonButton>
+                    {config.skippable !== false ? (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={skipEmptyState}
+                            data-attr="product-empty-state-skip"
+                        >
+                            Skip for now
+                        </LemonButton>
+                    ) : null}
                 </div>
             </div>
 
             <div
-                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
+                // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
+                // token here rather than asking every preview to branch on the theme itself.
+                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
                 style={{
                     backgroundImage:
                         'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',

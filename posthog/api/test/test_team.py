@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status, test
 
+from posthog.api.project import ProjectBackwardCompatSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -442,13 +443,14 @@ def team_api_test_factory():
                 team_ids=[team_pk],
                 project_id=team_pk,
                 user_id=self.user.id,
-                project_name="Default project",
+                # The org's first project already holds the plain default name, so the second one gets a suffix
+                project_name="Default project 2",
             )
             assert mock_capture.call_args_list == expected_capture_calls
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch(
-            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            "products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason",
             return_value="Deprovision the managed warehouse first.",
         )
         def test_delete_team_blocked_by_managed_warehouse(
@@ -704,38 +706,37 @@ def team_api_test_factory():
                 ]
             )
 
+        @parameterized.expand(
+            [
+                ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
+                ("existing_token", "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C", False, status.HTTP_200_OK),
+                # Support has no alternative to this token for signing widget identity hashes
+                ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
+            ]
+        )
         @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+        def test_secret_token_generation_when_psak_enabled(
+            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
+        ):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            self.team.secret_api_token = None
+            self.team.secret_api_token = existing_token
             self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = conversations_enabled
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("project secret API key", response.json()["detail"])
-            self.assertIsNone(self.team.secret_api_token)
-
-        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token = secret_api_token
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
-            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+            self.assertEqual(response.status_code, expected_status)
+            if expected_status == status.HTTP_400_BAD_REQUEST:
+                self.assertIn("project secret API key", response.json()["detail"])
+                self.assertIsNone(self.team.secret_api_token)
+            else:
+                self.assertNotEqual(self.team.secret_api_token, existing_token)
+                self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
+                self.assertEqual(self.team.secret_api_token_backup, existing_token)
 
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
@@ -1419,6 +1420,32 @@ def team_api_test_factory():
             assert self.project.organization == other_org
             assert self.team.organization == other_org
 
+        def test_change_organization_reconciles_current_project_of_affected_users(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.user.current_team = self.team
+            self.user.current_organization = self.organization
+            self.user.save()
+            # This user stays behind in the source organization
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            # A member of the target organization keeps the project and follows it across
+            self.user.refresh_from_db()
+            assert self.user.current_team == self.team
+            assert self.user.current_organization == other_org
+            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            outsider.refresh_from_db()
+            assert outsider.current_team_id is None and outsider.current_organization_id is None
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 
@@ -1943,69 +1970,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertEqual(self.team.session_recording_opt_in, True)
             self.assertEqual(self.team.surveys_opt_in, True)
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertTrue(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    enabled=True,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertFalse(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).count(),
-                1,
-            )
 
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""
@@ -3437,6 +3401,9 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+_TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
@@ -3519,10 +3486,33 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 {"wat": "wat"},
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
+            ["non-numeric string id", {"id": "abc", "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["float id", {"id": 12.5, "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["null id", {"id": None, "key": None}, "Must provide an integer 'id'."],
+            ["boolean id", {"id": True, "key": "flag-key"}, "Must provide an integer 'id'."],
         ]
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    # Object-level validate() needs self.context["view"], so a value that passes field validation
+    # can't go through is_valid() here. The static validator is the shared entry point anyway:
+    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
+    @parameterized.expand(
+        [
+            ["none", None, None],
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "variant survives normalization",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
+        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
+        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @parameterized.expand(
         [
@@ -3553,6 +3543,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    # `ProjectBackwardCompatSerializer` keeps its own copy of these validators, so both
+    # serializers are exercised here rather than only the Team one.
+    @parameterized.expand(
+        [
+            ["team app urls", TeamSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            ["team widget domains", TeamSerializer, "conversations_settings", {"widget_domains": _TOO_MANY_WILDCARDS}],
+            ["project app urls", ProjectBackwardCompatSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            [
+                "project widget domains",
+                ProjectBackwardCompatSerializer,
+                "conversations_settings",
+                {"widget_domains": _TOO_MANY_WILDCARDS},
+            ],
+        ]
+    )
+    def test_rejects_url_with_too_many_wildcards(
+        self, _name: str, serializer_class: type, field: str, value: Any
+    ) -> None:
+        serializer = serializer_class(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        assert str(serializer.errors[field][0]) == (
+            "Each URL can include up to 5 wildcards. Remove the extra ones from this entry."
+        )
+
+    @parameterized.expand(
+        [
+            ["number", 123],
+            ["object", {"nested": "value"}],
+            ["list", ["https://example.com"]],
+            ["boolean", True],
+        ]
+    )
+    def test_rejects_non_string_widget_domain(self, _name: str, entry: Any) -> None:
+        # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
+        serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
+        assert not serializer.is_valid()
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

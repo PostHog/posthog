@@ -39,8 +39,8 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
-    SCHEMA_CACHE_EPOCH: v1
+    # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
+    SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -152,12 +152,16 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -263,11 +267,27 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Generated from frontend/src/queries/schema.json (see the `schema`
+                        # filter below). Excluding them here routes schema-only PRs into
+                        # turbo-discover's schema-impact narrowing instead of the
+                        # all-products legacy path. This cannot skip Django: the
+                        # schemaChanged branch hard-sets run_legacy=true. It also cannot
+                        # hide a hand-edit to the generated files — ci-python.yml
+                        # regenerates schema.py and fails on any diff, and both files stay
+                        # in the `schema` (and `backend`) filters so turbo-discover still
+                        # takes the schema path for them.
+                        - '!posthog/schema.py'
+                        - '!posthog/schema_enums.py'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
                         - frontend/src/queries/schema.json
+                        # The generated outputs are excluded from `legacy` above; listing
+                        # them here keeps run_legacy=true (full Django) for any schema
+                        # change, including a stray hand-edit to a generated file.
+                        - posthog/schema.py
+                        - posthog/schema_enums.py
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -403,6 +423,18 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
+                  # Routing decides which app labels reach the dump, and the consumers replay them
+                  # from the checked-out copy, so these inputs belong in the key below. A PR that
+                  # edits any of them matches no master dump, the merge-base one included: drop
+                  # both keys and let migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
@@ -420,10 +452,15 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
+            # Dedicated app: every "Mint setup-action GitHub token" step in this file
+            # draws on posthog-devex-general rather than the posthog-setup-actions app
+            # the other workflows share. Backend CI is the largest single consumer of
+            # setup-action calls in the repo, enough to threaten a shared 15k/hr bucket
+            # at merge peaks, so it gets one to itself.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -664,13 +701,15 @@ jobs:
 
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
+                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
+                  #                   posthog/test/repo_invariants)
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
@@ -684,7 +723,7 @@ jobs:
                               poe+=("$f")
                               core+=("$f")
                               ;;
-                          posthog/dags/*|common/hogvm/python/test/*)
+                          posthog/dags/*|common/hogvm/python/test/*|posthog/test/repo_invariants/*)
                               # Explicitly --ignore'd by the Core invocation; nothing to do.
                               ;;
                           posthog/*|ee/*)
@@ -783,7 +822,7 @@ jobs:
 
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
-            # used by core-tests/django which achieves ~1s wait times.
+            # used by core-tests/django and makes the later wait step negligible.
             - name: Clean up data directories
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
@@ -819,17 +858,24 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - parallel:
+                  - name: Install pnpm dependencies
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  - name: Set up Python
+                    uses: ./.github/actions/setup-python-cached
+                    with:
+                        python-version: 3.13.13
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+                  - name: Install Rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: cargo
 
             - name: Install uv
               id: setup-uv
@@ -843,12 +889,6 @@ jobs:
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -884,23 +924,49 @@ jobs:
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
-              # Treat cache problems as misses; db:restore-test-db recreates the DB after failure.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
 
             - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
-              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # By this point Temporal has warmed up in the background, so the wait is negligible.
               # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
               # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
               # so they must be registered before tests run.
@@ -988,7 +1054,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -997,12 +1063,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: products/*/junit-product.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1129,7 +1192,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1177,26 +1240,41 @@ jobs:
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
-            - name: Lint owners.yaml files
-              run: ./bin/hogli owners:lint
+            - parallel:
+                  - name: Lint owners.yaml files
+                    run: ./bin/hogli owners:lint
 
-            - name: Check version specifiers
-              run: python .github/scripts/check-version-specifiers.py
+                  - name: Check version specifiers
+                    run: python .github/scripts/check-version-specifiers.py
 
-            - name: Check IDOR model coverage
-              run: python .github/scripts/check-idor-model-coverage.py
+                  - name: Check IDOR model coverage
+                    run: python .github/scripts/check-idor-model-coverage.py
 
-            - name: Check DWH presentation layer stays source-agnostic
-              run: python .github/scripts/check-dwh-source-agnostic.py
+                  - name: Check DWH presentation layer stays source-agnostic
+                    run: python .github/scripts/check-dwh-source-agnostic.py
 
-            - name: Check operator parity
-              run: python .github/scripts/check-operator-parity.py
+                  - name: Check operator parity
+                    run: python .github/scripts/check-operator-parity.py
 
-            - name: Check module boundaries (tach)
-              run: tach check --dependencies --interfaces
+                  - name: Check module boundaries (tach)
+                    run: tach check --dependencies --interfaces
 
-            - name: Check product facade enforcement (import-linter)
-              run: lint-imports
+                  - name: Check product facade enforcement (import-linter)
+                    run: lint-imports
+
+                  # These guards take the whole repo as input (import graph after
+                  # django.setup(), signal registries, repo-wide AST scans), so diff-based
+                  # test selection can't pick them and the Django matrix skips them on
+                  # products-only diffs and drafts. They need no service containers.
+                  # Branches that predate the directory still carry the guards at their
+                  # old paths, so fall back to those rather than failing on a missing arg.
+                  - name: Run repo invariants (whole-repo pytest guards)
+                    run: |
+                        if [ -d posthog/test/repo_invariants ]; then
+                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                        else
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                        fi
 
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
@@ -1260,6 +1338,9 @@ jobs:
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
 
+            # Plain setup-python: this PR-only job runs on ubuntu-latest, whose cache
+            # store no master job ever saves the python tool cache to, so the
+            # setup-python-cached restore would miss on every run.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -1308,6 +1389,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
         timeout-minutes: 20
+        outputs:
+            mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
         # installation permission — so the check lands in that app's own
@@ -1359,7 +1442,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1403,8 +1486,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1412,12 +1494,14 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
@@ -1427,6 +1511,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
 
             - name: Wait for Docker services
               env:
@@ -1435,7 +1524,7 @@ jobs:
 
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
-              # of ~10 minutes of full migrations.
+              # of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -1807,7 +1896,9 @@ jobs:
               with:
                   name: migrated-schema
                   path: schema.sql.gz
-                  retention-days: 90
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
+                  retention-days: 7
 
             - name: Save schema to Actions cache for PR shards
               # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
@@ -1827,13 +1918,15 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — skipping migration-set schema save"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
@@ -1945,6 +2038,37 @@ jobs:
                       echo "Skipping CH migration section — script not present on this checkout"
                   fi
 
+    mirror-schema-cache:
+        needs: [check-migrations]
+        # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
+        # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
+        # Mirror the dump there so fork PRs prime instead of migrating from scratch.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        name: Mirror schema cache to GitHub cache
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - name: Download migrated schema artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: migrated-schema
+
+            - name: Save schema to GitHub cache (merge-base key)
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+
+            - name: Save schema to GitHub cache (migration-set key)
+              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
+
     check-openapi-types:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
@@ -1998,11 +2122,28 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/3.13.13
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
 
             - name: Install uv
               id: setup-uv
@@ -2028,6 +2169,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Wait for Docker services
               env:
@@ -2109,6 +2251,12 @@ jobs:
                       exit 1
                   fi
 
+                  # Commit exactly the files this check flagged. A hand-listed pattern
+                  # silently dropped generated paths it did not cover, so the PR passed on
+                  # an empty commit and every later master push failed this same check.
+                  DRIFTED_FILES=$(git diff --name-only | tr '\n' ' ')
+                  echo "Committing: $DRIFTED_FILES"
+                  echo "drifted-files=$DRIFTED_FILES" >> $GITHUB_OUTPUT
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
             # Deterministic = the OpenAPI check step itself failed (not a transient
@@ -2140,7 +2288,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/schema/exec-command-reference.md services/mcp/src/tools/generated/**'
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -2209,7 +2357,7 @@ jobs:
                   # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
                   # draft means it was cancelled or failed (typically ready_for_review
                   # superseding it mid-flight). Without this, the draft builds the full
-                  # matrix and holds the per-branch concurrency slot for ~30 min, so the
+                  # matrix and holds the per-branch concurrency slot for the whole run, so the
                   # ready-for-review run — the actual merge gate — queues behind it instead
                   # of starting. Skip here and defer to that ready run. The run-ci-backend
                   # label intentionally forces the full matrix on a draft, so honor it.
@@ -2559,11 +2707,38 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+            # Tool cache steps inlined rather than the setup-python-cached composite:
+            # this job checks out the PR head ref, which cannot resolve a local
+            # action that only exists on master until the branch rebases. The
+            # restore sits before the parallel block so the tool cache is warm
+            # when setup-python starts.
+            - name: Restore Python tool cache
+              id: python-toolcache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  python-version: ${{ matrix.python-version }}
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
+
+            - parallel:
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version: ${{ matrix.python-version }}
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+                  - name: Install Rust
+                    if: needs.changes.outputs.backend == 'true'
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: cargo
+
+            - name: Save Python tool cache
+              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
             - name: Install uv
               id: setup-uv-tests
@@ -2579,13 +2754,6 @@ jobs:
               shell: bash
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install Rust
-              if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -2617,14 +2785,32 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Set up Node.js for canvas builder
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Install canvas builder dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              shell: bash
+              run: |
+                  if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
+                      npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+                  fi
+
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -2675,17 +2861,43 @@ jobs:
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
-              # Treat cache problems as misses; db:restore-test-db recreates the DB after failure.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
 
             - name: Restore test durations from cache
@@ -2895,6 +3107,7 @@ jobs:
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
+                        --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
@@ -3098,6 +3311,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate (Core)
               id: quarantine_gate_core
               continue-on-error: true
@@ -3342,7 +3558,7 @@ jobs:
 
             # Per-test failure rollup: only when a test job actually failed, download that
             # shard's JUnit so "Check dependency results" can list the failing tests. Skipped
-            # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
+            # on green runs (the common case) to avoid pulling every shard artifact for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
               if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')

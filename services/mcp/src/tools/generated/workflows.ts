@@ -31,7 +31,7 @@ import {
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -287,6 +287,24 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
     },
 })
 
+const WorkflowsPatchActionEmailSchema = WorkflowActionEmailPatchSchema
+
+const workflowsPatchActionEmail = (): ToolBase<typeof WorkflowsPatchActionEmailSchema, Schemas.HogFlow> => ({
+    name: 'workflows-patch-action-email',
+    schema: WorkflowsPatchActionEmailSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchActionEmailSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = WorkflowsPatchActionEmailSchema.parse(params)
+        const { id, action_id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(String(action_id))}/email/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsPatchGraphSchema = WorkflowGraphPatchSchema
 
 const workflowsPatchGraph = (): ToolBase<typeof WorkflowsPatchGraphSchema, Schemas.HogFlow> => ({
@@ -342,6 +360,9 @@ const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSch
         const body: Record<string, unknown> = {}
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
+        }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
         }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',
@@ -490,6 +511,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-list-revisions': workflowsListRevisions,
     'workflows-logs': workflowsLogs,
+    'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,

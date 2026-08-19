@@ -15,6 +15,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
         .boolean()
@@ -61,6 +67,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
         .boolean()
@@ -107,6 +119,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
         .boolean()
@@ -231,9 +249,19 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
         role_at_organization: zod
             .union([
                 zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+                    .enum([
+                        'engineering',
+                        'data',
+                        'product',
+                        'founder',
+                        'leadership',
+                        'marketing',
+                        'sales',
+                        'student',
+                        'other',
+                    ])
                     .describe(
-                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
                     ),
                 zod.enum(['']),
                 zod.null(),
@@ -321,12 +349,24 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
+export const commentsCreateBodyScopeMax = 79
+
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
-export const commentsCreateBodyScopeMax = 79
-
 export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -339,17 +379,20 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsUpdateBodyScopeMax = 79
 
 export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
-export const commentsUpdateBodyScopeMax = 79
-
 export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -362,17 +405,20 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsPartialUpdateBodyScopeMax = 79
 
 export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
-export const commentsPartialUpdateBodyScopeMax = 79
-
 export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -385,9 +431,22 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
+        ),
 })
 
 /**

@@ -54,6 +54,11 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["status"] == MetricStatus.PROPOSED
         assert response.json()["approved_at"] is None
 
+    def test_overlong_description_rejected(self) -> None:
+        response = self.client.post(self.url, {"name": "mrr", "description": "x" * 1_001}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "description"
+
     def test_create_is_upsert_on_name(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
         response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
@@ -83,10 +88,25 @@ class TestMetricAPI(APIBaseTest):
         assert self.client.delete(f"{self.url}mrr/").status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(f"{self.url}mrr/").status_code == status.HTTP_404_NOT_FOUND
 
-    def test_patch_cannot_change_name(self) -> None:
+    def test_patch_renames_metric(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
         response = self.client.patch(f"{self.url}mrr/", {"name": "arr"}, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "arr"
+        assert self.client.get(f"{self.url}mrr/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}arr/").status_code == status.HTTP_200_OK
+
+    def test_create_after_delete_starts_fresh(self) -> None:
+        created = self.client.post(
+            self.url, {"name": "mrr", "description": "v1", "definition": _HOGQL}, format="json"
+        ).json()
+        self.client.delete(f"{self.url}mrr/")
+
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["id"] != created["id"]
+        assert body["definition"] is None
 
     def test_invalid_definition_rejected(self) -> None:
         response = self.client.post(

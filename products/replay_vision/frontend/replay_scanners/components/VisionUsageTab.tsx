@@ -1,20 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
-import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName, modelNamingVariant } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
+import { QuotaMeterBar } from './QuotaMeterBar'
 import { VisionInsightChart } from './VisionInsightChart'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
@@ -45,14 +51,23 @@ const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
         },
     ],
 }))
-const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
+const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
     ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
-).join(' + ')}) / 100`
+).join(' + ')
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
     const { setSpendChartInterval } = useActions(visionUsageLogic)
-    const { quota } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        showUsd,
+        billedCredits,
+        billedLimitCredits,
+        showStartupCap,
+    } = useValues(visionQuotaLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -60,9 +75,24 @@ export function VisionUsageTab(): JSX.Element {
         ? exhaustionForecast(quota.credits_used, quota.credit_limit, quota.period_start, quota.period_end)
         : null
 
-    const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
-    const zeroSpendCount = usageScanners.length - spenders.length
-    const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
+    const spendTooltip =
+        quota && showUsd
+            ? `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.${
+                  showStartupCap ? ` ${STARTUP_CAP_EXPLANATION}` : ''
+              }`
+            : undefined
+
+    const rows = usageScanners.filter(
+        (s: ReplayScanner) => s.credits_this_month > 0 || (s.enabled && (s.estimated_monthly_credits ?? 0) > 0)
+    )
+    const hiddenCount = usageScanners.length - rows.length
+    const totalCredits = rows.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
+    // A $0 limit really blocks scanning, but as a bar denominator it deliberately counts as "no limit".
+    const creditLimit = hasCap && quota.credit_limit > 0 ? quota.credit_limit : null
+
+    // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
+    // and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
+    const quotaResolved = quota !== null || !quotaLoading
 
     // Memoized so re-renders can't churn the query; `tags.productKey` is required or the runner aborts.
     const spendChartQuery = useMemo<InsightVizNode>(
@@ -73,9 +103,9 @@ export function VisionUsageTab(): JSX.Element {
                 series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The /100 charts dollars (1 credit = $0.01).
-                    formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
-                    aggregationAxisPrefix: '$',
+                    // Credits, not dollars: the free tier applies cumulatively per period, so no per-bucket
+                    // conversion can chart billed dollars; those live in the tooltip beside the chart.
+                    formulaNodes: [{ formula: SPEND_CHART_CREDITS_FORMULA, custom_name: 'Credits' }],
                 },
                 dateRange: {
                     date_from:
@@ -128,14 +158,14 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="tabular-nums">
                         {scanner.credits_per_observation} credit{scanner.credits_per_observation === 1 ? '' : 's'}
                     </span>
-                    <span className="text-muted"> · {modelName(scanner.model)}</span>
+                    <span className="text-muted"> · {modelName(scanner.model, namingVariant)}</span>
                 </span>
             ),
         },
         {
             title: 'Sampling',
             key: 'sampling_rate',
-            tooltip: 'The main cost lever: lower sampling scans fewer of the matching sessions.',
+            tooltip: "Lower sampling scans fewer of the matching sessions. It's the main cost lever.",
             render: (_, scanner) => (
                 <span className="text-sm tabular-nums">
                     {(scanner.sampling_rate * 100).toFixed(scanner.sampling_rate < 0.1 ? 2 : 1)}%
@@ -143,15 +173,55 @@ export function VisionUsageTab(): JSX.Element {
             ),
         },
         {
-            title: 'Share of spend',
+            title: 'Estimated monthly spend',
+            key: 'estimated_monthly_credits',
+            width: '20%',
+            tooltip:
+                "Based on the scanner's filters and sampling. The bar shows how much of the spend limit it would take up. Updates when the scanner is saved.",
+            render: (_, scanner) => {
+                // The fleet projection skips disabled scanners, so an estimate here wouldn't add up to the meter.
+                if (!scanner.enabled || scanner.estimated_monthly_credits === null) {
+                    return <span className="text-muted">—</span>
+                }
+                const estimatedCredits = scanner.estimated_monthly_credits
+                if (creditLimit === null) {
+                    return (
+                        <span className="text-sm tabular-nums">
+                            ~{formatCreditsMaybeUsd(estimatedCredits, showUsd)}
+                        </span>
+                    )
+                }
+                const limitPct = (estimatedCredits / creditLimit) * 100
+                const limitPctLabel = limitPct > 0 && limitPct < 1 ? '< 1' : String(Math.round(limitPct))
+                return (
+                    <div className="flex flex-col gap-1">
+                        <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
+                            ~{formatCreditsMaybeUsd(estimatedCredits, showUsd)}
+                            <span className="text-muted">{limitPctLabel}% of spend limit</span>
+                        </span>
+                        <QuotaMeterBar
+                            size="small"
+                            usedPct={0}
+                            projected={limitPct > 0 ? [{ pct: limitPct, barClass: 'bg-accent', striped: true }] : []}
+                            valueNow={limitPct}
+                            label={`Estimated ${limitPctLabel}% of the monthly spend limit`}
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Spend this period',
             key: 'credits_this_month',
             width: '30%',
+            className: 'pl-6',
+            tooltip: 'How much of the total spend this period came from this scanner.',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
                 return (
                     <div className="flex flex-col gap-1">
                         <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
-                            {formatCredits(scanner.credits_this_month)}
+                            {formatCreditsMaybeUsd(scanner.credits_this_month, showUsd)}
                             <span className="text-muted">{sharePct}%</span>
                         </span>
                         <LemonProgress percent={sharePct} />
@@ -163,16 +233,12 @@ export function VisionUsageTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard h-80">
-                <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard min-h-80 lg:h-80">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         {quota && (
-                            <Tooltip
-                                title={`≈ ${creditsToUsd(quota.credits_used)}${
-                                    hasCap ? ` of ${creditsToUsd(quota.credit_limit ?? 0)}` : ''
-                                }`}
-                            >
+                            <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
@@ -191,11 +257,17 @@ export function VisionUsageTab(): JSX.Element {
                     </div>
                 </div>
                 <p className="text-muted text-xs mb-3">Across all scanners</p>
-                <VisionInsightChart
-                    query={spendChartQuery}
-                    insightProps={spendChartInsightProps}
-                    className="flex-1 flex flex-col min-h-0"
-                />
+                {quotaResolved ? (
+                    <VisionInsightChart
+                        query={spendChartQuery}
+                        insightProps={spendChartInsightProps}
+                        className="flex-1 flex flex-col min-h-0"
+                    />
+                ) : (
+                    <div className="flex-1 flex items-center justify-center">
+                        <Spinner />
+                    </div>
+                )}
             </div>
             {forecastDate && (
                 <div className="text-xs text-warning">
@@ -205,18 +277,28 @@ export function VisionUsageTab(): JSX.Element {
             )}
             <LemonTable
                 columns={columns}
-                dataSource={spenders}
+                dataSource={rows}
                 loading={usageScannersLoading}
                 rowKey={(scanner) => scanner.id}
-                emptyState="No spend this period yet. Costs appear here once scanners produce observations."
+                emptyState={
+                    <>
+                        No spend this period yet. Costs appear here once scanners produce observations.{' '}
+                        <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
+                            Learn how credits and limits work
+                        </VisionDocsLink>
+                    </>
+                }
                 footer={
-                    zeroSpendCount > 0 ? (
+                    hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
-                            {zeroSpendCount} scanner{zeroSpendCount === 1 ? '' : 's'} with no spend this period
+                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this period
                         </div>
                     ) : undefined
                 }
             />
+            <div className="text-xs text-muted">
+                <CreditPriceNote dataAttr="vision-pricing-link-usage" />
+            </div>
         </div>
     )
 }

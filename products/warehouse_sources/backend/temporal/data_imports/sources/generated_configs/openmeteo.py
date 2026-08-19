@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class OpenMeteoSourceConfig(config.Config):
-    pass
+    locations: str
+    start_date: str | None = None
+    api_key: str | None = None

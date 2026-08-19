@@ -8,6 +8,7 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_models::MembershipStampPolicy,
     cohorts::membership::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
@@ -23,8 +24,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
-        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events,
+        canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        decoding,
+        evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter,
+        properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
@@ -176,6 +181,65 @@ fn test_geoip_person_property_overrides(
     }
 }
 
+/// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
+/// that sends person properties without that key at all (the `unrelated_key_only` case).
+#[rstest]
+#[case::differs(false, Some(Value::String("DE".to_string())), true)]
+#[case::matches_lookup(false, Some(Value::String("US".to_string())), false)]
+#[case::null_counts_as_absent(false, Some(Value::Null), false)]
+#[case::unrelated_key_only(false, None, false)]
+#[case::geoip_disabled(true, Some(Value::String("DE".to_string())), false)]
+#[tokio::test]
+async fn test_canonical_log_records_geoip_divergence(
+    #[case] geoip_disabled: bool,
+    #[case] supplied: Option<Value>,
+    #[case] expected: bool,
+) {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+
+    // The `matches_lookup` case is only meaningful if the lookup really resolves this value.
+    assert_eq!(
+        geoip_service
+            .get_geoip_properties(&ip.to_string())
+            .unwrap_or_default()
+            .get("$geoip_country_code")
+            .map(String::as_str),
+        Some("US")
+    );
+
+    let person_properties = supplied
+        .map(|value| HashMap::from([("$geoip_country_code".to_string(), value)]))
+        .or_else(|| {
+            Some(HashMap::from([(
+                "name".to_string(),
+                Value::String("John".to_string()),
+            )]))
+        });
+
+    let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), ip.to_string());
+    let (result, final_log) = run_with_canonical_log(log, async {
+        properties::get_person_property_overrides(
+            geoip_disabled,
+            person_properties,
+            &ip,
+            &geoip_service,
+        )
+    })
+    .await;
+
+    assert_eq!(final_log.geoip_properties_differ_from_lookup, expected);
+
+    // Measuring only: the lookup still overwrites whatever the request sent.
+    if !geoip_disabled {
+        let result = result.expect("expected property overrides");
+        assert_eq!(
+            result.get("$geoip_country_code"),
+            Some(&Value::String("US".to_string()))
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_evaluate_feature_flags() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
@@ -222,6 +286,7 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -307,6 +372,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -699,6 +765,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -782,6 +849,7 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -938,6 +1006,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1020,6 +1089,7 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1627,6 +1697,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1658,6 +1729,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1750,6 +1822,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1787,6 +1860,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };

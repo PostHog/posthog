@@ -51,6 +51,11 @@ describe('subscriptionLogic', () => {
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
                 '/api/projects/:team/integrations': { count: 0, results: [] },
                 '/api/environments/:team/subscriptions/summary_quota': {
                     active_count: 0,
@@ -102,12 +107,78 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('loads the latest delivery for the current subscription', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'delivery-1',
+                            created_at: '2026-08-06T13:00:00Z',
+                            finished_at: '2026-08-06T13:01:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadLastDeliverySuccess'])
+
+        expect(existingLogic.values.lastDelivery).toMatchObject({ id: 'delivery-1' })
+    })
+
+    it('uses the UTC weekday for legacy weekly subscriptions', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'weekly',
+                    start_date: '2024-01-01T00:30:00Z',
+                    byweekday: null,
+                    bysetpos: null,
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual(['monday'])
+    })
+
+    it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'daily',
+                    interval: 2,
+                    byweekday: ['monday', 'wednesday'],
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+    })
+
     it('updates values depending on frequency', async () => {
         router.actions.push('/insights/123/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
-            bysetpos: 1,
+            bysetpos: null,
             byweekday: ['monday'],
         })
         // A plain "new subscription" open (no prefill) must not pre-mark the form as changed,
@@ -119,7 +190,43 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'daily',
             bysetpos: null,
-            byweekday: null,
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        })
+
+        newLogic.actions.setSubscriptionValue('interval', 2)
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+
+        newLogic.actions.setSubscriptionValues({
+            interval: 7,
+            start_date: '2024-01-01T09:00:00Z',
+            byweekday: ['tuesday'],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe(
+            'Select the delivery day matching the start date for this interval'
+        )
+
+        newLogic.actions.setSubscriptionValue('byweekday', [])
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe('Select at least one delivery day')
+
+        newLogic.actions.setSubscriptionValue('frequency', 'weekly')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            frequency: 'weekly',
+            bysetpos: null,
+            byweekday: ['monday'],
         })
 
         newLogic.actions.setSubscriptionValue('frequency', 'monthly')

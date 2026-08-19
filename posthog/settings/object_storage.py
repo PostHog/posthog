@@ -36,10 +36,29 @@ OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
-# Notebooks SQLV2 frame store (products/notebooks/backend/sql_v2_frame_store.md): stream
-# python-node frame materializations to object storage instead of the Redis JSON transport.
-# Default off — rollout is env-gated per deployment on top of the product feature flag.
-NOTEBOOKS_FRAME_STORE_ENABLED = get_from_env("NOTEBOOKS_FRAME_STORE_ENABLED", False, type_cast=str_to_bool)
+# Endpoint the ClickHouse *cluster* uses to reach the frames bucket for that INSERT — which is
+# NOT always OBJECT_STORAGE_ENDPOINT. CI points OBJECT_STORAGE_ENDPOINT at localhost:19000 for
+# the test process, but ClickHouse runs in docker-compose and reaches object storage by service
+# name (objectstorage:19000) — using localhost there makes the cluster connect to itself and the
+# s3() call hangs. So in TEST/DEBUG default to the cluster-reachable host; on prod it stays empty
+# and the URL builder falls back to the virtual-hosted AWS form (IAM role, no inline keys),
+# mirroring IDENTITY_MATCHING_S3_ENDPOINT (the sibling CH-side s3 writer). Frames live in
+# NOTEBOOKS_FRAME_STORE_S3_BUCKET (below), which the app presigns and the kernel fetches from.
+if TEST or DEBUG:
+    NOTEBOOKS_FRAME_STORE_S3_ENDPOINT = os.getenv("NOTEBOOKS_FRAME_STORE_S3_ENDPOINT", "http://objectstorage:19000")
+else:
+    NOTEBOOKS_FRAME_STORE_S3_ENDPOINT = os.getenv("NOTEBOOKS_FRAME_STORE_S3_ENDPOINT", "")
+
+# Frames get a dedicated bucket in cloud (its own 1-day TTL, and a least-privilege grant so the
+# ClickHouse writer identity can PutObject there without access to the general object store).
+# Falls back to OBJECT_STORAGE_BUCKET so dev / CI / self-hosted work with no extra config.
+#
+# There is deliberately no region knob beside it. ClickHouse writes the object and the app
+# presigns it, and the app's presigning client is built once from OBJECT_STORAGE_REGION — so a
+# frames-only region would put the write in one region and the SigV4 credential scope in
+# another, and AWS would reject every presigned fetch. The bucket is per product; the region is
+# per deployment.
+NOTEBOOKS_FRAME_STORE_S3_BUCKET = os.getenv("NOTEBOOKS_FRAME_STORE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
@@ -64,6 +83,14 @@ AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE
 # services, or every read silently 404s. Defaults here match the local-dev ingestion wiring.
 AI_BLOB_S3_BUCKET = os.getenv("AI_BLOB_S3_BUCKET", "ai-blobs")
 AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
+
+# Inbox ranking modeling dataset (products/signals/dags/inbox_ranking): daily report-grain
+# Parquet snapshots the ranking model trains on. Unset bucket on Cloud means the dags skip until
+# the dedicated bucket is provisioned; local dev falls back to the object-storage service. The
+# bucket is written by Dagster via boto3 (node role on prod) and read by project-2 warehouse
+# tables and mlhog training via a separate read-only credential.
+INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
+INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

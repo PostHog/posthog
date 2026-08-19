@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -116,13 +116,18 @@ export async function pollForResults(
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
-    const pollStart = performance.now()
+    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
+    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
+    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
-    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+    while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await waitForPageVisible(methodOptions?.signal)
+        const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        activeElapsedMs += performance.now() - iterationStart
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
@@ -134,11 +139,11 @@ export async function pollForResults(
             }
         } catch (e: any) {
             // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
 
             // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
+            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -279,17 +284,21 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
-        const error = e as (Error & { status?: number; code?: string | null }) | null
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            error_status: error?.status ?? null,
-            error_code: error?.code ?? null,
-            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
-            ...logParams,
-        })
+        // A superseded query or navigating away mid-request aborts, not fails — skip so the
+        // 'query failed' metric isn't drowned in cancellation noise.
+        if (!isAbortError(e)) {
+            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            const error = e as (Error & { status?: number; code?: string | null }) | null
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

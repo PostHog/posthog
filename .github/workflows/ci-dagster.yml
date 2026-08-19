@@ -16,7 +16,7 @@ permissions:
 
 env:
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
-    SCHEMA_CACHE_EPOCH: v1
+    SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -63,6 +63,15 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
+            dagster_direct: ${{ steps.filter.outputs.dagster_direct || 'true' }}
+            # Trunk's merge queue opens its PR from trunk-merge/**. Scope this to
+            # same-repo heads because github.head_ref is author-controlled.
+            merge_queue: >-
+                ${{
+                    github.event_name == 'pull_request'
+                    && github.event.pull_request.head.repo.full_name == github.repository
+                    && startsWith(github.head_ref, 'trunk-merge/')
+                }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
@@ -91,6 +100,10 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
+                      # The full filter stays broad because Dagster imports shared backend
+                      # code. Master and merge-queue runs use this tier so those changes
+                      # remain merge-gated. Ordinary PRs use dagster_direct below, which
+                      # avoids rerunning the suite for shared-only changes on every push.
                       dagster:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
@@ -108,6 +121,7 @@ jobs:
                         - 'posthog/session/**'
                         - 'posthog/schema.py'
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
+                        - 'posthog/dataclasses.py'
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
                         - 'posthog/exceptions.py'
@@ -122,6 +136,8 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'products/managed_warehouse/backend/**'
+                        # Backward compatibility for unrebased PRs; remove after August 14, 2026.
                         - 'posthog/ducklake/**'
                         - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests
@@ -149,6 +165,7 @@ jobs:
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/signals/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
@@ -188,6 +205,10 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
                         - 'tools/hogli-commands/hogli_commands/hint_hook.py'
                         - 'tools/hogli-commands/hogli_commands/hints.py'
+                      dagster_direct:
+                        - 'posthog/dags/**'
+                        - 'products/*/dags/**'
+                        - .github/workflows/ci-dagster.yml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -207,8 +228,7 @@ jobs:
                   OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
               run: |
                   # :NOTE: Keep shard count in sync with observed run times.
-                  # Target: ~15 min per shard. Current: 3 shards for ~30 min total.
-                  # Consult #team-devex before changing.
+                  # Target: ~15 min per shard. Consult #team-devex before changing.
                   shards=3
                   # Parse the oldest_supported from the JSON array format
                   image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
@@ -245,6 +265,18 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
+                  # Routing decides which app labels reach the dump, and the consumers replay them
+                  # from the checked-out copy, so these inputs belong in the key below. A PR that
+                  # edits any of them matches no master dump, the merge-base one included: drop
+                  # both keys and let migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
@@ -257,7 +289,7 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
@@ -269,7 +301,10 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
-        if: needs.changes.outputs.dagster == 'true'
+        if: >-
+            needs.changes.outputs.dagster_direct == 'true'
+            || (needs.changes.outputs.merge_queue == 'true'
+                && needs.changes.outputs.dagster == 'true')
         runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}

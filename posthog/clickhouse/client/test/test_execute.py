@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.limit import RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
+from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 
 
 @pytest.fixture
@@ -21,27 +21,35 @@ def llm_analytics_slots():
     """Counts concurrency slots taken per query, with the limiter forced on (it is inert in tests)."""
     limiter = get_llm_analytics_rate_limiter()
     with patch.object(limiter, "applicable", lambda *args, **kwargs: True):
-        with patch.object(RateLimit, "use", return_value=("key", "task")) as use, patch.object(RateLimit, "release"):
+        slot = ConcurrencySlot(running_tasks_key="key", task_id="task")
+        with patch.object(RateLimit, "use", return_value=slot) as use, patch.object(RateLimit, "release"):
             yield use
 
 
 @pytest.mark.parametrize(
-    "workload,expected_workload",
+    "workload,access_method,expected_workload,expected_ch_user",
     [
-        (Workload.DEFAULT, Workload.ONLINE),
-        (Workload.OFFLINE, Workload.ONLINE),
-        (Workload.LOGS, Workload.LOGS),
+        (Workload.DEFAULT, None, Workload.ONLINE, ClickHouseUser.APP),
+        (Workload.OFFLINE, None, Workload.ONLINE, ClickHouseUser.APP),
+        (Workload.LOGS, None, Workload.LOGS, ClickHouseUser.APP),
+        (Workload.DEFAULT, AccessMethod.OAUTH, Workload.ONLINE, ClickHouseUser.APP),
+        (Workload.DEFAULT, AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
+        (Workload.ONLINE, AccessMethod.PROJECT_SECRET_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
+        (Workload.LOGS, AccessMethod.PERSONAL_API_KEY, Workload.LOGS, ClickHouseUser.API),
     ],
 )
-def test_process_query_task_workload_routing(client_from_pool, workload, expected_workload):
-    # The async query worker forces queries onto the online cluster, but must not override
+def test_process_query_task_workload_routing(
+    client_from_pool, workload, access_method, expected_workload, expected_ch_user
+):
+    # The async query worker forces app traffic onto the online cluster while API-key traffic
+    # keeps the offline routing it gets when run synchronously. Neither may override
     # cluster-pinned workloads: LOGS-workload tables only exist on the logs cluster.
-    with tags_context(kind="celery", id="posthog.tasks.tasks.process_query_task"):
+    with tags_context(kind="celery", id="posthog.tasks.tasks.process_query_task", access_method=access_method):
         sync_execute("SELECT 1", workload=workload, flush=False)
 
     called_workload, _, _, called_ch_user = client_from_pool.call_args[0]
     assert called_workload == expected_workload
-    assert called_ch_user == ClickHouseUser.APP
+    assert called_ch_user == expected_ch_user
 
 
 @pytest.mark.parametrize(

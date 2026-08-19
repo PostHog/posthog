@@ -185,6 +185,12 @@ pnpm fetch --frozen-lockfile
 # which runs scripts as usual. node_modules itself is discarded with the checkout.
 pnpm install --prefer-offline --frozen-lockfile --ignore-scripts
 
+log "smoke-testing Desktop cloud-task bootstrap"
+# Exercise the same branch-correct preparation that task provisioning runs after
+# checkout. This keeps the nightly publish from succeeding when a fresh dev-stack
+# task cannot resolve the built workspace exports needed by @posthog/ui.
+(cd products/desktop && pnpm bootstrap:cloud-task && pnpm --filter @posthog/ui --filter code typecheck)
+
 log "installing playwright chromium (+ system deps)"
 # Storybook builds and screenshot runs drive Playwright's Chromium. Browsers land in
 # ~/.cache/ms-playwright, outside the checkout; --with-deps apt-installs the shared
@@ -244,7 +250,6 @@ bin/migrate --scope=clickhouse
 log "running rust-driven migrations"
 # Same connection URLs bin/start derives for these scopes; the rust/bin migrators
 # otherwise default to localhost with per-store host/user envs.
-export CYCLOTRON_DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron}"
 export CYCLOTRON_NODE_DATABASE_URL="${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron_node}"
 export BEHAVIORAL_COHORTS_DATABASE_URL="${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@db:5432/behavioral_cohorts}"
 export FLAGS_READ_STORE_DATABASE_URL="${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@db:5432/flags_read_store}"

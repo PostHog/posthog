@@ -1,21 +1,147 @@
+import random
+import logging
+from dataclasses import dataclass
+
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
+from products.tasks.backend.facade.run_config import (
+    ReasoningEffort,
+    RuntimeAdapter,
+    get_models_for_runtime_adapter,
+    get_reasoning_effort_error,
+)
+
+logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
-REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-REVIEW_MODEL = "claude-sonnet-5"
+REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
+REVIEW_MODEL = "gpt-5.6-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
-# extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
-REVIEW_INITIAL_PERMISSION_MODE = None
+# Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
+# stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
+# and take None here.)
+REVIEW_INITIAL_PERMISSION_MODE = "full-access"
+
+# Least-privilege PostHog MCP scopes for every ReviewHog sandbox session. The sessions process
+# untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
+# (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
+# agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
+# resolver, so this cannot break session mechanics.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read"]
+
+
+@dataclass(frozen=True)
+class ReviewArm:
+    """One reviewer configuration the model experiment can assign to a report.
+
+    The four fields travel as one bundle: provider routing is derived from the adapter, so a model
+    handed over without its adapter silently falls back to the agent server's default, and Codex
+    needs "full-access" because its default "auto" mode stalls headless runs on MCP approval.
+    """
+
+    runtime_adapter: RuntimeAdapter
+    model: str
+    reasoning_effort: ReasoningEffort
+    initial_permission_mode: str | None = None
+
+
+DEFAULT_REVIEW_ARM = ReviewArm(
+    runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+    model=REVIEW_MODEL,
+    reasoning_effort=REVIEW_REASONING_EFFORT,
+    initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+)
+
+# The reviewer-model arm draw: each new report draws its arm once at creation and keeps it for
+# life, because a per-turn redraw would feed one arm's findings into the other arm's
+# "already covered" injection. Weights are relative shares (`random.choices` normalizes them).
+# Run a model experiment by adding weighted arms here; end it by dropping arms HERE, never by
+# deregistering the model in products/tasks: persisted assignments resolve against the live
+# registry per unit, so a mid-experiment deregistration silently falls in-flight turns back to
+# the default pins, unit by unit. Reports that drew a now-dropped arm keep running it while its
+# combo stays registered, by design.
+REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = ((1.0, DEFAULT_REVIEW_ARM),)
+
+
+def draw_review_arm() -> ReviewArm:
+    """The weighted arm draw for a newly created report; persisted once, never redrawn."""
+    arms = [arm for _, arm in REVIEW_EXPERIMENT_ARMS]
+    weights = [weight for weight, _ in REVIEW_EXPERIMENT_ARMS]
+    return random.choices(arms, weights=weights, k=1)[0]
+
+
+def resolve_review_arm(
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    initial_permission_mode: str | None,
+) -> ReviewArm:
+    """The arm a report's review units actually run on: its persisted assignment, else the pins.
+
+    Missing fields (pre-experiment rows) fall back silently. An assignment that is no longer a
+    registry-supported combo also falls back, with a warning, so a persisted model that outlives
+    its registration degrades to the default reviewer instead of burning sandbox turns on a
+    rejected model.
+    """
+    if not (runtime_adapter and model and reasoning_effort):
+        return DEFAULT_REVIEW_ARM
+    try:
+        adapter = RuntimeAdapter(runtime_adapter)
+        effort = ReasoningEffort(reasoning_effort)
+    except ValueError:
+        logger.warning(
+            "Unknown review-arm values (%s, %s, %s); using the default pins", runtime_adapter, model, reasoning_effort
+        )
+        return DEFAULT_REVIEW_ARM
+    # Membership is checked on top of the effort gate because the Codex effort registry is
+    # permissive below xhigh (any unknown gpt-* model maps to the default effort set), so the
+    # effort check alone cannot detect a deregistered Codex model.
+    if (
+        model not in get_models_for_runtime_adapter(adapter)
+        or get_reasoning_effort_error(adapter, model, effort) is not None
+    ):
+        logger.warning(
+            "Persisted review arm (%s, %s, %s) is not registry-supported; using the default pins",
+            adapter,
+            model,
+            effort,
+        )
+        return DEFAULT_REVIEW_ARM
+    # Codex's default "auto" mode stalls headless runs on MCP approval, so a Codex assignment
+    # without "full-access" could never finish a unit and counts as invalid.
+    if adapter is RuntimeAdapter.CODEX and initial_permission_mode != "full-access":
+        logger.warning("Persisted Codex review arm (%s, %s) lacks full-access; using the default pins", model, effort)
+        return DEFAULT_REVIEW_ARM
+    return ReviewArm(adapter, model, effort, initial_permission_mode)
+
 
 # VALIDATION MODEL
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
 # default effort (the behavior before this knob existed); set all three to pin, like the review pins.
 VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-4-8"
+VALIDATION_MODEL: str | None = "claude-opus-5"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+# RESOLUTION MODEL
+# Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
+# Starts on the validator's setup — resolution is judgment + careful editing, the validator's tier.
+RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
+RESOLUTION_MODEL: str | None = "claude-opus-4-8"
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
+
+# A resolution run handles at most this many threads, priority-ordered; the binding constraint is
+# the warm session's context window (every turn accumulates), not sandbox cost. Overflow is named in
+# the run summary and the next run continues — never silent truncation.
+MAX_THREADS_PER_RUN = 20
+
+# Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
+# so a retry redoes unjudged threads and undelivered side effects (a crash in the post-reply window
+# can still duplicate a reply; see temporal/resolution.py). On the final attempt a failed turn skips
+# its thread instead of raising, mirroring the validation session. Sized for prod worker rollouts:
+# deploys land every ~15 minutes and kill the in-flight attempt after a ~5-minute grace, so an
+# attempt survives ~2-4 turns and a full work-list needs several attempts to grind through.
+RESOLUTION_MAX_ATTEMPTS = 5
 
 # CHUNKING MODEL
 # Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —
@@ -51,6 +177,17 @@ _PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssueP
 
 # The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
 DEFAULT_URGENCY_THRESHOLD = IssuePriority.CONSIDER
+
+# Severities most urgent first — the order every count breakdown is read in.
+PRIORITIES_BY_URGENCY = (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+
+# Human-readable severity labels, shared by the PR-facing renderers (the review body and the status
+# comment) so their count lines read the same.
+PRIORITY_LABELS = {
+    IssuePriority.MUST_FIX: "must fix",
+    IssuePriority.SHOULD_FIX: "should fix",
+    IssuePriority.CONSIDER: "consider",
+}
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
@@ -106,10 +243,10 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 
 # OUTCOME TELEMETRY
 # The outcome-classifier judge decides whether the commits that landed after review actually
-# addressed a finding. Pinned to a model DIFFERENT from the reviewer's (`REVIEW_MODEL` /
-# `ONESHOT_MODEL` = claude-sonnet-5): a judge sharing the reviewer's model family would inherit the
-# same blind spots the telemetry exists to measure. Effort is "high" — a focused yes/no on a small
-# diff, not the reviewer's exhaustive xhigh pass.
+# addressed a finding. Pinned to a model family DIFFERENT from the reviewer's (`REVIEW_MODEL`):
+# a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
+# exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
+# exhaustive xhigh pass.
 OUTCOME_JUDGE_MODEL = "claude-opus-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.

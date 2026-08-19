@@ -52,7 +52,8 @@ class TestWordpressSource:
         assert pass_field.secret is True
 
     @pytest.mark.parametrize(
-        "expected_key", ["401 Client Error", "403 Client Error", "404 Client Error", "Non-JSON response from"]
+        "expected_key",
+        ["401 Client Error", "403 Client Error", "404 Client Error", "Non-JSON response from", "CertificateError"],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
@@ -64,6 +65,29 @@ class TestWordpressSource:
         raised = "Non-JSON response from https://example.com/wp-json/wp/v2/posts"
         matches = [friendly for key, friendly in errors.items() if key in raised]
         assert matches and matches[0] is not None
+
+    def test_certificate_error_message_matches_non_retryable_error(self):
+        # requests wraps a hostname/cert mismatch as an SSLError whose message embeds the
+        # underlying CertificateError; the classifier matches on that class name, so the variable
+        # hostname and cert names around it must not stop it being recognised as non-retryable.
+        errors = self.source.get_non_retryable_errors()
+        raised = (
+            "HTTPSConnectionPool(host='example.com', port=443): Max retries exceeded with url: "
+            "/wp-json/wp/v2/categories (Caused by SSLError(CertificateError(\"hostname 'example.com' "
+            "doesn't match either of '*.example-host.test', 'example-host.test'\")))"
+        )
+        matches = [friendly for key, friendly in errors.items() if key in raised]
+        assert matches and matches[0] is not None
+
+    @pytest.mark.parametrize("status_code", [429, 503])
+    def test_exhausted_retryable_error_message_matches_retryable_error(self, status_code):
+        # get_rows()'s fetch_page raises this once its own tenacity retry budget for a 429/5xx
+        # response is exhausted. The status code and URL that follow are variable, so the
+        # classifier must match on the stable prefix alone to keep this out of error tracking.
+        raised = (
+            f"WordPress API error (retryable): status={status_code}, url=https://example.com/wp-json/wp/v2/categories"
+        )
+        assert any(pattern.lower() in raised.lower() for pattern in self.source.get_retryable_errors())
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

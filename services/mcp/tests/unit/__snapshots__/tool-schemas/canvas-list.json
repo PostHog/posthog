@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel": {
+            "description": "Only return canvases in this channel (channel id).",
+            "type": "string"
+        },
+        "kind": {
+            "description": "Only return canvases of this kind. kind=component lists the component store.",
+            "enum": ["component", "freeform", "grid"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Case-insensitive match on name and description — use to find store components by what they show.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

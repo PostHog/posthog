@@ -1,4 +1,3 @@
-from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -22,6 +21,7 @@ from .process_task.activities import (
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
+    enforce_self_driving_run_quota,
     execute_task_in_sandbox,
     forward_pending_user_message,
     get_sandbox_for_repository,
@@ -62,7 +62,6 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunTaskAutomationWorkflow,
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
@@ -98,6 +97,7 @@ ACTIVITIES = [
     cleanup_sandbox,
     complete_run_stream,
     emit_progress_activity,
+    enforce_self_driving_run_quota,
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
@@ -107,7 +107,6 @@ ACTIVITIES = [
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_task_automation_activity,
     run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,

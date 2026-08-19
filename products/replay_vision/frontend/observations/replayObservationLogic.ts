@@ -10,6 +10,7 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -17,20 +18,28 @@ export interface ReplayObservationLogicProps {
     id: string
 }
 
+/** Filters the API types as numbers; the URL only ever carries strings, so these need parsing back. */
+const NUMERIC_FILTER_KEYS: readonly string[] = ['min_score', 'max_score']
+
 /** List filters carried in the observation URL; passed to retrieve so prev/next stay within the filtered set. */
 export function neighborFilterParams(searchParams: Record<string, unknown>): VisionObservationsRetrieveParams {
-    const params: Record<string, string> = {}
+    const params: Record<string, string | number> = {}
     for (const key of OBSERVATION_LIST_FILTER_KEYS) {
         const value = searchParams[key]
-        if (typeof value === 'string' && value) {
+        if (NUMERIC_FILTER_KEYS.includes(key)) {
+            const parsed = parseNumericParam(value)
+            if (parsed !== null) {
+                params[key] = parsed
+            }
+        } else if (typeof value === 'string' && value) {
             params[key] = value
         }
     }
-    return params
+    return params as VisionObservationsRetrieveParams
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
-export function observationDetailUrl(id: string, filterParams: Record<string, string>): string {
+export function observationDetailUrl(id: string, filterParams: Record<string, string | number>): string {
     return combineUrl(urls.replayVisionObservation(id), filterParams).url
 }
 
@@ -132,6 +141,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservation: async () => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationFailure() // Clear the loading flag; a bare return spins forever.
                     return
                 }
                 try {

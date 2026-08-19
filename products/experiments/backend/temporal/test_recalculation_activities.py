@@ -805,6 +805,40 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
 
+    def test_excluded_variants_change_recomputes(self):
+        # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
+        # set feeds the fingerprint, so the stale row's fingerprint no longer matches and the query re-runs.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                metric,
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+            )
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"stale": True},
+        )
+        exp.excluded_variants = ["test"]
+        exp.save(update_fields=["excluded_variants"])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_called_once()
+
     def test_store_result_updates_existing_row_with_different_fingerprint_in_place(self):
         # The unique constraint is (experiment, metric_uuid, query_to); fingerprint is not part of it. A row may
         # already occupy that key under a different fingerprint (an earlier run written under the old per-run
@@ -1095,21 +1129,62 @@ class TestRecalculationAnalytics(BaseTest):
 
         assert captured[0]["properties"]["is_primary"] is False
 
-    def test_non_final_failure_emits_no_per_metric_event(self):
-        # A non-final attempt re-raises for Temporal to retry; emitting there would double-count a
-        # failure that may still succeed on a later attempt. Only the terminal attempt emits.
-        exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
+    @parameterized.expand(
+        [
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
+            # the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
+            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
+            # (which can embed the executed query, warehouse secrets included) never reaches analytics.
+            (
+                "backpressure",
+                ConcurrencyLimitExceeded("quota"),
+                "rate_limited",
+                60,
+                "The query was deferred because the cluster is at capacity.",
+            ),
+            (
+                "generic_transient",
+                RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                "server_error",
+                10,
+                "The query failed with a server error.",
+            ),
+        ]
+    )
+    def test_non_final_failure_emits_retry_event(
+        self,
+        name: str,
+        exc: Exception,
+        expected_error_type: str,
+        expected_delay_seconds: int,
+        expected_message: str,
+    ):
+        # A non-final attempt re-raises for Temporal to retry. It emits 'experiment metric retry' (not
+        # 'experiment metric error', which is reserved for the terminal attempt) so retries that later
+        # succeed are still countable. Guards against dropping the retry emit, double-counting a
+        # non-terminal failure as an error, and leaking the raw exception (secrets included) into analytics.
+        exp = self._experiment(flag_key=f"an-retry-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
             with patch(
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
-                mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-                with pytest.raises(RuntimeError, match="kaboom"):
-                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+                mock_runner.return_value.run.side_effect = exc
+                with pytest.raises((type(exc), ApplicationError)):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
 
-        assert captured == []
+        assert len(captured) == 1
+        assert captured[0]["event"] == "experiment metric retry"
+        props = captured[0]["properties"]
+        assert props["error_type"] == expected_error_type
+        assert props["error_message"] == expected_message
+        assert "AKIAFAKESECRET" not in props["error_message"]
+        assert props["attempt"] == 2
+        assert props["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert props["next_retry_delay_seconds"] == expected_delay_seconds
+        assert props["execution_mode"] == "recalculation"
+        assert props["mechanism"] == "orchestrated"
 
     @parameterized.expand(
         [

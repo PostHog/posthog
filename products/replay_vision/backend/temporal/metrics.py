@@ -52,6 +52,12 @@ REPLAY_VISION_PROVIDER_CALL = Histogram(
     buckets=_PROVIDER_CALL_BUCKETS,
 )
 
+REPLAY_VISION_MISSION_PASSES = Counter(
+    "replay_vision_mission_passes_total",
+    "Full mission passes sent to the provider; rate against observations shows how hard the retry layers multiply",
+    ["model", "path"],
+)
+
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -64,10 +70,36 @@ REPLAY_VISION_CREDITS_CONSUMED = Counter(
     ["scanner_type", "model"],
 )
 
+REPLAY_VISION_BACKFILL_TICK_OUTCOMES = Counter(
+    "replay_vision_backfill_tick_outcomes_total",
+    "Backfill tick outcomes: dispatched, throttled, paused on quota, skipped, or completed",
+    ["outcome"],
+)
+
 REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
-    "Sweep tick outcomes: throttled at an in-flight cap, no candidates, or candidates found",
+    "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
+    "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
+    "watermark), no candidates, or candidates found",
     ["outcome"],
+)
+
+REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT = Histogram(
+    "replay_vision_scanner_admission_lock_wait_seconds",
+    "Time spent acquiring the scanner row lock that serializes capped admissions",
+    buckets=(0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
+    "replay_vision_scanner_limit_reached_total",
+    "Requests refused because a per-scanner credit limit left no room, by the API surface that refused",
+    ["surface"],
+)
+
+REPLAY_VISION_DEEP_SWEEP_FAILURES = Counter(
+    "replay_vision_deep_sweep_failures_total",
+    "Deep catch-up passes that failed inside an otherwise successful sweep tick; separate from sweep "
+    "outcomes so a tick still counts exactly once there",
 )
 
 REPLAY_VISION_SWEEP_CANDIDATES = Counter(
@@ -148,9 +180,26 @@ def record_provider_call(provider: str, model: str, scanner_type: str, outcome: 
     _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels)
 
 
+def record_mission_pass(model: str, path: str) -> None:
+    labels = {"model": model, "path": path}
+    REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
+
+
 def record_quota_exhausted_skip(scanner_type: str) -> None:
     REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
+
+
+def record_scanner_admission_lock_wait(seconds: float) -> None:
+    REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT, seconds, {})
+
+
+def record_scanner_limit_reached(surface: str) -> None:
+    """`surface` is "on_demand", "bulk", "evaluation", "max_tool", or "admission": the path that refused the work."""
+    REPLAY_VISION_SCANNER_LIMIT_REACHED.labels(surface=surface).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_LIMIT_REACHED, 1, {"surface": surface})
 
 
 def record_credits_consumed(scanner_type: str, model: str, credits: int) -> None:
@@ -165,6 +214,16 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_deep_sweep_failure() -> None:
+    REPLAY_VISION_DEEP_SWEEP_FAILURES.inc()
+    _otel.record_counter_twin(REPLAY_VISION_DEEP_SWEEP_FAILURES, 1, {})
+
+
+def record_backfill_tick_outcome(outcome: str) -> None:
+    REPLAY_VISION_BACKFILL_TICK_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_BACKFILL_TICK_OUTCOMES, 1, {"outcome": outcome})
 
 
 def record_observation_e2e(scanner_type: str, seconds: float) -> None:

@@ -1,7 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import {
+    IconCloud,
+    IconCopy,
+    IconDatabase,
+    IconGraph,
+    IconPencil,
+    IconPeople,
+    IconPiggyBank,
+    IconReceipt,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -18,6 +27,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
@@ -27,7 +37,11 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
+import { AccountEmailThreadsExpansion } from './AccountEmailThreadsExpansion'
+import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
 import { accountLinksLogic } from './accountLinksLogic'
+import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
+import { accountMeetingsLogic } from './accountMeetingsLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
@@ -58,6 +72,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
+    metabase: <IconDatabase />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
     salesforce: <IconCloud />,
@@ -126,6 +141,24 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                     </LemonButton>
                 ))
             )}
+            <LemonButton
+                type="tertiary"
+                size="small"
+                fullWidth
+                icon={<IconCopy />}
+                onClick={() => {
+                    void copyToClipboard(
+                        urls.absolute(urls.currentProject(urls.customerAnalyticsAccount(accountId))),
+                        'link to this account'
+                    )
+                    posthog.capture(AccountsEvents.LinkClicked, {
+                        link_key: 'copy-account-link',
+                        has_destination: true,
+                    })
+                }}
+            >
+                Copy link to account
+            </LemonButton>
         </div>
     )
 }
@@ -149,6 +182,8 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     useMountedLogic(accountSummariesLogic({ accountId }))
     useMountedLogic(accountSupportTicketsLogic({ accountId }))
+    useMountedLogic(accountEmailThreadsLogic({ accountId }))
+    useMountedLogic(accountMeetingsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -325,7 +360,17 @@ export function AccountNotebooksExpansion({
                                 label: 'Support tickets',
                                 content: <AccountSupportTicketsExpansion accountId={accountId} />,
                             },
+                            {
+                                key: 'email_threads',
+                                label: 'Email threads',
+                                content: <AccountEmailThreadsExpansion accountId={accountId} />,
+                            },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
+                                key: 'meetings' as const,
+                                label: 'Meetings',
+                                content: <AccountMeetingsExpansion accountId={accountId} />,
+                            },
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'event_stream' as const,
                                 label: 'Event stream',

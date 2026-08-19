@@ -18,11 +18,11 @@ proto/
 
 ## Consumers
 
-| Proto             | Rust                                         | Python                                                   |
-| ----------------- | -------------------------------------------- | -------------------------------------------------------- |
-| `cymbal/`         | `rust/cymbal-proto` (auto via tonic)         | —                                                        |
-| `personhog/`      | `rust/personhog-proto` (auto via tonic)      | `posthog/personhog_client/proto/generated/` (checked in) |
-| `kafka_assigner/` | `rust/kafka-assigner-proto` (auto via tonic) | —                                                        |
+| Proto             | Rust                                         | Python                                                   | Node.js                                              |
+| ----------------- | -------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| `cymbal/`         | `rust/cymbal-proto` (auto via tonic)         | —                                                        | —                                                    |
+| `personhog/`      | `rust/personhog-proto` (auto via tonic)      | `posthog/personhog_client/proto/generated/` (checked in) | `nodejs/src/common/generated/personhog` (checked in) |
+| `kafka_assigner/` | `rust/kafka-assigner-proto` (auto via tonic) | —                                                        | —                                                    |
 
 ## Updating protos
 

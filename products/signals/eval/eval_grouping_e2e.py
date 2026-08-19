@@ -43,6 +43,8 @@ from products.signals.backend.emission.pipeline import (
     summarize_long_descriptions as _summarize_long_descriptions,
 )
 from products.signals.backend.temporal.grouping import (
+    GenerateSearchQueriesInput,
+    MatchSignalToReportInput,
     generate_search_queries,
     match_signal_to_report,
     verify_match_specificity,
@@ -68,6 +70,8 @@ from products.signals.eval.common import (
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
+
+TRANSPORT_RETRIES = 3
 
 
 class EvalGroupingPipeline:
@@ -124,10 +128,11 @@ class EvalGroupingPipeline:
         async with sem:
             await self.run_signal_pipeline(record_id, case)
 
-    async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase):
+    async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase, attempt: int = 0):
         """Run a single signal through the pre-emit pipeline."""
 
-        self.progress.signal_started()
+        if attempt == 0:
+            self.progress.signal_started()
         try:
             description = await self.pre_emit(record_id, case)
 
@@ -158,8 +163,15 @@ class EvalGroupingPipeline:
                 self._persist_signal(record_id, description, case, specificity_result, signal_embedding)
 
             self.progress.signal_done()
-        except BaseException:
+        except BaseException as e:
             logging.getLogger(__name__).exception("Signal %d (group %d) failed", record_id, case.group_index)
+            # A dropped connection would otherwise silently shrink the dataset, which reads as a
+            # grouping difference when comparing two runs. Nothing is persisted until the last step,
+            # so replaying the signal is safe.
+            if attempt < TRANSPORT_RETRIES and not isinstance(e, asyncio.CancelledError):
+                await asyncio.sleep(2**attempt)
+                await self.run_signal_pipeline(record_id, case, attempt + 1)
+                return
             self.progress.signal_dropped()
 
     async def _prepare(
@@ -168,11 +180,13 @@ class EvalGroupingPipeline:
         """Generate search queries and compute all embeddings. No store mutations."""
 
         queries = await generate_search_queries(
-            team_id=EVAL_TEAM_ID,
-            description=description,
-            source_product=case.signal.config.source_product,
-            source_type=case.signal.config.source_type,
-            signal_type_examples=self.store.get_type_examples(),
+            GenerateSearchQueriesInput(
+                team_id=EVAL_TEAM_ID,
+                description=description,
+                source_product=case.signal.config.source_product,
+                source_type=case.signal.config.source_type,
+                signal_type_examples=self.store.get_type_examples(),
+            )
         )
 
         all_embeddings = await asyncio.gather(
@@ -196,13 +210,15 @@ class EvalGroupingPipeline:
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
-            team_id=EVAL_TEAM_ID,
-            description=description,
-            source_product=case.signal.config.source_product,
-            source_type=case.signal.config.source_type,
-            queries=queries,
-            query_results=candidates,
-            report_contexts=self.report_store.get_contexts(),
+            MatchSignalToReportInput(
+                team_id=EVAL_TEAM_ID,
+                description=description,
+                source_product=case.signal.config.source_product,
+                source_type=case.signal.config.source_type,
+                queries=queries,
+                query_results=candidates,
+                report_contexts=self.report_store.get_contexts(),
+            )
         )
         specificity_match_result = match_result
 
@@ -286,7 +302,11 @@ class EvalGroupingPipeline:
 
         if config.actionability_prompt:
             is_actionable = await _check_actionability(
-                self.gateway_client, EVAL_TEAM_ID, output, config.actionability_prompt
+                self.gateway_client,
+                EVAL_TEAM_ID,
+                output,
+                config.actionability_prompt,
+                context_fields=config.actionability_context_fields,
             )
             await self._capture_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:

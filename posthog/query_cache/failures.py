@@ -20,7 +20,7 @@ QUERY_FAILURE_CACHE_COUNTER = Counter(
 )
 
 # A kind names a failure class that repeats on retry; transient conditions must never get one.
-FailureKind = Literal["memory_limit", "timeout", "too_slow", "query_size"]
+FailureKind = Literal["memory_limit", "timeout", "too_slow", "query_size", "too_many_bytes"]
 
 Budget = Literal["interactive", "extended"]
 BUDGET_INTERACTIVE: Budget = "interactive"
@@ -36,9 +36,10 @@ class KindPolicy:
 
 KIND_POLICIES: dict[FailureKind, KindPolicy] = {
     "memory_limit": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
-    "timeout": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
-    "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
+    "timeout": KindPolicy(open_threshold=3, max_backoff=timedelta(hours=4), timeout_independent=False),
+    "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(hours=4), timeout_independent=False),
     "query_size": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
+    "too_many_bytes": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
 }
 
 BASE_BACKOFF = timedelta(minutes=2)

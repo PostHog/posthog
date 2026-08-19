@@ -14,12 +14,16 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonHogClient } from '~/common/personhog/client'
+import { createIdentityClients } from '~/common/personhog/identity-clients'
+import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PubSub } from '~/common/utils/pubsub'
@@ -36,14 +40,19 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
+import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import {
+    RoutingPersonsStore,
+    assertPersonsStoreModeConfig,
+    parsePersonsStoreMode,
+} from '~/ingestion/common/persons/routing-persons-store'
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -106,6 +115,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -148,6 +158,29 @@ const batchesInFlight = new Gauge({
     help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
 })
 
+// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
+// several-fold with consumer batching and routing, so a batch count says little
+// about how much work a pod is holding. Events in flight is invariant to how the
+// consumer slices a batch, which keeps a scaling target stable across dispatcher
+// tuning changes.
+const eventsInFlight = new Gauge({
+    name: 'ingestion_api_events_in_flight',
+    help: 'Number of events in accepted batches currently being processed by the ingestion API',
+})
+
+// The integral of `eventsInFlight` over time, accumulated one batch at a time:
+// a batch holding N events for T seconds contributes N*T. Because
+// integral(in_flight dt) equals sum(events * time in flight), rate() over this
+// counter is the exact time-weighted mean events in flight for the interval,
+// where the gauge above only reports whatever instant the scrape happened to
+// land on. In-flight turns over on a sub-second timescale and scrapes are tens
+// of seconds apart, so the gauge is far too noisy to autoscale on directly.
+// Same relationship as container_cpu_usage_seconds_total and CPU utilization.
+const eventSecondsInFlight = new Counter({
+    name: 'ingestion_api_event_seconds_in_flight_total',
+    help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -170,6 +203,8 @@ export class IngestionApiServer implements NodeServer {
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
+    private personhogStore?: PersonhogPersonsStore
+    private personhogClientClosers: Array<() => void> = []
     private groupStore?: BatchWritingGroupStore
     // Held so shutdown cleanup can produce ClickHouse messages returned by a
     // bare groupStore.flush() — the store itself no longer holds outputs
@@ -235,7 +270,7 @@ export class IngestionApiServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -246,6 +281,7 @@ export class IngestionApiServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -285,7 +321,9 @@ export class IngestionApiServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
         this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
@@ -308,7 +346,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -360,7 +397,42 @@ export class IngestionApiServer implements NodeServer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
-        const personsStore: PersonsStore = this.personsStore
+        // Which world person writes land in, deployment-wide: pg (the
+        // default) builds nothing new; the other modes construct the
+        // personhog store, shadow keeping pg authoritative.
+        const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
+        assertPersonsStoreModeConfig(personsStoreMode, {
+            routerAddr: this.config.PERSONHOG_ADDR,
+            identityAddr: this.config.PERSONHOG_IDENTITY_ADDR,
+        })
+        let personsStore: PersonsStore = this.personsStore
+        if (personsStoreMode !== 'pg') {
+            const routerClient = PersonHogClient.fromConfig({
+                addr: this.config.PERSONHOG_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
+                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
+                clientName: 'ingestion-persons-store',
+            })
+            const identityClients = createIdentityClients({
+                addr: this.config.PERSONHOG_IDENTITY_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                clientName: 'ingestion-persons-store',
+            })
+            this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
+            const writeRepository = new PersonHogPersonWriteRepository(
+                routerClient,
+                identityClients.identity,
+                'ingestion-persons-store'
+            )
+            this.personhogStore = new PersonhogPersonsStore(writeRepository, {
+                maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
+                updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            })
+            personsStore = new RoutingPersonsStore(this.personsStore, this.personhogStore, personsStoreMode)
+        }
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -385,7 +457,6 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -397,9 +468,11 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -413,10 +486,13 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,
@@ -464,9 +540,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
-        // Tracks whether this batch was accepted, so the `finally` only
-        // decrements the in-flight gauge for batches that incremented it.
-        let inFlight = false
+        // Event count and acceptance time of this batch once accepted, or null
+        // while it is not. Holding both (rather than a bool) makes the `finally`
+        // credit exactly what was counted, even if `messages` is out of scope.
+        let inFlight: { events: number; acceptedAt: number } | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -510,7 +587,8 @@ export class IngestionApiServer implements NodeServer {
             // Batch accepted into the pipeline — it now occupies a concurrent
             // slot until processing completes below.
             batchesInFlight.inc()
-            inFlight = true
+            eventsInFlight.inc(messages.length)
+            inFlight = { events: messages.length, acceptedAt: Date.now() }
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -548,8 +626,10 @@ export class IngestionApiServer implements NodeServer {
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
-            if (inFlight) {
+            if (inFlight !== null) {
                 batchesInFlight.dec()
+                eventsInFlight.dec(inFlight.events)
+                eventSecondsInFlight.inc((inFlight.events * (Date.now() - inFlight.acceptedAt)) / 1000)
             }
         }
     }
@@ -577,6 +657,10 @@ export class IngestionApiServer implements NodeServer {
                     await this.personsStore.flushAndProduceMessages()
                     await this.personsStore.shutdown()
                 }
+                if (this.personhogStore) {
+                    await this.personhogStore.shutdown()
+                }
+                this.personhogClientClosers.forEach((close) => close())
                 if (this.groupStore) {
                     const groupFlushResults = await this.groupStore.flush()
                     // flush() returns messages for the caller to produce (it no

@@ -13,8 +13,10 @@ from django.db import OperationalError
 
 import grpc
 import pyarrow as pa
+import requests
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
+from google.ads.googleads.v23.errors.types.authorization_error import AuthorizationErrorEnum
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
@@ -24,6 +26,9 @@ from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -36,8 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
     GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
+    GoogleAdsSearchService,
     GoogleAdsTable,
     _get_integration,
+    _is_permission_denied_error,
     _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
@@ -296,6 +303,25 @@ class TestGoogleAdsNonRetryableErrors:
     def test_documented_patterns_present(self, pattern):
         assert pattern in self.non_retryable
 
+    def test_every_pattern_has_user_facing_copy(self):
+        # A pattern mapped to None leaves the raw error on the job, which for this source is a gRPC
+        # status and protobuf dump (peer IP included) that means nothing to the customer.
+        assert [pattern for pattern, message in self.non_retryable.items() if message is None] == []
+
+    @pytest.mark.parametrize(
+        "specific_pattern",
+        [
+            # Google returns these under a PERMISSION_DENIED status, so the generic status pattern
+            # would match them too. The finalization activity shows the first match, so the specific
+            # pattern has to come first or the customer is told to fix the wrong thing.
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+            "Account has been deleted",
+        ],
+    )
+    def test_specific_codes_are_matched_before_the_generic_status(self, specific_pattern):
+        patterns = list(self.non_retryable.keys())
+        assert patterns.index(specific_pattern) < patterns.index("PERMISSION_DENIED")
+
     def test_requested_metrics_for_manager_has_user_facing_message(self):
         message = self.non_retryable["REQUESTED_METRICS_FOR_MANAGER"]
         assert message is not None
@@ -339,8 +365,9 @@ class TestGoogleAdsLookbackDefault:
         assert schemas["campaign"].supports_incremental is False
         assert schemas["campaign"].default_incremental_lookback_seconds is None
         # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
-        # would reject it.
-        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
+        # would reject it. It must also stay under 30 days: that window re-read a trailing month of
+        # the stats tables on every incremental run, multiplying both synced rows and warehouse spend.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS < 2_592_000
 
 
 class TestGrpcReceiveLimit:
@@ -879,6 +906,12 @@ class TestTransientGrpcErrorDetection:
                 ),
                 False,
             ),
+            # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
+            # transient backend incident, not a rejected credential — ride it out in-process.
+            (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
+            # broad a signal, so only the specific known message is treated as transient.
+            (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -992,6 +1025,147 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+_MANAGER_CUSTOMER_ID = "1112223333"
+_CLIENT_CUSTOMER_ID = "1234567890"
+
+
+def _grpc_permission_denied_error() -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.PERMISSION_DENIED, "The caller does not have permission")
+
+
+def _user_permission_denied_failure() -> GoogleAdsException:
+    failure = GoogleAdsFailure(
+        errors=[
+            GoogleAdsError(
+                error_code=ErrorCode(
+                    authorization_error=AuthorizationErrorEnum.AuthorizationError.USER_PERMISSION_DENIED
+                ),
+                message="User doesn't have permission to access customer.",
+            )
+        ]
+    )
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
+class _FakeSearchService:
+    def __init__(self, client: "_FakeGoogleAdsClient", login_customer_id: str | None):
+        self._client = client
+        # The header is baked in when the service is built, as the real SDK does.
+        self._login_customer_id = login_customer_id
+
+    def search(self, request: dict):
+        customer_id = request["customer_id"]
+        self._client.searches.append((customer_id, self._login_customer_id))
+
+        clients_under_request_target = self._client.manager_of.get(customer_id)
+        if clients_under_request_target is not None and "customer_client" in request["query"]:
+            hits = [client for client in clients_under_request_target if client in request["query"]]
+            return SimpleNamespace(pages=iter([SimpleNamespace(results=[SimpleNamespace()] * len(hits))]))
+
+        reachable = self._client.manager_of.get(self._login_customer_id or "", [])
+        if customer_id not in reachable:
+            raise _google_ads_exception_wrapping(_grpc_permission_denied_error())
+        return SimpleNamespace(pages=iter([self._client.page]))
+
+
+class _FakeGoogleAdsClient:
+    """Stand-in for ``GoogleAdsClient`` that refuses a client account without a login-customer-id.
+
+    ``manager_of`` maps a manager account to the client accounts under it, which is both what the
+    ``customer_client`` lookup reports and what the login is allowed to request.
+    """
+
+    def __init__(self, *, accessible: list[str], manager_of: dict[str, list[str]], page: SimpleNamespace):
+        self.login_customer_id: str | None = None
+        self.accessible = accessible
+        self.manager_of = manager_of
+        self.page = page
+        self.searches: list[tuple[str, str | None]] = []
+
+    def get_service(self, name: str, version: str | None = None, interceptors: object = None):
+        if name == "CustomerService":
+            return SimpleNamespace(
+                list_accessible_customers=lambda: SimpleNamespace(
+                    resource_names=[f"customers/{customer_id}" for customer_id in self.accessible]
+                )
+            )
+        return _FakeSearchService(self, self.login_customer_id)
+
+
+class TestPermissionDeniedDetection:
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            # The production shape: the SDK wraps the transport status in a GoogleAdsException, so the
+            # PERMISSION_DENIED status lives on the wrapped error rather than the exception itself.
+            (_google_ads_exception_wrapping(_grpc_permission_denied_error()), True),
+            (_grpc_permission_denied_error(), True),
+            (google_api_exceptions.PermissionDenied("403 The caller does not have permission"), True),
+            # Google can also report it only at the ads level, with no transport status to unwrap.
+            (_user_permission_denied_failure(), True),
+            # A transient blip must not send us hunting for a manager account.
+            (_google_ads_exception_wrapping(_grpc_unavailable_error()), False),
+            (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_permission_denied_error(self, exc, expected):
+        assert _is_permission_denied_error(exc) is expected
+
+
+class TestLoginCustomerIdRecovery:
+    def test_retries_as_the_manager_account_that_can_reach_the_customer(self):
+        # A client account the login only reaches through a manager: without the login-customer-id
+        # header Google refuses every request, so the sync has to find the manager and retry.
+        client = _FakeGoogleAdsClient(
+            accessible=[_MANAGER_CUSTOMER_ID],
+            manager_of={_MANAGER_CUSTOMER_ID: [_CLIENT_CUSTOMER_ID]},
+            page=_single_page(),
+        )
+        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,
+                customer_id=_CLIENT_CUSTOMER_ID,
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=_FakeResumableManager(saved_token=None),  # type: ignore[arg-type]
+            )
+        )
+
+        # The rows landed, and the successful request carried the manager as its login-customer-id.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+        assert client.searches[-1] == (_CLIENT_CUSTOMER_ID, _MANAGER_CUSTOMER_ID)
+
+    def test_permission_denied_propagates_when_no_accessible_manager_reaches_the_customer(self):
+        # Access really is gone: no accessible account can reach the customer, so the error must
+        # surface for the non-retryable handling instead of being retried forever.
+        client = _FakeGoogleAdsClient(
+            accessible=[_MANAGER_CUSTOMER_ID],
+            manager_of={_MANAGER_CUSTOMER_ID: ["9999999999"]},
+            page=_single_page(),
+        )
+        service = GoogleAdsSearchService(client, "v25", _CLIENT_CUSTOMER_ID)
+
+        with pytest.raises(GoogleAdsException):
+            list(
+                _search_as_arrow_tables(
+                    service=service,
+                    customer_id=_CLIENT_CUSTOMER_ID,
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=_FakeResumableManager(saved_token=None),  # type: ignore[arg-type]
+                )
+            )
+
+        # The sync request was tried once and not repeated, and no bogus header was left behind.
+        assert [search for search in client.searches if search[0] == _CLIENT_CUSTOMER_ID] == [
+            (_CLIENT_CUSTOMER_ID, None)
+        ]
+        assert client.login_customer_id is None
 
 
 class _FlakyFieldService:
@@ -1204,6 +1378,34 @@ class TestGetOAuthAccountsCaching:
         assert [account.value for account in second] == ["987-654-3210"]
 
 
+class TestGetOAuthAccountsNetworkErrorHandling:
+    @pytest.mark.parametrize(
+        "network_error",
+        [
+            requests.exceptions.ReadTimeout("read timed out"),
+            requests.exceptions.ConnectionError("connection reset"),
+        ],
+    )
+    def test_transient_network_error_becomes_actionable(self, network_error):
+        # list_google_ads_accessible_accounts retries a transient blip internally, so this exception means
+        # every attempt failed. Previously nothing here caught it, so it propagated as an unhandled 500
+        # instead of the same actionable error the credential-rejection path already raises.
+        cache.clear()
+        source = GoogleAdsSource()
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = network_error
+
+            with pytest.raises(IntegrationAccountListingError):
+                source.get_oauth_accounts(1, 2)
+
+
 class TestGoogleAdsQueryConstruction:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
 
@@ -1283,9 +1485,12 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_first_sync_uses_open_ended_scan_not_windows(self):
-        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
-        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+    def test_first_sync_drains_in_windows_from_a_bounded_backfill_start(self):
+        # A first sync has no cursor. Running it as the open-ended `1970 .. 2100` scan meant one run
+        # had to extract the whole account history before anything landed durably; it never
+        # finished, so the cursor never advanced and the next run repeated the same scan — report
+        # tables that had never synced could never start. It must window like any other run,
+        # beginning a bounded backfill behind today.
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
@@ -1293,6 +1498,24 @@ class TestGoogleAdsQueryConstruction:
                 db_incremental_field_last_value=None,
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2024-07-17' AND segments.date < '2024-07-24' "
+            "ORDER BY segments.date ASC"
+        )
+        assert all("2100-01-01" not in q for q in queries)
+        assert all("1970-01-01" not in q for q in queries)
+
+    def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
+        # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
+        # the same backfill date every run and the refresh replaces the whole table with that same
+        # first slice of history. The run must stay a single open-ended scan over the full range.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=False,
             )
 
         assert queries == [
@@ -1361,9 +1584,16 @@ class TestVersionDeclaration:
         assert source.default_version == "v25"
         assert set(source.supported_versions) == {"v23", "v24", "v25"}
 
+    def test_v23_deprecated_with_sunset_date(self):
+        # v23 is sunsetting (February 2027), so it must carry both the deprecation flag and the sunset
+        # date — the in-product banner shows the date and the v23→v25 repin migration is justified by it.
+        v23_deprecation = GoogleAdsSource().get_version_deprecation("v23")
+        assert v23_deprecation is not None
+        assert v23_deprecation.sunset_at == dt.date(2027, 2, 1)
+
     def test_v24_deprecated_default_is_not(self):
-        # v24 is the version the vendor is retiring, so it must carry the deprecation flag that drives
-        # the in-product warning; the current default (v25) must never be deprecated.
+        # v24 is also deprecated but has no announced sunset date yet, so it must carry the flag with a
+        # None sunset; the current default (v25) must never be deprecated.
         source = GoogleAdsSource()
         v24_deprecation = source.get_version_deprecation("v24")
         assert v24_deprecation is not None
@@ -1472,3 +1702,97 @@ class TestTypeUrlVersionResolution:
     def test_unknown_version_raises(self):
         with pytest.raises(ValueError):
             _resolve_protobuf_message_type_url("google.ads.googleads.v99.enums.DeviceEnum")
+
+
+class TestResourceSchemaInvariants:
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_primary_key_columns_are_selected(self, alias):
+        # Rows are built only from the fields in the SELECT clause, so a primary key naming a field
+        # the table doesn't select produces rows without that column. The Delta merge then either
+        # fails on the missing key or matches every row, seeding duplicates on every sync.
+        contents = RESOURCE_SCHEMAS[alias]
+        assert set(contents["primary_key"]) <= set(contents["field_names"])
+
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_partition_keys_are_selected(self, alias):
+        # Partition keys are read off the synced rows, so an unselected partition key would leave the
+        # pipeline partitioning on a column that never arrives.
+        contents = RESOURCE_SCHEMAS[alias]
+        assert set(contents.get("partition_keys") or []) <= set(contents["field_names"])
+
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_incremental_tables_filter_on_a_selected_segments_date(self, alias):
+        # `requires_filter` tables are queried with a `segments.date` window and partitioned on
+        # `segments_date`. Declaring a different filter field, or not selecting segments.date, breaks
+        # both the incremental window and the partitioning.
+        contents = RESOURCE_SCHEMAS[alias]
+        if "filter_field_names" not in contents:
+            return
+        assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+        assert "segments.date" in contents["field_names"]
+
+
+class TestConversionActionSegmentedStats:
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
+        ],
+    )
+    def test_only_conversion_metrics_are_selected(self, alias):
+        # Google rejects a query that pairs segments.conversion_action with a non-conversion metric,
+        # which would fail the whole table rather than drop a column. Keep the metric list to the
+        # conversion family.
+        field_names = RESOURCE_SCHEMAS[alias]["field_names"]
+        metrics = [f for f in field_names if f.startswith("metrics.")]
+
+        assert metrics
+        assert all("conversion" in metric for metric in metrics)
+
+
+class TestCriterionTablesReachNegatives:
+    # The keyword table is backed by keyword_view, which only ever returns positive, servable
+    # keywords. These criterion tables are the only way to reach negative keywords and other
+    # exclusions, and that reachability hinges on selecting the `negative` flag — without it the row
+    # can't be told apart from a positive target, defeating the table's reason to exist.
+    @pytest.mark.parametrize(
+        "alias, negative_field",
+        [
+            ("ad_group_criterion", "ad_group_criterion.negative"),
+            ("campaign_criterion", "campaign_criterion.negative"),
+        ],
+    )
+    def test_negative_flag_is_selected(self, alias, negative_field):
+        assert negative_field in RESOURCE_SCHEMAS[alias]["field_names"]
+
+
+class TestBreakdownStatsDefaultOff:
+    # These tables fan a day of spend out across placements, landing pages, product groups, hours and
+    # demographics, so they are orders of magnitude larger than the campaign and ad group reports.
+    # Defaulting one of them on would silently start syncing it for every account on the next schema
+    # reconcile, so each must stay opt-in and explain its size in the picker.
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "age_range_stats",
+            "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
+            "campaign_hourly_stats",
+            "detail_placement_stats",
+            "gender_stats",
+            "landing_page_stats",
+            "location_stats",
+            "product_group_stats",
+            "user_location_stats",
+            "ad_group_criterion",
+            "campaign_criterion",
+        ],
+    )
+    def test_breakdown_stats_are_opt_in_and_described(self, alias):
+        contents = RESOURCE_SCHEMAS[alias]
+
+        assert contents["should_sync_default"] is False
+        assert contents["description"]

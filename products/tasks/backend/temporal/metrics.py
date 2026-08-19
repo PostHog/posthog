@@ -1,8 +1,10 @@
+import os
 import time
 import datetime as dt
 from collections.abc import Mapping
 from typing import Any
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.common import MetricMeter
 
@@ -20,9 +22,14 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     5_000.0,
     10_000.0,
+    15_000.0,
+    20_000.0,
     30_000.0,
+    45_000.0,
     60_000.0,
+    90_000.0,
     120_000.0,
+    180_000.0,
     300_000.0,
     600_000.0,
     1_800_000.0,
@@ -72,6 +79,28 @@ def _bool_label(value: bool | None) -> str:
 
 
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
+
+
+def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
+    return "vm" if use_vm_sandbox else "gvisor"
+
+
+def modal_sandbox_backend_label() -> str:
+    return "v2" if os.environ.get("MODAL_SANDBOX_V2") == "1" else "v1"
+
+
+def record_network_enforcement(stage: str, runtime: str, layer: str, outcome: str) -> None:
+    try:
+        client = posthoganalytics.default_client
+        if client is None:
+            return
+        client.metrics.count(
+            "tasks.sandbox.network_enforcement",
+            1,
+            attributes={"stage": stage, "runtime": runtime, "layer": layer, "outcome": outcome},
+        )
+    except Exception:
+        pass
 
 
 def _runtime_adapter_label(value: str | None) -> str:
@@ -200,19 +229,44 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
-def increment_sandbox_created(runtime: str) -> None:
-    """Record a sandbox creation, labeled by runtime ("vm" or "gvisor")."""
+def record_sandbox_created(
+    runtime: str,
+    image_kind: str,
+    image_fallback: bool,
+    latency_ms: int | None,
+    *,
+    sandbox_backend: str,
+) -> None:
     try:
-        meter = _metric_meter({"runtime": runtime})
+        meter = _metric_meter(
+            {
+                "runtime": runtime,
+                "image_kind": image_kind,
+                "image_fallback": _bool_label(image_fallback),
+                "sandbox_backend": sandbox_backend,
+            }
+        )
         meter.create_counter(
             "tasks_process_sandbox_created",
-            "Sandboxes created for process-task runs by runtime",
+            "Sandboxes created for process-task runs by runtime and image kind",
         ).add(1)
+        if latency_ms is not None:
+            meter.create_histogram_timedelta(
+                "tasks_process_sandbox_creation_latency",
+                "Sandbox creation latency by runtime and image kind",
+                unit="ms",
+            ).record(dt.timedelta(milliseconds=latency_ms))
     except Exception:
         pass
 
 
-def record_agent_server_session_init_ms(session_init_ms: int, boot_path: str | None = None) -> None:
+def record_agent_server_session_init_ms(
+    session_init_ms: int,
+    boot_path: str | None = None,
+    *,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
     try:
         attributes: Attributes = {
             "step": "agent_server_session_init",
@@ -220,6 +274,10 @@ def record_agent_server_session_init_ms(session_init_ms: int, boot_path: str | N
         }
         if boot_path is not None:
             attributes["boot_path"] = boot_path
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_process_sandbox_step_latency",
             "Latency for get_sandbox_for_repository sub-steps",
@@ -236,6 +294,7 @@ def record_boot_total_ms(
     used_snapshot: bool | None,
     has_repo: bool,
     origin_product: str | None,
+    runtime: str,
 ) -> None:
     """Wall-clock time from workflow start to agent-server ready, the boot headline number.
 
@@ -249,6 +308,7 @@ def record_boot_total_ms(
             "used_snapshot": _bool_label(used_snapshot),
             "has_repo": _bool_label(has_repo),
             "origin_product": origin_product or "unknown",
+            "runtime": runtime,
         }
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_boot_total_latency",
@@ -260,10 +320,22 @@ def record_boot_total_ms(
 
 
 class StepTimer:
-    def __init__(self, step: str, used_snapshot: bool | None = None, boot_path: str | None = None) -> None:
+    def __init__(
+        self,
+        step: str,
+        used_snapshot: bool | None = None,
+        boot_path: str | None = None,
+        *,
+        origin_product: str | None = None,
+        runtime: str | None = None,
+        sandbox_backend: str | None = None,
+    ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
         self.boot_path = boot_path
+        self.origin_product = origin_product
+        self.runtime = runtime
+        self.sandbox_backend = sandbox_backend
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
@@ -291,6 +363,12 @@ class StepTimer:
         }
         if self.boot_path is not None:
             attributes["boot_path"] = self.boot_path
+        if self.origin_product is not None:
+            attributes["origin_product"] = self.origin_product
+        if self.runtime is not None:
+            attributes["runtime"] = self.runtime
+        if self.sandbox_backend is not None:
+            attributes["sandbox_backend"] = self.sandbox_backend
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(

@@ -22,10 +22,12 @@ class Metric(
 ):
     """A canonical business metric: name + description, optionally a machine-readable definition.
 
-    Names are reserved forever per team (the unique constraint is unconditional, soft-deleted rows
-    keep their name), so a stored reference never silently points at a different metric. The state
-    machine (proposed -> approved, drift) lives in ``logic/`` — ``status`` is never a writable
-    serializer field.
+    Names are unique per team among live metrics only (the unique constraint is partial on
+    ``deleted=False``). Renaming or deleting a metric frees its name, and a freed name may later be
+    claimed by an unrelated metric — a stored reference (SQL over ``information_schema.metrics``,
+    run URLs) is only guaranteed stable while the metric lives under that name. The state machine
+    (proposed -> approved, drift) lives in ``logic/`` — ``status`` is never a writable serializer
+    field.
     """
 
     # db_constraint=False on FKs to hot tables (posthog_team, posthog_user): a real FK constraint
@@ -39,10 +41,14 @@ class Metric(
     name = models.CharField(
         max_length=128,
         validators=[validate_metric_name],
-        help_text="Identifier-safe run handle, unique per team and reserved forever. Write-once.",
+        help_text="Identifier-safe run handle, unique among the team's live metrics. Renaming or "
+        "deleting a metric frees its name for reuse; references to the old name stop resolving.",
     )
     display_name = models.CharField(max_length=255, blank=True, help_text="Human-friendly label. Mutable, unlike name.")
-    description = models.TextField(help_text="What the metric means and how to interpret it. The load-bearing text.")
+    description = models.TextField(
+        help_text="What the metric means and what it serves, in 1-3 short sentences. The load-bearing text. "
+        "Query mechanics live in the definition; query rationale in reasoning."
+    )
     unit = models.CharField(max_length=64, blank=True, help_text="Unit of the result, e.g. usd, percent, cents.")
     owner = models.ForeignKey(
         "posthog.User",
@@ -111,7 +117,11 @@ class Metric(
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="unique_metric_name_per_team"),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False),
+                name="unique_live_metric_name_per_team",
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "status"]),

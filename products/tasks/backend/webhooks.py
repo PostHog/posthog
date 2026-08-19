@@ -3,7 +3,7 @@ import uuid
 import hashlib
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -15,9 +15,11 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +27,14 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 _TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+
+def _run_repository_filter(repository: str) -> Q:
+    normalized = repository.strip().lower()
+    return Q(state__repositories__contains=[normalized]) | Q(
+        state__repositories__isnull=True,
+        task__repository__iexact=normalized,
+    )
 
 
 def find_task_run(
@@ -39,9 +49,9 @@ def find_task_run(
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(output__pr_url=pr_url)
+        runs = TaskRun.objects.filter(state__verified_pr_urls__contains=[pr_url])
         if repository:
-            runs = runs.filter(task__repository__iexact=repository)
+            runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
         # variant that must not leak into the plain-queryset legs below.
         task_run: TaskRun | None = (
@@ -68,8 +78,24 @@ def find_task_run(
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
             TaskRun.objects.filter(
+                _run_repository_filter(repository),
                 branch=branch,
-                task__repository__iexact=repository,
+                state__wizard_head_branch__isnull=True,
+            )
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
+        # Signed commits report every pushed repository/branch pair separately
+        # from ``branch``. The latter controls provisioning's next checkout and
+        # cannot represent nested repositories or multiple PR branches.
+        head_branch = {"repository": repository.lower(), "branch": branch}
+        task_run = (
+            TaskRun.objects.filter(
+                _run_repository_filter(repository),
+                output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
             .select_related(*TASK_RUN_SELECT_RELATED)
@@ -85,8 +111,8 @@ def find_task_run(
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
                 TaskRun.objects.filter(
+                    _run_repository_filter(repository),
                     state__wizard_head_branch=branch,
-                    task__repository__iexact=repository,
                     task__deleted=False,
                 )
                 .exclude(status__in=_TERMINAL_RUN_STATUSES)
@@ -127,6 +153,21 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
+def _pr_state_for_action(action: str | None, pull_request: dict) -> str | None:
+    """The ``output.pr_state`` a webhook action moves a run's PR to, in the
+    same open/draft/merged/closed vocabulary the GitHub snapshot uses. None
+    for actions that don't change the state (comments, labels, pushes)."""
+    if action in ("opened", "reopened"):
+        return "draft" if pull_request.get("draft") else "open"
+    if action == "ready_for_review":
+        return "open"
+    if action == "converted_to_draft":
+        return "draft"
+    if action == "closed":
+        return "merged" if pull_request.get("merged") else "closed"
+    return None
+
+
 def handle_pull_request_event(payload: dict) -> HttpResponse:
     """Process a pre-verified pull_request webhook event.
 
@@ -141,6 +182,8 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
         return HttpResponse(status=200)
 
+    pr_state = _pr_state_for_action(action, pull_request)
+    analytics_event: str | None = None
     if action == "opened":
         event_action = "created"
         analytics_event = "pr_created"
@@ -151,6 +194,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         else:
             event_action = "closed"
             analytics_event = "pr_closed"
+    elif pr_state is not None:
+        # A state-only transition (reopened, ready_for_review, converted_to_draft):
+        # worth recording on the matched run so the pr: list filters stay honest,
+        # not worth an analytics event.
+        event_action = action or ""
     else:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
@@ -158,6 +206,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    claimed_pr_urls = (
+        read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
+    )
 
     logger.info(
         "github_pr_webhook_processed",
@@ -184,17 +235,35 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        # Fired regardless of whether this webhook was the first to record output.pr_url. The agent
+        # server usually records the URL first, so _record_run_pr_url takes its "already recorded"
+        # early return; a canvas the summary workflow built before the PR existed would otherwise
+        # keep implementation_pr_url null forever. The refresh is idempotent: an unchanged report
+        # fingerprint skips generation.
+        _enqueue_report_canvas_refresh(task_run)
 
-    # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
-    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
-    _capture_pr_event(payload, task_run, analytics_event, event_uuid)
+    # After the backstop on purpose: a just-backfilled pr_url means the run now
+    # claims this PR. Gated on the run's *primary* PR — output.pr_state describes
+    # the PR the task APIs surface as output.pr_url, so a same-branch webhook for
+    # a secondary or unrelated PR must not restate it.
+    if (
+        task_run is not None
+        and pr_state is not None
+        and isinstance(task_run.output, dict)
+        and task_run.output.get("pr_url") == pr_url
+    ):
+        _record_run_pr_state(task_run, pr_state)
+
+    if analytics_event is not None:
+        # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
+        event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
+        _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
     if task_run and action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
         # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
         # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
@@ -205,8 +274,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     if task_run and action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
         # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
         # archives (suppresses) its report so it leaves the inbox instead of lingering.
@@ -215,6 +283,64 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         )
 
     return HttpResponse(status=200)
+
+
+def handle_pull_request_review_event(payload: dict) -> HttpResponse:
+    """Process a pre-verified pull_request_review webhook event.
+
+    Called from ``posthog.urls.github_webhook`` (unified dispatcher). Captures a
+    ``pr_reviewed`` analytics event for human review submissions (approved,
+    changes_requested, commented), attributed to the reviewer when their GitHub
+    login resolves to an org member.
+    """
+    if payload.get("action") != "submitted":
+        return HttpResponse(status=200)
+
+    review = payload.get("review") or {}
+    reviewer = review.get("user") or {}
+    pull_request = payload.get("pull_request") or {}
+    pr_url = pull_request.get("html_url")
+    if not pr_url:
+        logger.warning("github_pr_review_webhook_no_pr_url")
+        return HttpResponse(status=200)
+
+    # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
+    # filter the event stream is mostly bots and the human review signal drowns.
+    if (reviewer.get("type") or "").lower() == "bot":
+        logger.debug("github_pr_review_webhook_bot_review_skipped", pr_url=pr_url)
+        return HttpResponse(status=200)
+
+    branch = (pull_request.get("head") or {}).get("ref")
+    repository_full_name = (payload.get("repository") or {}).get("full_name")
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+
+    # One review submission = one event; GitHub redeliveries collapse on the review id.
+    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:pr_reviewed:{review.get('id')}"))
+    _capture_pr_review_event(payload, task_run, event_uuid)
+
+    logger.info(
+        "github_pr_review_webhook_processed",
+        pr_url=pr_url,
+        review_state=review.get("state"),
+        pr_source="task" if task_run else "external",
+        run_id=str(task_run.id) if task_run else None,
+    )
+    return HttpResponse(status=200)
+
+
+def _enqueue_report_canvas_refresh(task_run: TaskRun) -> None:
+    """Rebuild the report canvas for this run's task after a PR webhook.
+
+    Best-effort: a Signals import or broker hiccup must never fail the webhook.
+    """
+    try:
+        from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps Signals workers off webhook startup
+            refresh_report_canvases_for_task,
+        )
+
+        refresh_report_canvases_for_task.delay(str(task_run.task_id))
+    except Exception:
+        logger.warning("github_pr_webhook_report_canvas_refresh_failed", task_id=str(task_run.task_id), exc_info=True)
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
@@ -226,12 +352,17 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    recorded = _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
-    if not recorded and not TaskRun.objects.filter(id=task_run.id, output__pr_url=pr_url).exists():
+    recorded = _append_run_pr_url(task_run, pr_url)
+    if not recorded and pr_url not in read_pr_urls(task_run.output):
         return
     post_pr_created_thread_update(task_run, pr_url)
     if not recorded:
         return
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keep the heavy facade module off the webhook import path
+        _refresh_self_driving_quota_for_pr,
+    )
+
+    _refresh_self_driving_quota_for_pr(task_run, None)
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
@@ -244,6 +375,44 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
+    try:
+        with transaction.atomic():
+            locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            state = locked.state if isinstance(locked.state, dict) else {}
+            existing_verified = state.get("verified_pr_urls")
+            verified_pr_urls = list(
+                dict.fromkeys([*(existing_verified if isinstance(existing_verified, list) else []), pr_url])
+            )
+            locked.state = {**state, "verified_pr_urls": verified_pr_urls}
+            if pr_url in read_pr_urls(locked.output):
+                locked.save(update_fields=["state", "updated_at"])
+                task_run.state = locked.state
+                task_run.output = locked.output
+                return False
+            locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
+            locked.save(update_fields=["state", "output", "updated_at"])
+        task_run.state = locked.state
+        task_run.output = locked.output
+        return True
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
+        return False
+
+
+def _record_run_pr_state(task_run: TaskRun, pr_state: str) -> None:
+    """Persist ``output.pr_state`` on a state-changing PR webhook.
+
+    Overwrites (a PR moves open → draft → merged), unlike the write-once
+    ``_record_run_output_field``. Tolerant: a failure here must not fail the
+    webhook (GitHub retries 5xx, and the event is already handled).
+    """
+    try:
+        task_run.output = TaskRun.update_output_atomic(task_run.id, updates={"pr_state": pr_state})
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_state_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:
@@ -391,17 +560,69 @@ def _pr_payload_properties(payload: dict) -> dict:
     }
 
 
-def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
-    pr_properties = _pr_payload_properties(payload)
+def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
+    """Distinct id of the org member matching a GitHub login, or None when unresolvable."""
+    if not login:
+        return None
+    try:
+        resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+    except Exception as e:
+        logger.warning("github_webhook_login_resolution_failed", login=login, team_id=team_id, error=str(e))
+        return None
+    return str(resolved.distinct_id) if resolved is not None else None
+
+
+def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | None]:
+    """Identity of the GitHub user who merged the PR, resolved to a PostHog user when possible.
+
+    Merging is the one unambiguous personal act in the loop, so when the merger's GitHub
+    login maps to an org member the pr_merged event attributes to them. Without a match the
+    event keeps the task's assigned user (an auto-resolved reviewer or fallback for
+    auto-started reports), so a consumer tells the two apart by the presence of
+    pr_merged_by_distinct_id.
+    """
+    merged_by = (payload.get("pull_request") or {}).get("merged_by") or {}
+    login = merged_by.get("login")
+    if not login:
+        return {}, None
+    properties: dict = {"pr_merged_by_login": login, "pr_merged_by_id": merged_by.get("id")}
+    distinct_id = _resolve_github_login_distinct_id(login, team_id)
+    if distinct_id is not None:
+        properties["pr_merged_by_distinct_id"] = distinct_id
+    return properties, distinct_id
+
+
+def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid: str) -> None:
+    review = payload.get("review") or {}
+    reviewer = review.get("user") or {}
+    login = reviewer.get("login")
+    review_properties: dict = {
+        "pr_review_state": review.get("state"),
+        "pr_reviewed_by_login": login,
+        "pr_reviewed_by_id": reviewer.get("id"),
+    }
+    pr_properties = {**_pr_payload_properties(payload), **review_properties}
 
     if task_run is not None:
-        task_run.capture_event(analytics_event, {**pr_properties, "pr_source": "task"}, event_uuid=event_uuid)
+        reviewer_distinct_id = _resolve_github_login_distinct_id(login, task_run.team_id)
+        if reviewer_distinct_id is not None:
+            pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
+        task_run.capture_event(
+            "pr_reviewed",
+            {**pr_properties, "pr_source": "task"},
+            event_uuid=event_uuid,
+            distinct_id_override=reviewer_distinct_id,
+        )
         return
 
     team = _resolve_external_team(payload)
     if team is None:
-        logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
+        logger.debug("github_pr_review_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
+
+    reviewer_distinct_id = _resolve_github_login_distinct_id(login, team.id)
+    if reviewer_distinct_id is not None:
+        pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
 
     properties: dict = {
         **pr_properties,
@@ -414,7 +635,55 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
 
     try:
         posthoganalytics.capture(
-            distinct_id=str(team.uuid),
+            distinct_id=reviewer_distinct_id or str(team.uuid),
+            event="pr_reviewed",
+            properties=properties,
+            groups=groups(team=team),
+            uuid=event_uuid,
+        )
+    except Exception as e:
+        logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
+
+
+def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+    pr_properties = _pr_payload_properties(payload)
+
+    if task_run is not None:
+        merger_distinct_id: str | None = None
+        if analytics_event == "pr_merged":
+            merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
+            pr_properties = {**pr_properties, **merged_by_properties}
+        task_run.capture_event(
+            analytics_event,
+            {**pr_properties, "pr_source": "task"},
+            event_uuid=event_uuid,
+            distinct_id_override=merger_distinct_id,
+        )
+        return
+
+    team = _resolve_external_team(payload)
+    if team is None:
+        logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
+        return
+
+    external_distinct_id = str(team.uuid)
+    if analytics_event == "pr_merged":
+        merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, team.id)
+        pr_properties = {**pr_properties, **merged_by_properties}
+        external_distinct_id = merger_distinct_id or external_distinct_id
+
+    properties: dict = {
+        **pr_properties,
+        "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
+        "pr_source": "external",
+        "team_id": team.id,
+        # title omitted to avoid leaking customer business context.
+        **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+    }
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=external_distinct_id,
             event=analytics_event,
             properties=properties,
             groups=groups(team=team),

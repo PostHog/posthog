@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -15,6 +16,7 @@ from posthog.temporal.oauth import (
     resolve_scopes,
 )
 
+from products.mcp_store.backend.facade.api import is_builtin_agent_enforcement_enabled
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
 from products.tasks.backend.logic.services.run_actor import (
     get_task_run_credential_user,
@@ -43,10 +45,40 @@ __all__ = [
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
 
 
+# Every Signals sandbox surface mints under the dedicated Signals OAuth app, so the LLM
+# gateway can pin the `signals` product to that app alone. Sharing the Array app would leave
+# a Signals token equally valid for `posthog_code` and `background_agents`, and the product
+# is a path segment the caller picks, so any per-product budget would be self-selected.
+SIGNALS_ORIGIN_PRODUCTS = frozenset(
+    {
+        Task.OriginProduct.SIGNAL_REPORT,
+        Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_CHAT,
+    }
+)
+
+# Signals surfaces a person drives by hand: the Inbox report CTAs ("Create PR" / "Discuss")
+# and scout chat. Scheduled scouts and auto-started implementations are excluded — they carry
+# `internal=True`, and their volume is chosen by our own pipeline rather than by a customer.
+INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
+    {
+        Task.OriginProduct.SIGNAL_REPORT,
+        Task.OriginProduct.SIGNALS_CHAT,
+    }
+)
+
+
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     if task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return "posthog_ai"
+    if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
+        return "signals"
     return "array"
+
+
+def is_interactive_signals_task(task: Task) -> bool:
+    """Whether this run exists because a person pressed something, not because we scheduled it."""
+    return task.origin_product in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS and not task.internal
 
 
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
@@ -76,12 +108,25 @@ def create_oauth_access_token(
         )
 
     effective_scopes: PosthogMcpScopes = _scopes_for_loop_fired_run(scopes) if loop_id else scopes
-    return create_oauth_access_token_for_user(
-        actor,
-        task.team_id,
-        scopes=effective_scopes,
-        application=_oauth_application_for_task(task),
-    )
+    token_options: dict[str, Any] = {
+        "scopes": effective_scopes,
+        "application": _oauth_application_for_task(task),
+        "sandbox_task_id": task.id,
+    }
+    if task.origin_product in {
+        Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SUPPORT_REPLY,
+    } and is_builtin_agent_enforcement_enabled(task.team_id):
+        # This scope only removes access to the human MCP Store surface. Add it
+        # even when a legacy task lacks trusted provenance so an old spoofed
+        # origin fails closed instead of inheriting its creator's connections.
+        # Keyed to the same rollout flag as the Store facade: a legacy-resolved
+        # task needs a member-capable token, or every member-proxy call it was
+        # just granted would 403.
+        token_options["include_mcp_builtin_agent_scope"] = True
+    if is_interactive_signals_task(task):
+        token_options["include_interactive_run_scope"] = True
+    return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
 def create_oauth_access_token_for_run(
@@ -157,9 +202,21 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     application: SandboxOAuthApplication = "array",
+    include_mcp_builtin_agent_scope: bool = False,
+    include_interactive_run_scope: bool = False,
+    sandbox_task_id: UUID | None = None,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes, application=application)
+        token_options: dict[str, Any] = {
+            "scopes": scopes,
+            "application": application,
+            "sandbox_task_id": sandbox_task_id,
+        }
+        if include_mcp_builtin_agent_scope:
+            token_options["include_mcp_builtin_agent_scope"] = True
+        if include_interactive_run_scope:
+            token_options["include_interactive_run_scope"] = True
+        return _create_oauth_access_token_for_user(user, team_id, **token_options)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err

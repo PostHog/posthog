@@ -5,6 +5,7 @@ import { isPostHogProperty } from '~/taxonomy/taxonomy'
 import {
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingRelease,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
     ExceptionAttributes,
@@ -45,9 +46,14 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
             return 'flutter'
         case 'posthog-elixir':
             return 'elixir'
+        // posthog-server is the current java server SDK identifier; posthog-java is the
+        // tombstoned legacy SDK, kept so already-ingested events still resolve.
+        case 'posthog-server':
         case 'posthog-java':
         case 'analytics-java':
             return 'java'
+        case 'posthog-kmp':
+            return 'kotlin'
         default:
             return 'unknown'
     }
@@ -76,7 +82,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
-        $level: level,
+        $exception_level: level,
         $cymbal_errors: ingestionErrors,
     } = properties
 
@@ -124,6 +130,20 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         ingestionErrors,
         appNamespace,
         appVersion,
+    }
+}
+
+export function getExceptionTypeAndValue(properties: ErrorEventProperties): {
+    type?: string
+    value?: string
+} {
+    const [exception] = Array.isArray(properties.$exception_list) ? properties.$exception_list : []
+    const type = properties.$exception_types?.[0] || properties.$exception_type || exception?.type
+    const value = properties.$exception_values?.[0] || properties.$exception_message || exception?.value
+
+    return {
+        type: type ? stringify(type) : undefined,
+        value: value ? stringify(value) : undefined,
     }
 }
 
@@ -194,6 +214,39 @@ export function getRecordingStatus(properties: ErrorEventProperties): string | u
     return properties['$recording_status'] as string | undefined
 }
 
+/**
+ * Normalize Cymbal's event-level release snapshot to the release API shape used by the UI.
+ * The event property uses `timestamp`, while release API responses use `created_at`.
+ */
+export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrackingRelease | undefined {
+    const release: unknown = properties['$exception_release']
+    if (!release || typeof release !== 'object' || Array.isArray(release)) {
+        return undefined
+    }
+
+    const candidate = release as Record<string, unknown>
+    if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.version !== 'string' ||
+        typeof candidate.timestamp !== 'string'
+    ) {
+        return undefined
+    }
+
+    const metadata =
+        candidate.metadata && typeof candidate.metadata === 'object' && !Array.isArray(candidate.metadata)
+            ? (candidate.metadata as ErrorTrackingRelease['metadata'])
+            : undefined
+
+    return {
+        id: candidate.id,
+        version: candidate.version,
+        created_at: candidate.timestamp,
+        project: typeof candidate.project === 'string' ? candidate.project : undefined,
+        metadata,
+    }
+}
+
 // we had a bug where SDK was sending non-string values for exception value
 function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
     if (!Array.isArray(exceptionList)) {
@@ -230,6 +283,16 @@ export function formatFunctionName(
         .with(['java', P.string, P.string], ([_, module, functionName]) => `${module}.${functionName}`)
         .with(['java', P.string, P.nullish], ([_, module]) => `${module}`)
         .otherwise(() => functionName)
+}
+
+export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
+    const address = frame.junk_drawer?.raw_frame?.instruction_addr
+    if (typeof address !== 'string') {
+        return null
+    }
+    // SDKs can send a padded or blank address, which would render as an empty frame row
+    const trimmed = address.trim()
+    return trimmed.length > 0 ? trimmed : null
 }
 
 export function formatResolvedName(

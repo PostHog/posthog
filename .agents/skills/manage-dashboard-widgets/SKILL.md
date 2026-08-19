@@ -46,6 +46,8 @@ Shipped types (code truth): [architecture.md § Shipped types](references/archit
 
 After spec confirmation → [checklist-new-widget-type.md](references/checklist-new-widget-type.md) **§1 → §8**. §5b (dedicated stories — required before the PR, not a follow-up) is sequenced once MVP tests are green.
 
+Self-updating / real-time tile? Read [live-widgets.md](references/live-widgets.md) first — the live contract (`is_live`, `creation_flag`, `generatedAt` seeds) and the `widgets/live/` toolkit.
+
 ## 3. Update a shipped type
 
 **Skip intake.** Identify the type from the request or `EXPECTED_WIDGET_TYPES` in `widget_registry.py`.
@@ -104,17 +106,18 @@ hogli test products/dashboards/backend/api/test/test_widget_openapi_enums.py   #
 
 ## Reference appendix
 
-| Topic                      | Doc                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| Intake (new types only)    | [widget-intake.md](references/widget-intake.md) — canonical defaults + spec recap |
-| New type checklist         | [checklist-new-widget-type.md](references/checklist-new-widget-type.md)           |
-| Update shipped type        | [managing-existing-widgets.md](references/managing-existing-widgets.md)           |
-| Architecture               | [architecture.md](references/architecture.md) — file map, invariants              |
-| Config + codegen           | [config-and-codegen.md](references/config-and-codegen.md)                         |
-| WidgetCard / edit modal    | [composition.md](references/composition.md)                                       |
-| List footer / tile filters | [list-widget-patterns.md](references/list-widget-patterns.md)                     |
-| Tile min/max               | [layout-and-ux.md](references/layout-and-ux.md)                                   |
-| RBAC / sharing             | [permissions-and-sharing.md](references/permissions-and-sharing.md)               |
-| Setup gates                | [availability-and-gating.md](references/availability-and-gating.md)               |
-| MCP after ship             | [mcp.md](references/mcp.md)                                                       |
-| Skill doc maintenance      | [skill-maintenance.md](references/skill-maintenance.md)                           |
+| Topic                      | Doc                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| Intake (new types only)    | [widget-intake.md](references/widget-intake.md) — canonical defaults + spec recap  |
+| New type checklist         | [checklist-new-widget-type.md](references/checklist-new-widget-type.md)            |
+| Update shipped type        | [managing-existing-widgets.md](references/managing-existing-widgets.md)            |
+| Architecture               | [architecture.md](references/architecture.md) — file map, invariants               |
+| Config + codegen           | [config-and-codegen.md](references/config-and-codegen.md)                          |
+| WidgetCard / edit modal    | [composition.md](references/composition.md)                                        |
+| List footer / tile filters | [list-widget-patterns.md](references/list-widget-patterns.md)                      |
+| Live / self-updating tiles | [live-widgets.md](references/live-widgets.md) — contract + `widgets/live/` toolkit |
+| Tile min/max               | [layout-and-ux.md](references/layout-and-ux.md)                                    |
+| RBAC / sharing             | [permissions-and-sharing.md](references/permissions-and-sharing.md)                |
+| Setup gates                | [availability-and-gating.md](references/availability-and-gating.md)                |
+| MCP after ship             | [mcp.md](references/mcp.md)                                                        |
+| Skill doc maintenance      | [skill-maintenance.md](references/skill-maintenance.md)                            |

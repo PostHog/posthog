@@ -1,22 +1,18 @@
 import json
-import logging
 from collections.abc import Mapping
 from typing import cast
 
 from django.db.models import Q
 
-from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
-from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -24,6 +20,7 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -31,9 +28,6 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
-
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -47,8 +41,36 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
+_SOURCE_CONFIG_HELP_TEXT = (
+    "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources "
+    "that define one (most data warehouse imports, and Conversations): "
+    "`steering` (string, max 2000 characters) holds the team's preferences about this source's "
+    "records in plain language: what matters, what to skip, what's out of scope. The emission "
+    "actionability gate applies it when deciding which records become signals; rules apply from "
+    "the next sync and nothing already emitted is retracted. "
+    "`default_not_actionable` (boolean, default false) flips the gate's default: instead of "
+    "keeping every record the steering rules don't exclude, only records that clearly match the "
+    "team's preferences are kept. "
+    "Other sources store these keys without reading them yet; future pipeline stages will consume "
+    "the same steering text. "
+    "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
+    "session analysis."
+)
+
+
+# Declared as an open object WITHOUT typed `properties`: Orval turns properties into a
+# key-stripping `zod.object`, which would silently drop source-specific keys (e.g. session
+# replay's `recording_filters`) from MCP tool calls. The open shape generates a passthrough
+# `zod.record`, and the steering keys are documented in the description instead.
+@extend_schema_field({"type": "object", "additionalProperties": True, "description": _SOURCE_CONFIG_HELP_TEXT})
+class _SourceConfigField(serializers.JSONField):
+    """`config` blob typed as an open JSON object in the OpenAPI schema. Runtime behavior is
+    plain JSONField; steering-key validation stays in the serializer's `validate`."""
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
+    config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
 
     class Meta:
         model = SignalSourceConfig
@@ -65,40 +87,11 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "status"]
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
-        if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_session_analysis_status(obj.team_id)
-
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
             return None
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
-
-    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
-    # The span surfaces that cost so the N+1 is visible per request in APM.
-    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
-    def _get_session_analysis_status(self, team_id: int) -> str | None:
-        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
-        query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
-
-        try:
-            temporal = sync_connect()
-
-            async def has_running() -> bool:
-                async for _ in temporal.list_workflows(query=query, page_size=1):
-                    return True
-                return False
-
-            if async_to_sync(has_running)():
-                return "running"
-        except Exception as e:
-            # The except swallows the error, so OTel won't auto-record it on the span — mark it
-            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
-            span = trace.get_current_span()
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning("Failed to list session summarization workflows: %s", e)
-        return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -129,7 +122,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
-        config = attrs.get("config", {})
+        config = attrs.get("config")
+        # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
+        # rejected, not silently persisted.
+        if config is not None:
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"config": "config must be a JSON object"})
+            # Presence-based checks so an explicit null is rejected like any other wrong type.
+            if STEERING_KEY in config:
+                steering = config[STEERING_KEY]
+                if not isinstance(steering, str):
+                    raise serializers.ValidationError({"config": "steering must be a string"})
+                if len(steering) > STEERING_MAX_LENGTH:
+                    raise serializers.ValidationError(
+                        {"config": f"steering must be at most {STEERING_MAX_LENGTH} characters"}
+                    )
+            if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
+                raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -401,6 +410,21 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class SignalReportCanvasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalReportCanvas
+        fields = [
+            "canvas_id",
+            "discussion_task_id",
+            "generation_task_id",
+            "generation_status",
+            "collaboration_mode",
+            "failure_reason",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -410,6 +434,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "Charts the report shows, in the order they were written. The summary places one with a "
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
+    )
+    canvas_session = SignalReportCanvasSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The persistent canvas and shared discussion created for this report, when available.",
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -471,6 +500,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "canvas_session",
             "priority",
             "actionability",
             "already_addressed",
@@ -962,6 +992,19 @@ class PullRequestChecksResponseSerializer(serializers.Serializer):
     checks = PullRequestCheckSerializer(many=True, read_only=True)
 
 
+class PullRequestCommentReactionSerializer(serializers.Serializer):
+    """One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub reaction id (needed to remove it).")
+    content = serializers.CharField(
+        read_only=True,
+        help_text="Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'.",
+    )
+    user_login = serializers.CharField(
+        read_only=True, allow_null=True, help_text="GitHub login of the user who added the reaction."
+    )
+
+
 class PullRequestCommentSerializer(serializers.Serializer):
     """One comment on a pull request — a conversation comment or an inline review comment."""
 
@@ -1012,9 +1055,83 @@ class PullRequestCommentSerializer(serializers.Serializer):
         allow_null=True,
         help_text="SHA of the commit the review comment was made against (review comments only).",
     )
+    reactions = PullRequestCommentReactionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Emoji reactions on this review comment, one entry per reactor.",
+    )
 
 
 class PullRequestCommentsResponseSerializer(serializers.Serializer):
     """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
 
     comments = PullRequestCommentSerializer(many=True, read_only=True)
+
+
+class PullRequestReviewCommentCreateSerializer(serializers.Serializer):
+    """Request body for posting an inline PR review comment as the requesting user.
+
+    Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+    thread on a diff line (`body` + `path` + `line`, optionally `side`)."""
+
+    body = serializers.CharField(help_text="Comment body (GitHub-flavored markdown).", max_length=65536)
+    # Numeric-only: this id is interpolated into the GitHub reply URL, so an unconstrained string could
+    # smuggle path segments (e.g. `../../issues/1/comments`) and retarget the request.
+    in_reply_to = serializers.RegexField(
+        r"^[0-9]+$",
+        required=False,
+        allow_null=True,
+        help_text="Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.",
+    )
+    path = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="File path to anchor a new comment thread to (required when starting a new thread).",
+    )
+    line = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Diff line to anchor a new comment thread to (required when starting a new thread).",
+    )
+    side = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("in_reply_to") and not (attrs.get("path") and attrs.get("line")):
+            raise serializers.ValidationError("Provide either in_reply_to (reply) or path + line (new thread).")
+        return attrs
+
+
+class PullRequestReviewCommentCreateResponseSerializer(serializers.Serializer):
+    """Response after posting a review comment — the created comment in the normalized PR-comment shape."""
+
+    comment = PullRequestCommentSerializer(read_only=True)
+
+
+class PullRequestReviewCommentUpdateSerializer(serializers.Serializer):
+    """Request body for editing a review comment's markdown body."""
+
+    body = serializers.CharField(help_text="New comment body (GitHub-flavored markdown).", max_length=65536)
+
+
+_REACTION_CONTENTS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"]
+
+
+class PullRequestReviewCommentReactionCreateSerializer(serializers.Serializer):
+    """Request body for adding an emoji reaction to a review comment."""
+
+    content = serializers.ChoiceField(
+        choices=_REACTION_CONTENTS,
+        help_text="Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.",
+    )
+
+
+class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Serializer):
+    """Response after adding a reaction — the created reaction, so the frontend can track its id."""
+
+    reaction = PullRequestCommentReactionSerializer(read_only=True)

@@ -67,6 +67,19 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
+
+
+class MissingPrimaryKeysException(Exception):
+    """An incremental table has no primary key to merge on, so it can't be merged into the
+    already-written Delta table. Permanent until the user picks a key or switches the sync type."""
+
+    def __init__(self, message: str = MISSING_PRIMARY_KEYS_ERROR) -> None:
+        super().__init__(message)
+
+
 class QueryTimeoutException(Exception):
     pass
 
@@ -82,9 +95,45 @@ class SchemaColumnTypeChangedException(Exception):
     `integer` → `bigint`) after the Delta table was already created with the narrower type.
     delta-rs cannot widen an existing column in place, so retrying is futile — the table must
     be reset and fully re-synced to adopt the new type.
+
+    ``column_name`` / ``stored_type`` / ``incoming_type`` are populated only where a clean
+    stored-to-incoming type pair exists (the cast failure in ``evolve_pyarrow_schema``). The
+    value-driven raises (decimal overflow, nullability drift) leave them ``None``, which keeps
+    those cases out of automatic widening recovery by construction (see
+    ``auto_widen_resync.maybe_schedule_auto_widen_resync``).
     """
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        column_name: str | None = None,
+        stored_type: pa.DataType | None = None,
+        incoming_type: pa.DataType | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.column_name = column_name
+        self.stored_type = stored_type
+        self.incoming_type = incoming_type
+
+
+def is_safe_numeric_widening(stored_type: pa.DataType, incoming_type: pa.DataType) -> bool:
+    """Whether a stored-to-incoming column type change is mechanically recoverable by a reset
+    and full re-sync, with no human judgement needed.
+
+    "Safe" means both sides are plain numeric types, so a re-sync deterministically adopts the
+    source's new type, which is the exact outcome the manual "Reset" remedy produces. That deliberately
+    includes transitions that aren't strict range widenings (int8 → uint8) and int64 → float64
+    (lossy above 2^53): the source already emits values of the new type either way, so an
+    automatic reset can never lose anything the manual reset would have kept. Transitions
+    involving non-numeric types (string, bool, decimal, temporal, nested) need human judgement
+    and stay manual.
+    """
+    return (
+        (pa.types.is_integer(stored_type) or pa.types.is_floating(stored_type))
+        and (pa.types.is_integer(incoming_type) or pa.types.is_floating(incoming_type))
+        and stored_type != incoming_type
+    )
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -328,7 +377,10 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     raise SchemaColumnTypeChangedException(
                         f"Source column type changed: '{delta_field.name}' has values that no longer "
                         f"fit its stored type {delta_field.type} (incoming data is now "
-                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type.",
+                        column_name=delta_field.name,
+                        stored_type=delta_field.type,
+                        incoming_type=incoming_column.type,
                     ) from e
 
                 incoming_table = incoming_table.set_column(
@@ -339,9 +391,13 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
             incoming_column = incoming_table.column(delta_field.name)
 
-        # Delta column is non-nullable: backfill nulls before write.
+        # Delta column is non-nullable: backfill nulls before write. Checked against the column's
+        # actual null count, not its field's own `nullable` flag, because that flag is just metadata
+        # and can say non-nullable while the batch still carries a real null (e.g. a batch scanned
+        # from a table whose column is otherwise declared non-nullable), which would otherwise
+        # skip the backfill and let the null reach the write.
         incoming_field = incoming_table.field(delta_field.name)
-        if not delta_field.nullable and incoming_field.nullable:
+        if not delta_field.nullable and incoming_column.null_count > 0:
             filled_nulls_arr = incoming_column.fill_null(
                 fill_value=get_default_value_for_pyarrow_type(incoming_field.type)
             )
@@ -563,6 +619,23 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
+def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -> pa.Schema:
+    """Drop fields from `schema` that aren't among `column_names`.
+
+    `pa.Table.from_pydict` raises an opaque KeyError ("The passed mapping doesn't contain the
+    following field(s) of the schema: ...") when the provided schema declares a column the row
+    mapping lacks. A SQL source builds its Arrow schema from columns discovered during setup, but
+    the streaming read can return a strict subset — e.g. a column dropped at the source, or the
+    table recreated with a narrower shape, between discovery and the read. Restricting the schema
+    to the columns the query actually returned lets the batch build; extra columns present in the
+    rows but not the schema are still handled by `_process_batch`, which appends them.
+    """
+    present = set(column_names)
+    if all(name in present for name in schema.names):
+        return schema
+    return pa.schema([field for field in schema if field.name in present])
+
+
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
     if precision <= 38:
         return pa.decimal128(precision, scale)
@@ -727,6 +800,28 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
     return pa_table
 
 
+def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
+    """Stop the sync when a batch has nulls in a column the table declares non-nullable.
+
+    delta-rs cannot write a null into a non-nullable column, and deltalake 1.6.1 has no operation to
+    relax an existing column to nullable in place. So a source that starts emitting nulls in a
+    column the table created non-nullable is a schema change under the table, and the only fix is to
+    reset and fully re-sync it -- which recreates the column as nullable. Surfaced as
+    SchemaColumnTypeChangedException, the same reset-and-re-sync signal the decimal-widening path
+    uses, so the sync stops non-retryably instead of failing opaquely (deltalite) or silently
+    writing the nulls into a lying non-nullable schema (the delta-rs MERGE fallback).
+    """
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
+        if delta_field.nullable or delta_field.name not in pa_table.schema.names:
+            continue
+        if pa_table.column(delta_field.name).null_count > 0:
+            raise SchemaColumnTypeChangedException(
+                f"Source column '{delta_field.name}' now contains nulls, but the table declares it "
+                f"non-nullable. Reset and fully re-sync this table to recreate the column as nullable."
+            )
+
+
 def _python_type_to_pyarrow_type(type_: type, value: Any):
     python_to_pa = {
         int: pa.int64(),
@@ -758,6 +853,21 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
             return build_pyarrow_decimal_type(precision, scale)
 
         return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
+
+    # `datetime` before `date`: `datetime.datetime` subclasses `datetime.date`.
+    if issubclass(type_, datetime.datetime) and isinstance(value, datetime.datetime):
+        return pa.timestamp("us", tz="UTC") if value.tzinfo is not None else pa.timestamp("us")
+
+    if issubclass(type_, datetime.date) and isinstance(value, datetime.date):
+        return pa.date32()
+
+    if issubclass(type_, datetime.time) and isinstance(value, datetime.time):
+        return pa.time64("us")
+
+    # UUID values are stringified later in `_process_batch`; declare the field as string here so a
+    # UUID column absent from the provided schema doesn't crash while its field is being appended.
+    if issubclass(type_, uuid.UUID):
+        return pa.string()
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
@@ -1229,3 +1339,76 @@ def conditional_lru_cache_async(
         return wrapper
 
     return decorator
+
+
+def realign_decimal_buffers(table: pa.Table) -> pa.Table:
+    """Re-materialize any Decimal128/256 column whose values buffer isn't 16-byte aligned.
+
+    delta-rs (arrow-rs) aborts the entire worker — not a catchable Python exception,
+    an `abort()` at the `extern "C"` boundary that can't unwind — when it's handed a
+    decimal values buffer aligned to 8 bytes instead of the 16 that Rust's i128 requires.
+    The misalignment arrives across the Arrow C Data Interface, which only recommends
+    8-byte alignment. Every Delta write/merge is funneled through here so a single guard
+    covers both pipeline versions. See delta-io/delta-rs#3884.
+
+    Only the values buffer (`buffers()[1]`) holds the i128 payload that must be aligned;
+    the validity bitmap has no such requirement, so we don't bother checking it.
+
+    `pa.concat_arrays` forces a fresh allocation through pyarrow's allocator (64-byte
+    aligned), which satisfies the requirement. `combine_chunks()` is zero-copy and would
+    keep the misaligned buffer, so it can't be used here. The buffer scan is cheap and
+    the copy only fires on the rare misaligned batch, so the common path is untouched.
+    """
+    new_columns: dict[str, pa.ChunkedArray] = {}
+    realigned = False
+    for i in range(table.num_columns):
+        field = table.field(i)
+        column = table.column(i)
+        if pa.types.is_decimal(field.type) and any(
+            (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
+        ):
+            # concat_arrays preserves the chunks' (decimal) type; pyarrow-stubs has no
+            # chunked_array overload for an explicit decimal type=.
+            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)])
+            realigned = True
+        else:
+            new_columns[field.name] = column
+
+    if not realigned:
+        return table
+
+    return pa.table(new_columns, schema=table.schema)
+
+
+def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal["first", "last"] = "first") -> pa.Table:
+    """Return a table containing only one row per PK tuple (in original row order).
+
+    `keep` picks which occurrence survives: "first" is used when closing existing
+    "current" rows during SCD2 append; "last" is used to dedupe upsert batches, where
+    the latest occurrence of a key carries the freshest data. Either way the merge
+    receives at most one source row per key, avoiding ambiguous multi-match merge
+    semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
+    """
+    if not pk_columns or pa_table.num_rows == 0:
+        return pa_table
+
+    # Strategy: tag every row with its position, group by PK, and for each PK
+    # take the smallest (or largest) position — the first (or last) time we saw
+    # that PK. Sorting those positions at the end restores the original row order.
+    #
+    # We use numpy for the final sort because pyarrow's type stubs for
+    # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
+    idx_col_name = "__ph_cdc_row_idx"
+    aggregate: Literal["min", "max"] = "min" if keep == "first" else "max"
+
+    # 1. Add a row-position column: [0, 1, 2, ..., n-1]
+    indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
+
+    # 2. Group by PK, keeping only one position per PK
+    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
+
+    # 3. Sort those positions ascending so the output mirrors the input row order
+    kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())
+
+    # 4. Materialize the rows at those positions from the original table
+    return pa_table.take(kept_indices)

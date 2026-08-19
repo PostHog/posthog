@@ -327,6 +327,26 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).not.toContain('insight-create')
     })
 
+    it('should expose managed warehouse monitoring only with its read scope and feature flag', async () => {
+        const managedWarehouseTools = ['managed-warehouse-monitoring-get', 'managed-warehouse-metric-history-get']
+        const enabledOptions = { featureFlags: { 'data-warehouse-scene': true } }
+
+        const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
+        const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
+        const flagDisabledTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), {
+            featureFlags: { 'data-warehouse-scene': false },
+        })
+        const authorizedToolNames = authorizedTools.map((tool) => tool.name)
+        const wrongScopeToolNames = wrongScopeTools.map((tool) => tool.name)
+        const flagDisabledToolNames = flagDisabledTools.map((tool) => tool.name)
+
+        for (const toolName of managedWarehouseTools) {
+            expect(authorizedToolNames).toContain(toolName)
+            expect(wrongScopeToolNames).not.toContain(toolName)
+            expect(flagDisabledToolNames).not.toContain(toolName)
+        }
+    })
+
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
         const tools = await getToolsFromContext(context)
@@ -831,15 +851,14 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-alerting',
-                'logs-patterns-view',
-                'replay-video-based-summarization',
+                'logs-anomalies',
+                'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
-                'replay-vision',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
@@ -850,16 +869,21 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
+                'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
-                'review-hog',
+                'billing-alerts',
                 'streamlit-apps',
+                'posthog-connect',
+                'experiment-behavior-comparison',
+                'data-warehouse-scene',
+                'data-quality-checks',
             ])
         )
-        expect(flags).toHaveLength(26)
+        expect(flags).toHaveLength(31)
     })
 
     it('every loops tool is gated on the loops flag', () => {

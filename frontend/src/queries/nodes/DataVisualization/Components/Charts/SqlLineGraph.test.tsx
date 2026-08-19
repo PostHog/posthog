@@ -304,7 +304,14 @@ describe('SqlLineGraph', () => {
             expect(container.querySelector('[data-attr="hog-chart-timeseries-line-legend"]')).not.toBeInTheDocument()
         })
 
-        it('hides a series from the chart and tooltip when its legend item is toggled off', async () => {
+        it.each([
+            { name: 'clicking a legend item isolates that series', additive: false, expectedRows: ['b'] },
+            {
+                name: 'meta-clicking a legend item hides just that series',
+                additive: true,
+                expectedRows: ['a'],
+            },
+        ])('$name', async ({ additive, expectedRows }) => {
             const { container } = renderLine(
                 { yAxis: [{ column: 'a' }, { column: 'b' }], showLegend: true },
                 twoSeries()
@@ -314,11 +321,11 @@ describe('SqlLineGraph', () => {
             const bButton = [...getLegend(container).querySelectorAll('button')].find((b) =>
                 b.textContent?.includes('b')
             )!
-            fireEvent.click(bButton)
+            fireEvent.click(bButton, { metaKey: additive })
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
-            expect(tooltip.rows()).toEqual(['a'])
+            expect(tooltip.rows()).toEqual(expectedRows)
         })
     })
 

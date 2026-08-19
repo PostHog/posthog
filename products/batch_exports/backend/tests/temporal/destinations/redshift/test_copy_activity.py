@@ -672,6 +672,85 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
 @pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    bucket_name,
+    bucket_region,
+    exclude_events,
+    model: BatchExportModel,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    aws_credentials,
+    key_prefix,
+    ateam,
+):
+    """Test the events model export succeeds with a table missing selected columns.
+
+    Without a merge, files are copied directly into the final table, and the COPY
+    column list names every column in the files. So, columns missing from an existing
+    table must be excluded from the files we upload.
+
+    To replicate this situation, we create the destination table without the
+    'site_url' column, as if it had been created before 'site_url' was exported.
+    """
+    table_name = f"test_copy_activity_missing_columns_table__{ateam.pk}"
+    table_fields = [
+        ("uuid", "VARCHAR(200)"),
+        ("event", "VARCHAR(200)"),
+        ("properties", "VARCHAR(65535)"),
+        ("elements", "VARCHAR(65535)"),
+        ("set", "VARCHAR(65535)"),
+        ("set_once", "VARCHAR(65535)"),
+        ("distinct_id", "VARCHAR(200)"),
+        ("team_id", "INTEGER"),
+        ("ip", "VARCHAR(200)"),
+        ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+    ]
+
+    async with psycopg_connection.transaction():
+        async with psycopg_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("CREATE TABLE {table} ({fields})").format(
+                    table=sql.Identifier(redshift_config["schema"], table_name),
+                    fields=sql.SQL(",").join(
+                        sql.SQL("{field} {type}").format(field=sql.Identifier(field), type=sql.SQL(field_type))
+                        for field, field_type in table_fields
+                    ),
+                )
+            )
+
+    table_column_names = {field for field, _ in table_fields}
+    expected_fields = [field["alias"] for field in redshift_default_fields() if field["alias"] in table_column_names]
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        redshift_config=redshift_config,
+        sort_key="event",
+        expected_fields=expected_fields,
+    )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
 async def test_copy_into_redshift_activity_handles_data_over_string_limit(
     clickhouse_client,
     activity_environment,

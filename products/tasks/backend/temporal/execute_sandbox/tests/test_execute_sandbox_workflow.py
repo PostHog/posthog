@@ -31,7 +31,10 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_rep
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import STEER_DECLINED_OUTCOME
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
-from products.tasks.backend.temporal.process_task.credential_refresh import CredentialRefreshExitReason
+from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
+    CredentialRefreshExitReason,
+)
 
 
 def _build_context(
@@ -735,6 +738,19 @@ class TestPersistSandboxId:
 
 
 class TestRun:
+    async def test_relay_detected_sandbox_loss_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        execute_activity_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", execute_activity_mock)
+
+        await workflow._relay_sandbox_events(
+            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="token"),
+            "sandbox-123",
+        )
+
+        assert workflow._sandbox_gone is True
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
@@ -751,6 +767,23 @@ class TestRun:
             run_id="run-id",
             sandbox_id="sandbox-123",
         )
+
+    async def test_credential_refresh_task_gone_marks_the_run_failed(self, monkeypatch, silent_workflow_logger):
+        # An interactive run is exempt from the terminal status write on its normal
+        # completion path, so without this the workflow would report success for a run
+        # whose rows were deleted underneath it.
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.TASK_GONE)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error == TASK_ROWS_GONE_ERROR_MESSAGE
+        assert workflow._completion_error_type == "TaskRunDeletedError"
 
     async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(
         self, monkeypatch, silent_workflow_logger
