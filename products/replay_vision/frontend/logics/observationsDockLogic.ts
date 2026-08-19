@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { metricCount } from 'lib/operationalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,6 +25,7 @@ export interface observationsDockLogicValues {
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
+    loadObservationsError: boolean
     observations: ReplayObservationApi[]
     observationsLoading: boolean
     observing: boolean
@@ -145,6 +146,16 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 loadObservationsFailure: () => false,
             },
         ],
+        // A failed list read, so the dock can show a retry instead of the "No summary yet" empty
+        // state, which reads like the read succeeded and found nothing.
+        loadObservationsError: [
+            false,
+            {
+                loadObservations: () => false,
+                loadObservationsSuccess: () => false,
+                loadObservationsFailure: () => true,
+            },
+        ],
         observing: [
             false,
             {
@@ -239,8 +250,16 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             actions.loadObservations()
             refreshVisionQuota()
         }
-        const reportTriggerFailure = (error: unknown, metric: string, message: string): void => {
+        const reportTriggerFailure = (error: unknown, metric: string, message: string, retry: () => void): void => {
             metricCount(metric)
+            if (error instanceof NetworkError) {
+                // The browser never reached the server, so the request usually succeeds on retry.
+                // Offer that retry instead of a dead red toast.
+                lemonToast.error("Couldn't reach the server. Check your connection and try again.", {
+                    button: { label: 'Try again', action: retry },
+                })
+                return
+            }
             const detail = error instanceof ApiError && error.detail ? `: ${error.detail}` : ''
             lemonToast.error(`${message}${detail}`)
         }
@@ -299,7 +318,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     reportTriggerFailure(
                         error,
                         'replay_vision_frontend_observe_failures',
-                        'Failed to start observation'
+                        'Failed to start observation',
+                        () => actions.observe(scannerId)
                     )
                     actions.observeFailure()
                 } finally {
@@ -374,7 +394,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     reportTriggerFailure(
                         error,
                         'replay_vision_frontend_summarize_failures',
-                        'Failed to summarize recording'
+                        'Failed to summarize recording',
+                        () => actions.summarize()
                     )
                     actions.summarizeFailure()
                 } finally {

@@ -84,8 +84,9 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
-    const { setDockOpen, retryObservation } = useActions(logic)
+    const { observations, observationsLoading, loadObservationsError, dockOpen, retryingObservationIds } =
+        useValues(logic)
+    const { setDockOpen, retryObservation, loadObservations } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -103,7 +104,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
 
     // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
     const summaries = observations.filter((o) => o.scanner_snapshot?.scanner_type === 'summarizer')
-    const hasContent = summaries.length > 0 || observationsLoading
+    const hasContent = summaries.length > 0 || observationsLoading || loadObservationsError
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
@@ -138,6 +139,13 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                     {observationsLoading && summaries.length === 0 ? (
                         <div className="flex items-center gap-2 text-muted py-4">
                             <Spinner /> Loading summaries…
+                        </div>
+                    ) : loadObservationsError && summaries.length === 0 ? (
+                        <div className="flex items-center gap-2 text-muted text-sm py-4">
+                            <span>Couldn't load summaries.</span>
+                            <LemonButton size="small" type="secondary" onClick={() => loadObservations()}>
+                                Try again
+                            </LemonButton>
                         </div>
                     ) : summaries.length === 0 ? (
                         <div className="text-muted text-sm py-4">

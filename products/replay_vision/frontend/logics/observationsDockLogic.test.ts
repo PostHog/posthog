@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as generatedApi from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -130,6 +132,31 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ dockOpen: true, observations: [] })
         expect(lemonToast.warning).toHaveBeenCalled()
         expect(lemonToast.info).not.toHaveBeenCalled()
+    })
+
+    it('offers a retry rather than a dead toast when summarize hits a network error', async () => {
+        // A transient blip the browser never completes throws NetworkError, not a server refusal.
+        // The old path showed a plain red error with no way back; guard that it stays recoverable.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        jest.spyOn(generatedApi, 'visionScannersInlineScanCreate').mockRejectedValueOnce(new NetworkError('network'))
+
+        logic.actions.summarize()
+        await expectLogic(logic).toDispatchActions(['summarizeFailure'])
+
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Try again' }) })
+        )
+    })
+
+    it('flags a load error so the dock can show a retry instead of an empty state', async () => {
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        useMocks({ get: { '/api/projects/:team/vision/observations/': () => [500, {}] } })
+
+        logic.actions.loadObservations()
+        await expectLogic(logic)
+            .toDispatchActions(['loadObservationsFailure'])
+            .toMatchValues({ loadObservationsError: true })
     })
 
     it('confirms the result when the already-summarized row is readable', async () => {
