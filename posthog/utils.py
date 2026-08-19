@@ -1681,16 +1681,22 @@ def safe_cache_delete(cache_key: str) -> None:
         logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
 
 
-def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int) -> bool:
+def capture_exception_throttled(
+    throttle_key: str, exc: BaseException, ttl: int, *, properties: dict[str, Any] | None = None
+) -> bool:
     """Capture an exception at most once per ``ttl`` window across processes (gated on
     an atomic set-if-absent in the cache). Returns True if this caller captured, False
     if it was throttled, so the caller can record which happened.
+
+    Pass ``properties`` to attach event properties to the capture — e.g.
+    ``{"$exception_fingerprint": "..."}`` to pin a stable error-tracking group so every
+    call site lands in one issue instead of one per stack trace.
 
     The atomic add means a wave of workers failing at once captures only once, instead
     of each racing past a non-atomic get-then-set."""
     captured = safe_cache_add(throttle_key, True, ttl)
     if captured:
-        capture_exception(exc)
+        capture_exception(exc, additional_properties=properties)
     return captured
 
 

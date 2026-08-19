@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -172,7 +173,7 @@ def invalidate_group_types_cache(project_id: int) -> None:
     safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
     safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
     # Clear the confirmed-empty marker so a team adding its first group type stops
-    # short-circuiting project_has_group_types_authoritatively to False immediately.
+    # short-circuiting confirm_project_group_types to ABSENT immediately.
     safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
 
@@ -382,8 +383,8 @@ def _reconfirm_emptied_projects_against_primary(
     otherwise slipped past to the write-side guard and fired its exception. The
     confirmed-empty marker bounds the cost: a project with genuinely no group types (the
     common case) is probed at most once per marker TTL rather than on every rebuild, and
-    the same marker short-circuits the write-side project_has_group_types_authoritatively
-    check, so this moves that primary read earlier rather than adding new load.
+    the same marker short-circuits the write-side confirm_project_group_types check, so
+    this moves that primary read earlier rather than adding new load.
 
     When the primary confirms a project is genuinely empty, its stale key is cleared so a
     later outage can't resurrect the deleted data, and the confirmed-empty marker is set
@@ -513,19 +514,33 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
         return []
 
 
-def project_has_group_types_authoritatively(project_id: int) -> bool:
-    """True if the project has group types per a strong-consistency read, or if that
-    cannot be confirmed (fail closed).
+class GroupTypesPresence(Enum):
+    """Result of an authoritative (primary) group-types check.
+
+    The write-side empty-mapping guard needs the three states apart: PRESENT means an
+    empty write would corrupt good data, ABSENT means the empty write is correct, and
+    UNCONFIRMED means the primary read failed — so the empty can't be trusted, but the
+    cause is an outage, not corruption.
+    """
+
+    PRESENT = "present"
+    ABSENT = "absent"
+    UNCONFIRMED = "unconfirmed"
+
+
+def confirm_project_group_types(project_id: int) -> GroupTypesPresence:
+    """Authoritatively classify whether a project has group types.
 
     The local-eval empty-mapping guard uses this when its cheap last-known-good signal
     (the per-project stale key) is absent, so a write that would empty a populated
     mapping is only allowed when the project is *confirmed* to have no group types.
 
     Uses _fetch_group_types_for_project_direct with "strong" consistency so the read
-    hits the primary, not a lagging replica.  On any error it returns True — the caller
-    must not treat an unconfirmable state as safe to empty.
+    hits the primary, not a lagging replica. On a read failure it returns UNCONFIRMED
+    rather than guessing — the caller must not treat an unconfirmable state as safe to
+    empty, but it also must not report the outage as cache corruption.
 
-    A short-lived "confirmed empty" marker caches the authoritative False so a team
+    A short-lived "confirmed empty" marker caches the authoritative ABSENT so a team
     that has never had group types — the common case, where this fires on every
     no-group rebuild — doesn't probe the writer DB each time. invalidate_group_types_cache
     clears the marker when a group type is created, and the short TTL bounds the window
@@ -533,7 +548,7 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     """
     confirmed_empty_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}"
     if get_safe_cache(confirmed_empty_key):
-        return False
+        return GroupTypesPresence.ABSENT
 
     try:
         has_group_types = (
@@ -541,11 +556,12 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
         )
     except DatabaseError:
         logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
-        return True
+        return GroupTypesPresence.UNCONFIRMED
 
     if not has_group_types:
         safe_cache_set(confirmed_empty_key, True, GROUP_TYPES_CONFIRMED_EMPTY_CACHE_TTL)
-    return has_group_types
+        return GroupTypesPresence.ABSENT
+    return GroupTypesPresence.PRESENT
 
 
 def _dict_to_group_type_mapping_model(

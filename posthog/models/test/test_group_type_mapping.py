@@ -9,11 +9,13 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypeMapping,
+    GroupTypesPresence,
     GroupTypesUnavailable,
     _dict_to_group_type_mapping_model,
     _fetch_group_types_for_projects_via_personhog,
     _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
+    confirm_project_group_types,
     count_group_type_mappings_per_team,
     delete_group_type_mapping,
     get_group_type_mapping_instance,
@@ -21,7 +23,6 @@ from posthog.models.group_type_mapping import (
     get_group_types_for_projects,
     get_group_types_for_team,
     invalidate_group_types_cache,
-    project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
@@ -836,7 +837,7 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         )
 
         # Captured once across the throttle window, but the counter moves both times
-        mock_capture.assert_called_once_with(exc)
+        mock_capture.assert_called_once_with(exc, additional_properties=None)
         assert mock_counter.labels.call_count == 2
 
         first_kwargs = mock_logger.exception.call_args_list[0].kwargs
@@ -847,7 +848,7 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         assert second_kwargs["capture_throttled"] is True
 
 
-class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
+class TestConfirmProjectGroupTypes(SimpleTestCase):
     _PROJECT_IDS = (123, 777, 888)
     _DIRECT_PATCH = "posthog.models.group_type_mapping._fetch_group_types_for_project_direct"
     _SAMPLE_ROW = {
@@ -871,40 +872,42 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
             safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
     @patch(_DIRECT_PATCH)
-    def test_returns_true_when_rows_exist(self, mock_fetch):
+    def test_present_when_rows_exist(self, mock_fetch):
         mock_fetch.return_value = [self._SAMPLE_ROW]
 
-        assert project_has_group_types_authoritatively(123) is True
+        assert confirm_project_group_types(123) is GroupTypesPresence.PRESENT
         mock_fetch.assert_called_once_with(123, "strong", caller_tag="flags/has-group-types")
 
     @patch(_DIRECT_PATCH)
-    def test_returns_false_when_no_rows(self, mock_fetch):
+    def test_absent_when_no_rows(self, mock_fetch):
         mock_fetch.return_value = []
 
-        assert project_has_group_types_authoritatively(123) is False
+        assert confirm_project_group_types(123) is GroupTypesPresence.ABSENT
 
     @patch(_DIRECT_PATCH)
-    def test_fails_closed_on_db_error(self, mock_fetch):
+    def test_unconfirmed_on_db_error(self, mock_fetch):
+        # An unconfirmable state must be reported as UNCONFIRMED, not guessed either way:
+        # the write-side guard skips the write but reports it as an outage, not corruption.
         from django.db import DatabaseError
 
         mock_fetch.side_effect = DatabaseError("db down")
 
-        assert project_has_group_types_authoritatively(123) is True
+        assert confirm_project_group_types(123) is GroupTypesPresence.UNCONFIRMED
 
     @patch(_DIRECT_PATCH)
     def test_confirmed_empty_marker_short_circuits_second_call(self, mock_fetch):
         mock_fetch.return_value = []
 
-        assert project_has_group_types_authoritatively(777) is False
-        assert project_has_group_types_authoritatively(777) is False
+        assert confirm_project_group_types(777) is GroupTypesPresence.ABSENT
+        assert confirm_project_group_types(777) is GroupTypesPresence.ABSENT
         mock_fetch.assert_called_once()
 
     @patch(_DIRECT_PATCH)
     def test_present_result_is_not_cached(self, mock_fetch):
         mock_fetch.return_value = [self._SAMPLE_ROW]
 
-        assert project_has_group_types_authoritatively(777) is True
-        assert project_has_group_types_authoritatively(777) is True
+        assert confirm_project_group_types(777) is GroupTypesPresence.PRESENT
+        assert confirm_project_group_types(777) is GroupTypesPresence.PRESENT
         assert mock_fetch.call_count == 2
 
     def test_invalidate_group_types_cache_clears_confirmed_empty_marker(self):
@@ -941,9 +944,9 @@ class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
     def test_read_path_returns_empty(self, _name, call):
         assert call(self) == []
 
-    def test_project_has_group_types_fails_closed(self):
-        # Unconfirmable state must not be treated as "safe to empty" — fail closed to True.
-        assert project_has_group_types_authoritatively(self.project_id) is True
+    def test_confirm_project_group_types_is_unconfirmed(self):
+        # Unconfirmable state must not be treated as "safe to empty" — report UNCONFIRMED.
+        assert confirm_project_group_types(self.project_id) is GroupTypesPresence.UNCONFIRMED
 
 
 class TestDictToGroupTypeMappingModel(SimpleTestCase):

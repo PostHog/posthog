@@ -34,9 +34,10 @@ from prometheus_client import Counter
 
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypesPresence,
     GroupTypesUnavailable,
+    confirm_project_group_types,
     get_group_types_for_projects,
-    project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
 from posthog.storage.hypercache import (
@@ -445,40 +446,86 @@ def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> b
 _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL = 60  # seconds
 
 
-def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, message: str, **log_fields: Any) -> None:
+# Stable error-tracking fingerprints pinned on the capture so every write path (the
+# signal-driven rebuild, the refresh/warm update_cache, and the verifier's direct
+# db_data write) lands in one issue per cause, rather than one per stack trace or per
+# team. Bump the suffix only to intentionally split a group into a fresh issue.
+_GROUP_MAPPING_EMPTIED_FINGERPRINT = "flag-cache-group-mapping-emptied"
+_GROUP_TYPES_UNAVAILABLE_FINGERPRINT = "flag-cache-group-types-unavailable"
+
+
+def _capture_flag_cache_skip_throttled(
+    throttle_key: str, exc: BaseException, message: str, *, fingerprint: str, **log_fields: Any
+) -> None:
     """Log a skipped flag-cache rebuild and capture the exception, throttling the
     capture across processes. Each log line records whether the capture ran or was
-    throttled."""
-    captured = capture_exception_throttled(throttle_key, exc, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
+    throttled. The fingerprint pins the error-tracking group."""
+    captured = capture_exception_throttled(
+        throttle_key,
+        exc,
+        _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL,
+        properties={"$exception_fingerprint": fingerprint},
+    )
     logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
 
 
-def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool:
-    """True when writing this payload would replace a populated group_type_mapping
-    with an empty one.
+def _report_group_types_unavailable(team: Team, exc: BaseException) -> None:
+    """Record a skipped rebuild caused by group types being unavailable. Shared by the
+    build-time path (GroupTypesUnavailable raised while building the payload) and the
+    write-side guard (an empty mapping the primary read could not confirm), so both land
+    in one metric series and one error-tracking issue."""
+    HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
+    _capture_flag_cache_skip_throttled(
+        "flag_cache_group_types_unavailable_capture_throttle",
+        exc,
+        "Skipped feature_flags cache rebuild: group types unavailable",
+        fingerprint=_GROUP_TYPES_UNAVAILABLE_FINGERPRINT,
+        team_id=team.id,
+    )
 
-    An empty freshly built mapping is correct for a team with no group types but is
-    the symptom of a silent upstream failure for a team that has them. The per-project
-    stale key is the cheap last-known-good signal; when it is absent (never populated,
-    expired, or deleted by a concurrent invalidate_group_types_cache) we confirm
-    against the persons-DB primary, so the check cannot be defeated by stale-key
-    timing.
+
+def _group_mapping_emptied_verdict(team: Team, payload: dict[str, Any]) -> GroupTypesPresence:
+    """Classify a flag-cache write whose group_type_mapping is empty.
+
+    An empty freshly built mapping is correct for a team with no group types (ABSENT)
+    but is the symptom of a silent upstream failure for a team that has them (PRESENT).
+    The per-project stale key is the cheap last-known-good signal; when it is absent
+    (never populated, expired, or deleted by a concurrent invalidate_group_types_cache)
+    we confirm against the persons-DB primary, so the check cannot be defeated by
+    stale-key timing.
+
+    UNCONFIRMED means the primary read itself failed — the empty still can't be trusted,
+    but the cause is a personhog outage, so the caller reports it as an availability
+    problem rather than cache corruption.
     """
     if payload.get("group_type_mapping"):
-        return False
+        return GroupTypesPresence.ABSENT
     if get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}"):
-        return True
-    return project_has_group_types_authoritatively(team.project_id)
+        return GroupTypesPresence.PRESENT
+    return confirm_project_group_types(team.project_id)
 
 
 def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) -> bool:
     """Veto a flag-definitions write that would empty a populated group_type_mapping,
     emitting the skip metric + throttled capture. Shared by every write path — the
-    signal-driven rebuild and the refresh/warm update_cache path — so the guard can't
-    be bypassed depending on which trigger fired."""
+    signal-driven rebuild, the refresh/warm update_cache path, and the verifier's
+    direct db_data write — so the guard can't be bypassed depending on which trigger
+    fired.
+
+    A confirmed-populated mapping (PRESENT) is the corruption guard. An unconfirmable
+    one (UNCONFIRMED) is a personhog primary-read failure: still skip the write, but
+    report it through the group-types-unavailable path so an outage stops masquerading
+    as cache corruption.
+    """
     team = HyperCache.team_from_key(key)
-    if not _group_mapping_would_be_emptied(team, payload):
+    verdict = _group_mapping_emptied_verdict(team, payload)
+    if verdict is GroupTypesPresence.ABSENT:
         return False
+
+    if verdict is GroupTypesPresence.UNCONFIRMED:
+        _report_group_types_unavailable(team, GroupTypesUnavailable([team.project_id]))
+        return True
+
     HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
     _capture_flag_cache_skip_throttled(
         "flag_cache_group_mapping_emptied_capture_throttle",
@@ -487,6 +534,7 @@ def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) 
         # line below for debugging.
         Exception("group_type_mapping would be emptied for a team with populated group types"),
         "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
+        fingerprint=_GROUP_MAPPING_EMPTIED_FINGERPRINT,
         team_id=team.id,
     )
     return True
@@ -513,13 +561,7 @@ def update_flag_caches(team: Team):
         success = True
     except GroupTypesUnavailable as e:
         # Group types could not be loaded; skip the write to keep the existing entry.
-        HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
-        _capture_flag_cache_skip_throttled(
-            "flag_cache_group_types_unavailable_capture_throttle",
-            e,
-            "Skipped feature_flags cache rebuild: group types unavailable",
-            team_id=team.id,
-        )
+        _report_group_types_unavailable(team, e)
         return
     except Exception as e:
         capture_exception(e)

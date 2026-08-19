@@ -21,6 +21,8 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
+    _GROUP_MAPPING_EMPTIED_FINGERPRINT,
+    _GROUP_TYPES_UNAVAILABLE_FINGERPRINT,
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
@@ -340,6 +342,39 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
+    @patch("products.feature_flags.backend.local_evaluation.capture_exception_throttled", return_value=True)
+    def test_skip_captures_pin_stable_fingerprint(self, mock_capture):
+        # Every guard capture must carry a stable $exception_fingerprint so all write
+        # paths (rebuild, refresh, verifier) land in one error-tracking issue per cause
+        # instead of one per stack trace. Corruption guard first:
+        update_flag_caches(self.team)  # warm so the non-empty stale exists
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            return_value={self.team.project_id: []},
+        ):
+            update_flag_caches(self.team)
+        assert mock_capture.call_args.kwargs["properties"] == {
+            "$exception_fingerprint": _GROUP_MAPPING_EMPTIED_FINGERPRINT
+        }
+
+        # Availability path: stale absent and the primary confirmation read fails.
+        mock_capture.reset_mock()
+        self._clear_stale()
+        with (
+            patch(
+                "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+                return_value={self.team.project_id: []},
+            ),
+            patch(
+                "posthog.models.group_type_mapping._fetch_group_types_for_project_direct",
+                side_effect=DatabaseError("persons db down"),
+            ),
+        ):
+            update_flag_caches(self.team)
+        assert mock_capture.call_args.kwargs["properties"] == {
+            "$exception_fingerprint": _GROUP_TYPES_UNAVAILABLE_FINGERPRINT
+        }
+
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
@@ -378,10 +413,13 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
-    def test_fails_closed_when_confirmation_read_errors(self, mock_emptied_counter):
-        # Stale absent and the authoritative confirmation read fails: the guard must
-        # fail closed (block the empty write) rather than risk clobbering good data.
+    def test_reports_unavailable_when_confirmation_read_errors(self, mock_emptied_counter, mock_skipped_counter):
+        # Stale absent and the authoritative confirmation read fails: the guard must still
+        # block the empty write, but report it as a personhog outage — not as the
+        # corruption guard — so an availability problem stops masquerading as cache
+        # corruption.
         update_flag_caches(self.team)
         assert self._cached_group_type_mapping() == {"0": "organization"}
         self._clear_stale()
@@ -400,7 +438,8 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
                 update_flag_caches(self.team)
                 mock_set.assert_not_called()
 
-        mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
+        mock_emptied_counter.labels.assert_not_called()
+        mock_skipped_counter.labels.assert_called_once_with(namespace="feature_flags", reason="group_types_unavailable")
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
 
