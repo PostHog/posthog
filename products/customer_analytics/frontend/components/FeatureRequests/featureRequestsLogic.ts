@@ -1227,9 +1227,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         activeRequestAccountLinks: [
             (selectors) => [selectors.activeRequest],
-            (activeRequest: FeatureRequestApi | null): FeatureRequestAccountLinkApi[] => [
-                ...(activeRequest?.account_links ?? []),
-            ],
+            (activeRequest: FeatureRequestApi | null): FeatureRequestAccountLinkApi[] =>
+                [...(activeRequest?.account_links ?? [])].sort(
+                    (first, second) =>
+                        second.evidence.length - first.evidence.length ||
+                        first.account.name.localeCompare(second.account.name)
+                ),
         ],
         visibleActiveRequestAccountLinks: [
             (selectors) => [selectors.activeRequestAccountLinks, selectors.requestAccountsShowingAll],

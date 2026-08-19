@@ -395,6 +395,51 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceModalOpen).toBe(false)
     })
 
+    it('orders accounts by evidence count', () => {
+        const evidence = {
+            id: 'evidence-1',
+            summary: 'Requested export',
+            customer_quote: '',
+            evidence_source: 'conversation',
+            source_url: '',
+            requested_on: '2026-01-03',
+            created_by: 1,
+            updated_by: 1,
+            created_at: '2026-01-03T00:00:00Z',
+            updated_at: '2026-01-03T00:00:00Z',
+        }
+        const requestWithEvidence: FeatureRequestApi = {
+            ...createdRequest,
+            account_links: [
+                {
+                    ...createdRequest.account_links[0],
+                    account: { id: 'account-1', name: 'No evidence' },
+                    evidence: [],
+                },
+                {
+                    ...createdRequest.account_links[0],
+                    id: 'account-link-2',
+                    account: { id: 'account-2', name: 'One evidence' },
+                    evidence: [evidence],
+                },
+                {
+                    ...createdRequest.account_links[0],
+                    id: 'account-link-3',
+                    account: { id: 'account-3', name: 'Two evidences' },
+                    evidence: [evidence, { ...evidence, id: 'evidence-2' }],
+                },
+            ],
+        }
+
+        logic.actions.loadActiveRequestSuccess(requestWithEvidence)
+
+        expect(logic.values.activeRequestAccountLinks.map((link) => link.account.name)).toEqual([
+            'Two evidences',
+            'One evidence',
+            'No evidence',
+        ])
+    })
+
     it('shows five account cards before expanding the full list', () => {
         const requestWithAccounts: FeatureRequestApi = {
             ...createdRequest,
