@@ -102,8 +102,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
         description=(
-            "All live public channels plus the requester's personal #me channel when it exists. "
-            "Listing does not provision; call provision_defaults to create the default channels."
+            "All live public channels plus the requester's personal #me channel when it exists, "
+            "sorted by name. Listing does not provision; call provision_defaults to create the "
+            "default channels."
         ),
     )
     def list(self, request, *args, **kwargs):

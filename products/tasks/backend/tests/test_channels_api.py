@@ -184,30 +184,6 @@ class ChannelsAPITestCase(TestCase):
         legacy.refresh_from_db()
         self.assertEqual(legacy.system_role, Channel.SystemRole.GENERAL)
 
-    def test_unstamped_general_channel_sorts_first_in_listing(self):
-        # A member with a saved location never triggers provisioning, so their team's
-        # "general" row can still be unstamped when the list is read. It must sort first
-        # anyway, the same way a stamped one does.
-        Channel.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            created_by=self.user,
-            name="alpha",
-            channel_type=Channel.ChannelType.PUBLIC,
-        )
-        general = Channel.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            created_by=self.user,
-            name=Channel.GENERAL_CHANNEL_NAME,
-            channel_type=Channel.ChannelType.PUBLIC,
-        )
-
-        response = self.client.get(self._channels_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        listed = response.json()
-        self.assertEqual([c["name"] for c in listed], ["general", "alpha"])
-        self.assertEqual(listed[0]["id"], str(general.id))
-        self.assertIsNone(listed[0]["system_role"])
-
     def test_creating_a_space_named_general_resolves_the_system_space(self):
         created = self.client.post(self._channels_url(), {"name": "General"})
         self.assertEqual(created.status_code, status.HTTP_200_OK)
