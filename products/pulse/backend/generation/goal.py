@@ -10,6 +10,7 @@ from products.pulse.backend.generation.metrics import pct_delta, per_day_rate, r
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_insights import (
     InsightResultsCache,
+    ScoreWindows,
     resolve_metric_insight,
     series_daily_values,
     split_score_windows,
@@ -81,9 +82,8 @@ def collect_goal_status(
     if windows is None:
         logger.info("pulse_goal_metric_unreadable", team_id=team.id, insight_short_id=short_id)
         return unavailable
-    previous, current = windows
-    previous_rate = per_day_rate(previous)
-    current_rate = per_day_rate(current)
+    previous_rate = per_day_rate(windows.baseline)
+    current_rate = per_day_rate(windows.current)
     return GoalStatus(
         goal=goal,
         metric_state="ok",
@@ -106,7 +106,7 @@ def _metric_short_id(config: BriefConfig) -> str | None:
     return short_id if isinstance(short_id, str) and short_id else None
 
 
-def _goal_windows(results: list[Any], period_days: int) -> tuple[list[float], list[float]] | None:
+def _goal_windows(results: list[Any], period_days: int) -> ScoreWindows | None:
     if not results:
         return None
     values = series_daily_values(results[0], period_days)

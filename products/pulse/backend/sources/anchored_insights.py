@@ -8,6 +8,7 @@ import structlog
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -114,8 +115,17 @@ def series_daily_values(series_result: Any, period_days: int) -> list[float] | N
     return [float(v) for v in series_result["data"][-2 * period_days :]]
 
 
-def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
-    """Split a pre-trimmed daily series into (baseline, current) halves.
+@frozen
+class ScoreWindows:
+    """The two equal-length halves a movement is scored across. Named rather than a tuple so the
+    two same-typed series cannot be swapped at a call site."""
+
+    baseline: list[float]
+    current: list[float]
+
+
+def split_score_windows(values: list[float]) -> ScoreWindows | None:
+    """Split a pre-trimmed daily series into baseline and current halves.
 
     Shared by gathering, goal, and accountability re-scoring so "current" always means the same
     window math the movement was originally scored with. Callers trim the series to 2×period_days
@@ -126,7 +136,7 @@ def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] 
     if len(values) < 2:
         return None
     half = len(values) // 2
-    return values[:half], values[half:]
+    return ScoreWindows(baseline=values[:half], current=values[half:])
 
 
 class AnchoredInsightsSource:

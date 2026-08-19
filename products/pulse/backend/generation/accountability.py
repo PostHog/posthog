@@ -3,6 +3,7 @@ from collections.abc import Callable
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import cast
 
 from django.utils import timezone
 
@@ -73,7 +74,10 @@ def collect_accountability(
         .order_by("-created_at")[: MAX_STATUS_LINES * 2]
     )
     usable = [row for row in rows if _has_usable_refs(row)]
-    insights = resolve_metric_insights(team, {opportunity.metric_ref["insight_short_id"] for opportunity in usable})
+    # Only opportunities that cleared _has_usable_refs reach here, so metric_ref is a dict.
+    insights = resolve_metric_insights(
+        team, {cast(dict, opportunity.metric_ref)["insight_short_id"] for opportunity in usable}
+    )
     results_cache = results_cache or InsightResultsCache(team)
     lines: list[OpportunityStatusLine] = []
     started_at = time.monotonic()
@@ -114,7 +118,7 @@ def _status_line(
     insights: dict[str, Insight],
     results_cache: InsightResultsCache,
 ) -> OpportunityStatusLine:
-    baseline = opportunity.baseline
+    baseline = cast(dict, opportunity.baseline)
     period_days = int(baseline["period_days"])
     # period_days is the only denominator the snapshot recorded.
     then_rate = float(baseline["current_total"]) / period_days
@@ -156,7 +160,8 @@ def _current_window(
     A fixed-date-range insight returns the same series forever and re-scores to delta ≈ 0,
     which reads as "no change" — a known v1 limitation.
     """
-    short_id = opportunity.metric_ref["insight_short_id"]
+    metric_ref = cast(dict, opportunity.metric_ref)
+    short_id = metric_ref["insight_short_id"]
     insight = insights.get(short_id)
     if insight is None:
         # Info logs on the unavailable branches (mirrors collect_goal_status): a quietly broken
@@ -174,13 +179,13 @@ def _current_window(
         # A stuck query degrades to "metric no longer available", not a blanked activity.
         logger.warning("pulse_accountability_insight_timeout", insight_short_id=short_id)
         return None
-    series_index = int(opportunity.metric_ref.get("series_index", 0))
+    series_index = int(metric_ref.get("series_index", 0))
     if 0 <= series_index < len(results):
         values = series_daily_values(results[series_index], period_days)
         if values is not None:
             windows = split_score_windows(values)
             if windows is not None:
-                return windows[1]
+                return windows.current
     logger.info(
         "pulse_accountability_metric_unreadable",
         team_id=opportunity.team_id,
