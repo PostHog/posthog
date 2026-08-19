@@ -15,6 +15,8 @@ export interface ArchiveWorkspaceInfo extends OptimisticWorkspaceInfo {
 export interface ArchiveCacheWriter {
   cancelPathFilter(): Promise<void>;
   invalidatePathFilter(): void;
+  /** Refetch the archived id/list queries so they match what the host stored. */
+  invalidateArchivedState(): void;
   setArchivedTaskIds(updater: (old: string[] | undefined) => string[]): void;
   setArchiveList(
     updater: (old: ArchivedTask[] | undefined) => ArchivedTask[],
@@ -134,6 +136,10 @@ export async function archiveTask(
 
     deps.cache.setArchivedTaskIds((old) => removeArchivedTaskId(old, taskId));
     deps.cache.setArchiveList((old) => removeArchivedTask(old, taskId));
+    // The rollback above assumes the failure left the task unarchived, which is
+    // a guess — the host may have stored the archive and failed afterwards. Ask
+    // it, so a task that is archived stays out of the sidebar either way.
+    deps.cache.invalidateArchivedState();
     if (wasPinned) {
       try {
         await deps.togglePin(taskId);

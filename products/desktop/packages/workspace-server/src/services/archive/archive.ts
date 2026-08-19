@@ -93,6 +93,13 @@ export class ArchiveService {
   private readonly log: ScopedLogger;
   private recoveryStarted = false;
 
+  /**
+   * Idempotent: archiving an already-archived task returns the existing record
+   * instead of failing. The caller wants the task off the list, and it already
+   * is — reporting that as an error made the renderer roll its archived-state
+   * cache back to "not archived", putting the row back in the sidebar and
+   * leaving no way to archive it again.
+   */
   async archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
     this.log.info(`Archiving task ${input.taskId}`);
 
@@ -137,7 +144,7 @@ export class ArchiveService {
       // `getArchivedTaskIds` never reports it and the row reappears on refetch.
       const existing = this.taskMetadataRepo.findByTaskId(taskId);
       if (existing?.archivedAt) {
-        throw new Error(`Task ${taskId} is already archived`);
+        return this.toRowlessArchivedTask(existing);
       }
       const archivedAt = new Date().toISOString();
       await step(
@@ -167,13 +174,18 @@ export class ArchiveService {
       };
     }
 
-    const existingArchive = this.archiveRepo.findByWorkspaceId(workspace.id);
-    if (existingArchive) {
-      throw new Error(`Task ${taskId} is already archived`);
-    }
-
     const suspension = this.suspensionRepo.findByWorkspaceId(workspace.id);
     const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
+
+    const existingArchive = this.archiveRepo.findByWorkspaceId(workspace.id);
+    if (existingArchive) {
+      return this.toArchivedTask(
+        workspace,
+        existingArchive,
+        worktree?.name ?? null,
+        worktree?.path ?? null,
+      );
+    }
 
     if (suspension) {
       const archivedTask: ArchivedTask = {
@@ -521,22 +533,8 @@ export class ArchiveService {
         worktree?.path ?? null,
       );
     });
-    const rowless = this.rowlessArchived().map(
-      (meta): ArchivedTask => ({
-        taskId: meta.taskId,
-        // `rowlessArchived` only returns rows with a non-null `archivedAt`.
-        archivedAt: meta.archivedAt as string,
-        folderId: "",
-        mode: "cloud",
-        worktreeName: null,
-        branchName: null,
-        checkpointId: null,
-        title:
-          meta.archivedTitle ?? `Unknown task (${meta.taskId.slice(0, 8)})`,
-        taskCreatedAt: meta.archivedTaskCreatedAt ?? meta.createdAt,
-        repository: meta.archivedRepository,
-        recoveryPending: !meta.archivedTitle,
-      }),
+    const rowless = this.rowlessArchived().map((meta) =>
+      this.toRowlessArchivedTask(meta),
     );
     return [...fromWorkspaces, ...rowless];
   }
@@ -713,6 +711,23 @@ export class ArchiveService {
       taskCreatedAt: archive.taskCreatedAt ?? workspace.createdAt,
       repository: archive.repository ?? repository?.path ?? worktreePath,
       recoveryPending: !archive.title,
+    };
+  }
+
+  private toRowlessArchivedTask(meta: TaskMetadataRow): ArchivedTask {
+    return {
+      taskId: meta.taskId,
+      // Only reached for rows with a non-null `archivedAt`.
+      archivedAt: meta.archivedAt as string,
+      folderId: "",
+      mode: "cloud",
+      worktreeName: null,
+      branchName: null,
+      checkpointId: null,
+      title: meta.archivedTitle ?? `Unknown task (${meta.taskId.slice(0, 8)})`,
+      taskCreatedAt: meta.archivedTaskCreatedAt ?? meta.createdAt,
+      repository: meta.archivedRepository,
+      recoveryPending: !meta.archivedTitle,
     };
   }
 

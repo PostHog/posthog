@@ -66,6 +66,10 @@ function makeCacheWriter(
     invalidatePathFilter: () => {
       queryClient.invalidateQueries({ queryKey: keys.archivePathFilterKey });
     },
+    invalidateArchivedState: () => {
+      queryClient.invalidateQueries({ queryKey: keys.archivedTaskIdsQueryKey });
+      queryClient.invalidateQueries({ queryKey: keys.archiveListQueryKey });
+    },
     setArchivedTaskIds: (updater) =>
       queryClient.setQueryData(keys.archivedTaskIdsQueryKey, updater),
     setArchiveList: (updater) =>

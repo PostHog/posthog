@@ -437,15 +437,16 @@ describe("ArchiveService integration", () => {
         expect(await pathExists(worktreePath)).toBe(false);
       }));
 
-    it("throws when trying to archive already archived task", () =>
+    it("archiving an already archived task returns the existing record", () =>
       withTestContext({}, async (ctx) => {
         await ctx.setupWorktree("detached");
 
         await ctx.service.archiveTask(ctx.archiveInput());
+        const second = await ctx.service.archiveTask(ctx.archiveInput());
 
-        await expect(
-          ctx.service.archiveTask(ctx.archiveInput()),
-        ).rejects.toThrow("already archived");
+        expect(second).toEqual(ctx.service.getArchivedTasks()[0]);
+        expect(ctx.archiveRepo.findAll()).toHaveLength(1);
+        expect(ctx.service.getArchivedTaskIds()).toEqual([TASK_ID]);
       }));
 
     it("archive finds worktree at legacy path format", () =>
@@ -599,12 +600,13 @@ describe("ArchiveService integration", () => {
         );
       }));
 
-    it("rejects archiving a rowless task that is already archived", () =>
+    it("archiving an already archived rowless task returns the existing record", () =>
       withTestContext({ hasWorkspace: false }, async (ctx) => {
         await ctx.service.archiveTask({ taskId: "nonexistent" });
-        await expect(
-          ctx.service.archiveTask({ taskId: "nonexistent" }),
-        ).rejects.toThrow("already archived");
+        const second = await ctx.service.archiveTask({ taskId: "nonexistent" });
+
+        expect(second).toEqual(ctx.service.getArchivedTasks()[0]);
+        expect(ctx.service.getArchivedTaskIds()).toEqual(["nonexistent"]);
       }));
 
     // Unarchive and delete are parallel "remove a rowless task from the archived

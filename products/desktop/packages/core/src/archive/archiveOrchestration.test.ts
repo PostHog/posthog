@@ -35,6 +35,7 @@ class Harness {
     cache: {
       cancelPathFilter: vi.fn().mockResolvedValue(undefined),
       invalidatePathFilter: vi.fn(),
+      invalidateArchivedState: vi.fn(),
       setArchivedTaskIds: (updater) => {
         this.ids = updater(this.ids);
       },
@@ -112,6 +113,9 @@ describe("archiveTask", () => {
     expect(harness.ids).not.toContain(TASK_ID);
     expect(harness.list).toEqual([]);
     expect(harness.deps.togglePin).toHaveBeenCalledWith(TASK_ID);
+    // Rolling back to "not archived" is a guess about what the host did with a
+    // request that failed, so it has to be re-checked against the host.
+    expect(harness.deps.cache.invalidateArchivedState).toHaveBeenCalled();
   });
 
   it("archives when reading task pins fails", async () => {
