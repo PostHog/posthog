@@ -85,9 +85,9 @@ export function OnboardingFlow() {
   const apiClient = useOptionalAuthenticatedClient();
 
   // Best-effort: provision the default spaces and make the onboarding repo
-  // pick their default repo — the personal space always, #general only when
-  // this call just created it. The response also seeds the channel cache the
-  // first-run landing reads right after.
+  // pick their default repo, the personal space always and #general only
+  // when this call just created it. The response also seeds the channel
+  // cache the first-run landing reads right after.
   const assignRepoToSpaces = async (): Promise<void> => {
     if (!apiClient) return;
     const provisioned = await apiClient.provisionDefaultTaskChannels();
