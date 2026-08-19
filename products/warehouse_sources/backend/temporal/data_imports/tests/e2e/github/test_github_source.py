@@ -45,7 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import (
+    GITHUB_WEBHOOK_EVENT_LABELS,
+    GITHUB_WEBHOOK_RESOURCE_MAP,
+    GithubSource,
+)
 
 
 def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:
@@ -1472,6 +1476,14 @@ class TestGithubWebhookSource:
             "pull_request_comments": "pull_request_review_comment",
             "commit_comments": "commit_comment",
         }
+
+    def test_manual_setup_instructions_list_every_mapped_event(self) -> None:
+        # A mapped event missing from the instructions leaves a manually-created hook unsubscribed
+        # from it, so the table stays empty with no error. The list already lost check_runs once.
+        caption = self.source.get_source_config.webhookSetupCaption
+        assert caption is not None
+        for event in set(GITHUB_WEBHOOK_RESOURCE_MAP.values()):
+            assert GITHUB_WEBHOOK_EVENT_LABELS[event] in caption
 
     def test_webhook_template_identity(self) -> None:
         template = self.source.webhook_template

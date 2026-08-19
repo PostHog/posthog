@@ -95,13 +95,35 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     # event's `sha`, which is the column the poll fan-out copies off the parent commit.
     "commit_statuses": "status",
     # The three comment tables all nest the row under `comment`, and GitHub's comment objects are
-    # the same shape its REST list endpoints return, so the template only unwraps them. They keep
-    # an unset initial_lookback_days, which leaves them poll-capable: the poll bootstraps the table
-    # and the webhook takes over once initial_sync_complete is set.
+    # the same shape its REST list endpoints return, so the template only unwraps them. Their
+    # initial_lookback_days stays non-zero, which leaves them poll-capable: the poll bootstraps the
+    # table and the webhook takes over once initial_sync_complete is set.
     "issue_comments": "issue_comment",
     "pull_request_comments": "pull_request_review_comment",
     "commit_comments": "commit_comment",
 }
+
+# GitHub's own checkbox label for each mapped event, used to build the manual webhook setup
+# instructions. Deriving that list from the map keeps it from drifting: it already lost `Check
+# runs` once, which silently left manually-created hooks missing a mapped event.
+GITHUB_WEBHOOK_EVENT_LABELS: dict[str, str] = {
+    "workflow_job": "Workflow jobs",
+    "workflow_run": "Workflow runs",
+    "pull_request_review": "Pull request reviews",
+    "deployment": "Deployments",
+    "deployment_status": "Deployment statuses",
+    "check_run": "Check runs",
+    "status": "Statuses",
+    "issue_comment": "Issue comments",
+    "pull_request_review_comment": "Pull request review comments",
+    "commit_comment": "Commit comments",
+}
+
+# Rendered into the manual setup instructions. A mapped event with no label raises on import, so
+# drift fails in CI rather than shipping instructions that miss an event.
+GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
+    f"   - {GITHUB_WEBHOOK_EVENT_LABELS[event]}" for event in dict.fromkeys(GITHUB_WEBHOOK_RESOURCE_MAP.values())
+)
 
 # Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
 # template lands `body[eventType]` as the row and these nest the object under a different key
@@ -221,14 +243,15 @@ class GithubSource(
                     ),
                 ],
             ),
-            webhookSetupCaption="""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
+            webhookSetupCaption=f"""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
 
 1. Go to the repository's **Settings > Webhooks** on GitHub
 2. Click **Add webhook**
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events**, then tick:
+{GITHUB_WEBHOOK_EVENT_CHECKLIST}
 7. Click **Add webhook**
 
 If automatic creation failed with a permissions error, the fix depends on how you connected:

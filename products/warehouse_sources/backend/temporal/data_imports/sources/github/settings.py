@@ -4,6 +4,8 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
+# nosemgrep: prefer-frozen-dataclasses -- tests patch fields on these config records, so freezing
+# them is its own change; the class stays tracked in dataclass_frozen_baseline.txt for that work.
 @dataclass
 class GithubEndpointConfig:
     name: str
