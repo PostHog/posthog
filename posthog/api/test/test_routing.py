@@ -48,6 +48,19 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class SerializerlessFooViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    # Mirrors SignalProcessingViewSet: a list route that allows PUT via a custom action,
+    # with no serializer_class. An OPTIONS request must not 500 building action metadata.
+    scope_object = "INTERNAL"
+
+    def list(self, request, **kwargs):
+        return Response({})
+
+    @action(detail=False, methods=["put"])
+    def pause(self, request, **kwargs):
+        return Response({})
+
+
 test_router = DefaultRouterPlusPlus()
 
 # A team_id-nested parent (distinct from the project_id-nested one below) so the mixin's
@@ -74,6 +87,11 @@ scoped_test_organizations_router = test_router.register(
 )
 scoped_test_organizations_router.register(
     r"scoped_foos", ScopedFooViewSet, "scoped_organization_foos", ["organization_id"]
+)
+
+serializerless_projects_router = test_router.register(r"serializerless", SerializerlessFooViewSet, "serializerless")
+serializerless_projects_router.register(
+    r"serializerless_foos", SerializerlessFooViewSet, "serializerless_project_foos", ["team_id"]
 )
 
 
@@ -173,6 +191,21 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+
+    def test_options_on_serializerless_list_put_route_does_not_500(self):
+        # A list route that allows PUT with no serializer_class used to 500 on OPTIONS:
+        # metadata generation called get_object()/get_serializer(), both of which assert.
+        response = self.client.options(f"/api/serializerless/{self.team.id}/serializerless_foos/pause/")
+
+        self.assertEqual(response.status_code, 200)
+        # PUT here is a custom list action, so no request-body metadata is generated for it.
+        self.assertNotIn("PUT", response.json().get("actions", {}))
+
+    def test_options_on_detail_route_still_describes_put_body(self):
+        response = self.client.options(f"/api/projects/{self.team.id}/foos/{self.current_team_annotation.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("PUT", response.json()["actions"])
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

@@ -130,23 +130,28 @@ class RouterRegistry:
 
 
 class ListSafeMetadata(SimpleMetadata):
-    """Metadata for OPTIONS requests that never calls ``get_object`` on a list route.
+    """Metadata for OPTIONS requests that skips PUT action metadata on a list route.
 
-    DRF's ``SimpleMetadata`` calls ``view.get_object()`` for any allowed PUT while it
-    builds the OPTIONS response. A list route (``detail=False``) has no lookup kwarg in
-    its URL, so ``get_object()`` trips a DRF assertion. ``determine_actions`` only
-    catches ``APIException``, so that ``AssertionError`` escapes as a 500. Only look up
-    the object on a detail route.
+    DRF's ``SimpleMetadata`` calls ``view.get_object()`` and ``view.get_serializer()``
+    for any allowed PUT while it builds the OPTIONS response. On a list route
+    (``detail=False``) a PUT is a custom ``@action`` whose body is described by
+    ``@extend_schema``, not the viewset serializer, and the viewset may define no
+    serializer at all. ``get_object()`` then asserts on the missing lookup kwarg and
+    ``get_serializer()`` asserts on the missing serializer. ``determine_actions``
+    catches only ``APIException``, so either ``AssertionError`` escapes as a 500. Skip
+    the PUT branch on a list route; the OPTIONS ``Allow`` header still lists PUT.
     """
 
     def determine_actions(self, request, view):
         actions = {}
         for method in {"PUT", "POST"} & set(view.allowed_methods):
+            if method == "PUT" and not getattr(view, "detail", False):
+                continue
             view.request = clone_request(request, method)
             try:
                 if hasattr(view, "check_permissions"):
                     view.check_permissions(view.request)
-                if method == "PUT" and getattr(view, "detail", False) and hasattr(view, "get_object"):
+                if method == "PUT" and hasattr(view, "get_object"):
                     view.get_object()
             except (exceptions.APIException, PermissionDenied, Http404):
                 pass
@@ -163,7 +168,8 @@ class ListSafeMetadata(SimpleMetadata):
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
-    metadata_class = ListSafeMetadata
+    # The DRF stub types this attribute as an instance; DRF actually takes the class.
+    metadata_class = ListSafeMetadata  # type: ignore[assignment]
 
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one

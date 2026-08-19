@@ -1332,7 +1332,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         response = self.client.options(self._label_url("my-prompt", "production"))
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["name"]
+        assert "PUT" not in response.json().get("actions", {})
 
     def test_resolve_returns_all_labels_including_versions_beyond_loaded_page(self):
         self.create_prompt_version(version=1, is_latest=False)
