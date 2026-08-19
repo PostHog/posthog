@@ -19,12 +19,14 @@ class TestContextLayerFacade(BaseTest):
 
     def test_sandbox_env_vars_with_wiki(self) -> None:
         store.initialize_repo(self.organization.id)
-        env = facade.sandbox_environment_variables(self.organization.id)
+        env = facade.sandbox_environment_variables(self.organization.id, self.team.id)
         assert env[facade.MOUNT_PATH_ENV_VAR] == facade.SANDBOX_MOUNT_PATH
-        assert env[facade.COMMITS_PATH_ENV_VAR] == (f"/api/organizations/{self.organization.id}/context_layer/commits")
+        # The project-nested route, because the sandbox run token carries
+        # scoped_teams and the org-nested route refuses it.
+        assert env[facade.COMMITS_PATH_ENV_VAR] == f"/api/projects/{self.team.id}/context_layer/commits"
 
     def test_sandbox_env_vars_empty_without_wiki(self) -> None:
-        assert facade.sandbox_environment_variables(self.organization.id) == {}
+        assert facade.sandbox_environment_variables(self.organization.id, self.team.id) == {}
 
     @patch("products.context_layer.backend.facade.api.posthog_feature_flag_enabled", side_effect=RuntimeError("boom"))
     def test_flag_check_fails_closed(self, _flag) -> None:
