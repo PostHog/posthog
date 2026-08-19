@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
@@ -311,6 +312,7 @@ export interface dataNodeLogicValues {
     shouldCalculateCount: boolean
     timings: QueryTiming[] | null
     totalCount: number | null
+    totalCountLoadFailed: boolean
     totalCountLoading: boolean
     totalCountQuery: DataNode | null
     variableOverridesAreSet: boolean
@@ -585,6 +587,9 @@ export interface dataNodeLogicActions {
     }
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
+    }
+    setTotalCountLoadFailed: (failed: boolean) => {
+        failed: boolean
     }
     setResponse: (
         response: Exclude<AnyResponseType, undefined>
@@ -865,6 +870,22 @@ export type dataNodeLogicType = MakeLogicType<
     dataNodeLogicMeta
 >
 
+// Report a failed count query with enough context to group it by cause. Without the query kind and
+// the response status, every failure lands in error tracking under Django's generic "A server error
+// occurred." string. Plain server 5xx responses are already reported by the server, so re-capturing
+// them here only adds a context-free duplicate.
+function captureCountError(error: unknown, action: string, query: DataNode | null): void {
+    const status = error instanceof ApiError ? error.status : undefined
+    if (status !== undefined && status >= 500 && status < 600) {
+        return
+    }
+    posthog.captureException(error, {
+        action,
+        query_kind: query?.kind,
+        response_status: status,
+    })
+}
+
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
@@ -952,6 +973,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        setTotalCountLoadFailed: (failed: boolean) => ({ failed }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -1371,8 +1393,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         shouldCalculateCount: [false, { loadTotalCount: () => true, loadFilteredCount: () => true }],
+        totalCountLoadFailed: [
+            false,
+            {
+                loadTotalCount: () => false,
+                setTotalCountLoadFailed: (_, { failed }) => failed,
+            },
+        ],
     })),
-    lazyLoaders(({ values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         totalCount: [
             null as number | null,
             {
@@ -1387,7 +1416,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        captureCountError(error, 'load total count in dataNodeLogic', query)
+                        actions.setTotalCountLoadFailed(true)
                         return null
                     }
                 },
@@ -1411,7 +1441,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         if (isBreakpoint(error)) {
                             throw error
                         }
-                        posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        captureCountError(error, 'load filtered count in dataNodeLogic', query)
                         return null
                     }
                 },

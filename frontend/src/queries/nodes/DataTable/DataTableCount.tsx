@@ -1,13 +1,22 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/queries/utils'
 
 export function DataTableCount(): JSX.Element | null {
-    const { totalCount, totalCountLoading, filteredCount, filteredCountLoading, hasActiveFilters, query } =
-        useValues(dataNodeLogic)
+    const {
+        totalCount,
+        totalCountLoading,
+        totalCountLoadFailed,
+        filteredCount,
+        filteredCountLoading,
+        hasActiveFilters,
+        query,
+    } = useValues(dataNodeLogic)
+    const { loadTotalCount } = useActions(dataNodeLogic)
 
     const loading = totalCountLoading || filteredCountLoading
 
@@ -16,6 +25,16 @@ export function DataTableCount(): JSX.Element | null {
     }
 
     if (totalCount === null) {
+        if (totalCountLoadFailed) {
+            return (
+                <span className="text-muted-alt text-xs">
+                    Couldn't load count.{' '}
+                    <LemonButton type="tertiary" size="xsmall" onClick={() => loadTotalCount()}>
+                        Retry
+                    </LemonButton>
+                </span>
+            )
+        }
         return null
     }
 
