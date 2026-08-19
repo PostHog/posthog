@@ -60,9 +60,15 @@ value _and_ the **match reason** for a specific user — so you rarely have to g
    `organization_member:read` scope; or when the only hit carries `search_match_type: similar` — that's a
    fuzzy typo match, not the same address, and this tool exposes no exact-email filter to fall back on.
    Even a clean match is corroboration, not authentication: it doesn't prove whoever wrote the ticket
-   owns that mailbox, and organization membership doesn't prove access to that one project. Escalate
-   whenever anything looks off, and hold that bar lower still for a high-value or destructive ask such as
-   a flag mutation. Once per ticket, before every read below.
+   owns that mailbox. It also proves **organization** membership, not project entitlement —
+   `switch-project` verifies _your_ access to the project, never theirs, and no tool checks a requester
+   against a single project (every tool in `products/access_control/mcp/tools.yaml` is disabled). So a
+   member of a multi-project organization can name a private project they cannot open themselves and
+   still pass this check. **Fail closed there:** when the organization holds more than one project, a
+   member-list match licenses you to ask the operator, not to read — get them to confirm the requester
+   works in that specific project before you switch. Escalate whenever anything looks off, and hold that
+   bar lower still for a high-value or destructive ask such as a flag mutation. Once per ticket, before
+   every read below.
 3. **Resolve the flag.** `posthog:feature-flag-get-definition-by-key` (or `posthog:feature-flag-get-all` to search),
    and pull the config fields in [references/pulling-the-data.md](references/pulling-the-data.md).
 4. **Reproduce the evaluation server-side.** This is the step that usually answers it. Run
@@ -127,9 +133,12 @@ Expand the non-obvious ones:
   a given user has a **fixed** position; they're in or out until the rollout % crosses that point.
   "It's not rolling out to me" at <100% is usually this, not a bug. (Offline rollout-gate check in
   [references/pulling-the-data.md](references/pulling-the-data.md) for the rare case you need it.)
-- **`no_group_type` — the SDK didn't pass the group.** A group-aggregated flag (see
-  `filters.aggregation_group_type_index`) needs the group in every evaluation call. This is a code
-  fix in the customer's app, not a config change.
+- **`no_group_type` — the SDK didn't pass the group.** A group-aggregated condition needs the group in
+  every evaluation call. This is a code fix in the customer's app, not a config change. Aggregation is
+  set per condition, so read `filters.groups[].aggregation_group_type_index` as well as the flag-level
+  `filters.aggregation_group_type_index` — on a **mixed** flag the flag-level field is `null` and only
+  some conditions aggregate by group. The matcher skips a group condition it can't evaluate and
+  continues, so the remaining person conditions still decide the value.
 - **`super_condition_value` — the hidden override (early-access enrollment).** This is early-access
   feature enrollment: it early-returns before normal targeting, so a flag can be "on" for someone who
   matches no visible release condition (or off despite matching one). It's driven by
@@ -292,5 +301,10 @@ flag key, never the flag key alone:
 
 ```sql
 WHERE properties.$group_<organization_index> = '<organization_id>'
+  AND properties.$group_<project_index> = '<project_uuid>'
   AND properties.$feature_flag = '<flag-key>'
 ```
+
+Scope by **both** groups. The organization filter alone still spans every project in that organization, so
+a requester who lacks access to a sibling project using the same flag key would otherwise get its activity
+back.
