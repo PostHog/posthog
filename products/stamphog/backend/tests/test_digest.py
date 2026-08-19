@@ -529,6 +529,6 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
                 post_digest(team.id, channel, summary)
             if expected_error is DigestSlackError:
                 assert "/invite @PostHog" in str(caught.value)
-                assert join_error in str(caught.value)
+                assert str(join_error) in str(caught.value)
 
     assert actually_joined == joined
