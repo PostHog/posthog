@@ -8,12 +8,13 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclot
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
+import { EmailService, SMTP_MAX_SEND_ATTEMPTS, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
@@ -829,6 +830,53 @@ describe('EmailService', () => {
             expect(scheduledMs).toBeLessThan(before + 31_000)
             // No business metric on reschedule — the eventual retry produces email_sent
             expect(result.metrics ?? []).toEqual([])
+        })
+
+        it('gives up after the max attempts when the relay answers 4xx forever, with escalating delays', async () => {
+            smtpServer.setResponses({ MAIL: '451 4.7.1 Greylisted, try again later' })
+
+            let result = await service.executeSendEmail(invocation)
+            let attempts = 1
+            let lastDelayMs = 0
+            while (!result.finished && attempts < 20) {
+                lastDelayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+                // Feed the rescheduled invocation back in, as the queue round-trip would
+                result = await service.executeSendEmail(result.invocation)
+                attempts++
+            }
+
+            expect(attempts).toBe(SMTP_MAX_SEND_ATTEMPTS)
+            expect(result.finished).toBe(true)
+            expect(result.error).toMatch(new RegExp(`gave up after ${SMTP_MAX_SEND_ATTEMPTS} attempts`))
+            expect(result.metrics).toEqual(
+                expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+            )
+            // The delay before the final attempt must have backed off well past the 15-30s base window
+            expect(lastDelayMs).toBeGreaterThan(60_000)
+        })
+
+        it('badges the integration on auth failure and un-badges it on the next successful send', async () => {
+            const fetchErrors = async (): Promise<string> => {
+                const res = await hub.postgres.query<{ errors: string }>(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT errors FROM posthog_integration WHERE id = $1',
+                    [1],
+                    'testFetchIntegrationErrors'
+                )
+                return res.rows[0].errors
+            }
+
+            smtpServer.setResponses({ AUTH: '535 5.7.8 Authentication credentials invalid' })
+            const failed = await service.executeSendEmail(invocation)
+            expect(failed.finished).toBe(true)
+            expect(failed.error).toMatch(/535/)
+            expect(await fetchErrors()).toMatch(/SMTP authentication failed/)
+
+            smtpServer.setResponses({})
+            smtpTransportPool.closeAll()
+            const recovered = await service.executeSendEmail(invocation)
+            expect(recovered.error).toBeUndefined()
+            expect(await fetchErrors()).toBe('')
         })
 
         it('fails terminally with the relay response when the relay answers 5xx', async () => {

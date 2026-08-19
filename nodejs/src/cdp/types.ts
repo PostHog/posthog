@@ -521,6 +521,7 @@ export type IntegrationType = {
     kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
     config: Record<string, any>
     sensitive_config: Record<string, any>
+    errors?: string | null
 }
 
 export type HogFunctionCapturedEvent = {

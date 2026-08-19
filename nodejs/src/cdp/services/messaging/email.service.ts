@@ -18,8 +18,8 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { smtpTransportPool } from './helpers/smtp'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -89,6 +89,12 @@ export class SMTPTransientError extends EmailTransientError {
         this.name = 'SMTPTransientError'
     }
 }
+
+// A permanently-4xx relay must not reschedule forever on the shared email queue. Eight attempts
+// with exponential backoff (capped at 5 min) spans ~15 minutes — enough to outlast greylisting,
+// bounded enough that one broken relay can't tax the queue indefinitely.
+export const SMTP_MAX_SEND_ATTEMPTS = 8
+const SMTP_MAX_RETRY_DELAY_MS = 5 * 60_000
 
 function pickSmtpRetryDelayMs(): number {
     return 15_000 + Math.floor(Math.random() * 15_000)
@@ -221,15 +227,33 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
             success = true
         } catch (error) {
-            if (error instanceof EmailTransientError) {
+            // SMTP retries are capped and back off exponentially; SES throttles stay uncapped
+            // because the local token bucket is the primary throttle there and disagreements
+            // are short-lived. The attempt counter rides on queueMetadata, which survives the
+            // queue round-trip (originQueue routing depends on the same property).
+            const priorAttempts = Number(result.invocation.queueMetadata?.smtpSendAttempts) || 0
+            if (error instanceof SMTPTransientError && priorAttempts + 1 >= SMTP_MAX_SEND_ATTEMPTS) {
+                const message = `${error.message} (gave up after ${SMTP_MAX_SEND_ATTEMPTS} attempts)`
+                addLog('error', message)
+                result.error = message
+                result.finished = true
+            } else if (error instanceof EmailTransientError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. For SES our local bucket is the primary throttle and this
                 // catches the cases where SES disagrees with our estimate; for SMTP
                 // it covers 4xx responses from the customer's relay.
                 throttled = true
                 result.finished = false
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
-                addLog('warn', `${error.message}; rescheduling email in ${error.retryAfterMs}ms`)
+                let retryAfterMs = error.retryAfterMs
+                if (error instanceof SMTPTransientError) {
+                    result.invocation.queueMetadata = {
+                        ...result.invocation.queueMetadata,
+                        smtpSendAttempts: priorAttempts + 1,
+                    }
+                    retryAfterMs = Math.min(retryAfterMs * 2 ** priorAttempts, SMTP_MAX_RETRY_DELAY_MS)
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+                addLog('warn', `${error.message}; rescheduling email in ${retryAfterMs}ms`)
             } else {
                 addLog('error', error.message)
                 result.error = error.message
@@ -397,7 +421,21 @@ export class EmailService {
             if (response.rejected?.length) {
                 throw new Error(`The SMTP server rejected recipients: ${response.rejected.join(', ')}`)
             }
+            if (integration.errors) {
+                // The relay works again (e.g. credentials were fixed at the provider); un-badge
+                // the integration so the channels UI stops showing it as broken.
+                await this.integrationManager.clearIntegrationError(integration.id)
+            }
         } catch (error: unknown) {
+            const smtpError = error as Error & { code?: string; responseCode?: number }
+            if (smtpError?.code === 'EAUTH' || smtpError?.responseCode === 535) {
+                // Badge the integration so the channels UI surfaces the broken sender —
+                // rotated credentials otherwise fail silently inside workflow run logs.
+                await this.integrationManager.recordIntegrationError(
+                    integration.id,
+                    `SMTP authentication failed: ${smtpError.message}`
+                )
+            }
             throw this.mapSmtpError(error)
         }
     }

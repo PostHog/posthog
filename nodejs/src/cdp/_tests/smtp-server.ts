@@ -7,7 +7,7 @@ export type ReceivedSmtpEmail = {
     auth?: { user: string; pass: string }
 }
 
-type OverridableCommand = 'MAIL' | 'RCPT' | 'DATA'
+type OverridableCommand = 'AUTH' | 'MAIL' | 'RCPT' | 'DATA'
 
 /**
  * A minimal in-process SMTP server speaking the real protocol over a real socket, so the
@@ -87,10 +87,14 @@ export class TestSmtpServer {
                 if (command === 'EHLO' || command === 'HELO') {
                     socket.write('250-test.local\r\n250-AUTH PLAIN\r\n250 SIZE 10485760\r\n')
                 } else if (command === 'AUTH') {
-                    const decoded = Buffer.from(line.split(' ')[2], 'base64').toString('utf8')
-                    const [, user, pass] = decoded.split('\0')
-                    auth = { user, pass }
-                    socket.write('235 2.7.0 Authentication successful\r\n')
+                    if (this.respondWith.AUTH) {
+                        socket.write(`${this.respondWith.AUTH}\r\n`)
+                    } else {
+                        const decoded = Buffer.from(line.split(' ')[2], 'base64').toString('utf8')
+                        const [, user, pass] = decoded.split('\0')
+                        auth = { user, pass }
+                        socket.write('235 2.7.0 Authentication successful\r\n')
+                    }
                 } else if (command === 'MAIL') {
                     if (this.respondWith.MAIL) {
                         socket.write(`${this.respondWith.MAIL}\r\n`)

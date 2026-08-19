@@ -35,12 +35,41 @@ export class IntegrationManagerService {
         this.lazyLoader.markForRefresh(integrationIds.map((id) => id.toString()))
     }
 
+    // Best effort: a failure to (un)badge must never escalate into the send's own outcome.
+    public async recordIntegrationError(id: IntegrationType['id'], message: string): Promise<void> {
+        try {
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_integration SET errors = $2 WHERE id = $1 AND errors IS DISTINCT FROM $2`,
+                [id, message],
+                'recordIntegrationError'
+            )
+            this.lazyLoader.markForRefresh([id.toString()])
+        } catch (error) {
+            logger.error('[IntegrationManager] Failed to record integration error', { id, error })
+        }
+    }
+
+    public async clearIntegrationError(id: IntegrationType['id']): Promise<void> {
+        try {
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_integration SET errors = '' WHERE id = $1 AND errors IS DISTINCT FROM ''`,
+                [id],
+                'clearIntegrationError'
+            )
+            this.lazyLoader.markForRefresh([id.toString()])
+        } catch (error) {
+            logger.error('[IntegrationManager] Failed to clear integration error', { id, error })
+        }
+    }
+
     private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {
         logger.info('[IntegrationManager]', 'Fetching integrations', { ids })
 
         const response = await this.postgres.query<IntegrationType>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id, kind, config, sensitive_config FROM posthog_integration WHERE id = ANY($1)`,
+            `SELECT id, team_id, kind, config, sensitive_config, errors FROM posthog_integration WHERE id = ANY($1)`,
             [ids],
             'fetchIntegrations'
         )
