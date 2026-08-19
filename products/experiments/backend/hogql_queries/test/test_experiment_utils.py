@@ -867,6 +867,38 @@ class TestValidateVariantResult:
         assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
 
+    @pytest.mark.parametrize(
+        "denominator_sum,denominator_sum_squares,expects_failure",
+        [
+            (0.0, 0.0, True),
+            (None, None, True),
+            (200.0, 450.0, False),
+        ],
+    )
+    def test_ratio_metric_zero_denominator_validation(self, denominator_sum, denominator_sum_squares, expects_failure):
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+            denominator=EventsNode(event="checkout started", math=ExperimentMetricMathType.TOTAL),
+        )
+
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=3,
+            sum_squares=9,
+            denominator_sum=denominator_sum,
+            denominator_sum_squares=denominator_sum_squares,
+            numerator_denominator_sum_product=0.0,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        assert result.validation_failures is not None
+        if expects_failure:
+            assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
+        else:
+            assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
+
     def test_mean_metric_no_minimum_success_validation(self):
         """Test that mean metrics don't require minimum successes (continuous metrics)."""
         metric = ExperimentMeanMetric(

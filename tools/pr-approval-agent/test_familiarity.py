@@ -315,6 +315,7 @@ def _prompt_fixture() -> tuple[PRData, dict, dict]:
         mergeable_state="clean",
         author="alice",
         labels=[],
+        base_ref="master",
         base_sha="base",
         head_sha="head",
         files=[{"filename": "src/foo.py", "additions": 3, "deletions": 1, "status": "M"}],
