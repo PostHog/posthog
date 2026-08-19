@@ -155,13 +155,24 @@ class TestGetResource:
 
 
 class TestResolveWorkspaceId:
-    def test_returns_first_workspace_id(self) -> None:
+    def test_returns_the_single_workspace_id(self) -> None:
         response = _make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1})
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
         ) as mock_make_session:
             mock_make_session.return_value.get.return_value = response
             assert resolve_workspace_id("api-key") == WORKSPACE_ID
+
+    def test_raises_when_key_has_multiple_workspaces(self) -> None:
+        response = _make_http_response(
+            {"data": [{"id": WORKSPACE_ID}, {"id": "22222222-2222-2222-2222-222222222222"}], "total": 2}
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
+        ) as mock_make_session:
+            mock_make_session.return_value.get.return_value = response
+            with pytest.raises(ValueError, match="access to multiple workspaces"):
+                resolve_workspace_id("api-key")
 
     def test_raises_when_key_has_no_workspace(self) -> None:
         response = _make_http_response({"data": [], "total": 0})

@@ -110,20 +110,27 @@ def resolve_workspace_id(api_key: str) -> str:
     """Resolve the workspace this API key belongs to.
 
     Most Zero resources are workspace-scoped and require an explicit `where={"workspaceId": ...}`
-    filter, so the sync resolves the workspace once up front. `GET /api/workspaces` needs no filter
-    of its own — it's already scoped to the authenticated key's memberships.
+    filter, so the sync resolves the workspace once up front. `GET /api/workspaces` returns every
+    workspace the key can see, unfiltered — for a key with access to more than one, taking the
+    first result would pick an unintended workspace boundary silently, so this fails loud instead
+    and asks for a key scoped to a single workspace.
     """
     session = make_tracked_session(redact_values=(api_key,))
     response = session.get(
         f"{ZERO_BASE_URL}/api/workspaces",
         headers={"Authorization": f"Bearer {api_key}"},
-        params={"limit": 1, "fields": "id"},
+        params={"fields": "id"},
         timeout=10,
     )
     response.raise_for_status()
     data = response.json().get("data") or []
     if not data:
         raise ValueError("This Zero API key isn't a member of any workspace.")
+    if len(data) > 1:
+        raise ValueError(
+            "This Zero API key has access to multiple workspaces. Use an API key scoped to a "
+            "single workspace so PostHog imports data from the intended workspace only."
+        )
     return cast(str, data[0]["id"])
 
 
