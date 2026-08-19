@@ -28,10 +28,11 @@ on:
     workflow_dispatch:
 
 # A master-push burst from the merge queue creates many runs that all check the
-# same daily database. Collapse each burst to one run.
+# same daily database. Collapse each burst to one run. Cancelling a superseded
+# run loses no signal, because the next run checks the same database.
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+    cancel-in-progress: true # hogli-lint: allow-master-cancel -- canary re-checks one daily database, so latest wins
 
 env:
     SLACK_CHANNEL: 'C0185UNBSJZ'
