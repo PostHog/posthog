@@ -41,7 +41,7 @@ function CardHeader({ meta }: { meta?: React.ReactNode }): JSX.Element {
     )
 }
 
-// The scanner page's hero: the built-in daily digest. Shows the latest summary when one exists,
+// The scanner page's hero: the built-in featured digest. Shows the latest summary when one exists,
 // otherwise the state that gets the user there (turn on / paused / first run pending).
 export function ScannerDigestCard({
     scannerId,
@@ -101,7 +101,7 @@ export function ScannerDigestCard({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="min-w-[220px]">
                                 <DropdownMenuItem onClick={createDigest} data-attr="vision-scanner-digest-create">
-                                    Create a new daily digest
+                                    Create a new featured digest
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuGroup>
@@ -128,7 +128,7 @@ export function ScannerDigestCard({
                             disabledReason={editDisabledReason}
                             data-attr="vision-scanner-digest-create"
                         >
-                            Turn on daily digest
+                            Turn on featured digest
                         </LemonButton>
                     )}
                 </div>

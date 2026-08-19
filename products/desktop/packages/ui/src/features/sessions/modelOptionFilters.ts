@@ -1,6 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   isDeepseekModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isSelectGroup,
 } from "@posthog/shared";
@@ -11,13 +12,15 @@ const isKimiModelId = (modelId: string): boolean =>
 export interface ModelRolloutFlags {
   deepseek: boolean;
   glm: boolean;
+  glm53: boolean;
   kimi: boolean;
 }
 
 function isModelDisabled(modelId: string, flags: ModelRolloutFlags): boolean {
   return (
     (!flags.deepseek && isDeepseekModelId(modelId)) ||
-    (!flags.glm && isGlmModelId(modelId)) ||
+    (!flags.glm53 && isGlm53ModelId(modelId)) ||
+    (!flags.glm && isGlmModelId(modelId) && !isGlm53ModelId(modelId)) ||
     (!flags.kimi && isKimiModelId(modelId))
   );
 }

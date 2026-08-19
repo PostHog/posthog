@@ -30,7 +30,7 @@ export interface AnonymizeImageEntry {
 /** One collected remote image URL, ready for the fetch lane. */
 export interface AnonymizeUrlEntry {
     /** First 22 base64url chars of `HMAC-SHA256(urlKey, dedupUrl)`, where the dedup URL is the
-     *  canonical URL minus its volatile parameters. The ref in the mirrored line ends with this. */
+     *  canonical URL minus its volatile parameters. The namespaced ref attribute ends with this. */
     hash: string
     /** The canonical URL with every parameter intact — what the fetcher requests. A signed URL only
      *  works in this form, which is why it is not the value the hash was taken over. */
@@ -137,9 +137,9 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
- * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` is replaced with a
- * ref of the same shape, and its original URL comes back in `meta.urls` for the caller to hand to
- * the fetch lane.
+ * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` keeps the media
+ * placeholder, a namespaced sibling attribute carries its ref, and its original URL comes back in
+ * `meta.urls` for the caller to hand to the fetch lane.
  *
  * The two lanes are independent: either, both, or neither. Both need `pseudoTeam`, because the ref
  * embeds it, so a `contentKey` or a `urlKey` without one throws.

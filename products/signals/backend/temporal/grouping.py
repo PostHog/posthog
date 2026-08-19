@@ -158,41 +158,7 @@ def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeE
     )
 
 
-async def generate_search_queries(
-    team_id: int | None,
-    description: str,
-    source_product: str,
-    source_type: str,
-    signal_type_examples: list[SignalTypeExample] | None = None,
-) -> list[str]:
-    """
-    Use LLM to generate 1-3 search queries for finding related signals.
-    Returns queries truncated to fit within embedding token limits.
-    """
-
-    system_prompt = _build_query_generation_system_prompt(signal_type_examples or [])
-
-    user_prompt = f"""NEW SIGNAL:
-- Source: {source_product} / {source_type}
-- Description: {description}"""
-
-    def validate(text: str) -> list[str]:
-        data = json.loads(text)
-        result = QueryGenerationResponse.model_validate(data)
-        return [truncate_query_to_token_limit(q) for q in result.queries]
-
-    return await call_llm(
-        team_id=team_id,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        validate=validate,
-        temperature=0.7,
-        stage="query_generation",
-        ai_product="signals_grouping",
-    )
-
-
-@dataclass
+@frozen
 class GenerateSearchQueriesInput:
     description: str
     source_product: str
@@ -201,6 +167,34 @@ class GenerateSearchQueriesInput:
     # Optional with a default so workflows mid-flight across a deploy (whose activity input was
     # serialized before this field existed) still deserialize; missing => gateway key owner's team.
     team_id: int | None = None
+
+
+async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str]:
+    """
+    Use LLM to generate 1-3 search queries for finding related signals.
+    Returns queries truncated to fit within embedding token limits.
+    """
+
+    system_prompt = _build_query_generation_system_prompt(input.signal_type_examples)
+
+    user_prompt = f"""NEW SIGNAL:
+- Source: {input.source_product} / {input.source_type}
+- Description: {input.description}"""
+
+    def validate(text: str) -> list[str]:
+        data = json.loads(text)
+        result = QueryGenerationResponse.model_validate(data)
+        return [truncate_query_to_token_limit(q) for q in result.queries]
+
+    return await call_llm(
+        team_id=input.team_id,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        validate=validate,
+        temperature=0.7,
+        stage="query_generation",
+        ai_product="signals_grouping",
+    )
 
 
 @dataclass
@@ -214,13 +208,7 @@ class GenerateSearchQueriesOutput:
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
-        queries = await generate_search_queries(
-            team_id=input.team_id,
-            description=input.description,
-            source_product=input.source_product,
-            source_type=input.source_type,
-            signal_type_examples=input.signal_type_examples,
-        )
+        queries = await generate_search_queries(input)
         logger.debug(
             f"Generated {len(queries)} search queries",
             source_product=input.source_product,
@@ -428,15 +416,19 @@ Write a PR title covering ALL the above signals (existing + new), then judge if 
     return prompt
 
 
-async def match_signal_to_report(
-    team_id: int | None,
-    description: str,
-    source_product: str,
-    source_type: str,
-    queries: list[str],
-    query_results: list[list[SignalCandidate]],
-    report_contexts: dict[str, ReportContext],
-) -> MatchResult:
+@frozen
+class MatchSignalToReportInput:
+    description: str
+    source_product: str
+    source_type: str
+    queries: list[str]
+    query_results: list[list[SignalCandidate]]
+    report_contexts: dict[str, ReportContext]
+    # Optional with a default for deploy-time backward compatibility (see GenerateSearchQueriesInput).
+    team_id: int | None = None
+
+
+async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
     """
     Determine if a new signal matches an existing report or needs a new one.
 
@@ -444,12 +436,17 @@ async def match_signal_to_report(
         ExistingReportMatch if a match is found, NewReportMatch otherwise
     """
     candidates_by_id: dict[str, SignalCandidate] = {}
-    for candidates in query_results:
+    for candidates in input.query_results:
         for c in candidates:
             candidates_by_id[c.signal_id] = c
 
     user_prompt = _build_matching_prompt(
-        description, source_product, source_type, queries, query_results, report_contexts
+        input.description,
+        input.source_product,
+        input.source_type,
+        input.queries,
+        input.query_results,
+        input.report_contexts,
     )
 
     def validate(text: str) -> MatchResult:
@@ -460,13 +457,13 @@ async def match_signal_to_report(
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
                 raise ValueError(f"signal_id {result.signal_id} not found in candidates")
-            if result.query_index < 0 or result.query_index >= len(queries):
-                raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
+            if result.query_index < 0 or result.query_index >= len(input.queries):
+                raise ValueError(f"query_index {result.query_index} out of range (0-{len(input.queries) - 1})")
             return ExistingReportMatch(
                 report_id=matched.report_id,
                 match_metadata=MatchedMetadata(
                     parent_signal_id=result.signal_id,
-                    match_query=queries[result.query_index],
+                    match_query=input.queries[result.query_index],
                     reason=result.reason,
                 ),
             )
@@ -481,7 +478,7 @@ async def match_signal_to_report(
         )
 
     return await call_llm(
-        team_id=team_id,
+        team_id=input.team_id,
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
@@ -491,33 +488,13 @@ async def match_signal_to_report(
     )
 
 
-@dataclass
-class MatchSignalToReportInput:
-    description: str
-    source_product: str
-    source_type: str
-    queries: list[str]
-    query_results: list[list[SignalCandidate]]
-    report_contexts: dict[str, ReportContext]
-    # Optional with a default for deploy-time backward compatibility — see GenerateSearchQueriesInput.
-    team_id: int | None = None
-
-
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
-        result = await match_signal_to_report(
-            team_id=input.team_id,
-            description=input.description,
-            source_product=input.source_product,
-            source_type=input.source_type,
-            queries=input.queries,
-            query_results=input.query_results,
-            report_contexts=input.report_contexts,
-        )
+        result = await match_signal_to_report(input)
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
             f"Match result: matched={isinstance(result, ExistingReportMatch)}",
@@ -1390,9 +1367,11 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
-                # Fresh emissions: the store's confirmation is enough for the next batch's
-                # semantic search — don't spend ClickHouse queries on the happy path.
-                mode=WaitForClickHouseMode.OPTIMISTIC,
+                # The summary workflows spawned below read these rows from ClickHouse as their first
+                # step, so a batch that promoted a report must confirm visibility there; the store's
+                # Kafka-commit confirmation only precedes the insert. Batches that promote nothing
+                # only need the rows for the next batch's semantic search, where optimism is fine.
+                mode=(WaitForClickHouseMode.CH_CONFIRMED if promoted_reports else WaitForClickHouseMode.OPTIMISTIC),
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),

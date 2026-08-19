@@ -9,6 +9,11 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.redis import get_client
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    STUCK_SESSION_THRESHOLD,
+    _stuck_key,
+)
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
@@ -75,6 +80,16 @@ def _make_scanner(**overrides) -> ReplayScanner:
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
+
+
+def _settle_edit_clock(scanner: ReplayScanner) -> None:
+    # Backdates `updated_at` past the deep watermark so the scanner reads as unedited since its last
+    # deep pass. Queryset update, because `auto_now` would stamp it back to now on save().
+    if scanner.last_deep_swept_at is None:
+        return
+    settled = scanner.last_deep_swept_at - dt.timedelta(minutes=1)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(updated_at=settled)
+    scanner.updated_at = settled
 
 
 def _seed_in_flight_observations(scanner: ReplayScanner, *, count: int) -> None:
@@ -171,6 +186,31 @@ class TestFindScannerCandidatesActivity:
         assert query_kwargs["sampling_rate"] == scanner.sampling_rate
         assert query_kwargs["events_lookback"] == SWEEP_EVENTS_LOOKBACK
 
+    def test_skips_sessions_quarantined_by_the_stuck_counter(self) -> None:
+        # A session past the stuck threshold has burned two whole rasterizer retry envelopes;
+        # dispatching it again wastes up to an hour of shared render capacity per sweep tick.
+        scanner = _make_scanner()
+        candidate_ok = CandidateSession(
+            session_id="sess-ok", session_end=dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)
+        )
+        candidate_stuck = CandidateSession(
+            session_id="sess-stuck", session_end=dt.datetime(2026, 5, 1, 10, 5, 0, tzinfo=dt.UTC)
+        )
+
+        redis_client = get_client()
+        for _ in range(STUCK_SESSION_THRESHOLD):
+            redis_client.incr(_stuck_key(scanner.team_id, "sess-stuck"))
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.return_value = [candidate_ok, candidate_stuck]
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert [c.session_id for c in result.candidates] == ["sess-ok"]
+
     def test_threads_last_seen_session_id_when_set(self) -> None:
         scanner = _make_scanner(last_seen_session_id="prev-id")
 
@@ -206,26 +246,64 @@ class TestFindScannerCandidatesActivity:
         assert result.saturated is True
         assert len(result.candidates) == DEFAULT_CANDIDATE_LIMIT
 
-    def test_first_sweep_initializes_deep_watermark_without_catchup_query(self) -> None:
-        scanner = _make_scanner()
-        assert scanner.last_deep_swept_at is None
+    @parameterized.expand(
+        [
+            # Nothing swept yet, so there is no range behind the watermark to catch up on.
+            ("first_sweep", None, True),
+            # Nothing the narrow events window could have cost this scanner, so nothing to catch up on.
+            ("no_events_filters", dt.timedelta(hours=7), False),
+        ]
+    )
+    def test_deep_pass_skipped_but_watermark_still_advances(
+        self, _name: str, deep_watermark_age: dt.timedelta | None, matches_on_events: bool
+    ) -> None:
+        scanner = _make_scanner(
+            last_deep_swept_at=None if deep_watermark_age is None else dt.datetime.now(dt.UTC) - deep_watermark_age
+        )
+        _settle_edit_clock(scanner)
 
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = matches_on_events
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
         MockDeep.assert_not_called()
         assert result.deep_candidates == []
+        # Parking the watermark instead would hand a later tick an arbitrarily wide catch-up window.
         assert result.deep_swept_through == scanner.last_swept_at
+
+    def test_deep_pass_runs_once_more_after_the_query_loses_its_event_filters(self) -> None:
+        # The range behind the watermark was swept under the old filters, with the fast pass's narrow
+        # events window costing it candidates. Skipping on the new filters would strand them there:
+        # the fast pass never looks back, so this is the only pass that revisits that range.
+        scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7))
+        assert scanner.last_deep_swept_at is not None and scanner.updated_at > scanner.last_deep_swept_at
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = False
+            MockDeep.return_value.run.return_value = []
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        MockDeep.assert_called_once()
 
     def test_stale_deep_watermark_runs_full_width_catchup(self) -> None:
         deep_watermark = dt.datetime.now(dt.UTC) - dt.timedelta(hours=7)
@@ -239,10 +317,11 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = True
             MockDeep.return_value.run.return_value = [straggler]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -270,10 +349,11 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = True
             MockDeep.return_value.run.return_value = [straggler]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
@@ -300,7 +380,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = fast
@@ -333,7 +413,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = fast
@@ -368,10 +448,11 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = True
             MockDeep.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
@@ -394,10 +475,11 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
             ) as MockQuery,
             patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockDeep,
         ):
             MockQuery.return_value.run.return_value = []
+            MockQuery.return_value.matches_on_events.return_value = True
             MockDeep.return_value.run.return_value = stragglers
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=3)
