@@ -177,13 +177,16 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
-    // Both global limiters — the token+distinct_id event limiter and the AI
-    // lane's byte budget — share one Redis client: the dedicated rate-limiter
-    // Redis when GLOBAL_RATE_LIMIT_REDIS_URL is set, otherwise the shared one.
-    // Their key prefixes keep their counts apart. Built only if at least one
-    // limiter is enabled, so a deployment running neither opens no connection.
+    // Each global limiter gets its own Redis client, from the same source: the
+    // dedicated rate-limiter Redis when GLOBAL_RATE_LIMIT_REDIS_URL is set,
+    // otherwise the shared one. A client owns one MultiplexedConnection, and
+    // each limiter drives its own tick loop against it under a per-command
+    // timeout, so sharing one would let a slow drain on either limiter eat the
+    // other's budget. Key prefixes already keep their counts apart; this keeps
+    // their pipelines apart too. Neither is built unless its limiter is on, so
+    // a deployment running neither opens no connection.
     let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
-    let rate_limiter_redis = if config.global_rate_limit_enabled || ai_byte_limit_enabled {
+    let rate_limiter_redis = if config.global_rate_limit_enabled {
         Some(
             GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
                 .await
@@ -192,19 +195,25 @@ pub async fn build_components(
     } else {
         None
     };
+    let ai_byte_limiter_redis = if ai_byte_limit_enabled {
+        Some(
+            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+                .await
+                .expect("failed to create AI byte limiter redis client"),
+        )
+    } else {
+        None
+    };
 
     // The dynamic custom-threshold refresh loop is owned by the common limiter:
     // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
     // source into the limiter, which spawns and manages the refresh task itself.
-    let global_rate_limiter_token_distinctid = rate_limiter_redis
-        .as_ref()
-        .filter(|_| config.global_rate_limit_enabled)
-        .map(|redis| {
-            Arc::new(
-                GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
-                    .expect("failed to create global rate limiter"),
-            )
-        });
+    let global_rate_limiter_token_distinctid = rate_limiter_redis.as_ref().map(|redis| {
+        Arc::new(
+            GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
+                .expect("failed to create global rate limiter"),
+        )
+    });
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -352,15 +361,12 @@ pub async fn build_components(
         warn_if_ai_byte_budget_below_max_event(&config);
     }
     warn_if_ai_ceiling_exceeds_producer_cap(&config);
-    let ai_byte_rate_limiter = rate_limiter_redis
-        .as_ref()
-        .filter(|_| ai_byte_limit_enabled)
-        .map(|redis| {
-            Arc::new(
-                GlobalRateLimiter::new_ai_bytes(&config, vec![redis.clone()])
-                    .expect("failed to create AI byte rate limiter"),
-            )
-        });
+    let ai_byte_rate_limiter = ai_byte_limiter_redis.as_ref().map(|redis| {
+        Arc::new(
+            GlobalRateLimiter::new_ai_bytes(&config, vec![redis.clone()])
+                .expect("failed to create AI byte rate limiter"),
+        )
+    });
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
