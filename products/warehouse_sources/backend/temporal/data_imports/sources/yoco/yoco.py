@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -35,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.setti
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@frozen
 class YocoResumeConfig:
     """Paginator checkpoint.
 

@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -36,7 +38,7 @@ ENDPOINT_SCOPES: dict[str, str] = {
 }
 
 
-@dataclass
+@frozen
 class YocoEndpointConfig:
     name: str
     path: str
