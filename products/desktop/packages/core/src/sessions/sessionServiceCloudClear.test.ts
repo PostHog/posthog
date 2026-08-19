@@ -83,6 +83,12 @@ function createHarness({
   const getTaskRunSessionLogsResult = vi
     .fn()
     .mockResolvedValue({ entries: logEntries, complete: true });
+  // The chain-window probe always reports more-than-a-page with an unknown
+  // count, forcing hydration onto the getTaskRunSessionLogsResult path this
+  // harness actually stubs.
+  const getTaskRunSessionLogsPage = vi
+    .fn()
+    .mockResolvedValue({ entries: [], hasMore: true, matchingCount: null });
 
   const deps = {
     store: {
@@ -117,7 +123,10 @@ function createHarness({
       cloudRegion: "us",
       currentProjectId: 2,
     }),
-    createAuthenticatedClient: () => ({ getTaskRunSessionLogsResult }),
+    createAuthenticatedClient: () => ({
+      getTaskRunSessionLogsResult,
+      getTaskRunSessionLogsPage,
+    }),
     trpc: {
       agent: {
         onSessionIdleKilled: { subscribe: () => ({ unsubscribe: vi.fn() }) },
