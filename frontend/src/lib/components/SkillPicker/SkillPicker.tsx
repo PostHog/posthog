@@ -116,7 +116,9 @@ function SkillPickerRow({
                     </div>
                 ) : body !== null ? (
                     <div className="max-h-60 overflow-y-auto rounded border border-primary bg-surface-primary p-3">
-                        <LemonMarkdown className="text-xs">{body}</LemonMarkdown>
+                        <LemonMarkdown className="text-xs" disableImages>
+                            {body}
+                        </LemonMarkdown>
                     </div>
                 ) : null)}
         </div>
