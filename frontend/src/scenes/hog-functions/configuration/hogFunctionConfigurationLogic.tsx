@@ -30,6 +30,7 @@ import {
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
+import { retryWithBackoff } from 'lib/utils/async'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -411,6 +412,8 @@ export interface hogFunctionConfigurationLogicValues {
     templateHasChanged: boolean | '' | undefined
     templateId: string | undefined
     templateLoading: boolean
+    templateLoadError: boolean
+    templateNotFound: boolean
     type: HogFunctionTypeType
     unsavedConfiguration: {
         configuration: HogFunctionConfigurationType
@@ -971,6 +974,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearInputsDiff: () => null,
             },
         ],
+        templateNotFound: [
+            false,
+            {
+                loadTemplate: () => false,
+                loadTemplateSuccess: () => false,
+                loadTemplateFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.status === 404,
+            },
+        ],
+        templateLoadError: [
+            false,
+            {
+                loadTemplate: () => false,
+                loadTemplateSuccess: () => false,
+                loadTemplateFailure: (_, { errorObject }) =>
+                    !(errorObject instanceof ApiError && errorObject.status === 404),
+            },
+        ],
     })),
     loaders(({ actions, props, values, cache }) => ({
         template: [
@@ -988,7 +1009,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    // A missing template row 404s and never recovers on retry, so only retry the
+                    // transient failures (a network blip, a 5xx). Failure surfaces an inline retry state.
+                    const res = await retryWithBackoff(() => api.hogFunctions.getTemplate(props.templateId!), {
+                        maxAttempts: 3,
+                        shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
+                    })
 
                     if (!res) {
                         throw new Error('Template not found')

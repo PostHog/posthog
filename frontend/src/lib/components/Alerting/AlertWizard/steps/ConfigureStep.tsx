@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationField'
@@ -12,9 +12,16 @@ import { CyclotronJobInputSchemaType } from '~/types'
 import { alertWizardLogic } from '../alertWizardLogic'
 
 export function ConfigureStep(): JSX.Element {
-    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
-        useValues(alertWizardLogic)
-    const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
+    const {
+        requiredInputsSchema,
+        configuration,
+        selectedTemplateLoading,
+        templateNotFound,
+        templateLoadError,
+        submitting,
+        testing,
+    } = useValues(alertWizardLogic)
+    const { setInputValue, submitConfiguration, testConfiguration, retryLoadTemplate } = useActions(alertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (
@@ -22,6 +29,19 @@ export function ConfigureStep(): JSX.Element {
                 <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
                 <LemonSkeleton className="h-10" />
                 <LemonSkeleton className="h-10" />
+            </div>
+        )
+    }
+
+    if (templateNotFound || templateLoadError) {
+        return (
+            <div className="space-y-4">
+                <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
+                <LemonBanner type="warning" action={{ children: 'Try again', onClick: retryLoadTemplate }}>
+                    {templateNotFound
+                        ? "This destination isn't available yet. Its template hasn't finished setting up."
+                        : "We couldn't load this destination. Check your connection and try again."}
+                </LemonBanner>
             </div>
         )
     }

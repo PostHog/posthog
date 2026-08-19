@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { retryWithBackoff } from 'lib/utils/async'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 import {
@@ -227,6 +229,8 @@ export interface alertWizardLogicValues {
     sortedDestinations: WizardDestination[]
     subTemplateIds: HogFunctionSubTemplateIdType[]
     submitting: boolean
+    templateLoadError: boolean
+    templateNotFound: boolean
     testing: boolean
     triggers: WizardTrigger[]
     usedDestinationKeys: Set<string>
@@ -268,6 +272,9 @@ export interface alertWizardLogicActions {
         payload?: string
     }
     resetWizard: () => {
+        value: true
+    }
+    retryLoadTemplate: () => {
         value: true
     }
     restoreWizardState: (state: {
@@ -403,6 +410,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         submitConfigurationComplete: true,
         testConfiguration: true,
         testConfigurationComplete: true,
+        retryLoadTemplate: true,
     }),
 
     reducers(({ props: logicProps }) => ({
@@ -480,6 +488,24 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 testConfigurationComplete: () => false,
             },
         ],
+        templateNotFound: [
+            false,
+            {
+                loadTemplate: () => false,
+                loadTemplateSuccess: () => false,
+                loadTemplateFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.status === 404,
+            },
+        ],
+        templateLoadError: [
+            false,
+            {
+                loadTemplate: () => false,
+                loadTemplateSuccess: () => false,
+                loadTemplateFailure: (_, { errorObject }) =>
+                    !(errorObject instanceof ApiError && errorObject.status === 404),
+            },
+        ],
     })),
 
     loaders(({ props: logicProps }) => ({
@@ -505,7 +531,12 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async (templateId: string) => {
-                    return await api.hogFunctions.getTemplate(templateId)
+                    // A missing template row 404s and never recovers on retry, so only retry the
+                    // transient failures (a network blip, a 5xx). The 404 case surfaces its own empty state.
+                    return await retryWithBackoff(() => api.hogFunctions.getTemplate(templateId), {
+                        maxAttempts: 3,
+                        shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
+                    })
                 },
             },
         ],
@@ -650,6 +681,16 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 actions.loadTemplate(destination.templateId)
             }
             actions.setStep(WizardStep.Configure)
+        },
+
+        retryLoadTemplate: () => {
+            const destinationKey = values.selectedDestinationKey
+            if (destinationKey) {
+                const destination = values.allDestinations.find((d) => d.key === destinationKey)
+                if (destination) {
+                    actions.loadTemplate(destination.templateId)
+                }
+            }
         },
 
         setDestinationKey: ({ destinationKey }) => {

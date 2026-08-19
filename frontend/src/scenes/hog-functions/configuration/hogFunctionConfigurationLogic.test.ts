@@ -185,6 +185,16 @@ describe('hogFunctionConfigurationLogic', () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
         })
+
+        it('flags a 404 as not-found without retrying', async () => {
+            mockApi.getTemplate.mockRejectedValue(new ApiError('Not found', 404))
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateFailure'])
+
+            expect(mockApi.getTemplate).toHaveBeenCalledTimes(1)
+            expect(logic.values.templateNotFound).toBe(true)
+            expect(logic.values.templateLoadError).toBe(false)
+        })
     })
 
     describe('log transformation', () => {

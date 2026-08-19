@@ -62,6 +62,8 @@ export function HogFunctionConfiguration({
         hogFunction,
         template,
         templateHasChanged,
+        templateNotFound,
+        templateLoadError,
         type,
         mightDropEvents,
         showFilters,
@@ -70,7 +72,7 @@ export function HogFunctionConfiguration({
         showTesting,
         survey,
     } = useValues(logic)
-    const { loadHogFunction } = useActions(logic)
+    const { loadHogFunction, loadTemplate } = useActions(logic)
 
     // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
     // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
@@ -111,6 +113,16 @@ export function HogFunctionConfiguration({
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
+    }
+
+    if (!loaded && (templateNotFound || templateLoadError)) {
+        return (
+            <LemonBanner type="warning" action={{ children: 'Try again', onClick: () => loadTemplate() }}>
+                {templateNotFound
+                    ? "This template isn't available yet. It hasn't finished setting up."
+                    : "We couldn't load this template. Check your connection and try again."}
+            </LemonBanner>
+        )
     }
 
     if (!loaded) {
