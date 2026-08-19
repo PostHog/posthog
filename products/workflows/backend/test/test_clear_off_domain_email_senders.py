@@ -62,7 +62,11 @@ class TestClearOffDomainEmailSendersCommand(BaseTest):
         }
 
     def _from(self, flow: HogFlow, *, draft: bool = False) -> dict:
-        actions = flow.draft["actions"] if draft else flow.actions
+        if draft:
+            assert flow.draft is not None
+            actions = flow.draft["actions"]
+        else:
+            actions = flow.actions
         return actions[0]["config"]["inputs"]["email"]["value"]["from"]
 
     def test_clears_off_domain_sender_in_actions_and_draft(self) -> None:
