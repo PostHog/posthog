@@ -821,7 +821,9 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 actions.scheduleSuiteRunPoll()
                 return
             }
-            if (cache.disposables.isDisposed) {
+            // A newer run may have started while this retrieve was in flight. A stale terminal
+            // response would otherwise finish the old run and dispose the newer run's poll.
+            if (cache.disposables.isDisposed || values.activeSuiteRun?.id !== running.id) {
                 return
             }
             if (isTerminalSuiteRun(polled)) {

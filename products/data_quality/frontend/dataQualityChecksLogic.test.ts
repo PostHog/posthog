@@ -419,6 +419,34 @@ describe('dataQualityChecksLogic', () => {
         expect(lemonToast.warning).toHaveBeenCalledWith('1 passed, 1 failed')
     })
 
+    it('ignores a stale poll after a newer run has replaced the active one', async () => {
+        // A retrieve can still be in flight when a second run starts. The stale terminal response
+        // must not finish the old run and dispose the newer run's poll.
+        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ id: 'suite-1' }))
+        let resolveRetrieve: (run: DataQualitySuiteRunApi) => void = () => {}
+        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockReturnValue(
+            new Promise<DataQualitySuiteRunApi>((resolve) => {
+                resolveRetrieve = resolve
+            })
+        )
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        // The first poll fires and its retrieve is now pending against suite-1.
+        await advancePoll(3000)
+
+        // A newer run replaces the active one while suite-1's retrieve is still in flight.
+        logic.actions.setActiveSuiteRun(buildSuiteRun({ id: 'suite-2' }))
+        await drainListeners()
+
+        resolveRetrieve(buildSuiteRun({ id: 'suite-1', status: 'completed', checks_passed: 1 }))
+        await drainListeners()
+
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-2')
+        expect(logic.values.isSuiteRunning).toBe(true)
+        expect(lemonToast.success).not.toHaveBeenCalled()
+    })
+
     it('stops polling a run that never finishes', async () => {
         ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
         ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun())
