@@ -1,273 +1,240 @@
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
-import { IconHeart, IconHeartFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonTree, type TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
+import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
-import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
+import type { SavedTicketView } from '../../types'
+import { FiltersSummary } from './FiltersSummary'
+import { SaveViewModal } from './SaveViewModal'
+import { folderPathFromNodeId } from './ticketViewFolders'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
-function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Element {
-    const lines: { label: string; value: ReactNode }[] = []
-
-    if (filters.status?.length) {
-        lines.push({ label: 'Status', value: filters.status.join(', ') })
-    }
-    if (filters.priority?.length) {
-        lines.push({ label: 'Priority', value: filters.priority.join(', ') })
-    }
-    if (filters.channel && filters.channel !== 'all') {
-        lines.push({ label: 'Channel', value: filters.channel })
-    }
-    if (filters.sla && filters.sla !== 'all') {
-        lines.push({ label: 'SLA', value: filters.sla })
-    }
-    if (filters.tags?.length) {
-        lines.push({
-            label: filters.tagsMatch === 'all' ? 'Tags (all)' : 'Tags (any)',
-            value: filters.tags.join(', '),
-        })
-    }
-    if (filters.tagsExclude?.length) {
-        lines.push({ label: 'Exclude tags', value: filters.tagsExclude.join(', ') })
-    }
-    const assigneeEntries = normalizeAssigneeFilter(filters.assignee)
-    if (assigneeEntries.length) {
-        lines.push({
-            label: 'Assignee',
-            value: assigneeEntries.map((entry, index) => (
-                <span key={typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`}>
-                    {index > 0 ? ', ' : ''}
-                    {entry === 'unassigned' ? (
-                        'Unassigned'
-                    ) : entry === 'me' ? (
-                        'Me (current user)'
-                    ) : (
-                        <AssigneeResolver assignee={entry}>
-                            {({ assignee }) => (
-                                <AssigneeLabelDisplay assignee={assignee} placeholder={`${entry.type}:${entry.id}`} />
-                            )}
-                        </AssigneeResolver>
-                    )}
-                </span>
-            )),
-        })
-    }
-    if (filters.dateFrom) {
-        lines.push({ label: 'Date from', value: filters.dateFrom })
+/** Keeps a menu click from also selecting the tree row underneath it. */
+const stop =
+    (run: () => void) =>
+    (event: { stopPropagation: () => void }): void => {
+        event.stopPropagation()
+        run()
     }
 
-    if (lines.length === 0) {
-        return <span className="text-muted text-xs">No filters</span>
-    }
-    return (
-        <div className="text-xs text-muted space-y-0.5">
-            {lines.map((line) => (
-                <div key={line.label}>
-                    <span className="font-medium">{line.label}:</span> {line.value}
-                </div>
-            ))}
-        </div>
-    )
-}
-
-function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
-    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
-    const editDisabledReason =
-        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
-
-    return (
-        <LemonModal
-            isOpen={isSaveModalOpen}
-            onClose={closeSaveModal}
-            title="Save current view"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeSaveModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveView}
-                        disabledReason={editDisabledReason ?? (!viewName.trim() ? 'Enter a name' : undefined)}
-                    >
-                        Save view
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="space-y-2">
-                <LemonInput
-                    placeholder="View name"
-                    value={viewName}
-                    onChange={setViewName}
-                    autoFocus
-                    disabledReason={editDisabledReason}
-                    onPressEnter={editDisabledReason ? undefined : saveView}
-                />
-                <FiltersSummary filters={currentFilters} />
-            </div>
-        </LemonModal>
-    )
+function openFolderPicker({
+    title,
+    initialFolder,
+    folderPaths,
+    onSubmit,
+}: {
+    title: string
+    initialFolder: string
+    folderPaths: string[]
+    onSubmit: (folder: string) => void
+}): void {
+    LemonDialog.openForm({
+        title,
+        initialValues: { folder: initialFolder },
+        content: (
+            <LemonField
+                name="folder"
+                help='Use "/" to nest, for example Escalations/EU. Leave it empty to move to the top level.'
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="single"
+                        allowCustomValues
+                        placeholder="Choose or type a folder"
+                        value={value ? [value] : []}
+                        onChange={(folders) => onChange(folders[0] ?? '')}
+                        options={folderPaths.map((path) => ({ key: path, label: path }))}
+                    />
+                )}
+            </LemonField>
+        ),
+        onSubmit: ({ folder }) => onSubmit(folder ?? ''),
+    })
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
-        ticketViewsLogic({ id })
-    )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ id })
-    )
+    const {
+        isModalOpen,
+        viewTree,
+        viewsLoading,
+        currentFilters,
+        searchTerm,
+        effectiveExpandedFolderIds,
+        folderPaths,
+        favoritingShortIds,
+        movingFolders,
+    } = useValues(ticketViewsLogic({ id }))
+    const {
+        closeModal,
+        openSaveModal,
+        deleteView,
+        loadView,
+        updateView,
+        toggleFavorite,
+        setSearchTerm,
+        setExpandedFolderIds,
+        toggleFolderExpanded,
+        moveViewToFolder,
+        moveFolder,
+        renameFolder,
+    } = useActions(ticketViewsLogic({ id }))
+    const [editingItemId, setEditingItemId] = useState('')
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
-    const columns: LemonTableColumns<SavedTicketView> = [
-        {
-            title: '',
-            key: 'favorite',
-            width: 0,
-            render: (_, view) => (
-                <LemonButton
-                    size="xsmall"
-                    loading={favoritingShortIds.includes(view.short_id)}
-                    onClick={() => toggleFavorite(view)}
-                    disabledReason={editDisabledReason}
-                    icon={
-                        view.is_favorited ? (
-                            <IconHeartFilled className="text-danger" />
-                        ) : (
-                            <IconHeart className="text-secondary" />
-                        )
-                    }
-                    tooltip={
-                        view.is_favorited
-                            ? 'Remove from your favorites (only visible to you)'
-                            : 'Add to your favorites (only visible to you)'
-                    }
-                />
-            ),
-        },
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            render: (_, view) => <span className="font-medium">{view.name}</span>,
-        },
-        {
-            title: 'Filters',
-            render: (_, view) => <FiltersSummary filters={view.filters ?? {}} />,
-        },
-        {
-            title: 'Created by',
-            dataIndex: 'created_by',
-            render: (_, view) => (
-                <span className="text-muted text-xs">
-                    {view.created_by?.first_name || view.created_by?.email || '\u2014'}
-                </span>
-            ),
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            render: (_, view) => <TZLabel time={view.created_at} />,
-        },
-        {
-            title: '',
-            render: (_, view) => (
-                <div className="flex items-center gap-1">
-                    <LemonButton type="secondary" size="xsmall" onClick={() => loadView(view)}>
-                        Load
-                    </LemonButton>
-                    <More
-                        disabledReason={editDisabledReason}
-                        overlay={
-                            <LemonMenuOverlay
-                                items={[
-                                    {
-                                        label: 'Rename',
-                                        onClick: () => {
-                                            LemonDialog.openForm({
-                                                title: 'Rename view',
-                                                initialValues: { name: view.name },
-                                                content: (
-                                                    <LemonField name="name">
-                                                        <LemonInput autoFocus placeholder="View name" />
-                                                    </LemonField>
-                                                ),
-                                                errors: {
-                                                    name: (name) => (!name?.trim() ? 'Enter a name' : undefined),
-                                                },
-                                                onSubmit: ({ name }) =>
-                                                    updateView(view.short_id, { name: name.trim() }),
-                                            })
-                                        },
-                                    },
-                                    {
-                                        label: 'Update with current filters',
-                                        onClick: () => {
-                                            LemonDialog.open({
-                                                title: `Update "${view.name}"?`,
-                                                description: (
-                                                    <div className="space-y-2">
-                                                        <div>
-                                                            Replace the saved filters on this view with the filters
-                                                            currently applied to the ticket list. The view keeps its
-                                                            name and link.
-                                                        </div>
-                                                        <FiltersSummary filters={currentFilters} />
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Update view',
-                                                    type: 'primary',
-                                                    onClick: () =>
-                                                        updateView(view.short_id, {
-                                                            filters: { ...currentFilters },
-                                                        }),
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                            })
-                                        },
-                                    },
-                                    {
-                                        label: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            LemonDialog.open({
-                                                title: `Delete "${view.name}"?`,
-                                                description:
-                                                    'This view will be permanently deleted. This action cannot be undone.',
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    type: 'primary',
-                                                    status: 'danger',
-                                                    onClick: () => deleteView(view.short_id),
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                            })
-                                        },
-                                    },
-                                ]}
-                            />
-                        }
-                    />
-                </div>
-            ),
-        },
-    ]
+    const disabledReasons = { [editDisabledReason ?? '']: !!editDisabledReason }
+
+    /**
+     * One builder feeds both surfaces: right-click for people who know it's there, and the hover
+     * ellipsis for everyone else. Radix menu items take `disabled`, so the reason rides on the
+     * ButtonPrimitive inside.
+     */
+    function renderRowMenu(
+        item: TreeDataItem,
+        MenuGroup: typeof ContextMenuGroup | typeof DropdownMenuGroup,
+        MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem
+    ): ReactNode {
+        if (item.record?.type === 'view') {
+            const view: SavedTicketView = item.record.view
+            return (
+                <MenuGroup>
+                    <MenuItem asChild onClick={stop(() => loadView(view))}>
+                        <ButtonPrimitive menuItem data-attr="saved-view-load">
+                            Load
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem asChild onClick={stop(() => toggleFavorite(view))}>
+                        <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                            {view.is_favorited ? 'Remove from favorites' : 'Add to favorites'}
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem
+                        asChild
+                        onClick={stop(() =>
+                            LemonDialog.openForm({
+                                title: 'Rename view',
+                                initialValues: { name: view.name },
+                                content: (
+                                    <LemonField name="name">
+                                        <LemonInput autoFocus placeholder="View name" />
+                                    </LemonField>
+                                ),
+                                errors: { name: (name) => (!name?.trim() ? 'Enter a name' : undefined) },
+                                onSubmit: ({ name }) => updateView(view.short_id, { name: name.trim() }),
+                            })
+                        )}
+                    >
+                        <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                            Rename
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem
+                        asChild
+                        onClick={stop(() =>
+                            openFolderPicker({
+                                title: `Move "${view.name}"`,
+                                initialFolder: view.folder,
+                                folderPaths,
+                                onSubmit: (folder) => moveViewToFolder(view.short_id, folder),
+                            })
+                        )}
+                    >
+                        <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                            Move to folder
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem
+                        asChild
+                        onClick={stop(() =>
+                            LemonDialog.open({
+                                title: `Update "${view.name}"?`,
+                                description: (
+                                    <div className="space-y-2">
+                                        <div>
+                                            Replace the saved filters on this view with the filters currently applied to
+                                            the ticket list. The view keeps its name and link.
+                                        </div>
+                                        <FiltersSummary filters={currentFilters} />
+                                    </div>
+                                ),
+                                primaryButton: {
+                                    children: 'Update view',
+                                    type: 'primary',
+                                    onClick: () => updateView(view.short_id, { filters: { ...currentFilters } }),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        )}
+                    >
+                        <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                            Update with current filters
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem
+                        asChild
+                        onClick={stop(() =>
+                            LemonDialog.open({
+                                title: `Delete "${view.name}"?`,
+                                description: 'This view will be permanently deleted. This action cannot be undone.',
+                                primaryButton: {
+                                    children: 'Delete',
+                                    type: 'primary',
+                                    status: 'danger',
+                                    onClick: () => deleteView(view.short_id),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        )}
+                    >
+                        <ButtonPrimitive menuItem variant="danger" disabledReasons={disabledReasons}>
+                            Delete
+                        </ButtonPrimitive>
+                    </MenuItem>
+                </MenuGroup>
+            )
+        }
+
+        const path = folderPathFromNodeId(item.id)
+        if (!path) {
+            // The Favorites node is not a real folder, so it has nothing to move or rename
+            return undefined
+        }
+        return (
+            <MenuGroup>
+                <MenuItem asChild onClick={stop(() => setEditingItemId(item.id))}>
+                    <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                        Rename folder
+                    </ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={stop(() =>
+                        openFolderPicker({
+                            title: `Move "${item.name}"`,
+                            initialFolder: path,
+                            folderPaths: folderPaths.filter((candidate) => candidate !== path),
+                            onSubmit: (folder) => moveFolder(path, folder),
+                        })
+                    )}
+                >
+                    <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                        Move folder
+                    </ButtonPrimitive>
+                </MenuItem>
+            </MenuGroup>
+        )
+    }
 
     return (
         <>
@@ -290,19 +257,49 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                 <div className="space-y-2">
                     <LemonInput
                         type="search"
-                        placeholder="Search views"
+                        placeholder="Search views and folders"
                         value={searchTerm}
                         onChange={setSearchTerm}
                         autoFocus
                     />
-                    <LemonTable
-                        columns={columns}
-                        dataSource={filteredViews}
-                        rowKey="id"
-                        loading={viewsLoading}
-                        emptyState={searchTerm ? 'No matching views.' : 'No saved views yet.'}
-                        size="small"
-                    />
+                    {viewsLoading && !viewTree.length ? (
+                        <div className="flex justify-center py-8">
+                            <Spinner />
+                        </div>
+                    ) : !viewTree.length ? (
+                        <div className="text-muted text-center py-8">
+                            {searchTerm ? 'No views match your search.' : 'No saved views yet.'}
+                        </div>
+                    ) : (
+                        <ScrollableShadows direction="vertical" className="border rounded max-h-100">
+                            <LemonTree
+                                data={viewTree}
+                                className="px-0 py-1"
+                                expandedItemIds={effectiveExpandedFolderIds}
+                                onSetExpandedItemIds={setExpandedFolderIds}
+                                onFolderClick={(folder) => folder && toggleFolderExpanded(folder.id)}
+                                onItemClick={(item) => item?.record?.type === 'view' && loadView(item.record.view)}
+                                isItemLoading={(item) => {
+                                    if (item.record?.type === 'view') {
+                                        return favoritingShortIds.includes(item.record.view.short_id)
+                                    }
+                                    const path = folderPathFromNodeId(item.id)
+                                    return !!path && movingFolders.includes(path)
+                                }}
+                                isItemEditing={(item) => editingItemId === item.id}
+                                onItemNameChange={(item, name) => {
+                                    const path = folderPathFromNodeId(item.id)
+                                    if (path && item.name !== name) {
+                                        renameFolder(path, name)
+                                    }
+                                    setEditingItemId('')
+                                }}
+                                itemContextMenu={(item) => renderRowMenu(item, ContextMenuGroup, ContextMenuItem)}
+                                itemSideAction={(item) => renderRowMenu(item, DropdownMenuGroup, DropdownMenuItem)}
+                                enableDragAndDrop={false}
+                            />
+                        </ScrollableShadows>
+                    )}
                 </div>
             </LemonModal>
             <SaveViewModal id={id} />

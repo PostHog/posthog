@@ -207,13 +207,18 @@ tools:
         title: List saved ticket views
         description:
             List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example
-            the per-team views named "Team <name>". Returns each view's short_id and name; a view opens in the app at
-            /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view`
+            the per-team views named "Team <name>". Returns each view's short_id, name, and folder; a view opens in the
+            app at /support/tickets?view=<short_id>. Folders are team-shared and slash-separated, and an empty folder
+            means the view sits at the top level. To get the tickets a view contains, pass its short_id as the `view`
             parameter of conversations-tickets-list.
         response:
             include:
                 - short_id
                 - name
+                - folder
+    conversations-views-move-folder-create:
+        operation: conversations_views_move_folder_create
+        enabled: false
     conversations-views-partial-update:
         operation: conversations_views_partial_update
         enabled: false

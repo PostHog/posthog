@@ -11,7 +11,8 @@ from rest_framework.test import APIClient
 from posthog.models.team.team import Team
 
 from products.conversations.backend.api.ticket_filters import TicketViewFiltersSerializer
-from products.conversations.backend.api.ticket_views import TicketViewFiltersField
+from products.conversations.backend.api.ticket_view_folders import normalize_folder, reparent_folder
+from products.conversations.backend.api.ticket_views import MoveFolderRequestSerializer, TicketViewFiltersField
 from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 
@@ -292,6 +293,148 @@ class TestTicketViewAPI(APIBaseTest):
         assert [r["name"] for r in results] == ["Older", "Newer"]
         assert results[0]["is_favorited"] is True
 
+    # --- Folders ---
+
+    def _make_view(self, name: str, folder: str) -> TicketView:
+        return TicketView.objects.create(team=self.team, name=name, folder=folder, created_by=self.user)
+
+    def _folders(self) -> dict[str, str]:
+        return {view.name: view.folder for view in TicketView.objects.filter(team=self.team)}
+
+    def test_create_with_folder(self):
+        data = self._create_via_api(folder="Escalations/EU")
+        assert data["folder"] == "Escalations/EU"
+
+        listed = self.client.get(self.base_url).json()["results"]
+        assert listed[0]["folder"] == "Escalations/EU"
+
+    def test_create_without_folder_returns_empty_string(self):
+        # Root is always "", never null, so clients need no second spelling for "no folder"
+        data = self._create_via_api()
+        assert data["folder"] == ""
+
+    def test_patch_folder_keeps_name_and_filters(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/", {"folder": "/Escalations//EU/"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Stray leading, trailing, and doubled slashes normalize instead of erroring
+        assert response.json()["folder"] == "Escalations/EU"
+        assert response.json()["name"] == created["name"]
+        assert response.json()["filters"] == created["filters"]
+        assert response.json()["short_id"] == created["short_id"]
+
+    @patch("products.conversations.backend.api.ticket_views.report_user_action")
+    def test_move_folder_rewrites_subtree(self, mock_report):
+        self._make_view("Parent", "Escalations")
+        self._make_view("Child", "Escalations/EU")
+        mock_report.reset_mock()
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/",
+            {"from_folder": "Escalations", "to_folder": "Ops/Escalations"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["moved"] == 2
+        assert response.json()["to_folder"] == "Ops/Escalations"
+        assert self._folders() == {"Parent": "Ops/Escalations", "Child": "Ops/Escalations/EU"}
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "ticket view folder moved"
+        assert mock_report.call_args[0][2] == {"count": 2, "from_depth": 1, "to_depth": 2}
+
+    def test_move_folder_leaves_name_prefix_siblings_alone(self):
+        self._make_view("Moved", "Escalations")
+        self._make_view("Nested", "Escalations/EU")
+        self._make_view("Spaced", "Escalations EU")
+        self._make_view("Suffixed", "EscalationsX")
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "Escalations", "to_folder": "Ops"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._folders() == {
+            "Moved": "Ops",
+            "Nested": "Ops/EU",
+            "Spaced": "Escalations EU",
+            "Suffixed": "EscalationsX",
+        }
+
+    def test_move_folder_escapes_like_wildcards_in_folder_name(self):
+        # "%" and "_" are LIKE metacharacters: unescaped, "100%_done/" would also match "100ZZdone/"
+        self._make_view("Moved", "100%_done")
+        self._make_view("Nested", "100%_done/EU")
+        self._make_view("Decoy", "100ZZdone")
+        self._make_view("NestedDecoy", "100ZZdone/EU")
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "100%_done", "to_folder": "Archive"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._folders() == {
+            "Moved": "Archive",
+            "Nested": "Archive/EU",
+            "Decoy": "100ZZdone",
+            "NestedDecoy": "100ZZdone/EU",
+        }
+
+    def test_move_folder_to_root(self):
+        self._make_view("Parent", "Escalations")
+        self._make_view("Child", "Escalations/EU")
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "Escalations", "to_folder": ""}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # No leading slash left behind on the descendant
+        assert self._folders() == {"Parent": "", "Child": "EU"}
+
+    def test_move_folder_rejects_result_past_depth_cap(self):
+        deep = "a/b/c/d/e/f/g/h/i"
+        self._make_view("Deep", deep)
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "a", "to_folder": "x/y/z"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._folders() == {"Deep": deep}
+
+    def test_move_folder_rejects_invalid_request(self):
+        # Wiring guard: the action must run MoveFolderRequestSerializer, so an invalid move
+        # never rewrites a folder. The full rejection matrix lives in TestTicketViewFolderPaths.
+        self._make_view("Parent", "Escalations")
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/",
+            {"from_folder": "Escalations", "to_folder": "Escalations/EU"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._folders() == {"Parent": "Escalations"}
+
+    def test_move_folder_only_touches_own_team(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        other = TicketView.objects.create(team=team2, name="Other", folder="Escalations", created_by=self.user)
+        self._make_view("Mine", "Escalations")
+
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "Escalations", "to_folder": "Ops"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["moved"] == 1
+        assert self._folders() == {"Mine": "Ops"}
+        other.refresh_from_db()
+        assert other.folder == "Escalations"
+
+    def test_move_folder_missing_folder_404(self):
+        response = self.client.post(
+            f"{self.base_url}move_folder/", {"from_folder": "Nonexistent", "to_folder": "Ops"}, format="json"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Auth ---
 
     def test_unauthorized_access(self):
@@ -408,3 +551,74 @@ class TestTicketViewFiltersValidation(SimpleTestCase):
         with self.assertRaises(ValidationError) as ctx:
             field.run_validation(oversized)
         assert "too large" in str(ctx.exception)
+
+
+class TestTicketViewFolderPaths(SimpleTestCase):
+    # No DB: folder normalization and reparenting are pure string work, and
+    # MoveFolderRequestSerializer's rejections run before the action touches a row. The wiring
+    # guards in TestTicketViewAPI prove the endpoint invokes both.
+
+    @parameterized.expand(
+        [
+            ("root", "", ""),
+            ("plain", "Escalations", "Escalations"),
+            ("nested", "Escalations/EU", "Escalations/EU"),
+            ("leading_and_trailing_slash", "/Escalations/EU/", "Escalations/EU"),
+            ("doubled_slash", "Escalations//EU", "Escalations/EU"),
+            ("padded_segments", " Escalations / EU ", "Escalations/EU"),
+            ("only_slashes", "///", ""),
+            # An escaped separator is one segment, so a folder named "Escalations/EU" survives
+            ("escaped_separator", "Escalations\\/EU", "Escalations\\/EU"),
+        ]
+    )
+    def test_normalize_folder(self, _label, value, expected):
+        assert normalize_folder(value) == expected
+        assert normalize_folder(normalize_folder(value)) == expected
+
+    @parameterized.expand(
+        [
+            ("too_deep", "/".join("abcdefghijk")),
+            ("segment_too_long", "x" * 101),
+            ("newline_in_segment", "Esca\nlations"),
+            ("tab_in_segment", "Esca\tlations"),
+        ]
+    )
+    def test_normalize_folder_rejects(self, _label, value):
+        with self.assertRaises(ValidationError):
+            normalize_folder(value)
+
+    @parameterized.expand(
+        [
+            ("exact_match", "Escalations", "Escalations", "Ops", "Ops"),
+            ("descendant", "Escalations/EU", "Escalations", "Ops", "Ops/EU"),
+            ("deeper_destination", "Escalations/EU", "Escalations", "Ops/Region", "Ops/Region/EU"),
+            ("to_root", "Escalations/EU", "Escalations", "", "EU"),
+            ("rename_in_place", "Escalations/EU", "Escalations", "Escalated", "Escalated/EU"),
+        ]
+    )
+    def test_reparent_folder(self, _label, folder, from_folder, to_folder, expected):
+        assert reparent_folder(folder, from_folder, to_folder) == expected
+
+    @parameterized.expand(
+        [
+            ("blank_source", {"from_folder": "", "to_folder": "Ops"}),
+            ("source_normalizes_to_blank", {"from_folder": "///", "to_folder": "Ops"}),
+            ("destination_equals_source", {"from_folder": "Escalations", "to_folder": "Escalations"}),
+            ("destination_inside_source", {"from_folder": "Escalations", "to_folder": "Escalations/EU"}),
+            ("destination_deep_inside_source", {"from_folder": "a", "to_folder": "a/b/c"}),
+            ("missing_destination", {"from_folder": "Escalations"}),
+        ]
+    )
+    def test_move_folder_request_rejects(self, _label, payload):
+        assert not MoveFolderRequestSerializer(data=payload).is_valid()
+
+    @parameterized.expand(
+        [
+            ("sibling_name_prefix", {"from_folder": "Escalations", "to_folder": "EscalationsX"}),
+            ("to_root", {"from_folder": "Escalations", "to_folder": ""}),
+            ("normalizes_both_sides", {"from_folder": "/Escalations/", "to_folder": "//Ops//"}),
+        ]
+    )
+    def test_move_folder_request_accepts(self, _label, payload):
+        serializer = MoveFolderRequestSerializer(data=payload)
+        assert serializer.is_valid(), serializer.errors

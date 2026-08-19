@@ -39,6 +39,7 @@ function makeSavedView(shortId: string, filters: TicketViewFilters = {}): SavedT
         short_id: shortId,
         name: `View ${shortId}`,
         filters,
+        folder: '',
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
         is_favorited: false,

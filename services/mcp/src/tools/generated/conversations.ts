@@ -283,7 +283,9 @@ const conversationsViewsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['short_id', 'name', 'folder'])
+            ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/support/tickets')
     },

@@ -11,6 +11,9 @@ class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Slash-separated, team-shared folder path, escaped by posthog.models.file_system helpers.
+    # "" means the view sits at the root; folders exist only while a view references them.
+    folder = models.CharField(max_length=1000, blank=True, default="", db_default="")
 
     # Not a column — a per-request annotation set by the viewset/serializer.
     is_favorited: bool

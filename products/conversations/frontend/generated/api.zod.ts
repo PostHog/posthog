@@ -395,6 +395,9 @@ export const conversationsViewsCreateBodyNameMax = 400
 
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
 
+export const conversationsViewsCreateBodyFolderDefault = ``
+export const conversationsViewsCreateBodyFolderMax = 1000
+
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsViewsCreateBodyNameMax),
     filters: zod
@@ -519,6 +522,13 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.'
         ),
+    folder: zod
+        .string()
+        .max(conversationsViewsCreateBodyFolderMax)
+        .default(conversationsViewsCreateBodyFolderDefault)
+        .describe(
+            'Team-shared folder this view sits in, for example \"Escalations\/EU\". An empty string means the view sits at the top level. Nest folders with \"\/\"; a literal slash inside a folder name is escaped as \"\\\/\". Folders are shared with the whole team and exist only while at least one view is in them.'
+        ),
     is_favorited: zod
         .boolean()
         .optional()
@@ -530,6 +540,9 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
 export const conversationsViewsPartialUpdateBodyNameMax = 400
 
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
+
+export const conversationsViewsPartialUpdateBodyFolderDefault = ``
+export const conversationsViewsPartialUpdateBodyFolderMax = 1000
 
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
@@ -655,11 +668,39 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.'
         ),
+    folder: zod
+        .string()
+        .max(conversationsViewsPartialUpdateBodyFolderMax)
+        .default(conversationsViewsPartialUpdateBodyFolderDefault)
+        .describe(
+            'Team-shared folder this view sits in, for example \"Escalations\/EU\". An empty string means the view sits at the top level. Nest folders with \"\/\"; a literal slash inside a folder name is escaped as \"\\\/\". Folders are shared with the whole team and exist only while at least one view is in them.'
+        ),
     is_favorited: zod
         .boolean()
         .optional()
         .describe(
             'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
+        ),
+})
+
+/**
+ * Move a folder and everything nested under it to a new location. Renaming a folder is the same operation with a new final path segment. Folders are not stored as rows, so this rewrites the folder path on every view at or below the given folder.
+ * @summary Move or rename a folder of saved views
+ */
+export const conversationsViewsMoveFolderCreateBodyFromFolderMax = 1000
+
+export const conversationsViewsMoveFolderCreateBodyToFolderMax = 1000
+
+export const ConversationsViewsMoveFolderCreateBody = /* @__PURE__ */ zod.object({
+    from_folder: zod
+        .string()
+        .max(conversationsViewsMoveFolderCreateBodyFromFolderMax)
+        .describe('Folder to move, for example \"Escalations\". Required, and the top level cannot be moved.'),
+    to_folder: zod
+        .string()
+        .max(conversationsViewsMoveFolderCreateBodyToFolderMax)
+        .describe(
+            'Where the folder should end up, for example \"Ops\/Escalations\". An empty string moves its views to the top level, which removes the folder.'
         ),
 })
 

@@ -1229,6 +1229,11 @@ export interface TicketViewApi {
     name: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /**
+     * Team-shared folder this view sits in, for example "Escalations/EU". An empty string means the view sits at the top level. Nest folders with "/"; a literal slash inside a folder name is escaped as "\/". Folders are shared with the whole team and exist only while at least one view is in them.
+     * @maxLength 1000
+     */
+    folder?: string
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
@@ -1251,10 +1256,37 @@ export interface PatchedTicketViewApi {
     name?: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /**
+     * Team-shared folder this view sits in, for example "Escalations/EU". An empty string means the view sits at the top level. Nest folders with "/"; a literal slash inside a folder name is escaped as "\/". Folders are shared with the whole team and exist only while at least one view is in them.
+     * @maxLength 1000
+     */
+    folder?: string
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
+}
+
+export interface MoveFolderRequestApi {
+    /**
+     * Folder to move, for example "Escalations". Required, and the top level cannot be moved.
+     * @maxLength 1000
+     */
+    from_folder: string
+    /**
+     * Where the folder should end up, for example "Ops/Escalations". An empty string moves its views to the top level, which removes the folder.
+     * @maxLength 1000
+     */
+    to_folder: string
+}
+
+export interface MoveFolderResponseApi {
+    /** How many views changed folder. */
+    moved: number
+    /** short_id of every view that moved. */
+    short_ids: string[]
+    /** Normalized destination the views now sit in. */
+    to_folder: string
 }
 
 export interface ZendeskImportStartApi {

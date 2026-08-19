@@ -23,6 +23,8 @@ import type {
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
+    MoveFolderRequestApi,
+    MoveFolderResponseApi,
     PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
@@ -720,6 +722,27 @@ export const conversationsViewsDestroy = async (
     return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsViewsMoveFolderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/views/move_folder/`
+}
+
+/**
+ * Move a folder and everything nested under it to a new location. Renaming a folder is the same operation with a new final path segment. Folders are not stored as rows, so this rewrites the folder path on every view at or below the given folder.
+ * @summary Move or rename a folder of saved views
+ */
+export const conversationsViewsMoveFolderCreate = async (
+    projectId: string,
+    moveFolderRequestApi: MoveFolderRequestApi,
+    options?: RequestInit
+): Promise<MoveFolderResponseApi> => {
+    return apiMutator<MoveFolderResponseApi>(getConversationsViewsMoveFolderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(moveFolderRequestApi),
     })
 }
 

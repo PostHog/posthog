@@ -5,13 +5,22 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { SavedViewsModal } from './SavedViewsModal'
+import { ticketViewMenuItems } from './ticketViewFolders'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
-    const { favoriteViews, viewsLoading } = useValues(ticketViewsLogic({ id }))
-    const { openModal, loadView, loadViews } = useActions(ticketViewsLogic({ id }))
+    const { favoriteViews, viewsLoading, folderMenuTree } = useValues(ticketViewsLogic({ id }))
+    const { openModal, loadView, loadViews, revealFolder } = useActions(ticketViewsLogic({ id }))
     const { activeView } = useValues(supportTicketsSceneLogic)
     const { resetFilters } = useActions(supportTicketsSceneLogic)
+
+    const folderItems = ticketViewMenuItems(folderMenuTree, {
+        onSelectView: loadView,
+        onBrowseFolder: (path) => {
+            revealFolder(path)
+            openModal()
+        },
+    })
 
     return (
         <>
@@ -33,6 +42,7 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                                   },
                               ],
                     },
+                    ...(folderItems.length ? [{ title: 'All views', items: folderItems }] : []),
                     {
                         items: [{ label: 'All saved views', onClick: openModal }],
                     },

@@ -107,6 +107,8 @@ export interface SavedTicketView {
     short_id: string
     name: string
     filters: TicketViewFilters
+    /** Team-shared, slash-separated folder path. "" means the view sits at the root. */
+    folder: string
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
     is_favorited: boolean
