@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import type { ErrorEventType } from 'lib/components/Errors/types'
 
@@ -59,6 +59,56 @@ describe('EventsTable', () => {
         rerender(<EventsTable {...props} loading={false} />)
 
         expect(scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'reads the derived exception arrays when present',
+            { $exception_types: ['TypeError'], $exception_values: ['Something failed'] },
+            'TypeError',
+            'Something failed',
+        ],
+        [
+            'falls back to the exception list when the derived arrays are absent',
+            { $exception_list: [{ type: 'ValueError', value: 'Widget not found' }] },
+            'ValueError',
+            'Widget not found',
+        ],
+        [
+            'falls back to the exception list when the derived arrays are empty',
+            { $exception_types: [], $exception_values: [], $exception_list: [{ type: 'Error', value: 'Boom' }] },
+            'Error',
+            'Boom',
+        ],
+        [
+            'falls back to the legacy singular properties when there is no exception list',
+            { $exception_type: 'SyntaxError', $exception_message: 'Unexpected token' },
+            'SyntaxError',
+            'Unexpected token',
+        ],
+        ['labels the row when nothing is available', {}, 'Unknown', 'No message'],
+        [
+            'stringifies a non-string exception value',
+            { $exception_types: ['TypeError'], $exception_values: [{}] },
+            'TypeError',
+            '{}',
+        ],
+    ])('%s', (_name, properties, expectedType, expectedValue) => {
+        const record = { ...event, properties } as ErrorEventType
+
+        render(
+            <EventsTable
+                items={[record]}
+                hasMore={false}
+                loading={false}
+                selectedEvent={null}
+                onEventSelect={jest.fn()}
+                onLoadMore={jest.fn()}
+            />
+        )
+
+        expect(screen.getByText(expectedType)).toBeInTheDocument()
+        expect(screen.getByText(expectedValue)).toBeInTheDocument()
     })
 
     it('scrolls to the newly selected event when the selection changes', () => {

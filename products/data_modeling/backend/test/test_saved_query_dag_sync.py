@@ -4,6 +4,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
@@ -108,8 +109,11 @@ class TestSyncSavedQueryToDag(BaseTest):
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
 
-        node = sync_saved_query_to_dag(saved_query)
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+        with mock.patch("posthog.hogql.database.database.Database.create_for") as mock_database_create:
+            node = sync_saved_query_to_dag(saved_query, database=database)
 
+        mock_database_create.assert_not_called()
         events_node = Node.objects.filter(
             team=self.team,
             dag__name=DEFAULT_DAG_NAME,
