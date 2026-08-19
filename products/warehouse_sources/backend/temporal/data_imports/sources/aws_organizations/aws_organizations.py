@@ -388,9 +388,26 @@ def _policy_rows(
         start_token = None
 
 
+@dataclasses.dataclass(frozen=True)
+class OrganizationalUnitEntry:
+    """An OU paired with the parent it was found under."""
+
+    item: dict[str, Any]
+    parent_id: str
+    parent_type: str
+
+
+@dataclasses.dataclass(frozen=True)
+class TaggableResource:
+    """A resource that can carry tags, identified by id and resource type."""
+
+    resource_id: str
+    resource_type: str
+
+
 def _iter_organizational_units(
     client: AwsOrganizationsClient, logger: FilteringBoundLogger
-) -> Iterator[tuple[dict[str, Any], str, str]]:
+) -> Iterator[OrganizationalUnitEntry]:
     """Every OU in the organization, paired with the parent it was found under.
 
     Organizations only lists OUs one parent at a time, so the hierarchy is walked breadth-first
@@ -412,7 +429,7 @@ def _iter_organizational_units(
             "OrganizationalUnits",
             logger,
         ):
-            yield item, parent_id, parent_type
+            yield OrganizationalUnitEntry(item=item, parent_id=parent_id, parent_type=parent_type)
             unit_id = item.get("Id")
             # `seen` guards against an id coming back twice, which would otherwise walk the
             # same subtree forever.
@@ -427,10 +444,10 @@ def _organizational_unit_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
-    for item, parent_id, parent_type in _iter_organizational_units(client, logger):
-        row = normalize_row(endpoint_config, item)
-        row["parent_id"] = parent_id
-        row["parent_type"] = parent_type
+    for entry in _iter_organizational_units(client, logger):
+        row = normalize_row(endpoint_config, entry.item)
+        row["parent_id"] = entry.parent_id
+        row["parent_type"] = entry.parent_type
         rows.append(row)
         if len(rows) >= MAX_RESULTS:
             yield rows
@@ -439,8 +456,10 @@ def _organizational_unit_rows(
         yield rows
 
 
-def _iter_taggable_resources(client: AwsOrganizationsClient, logger: FilteringBoundLogger) -> Iterator[tuple[str, str]]:
-    """Every resource in the organization that can carry tags, as (id, resource type)."""
+def _iter_taggable_resources(
+    client: AwsOrganizationsClient, logger: FilteringBoundLogger
+) -> Iterator[TaggableResource]:
+    """Every resource in the organization that can carry tags."""
 
     def candidates() -> Iterator[tuple[Any, str]]:
         for account in iter_items(client, "ListAccounts", {"MaxResults": MAX_RESULTS}, "Accounts", logger):
@@ -449,8 +468,8 @@ def _iter_taggable_resources(client: AwsOrganizationsClient, logger: FilteringBo
         for root in iter_items(client, "ListRoots", {"MaxResults": MAX_RESULTS}, "Roots", logger):
             yield root.get("Id"), "ROOT"
 
-        for unit, _parent_id, _parent_type in _iter_organizational_units(client, logger):
-            yield unit.get("Id"), "ORGANIZATIONAL_UNIT"
+        for entry in _iter_organizational_units(client, logger):
+            yield entry.item.get("Id"), "ORGANIZATIONAL_UNIT"
 
         for policy_filter in POLICY_FILTERS:
             try:
@@ -468,7 +487,7 @@ def _iter_taggable_resources(client: AwsOrganizationsClient, logger: FilteringBo
     for resource_id, resource_type in candidates():
         if isinstance(resource_id, str) and resource_id and resource_id not in seen:
             seen.add(resource_id)
-            yield resource_id, resource_type
+            yield TaggableResource(resource_id=resource_id, resource_type=resource_type)
 
 
 def _resource_tag_rows(
@@ -476,7 +495,8 @@ def _resource_tag_rows(
     endpoint_config: AwsOrganizationsEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    for resource_id, resource_type in _iter_taggable_resources(client, logger):
+    for resource in _iter_taggable_resources(client, logger):
+        resource_id, resource_type = resource.resource_id, resource.resource_type
         rows: list[dict[str, Any]] = []
         try:
             for tag in iter_items(
