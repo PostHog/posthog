@@ -26,7 +26,7 @@ import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
-import { featureRequestsLogic } from './featureRequestsLogic'
+import { FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE, featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
@@ -35,6 +35,8 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
         listSearchParams,
         activeRequestAccountLinks,
         activeRequestEvidenceCount,
+        visibleActiveRequestAccountLinks,
+        requestAccountsShowingAll,
         accountsEvidenceCollapsed,
     } = useValues(featureRequestsLogic)
     const {
@@ -42,6 +44,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
         openAddAccount,
         archiveActiveRequest,
         restoreActiveRequest,
+        setRequestAccountsShowingAll,
         setAccountsEvidenceCollapsed,
     } = useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
@@ -171,13 +174,26 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         }
                     >
                         <div className="flex flex-col gap-2">
-                            {activeRequestAccountLinks.map((accountLink) => (
+                            {visibleActiveRequestAccountLinks.map((accountLink) => (
                                 <FeatureRequestAccountItem
                                     key={accountLink.id}
                                     accountLink={accountLink}
                                     canEdit={canEdit}
                                 />
                             ))}
+                            {activeRequestAccountLinks.length > FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => setRequestAccountsShowingAll(!requestAccountsShowingAll)}
+                                    data-attr="feature-request-accounts-show-all"
+                                    className="self-start"
+                                >
+                                    {requestAccountsShowingAll
+                                        ? `Show first ${FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE} accounts`
+                                        : `Show all ${activeRequestAccountLinks.length} accounts`}
+                                </LemonButton>
+                            )}
                         </div>
                     </FeatureRequestDetailSection>
 

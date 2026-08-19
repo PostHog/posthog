@@ -43,7 +43,7 @@ export function FeatureRequestAccountItem({
                     </LemonButton>
                 )}
             </div>
-            {accountLink.evidence.length ? (
+            {accountLink.evidence.length > 0 && (
                 <div className="flex flex-col gap-2">
                     {accountLink.evidence.map((evidence) => (
                         <FeatureRequestEvidenceItem
@@ -54,8 +54,6 @@ export function FeatureRequestAccountItem({
                         />
                     ))}
                 </div>
-            ) : (
-                <span className="text-secondary">No evidence recorded for this account.</span>
             )}
         </div>
     )

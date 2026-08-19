@@ -10,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
-import type { AccountApi, FeatureRequestApi } from '../../generated/api.schemas'
+import type { AccountApi, FeatureRequestAccountLinkApi, FeatureRequestApi } from '../../generated/api.schemas'
 import {
     FEATURE_REQUESTS_PAGE_SIZE,
     featureRequestSearchParams,
@@ -395,59 +395,61 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceModalOpen).toBe(false)
     })
 
-    it('groups all evidence by account and orders each account newest first', () => {
+    it('orders accounts by evidence count and evidence newest first', () => {
         const requestWithEvidence: FeatureRequestApi = {
             ...createdRequest,
-            account_links: [
-                {
-                    ...createdRequest.account_links[0],
-                    evidence: [
-                        {
-                            id: 'acme-older',
-                            summary: 'Older Acme evidence',
-                            customer_quote: '',
-                            evidence_source: 'conversation',
-                            source_url: '',
-                            requested_on: '2026-01-01',
-                            created_by: 1,
-                            updated_by: 1,
-                            created_at: '2026-01-02T00:00:00Z',
-                            updated_at: '2026-01-02T00:00:00Z',
-                        },
-                        {
-                            id: 'acme-newer',
-                            summary: 'Newer Acme evidence',
-                            customer_quote: '',
-                            evidence_source: 'email',
-                            source_url: '',
-                            requested_on: '2026-01-03',
-                            created_by: 1,
-                            updated_by: 1,
-                            created_at: '2026-01-03T00:00:00Z',
-                            updated_at: '2026-01-03T00:00:00Z',
-                        },
-                    ],
-                },
-                {
-                    ...createdRequest.account_links[0],
-                    id: 'account-link-2',
-                    account: { id: 'account-2', name: 'Globex' },
-                    evidence: [
-                        {
-                            id: 'globex-evidence',
-                            summary: 'Globex evidence',
-                            customer_quote: '',
-                            evidence_source: 'meeting',
-                            source_url: '',
-                            requested_on: null,
-                            created_by: 1,
-                            updated_by: 1,
-                            created_at: '2026-01-04T00:00:00Z',
-                            updated_at: '2026-01-04T00:00:00Z',
-                        },
-                    ],
-                },
-            ],
+            account_links: (
+                [
+                    {
+                        ...createdRequest.account_links[0],
+                        evidence: [
+                            {
+                                id: 'acme-older',
+                                summary: 'Older Acme evidence',
+                                customer_quote: '',
+                                evidence_source: 'conversation',
+                                source_url: '',
+                                requested_on: '2026-01-01',
+                                created_by: 1,
+                                updated_by: 1,
+                                created_at: '2026-01-02T00:00:00Z',
+                                updated_at: '2026-01-02T00:00:00Z',
+                            },
+                            {
+                                id: 'acme-newer',
+                                summary: 'Newer Acme evidence',
+                                customer_quote: '',
+                                evidence_source: 'email',
+                                source_url: '',
+                                requested_on: '2026-01-03',
+                                created_by: 1,
+                                updated_by: 1,
+                                created_at: '2026-01-03T00:00:00Z',
+                                updated_at: '2026-01-03T00:00:00Z',
+                            },
+                        ],
+                    },
+                    {
+                        ...createdRequest.account_links[0],
+                        id: 'account-link-2',
+                        account: { id: 'account-2', name: 'Globex' },
+                        evidence: [
+                            {
+                                id: 'globex-evidence',
+                                summary: 'Globex evidence',
+                                customer_quote: '',
+                                evidence_source: 'meeting',
+                                source_url: '',
+                                requested_on: null,
+                                created_by: 1,
+                                updated_by: 1,
+                                created_at: '2026-01-04T00:00:00Z',
+                                updated_at: '2026-01-04T00:00:00Z',
+                            },
+                        ],
+                    },
+                ] satisfies FeatureRequestAccountLinkApi[]
+            ).reverse(),
         }
 
         logic.actions.loadActiveRequestSuccess(requestWithEvidence)
@@ -464,12 +466,31 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.activeRequestEvidenceCount).toBe(3)
     })
 
+    it('shows five account cards before expanding the full list', () => {
+        const requestWithAccounts: FeatureRequestApi = {
+            ...createdRequest,
+            account_links: Array.from({ length: 6 }, (_, index) => ({
+                ...createdRequest.account_links[0],
+                id: `account-link-${index + 1}`,
+                account: { id: `account-${index + 1}`, name: `Account ${index + 1}` },
+            })),
+        }
+
+        logic.actions.loadActiveRequestSuccess(requestWithAccounts)
+
+        expect(logic.values.visibleActiveRequestAccountLinks).toHaveLength(5)
+
+        logic.actions.setRequestAccountsShowingAll(true)
+        expect(logic.values.visibleActiveRequestAccountLinks).toHaveLength(6)
+    })
+
     it('opens the accounts section for a history target', () => {
         logic.actions.setAccountsEvidenceCollapsed(true)
 
         logic.actions.showHistoryTarget('account-1', 'evidence-1')
 
         expect(logic.values.accountsEvidenceCollapsed).toBe(false)
+        expect(logic.values.requestAccountsShowingAll).toBe(true)
     })
 
     it('opens the account evidence form from an account page link', () => {

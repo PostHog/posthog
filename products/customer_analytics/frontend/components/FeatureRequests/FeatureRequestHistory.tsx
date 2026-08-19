@@ -76,15 +76,14 @@ function historyTargetLabel(
         return <span className="font-medium">{label}:</span>
     }
     return (
-        <LemonButton
-            type="tertiary"
-            size="xsmall"
+        <button
+            type="button"
             onClick={() => onShowTarget(target.accountId, target.evidenceId)}
             data-attr="feature-request-history-target"
-            className="-ml-1 -my-1 inline-flex font-medium"
+            className="m-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-current hover:text-accent"
         >
             {label}:
-        </LemonButton>
+        </button>
     )
 }
 
