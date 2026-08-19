@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreWorkspaces": ["apps/mobile"],
   "workspaces": {
     ".": {
       "entry": ["mprocs.yaml", "scripts/*.{mjs,js,ts}"]
@@ -27,11 +28,6 @@
         "node-addon-api",
         "@vitest/coverage-v8"
       ]
-    },
-    "apps/mobile": {
-      "entry": ["index.js"],
-      "project": ["src/**/*.{ts,tsx}"],
-      "metro": false
     },
     "packages/agent": {
       "project": ["src/**/*.ts"],
