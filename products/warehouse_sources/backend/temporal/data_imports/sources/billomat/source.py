@@ -58,6 +58,12 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BILLOMAT
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The API key/app secret is sent to https://{billomat_id}.billomat.net, so retargeting
+        # billomat_id must re-require the secrets (prevents credential exfiltration to another host).
+        return ["billomat_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Billomat authentication failed. Check your Billomat ID and API key.",

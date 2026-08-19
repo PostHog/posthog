@@ -383,6 +383,11 @@ class TestBillomatSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
+    def test_billomat_id_is_a_connection_host_field(self) -> None:
+        # billomat_id determines the request host (https://{billomat_id}.billomat.net), so
+        # changing it must force re-entry of the stored api_key/app_secret.
+        assert self.source.connection_host_fields == ["billomat_id"]
+
     def test_api_docs_url(self) -> None:
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 

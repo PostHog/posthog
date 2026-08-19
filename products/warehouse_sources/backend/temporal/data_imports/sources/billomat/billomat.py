@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 _PER_PAGE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BillomatResumeConfig:
     next_page: int
 
