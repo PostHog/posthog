@@ -218,7 +218,9 @@ def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter
     return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
 
 
-@dataclass
+# Mutable by design: `precompute_stale` is set while building the query, and each
+# processor owns a `timings` clone the runner merges back after the pool joins.
+@dataclass(frozen=False)
 class ConversionGoalProcessor:
     """
     Processes conversion goals for marketing analytics queries.
