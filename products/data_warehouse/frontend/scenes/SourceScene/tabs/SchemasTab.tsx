@@ -562,7 +562,7 @@ function ManagedSchemaTable({
                                             LemonDialog.open({
                                                 title: 'Enable this table?',
                                                 description:
-                                                    'No sync method is set up yet. Default settings will be applied: incremental sync where the table supports it, otherwise a full refresh. Syncing starts right after enabling. To enable many tables at once, select their rows and use the Enable action.',
+                                                    'No sync method is set up yet. Default settings will be applied: incremental sync where the table supports it, append where available, otherwise a full refresh. Syncing starts right after enabling. To enable many tables at once, select their rows and use the Enable action.',
                                                 primaryButton: {
                                                     children: 'Enable',
                                                     type: 'primary',
@@ -710,7 +710,7 @@ function SchemaBulkActions({
                 needingDefaults.length,
                 'selected schema has',
                 'selected schemas have'
-            )} no sync method configured yet. Default settings will be applied: incremental sync where the table supports it, otherwise a full refresh. Syncing starts right after enabling.`,
+            )} no sync method configured yet. Default settings will be applied: incremental sync where the table supports it, append where available, otherwise a full refresh. Syncing starts right after enabling.`,
             primaryButton: {
                 children: 'Enable',
                 type: 'primary',
