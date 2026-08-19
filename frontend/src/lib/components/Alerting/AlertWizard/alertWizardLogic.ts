@@ -530,13 +530,25 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         selectedTemplate: [
             null as HogFunctionTemplateType | null,
             {
-                loadTemplate: async (templateId: string) => {
+                loadTemplate: async (templateId: string, breakpoint) => {
                     // A missing template row 404s and never recovers on retry, so only retry the
                     // transient failures (a network blip, a 5xx). The 404 case surfaces its own empty state.
-                    return await retryWithBackoff(() => api.hogFunctions.getTemplate(templateId), {
-                        maxAttempts: 3,
-                        shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
-                    })
+                    let template: HogFunctionTemplateType
+                    try {
+                        template = await retryWithBackoff(() => api.hogFunctions.getTemplate(templateId), {
+                            maxAttempts: 3,
+                            shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
+                        })
+                    } catch (error) {
+                        // The retry window is seconds long. If the user picked another destination
+                        // meanwhile, breakpoint() drops this stale run so its failure can't flip the
+                        // error banner over a template that loaded fine.
+                        breakpoint()
+                        throw error
+                    }
+                    // Same guard for a late success: a stale retry must not overwrite the current template.
+                    breakpoint()
+                    return template
                 },
             },
         ],
