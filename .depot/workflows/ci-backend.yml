@@ -352,6 +352,10 @@ jobs:
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
+                        # Internal libs are tach nodes whose dependents are declared, so
+                        # turbo-discover selects their own tests and their dependents'
+                        # tests. They must not force the full Django suite.
+                        - '!posthog/libs/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -1995,6 +1999,7 @@ jobs:
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
+                        --ignore=posthog/libs \
                         --ignore=common/hogvm/python/test \
                         --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \

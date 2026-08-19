@@ -1,14 +1,23 @@
 // Run with: node --test .github/scripts/turbo-discover-cascade.test.js
 //
 // Unit tests for the dependent-cascade logic in turbo-discover.js:
-// parseTachModules, tachDependents. Uses a synthetic graph throughout —
-// never asserts against the real tach.toml, which would turn into a
-// change-detector test that breaks on every unrelated dependency edit.
+// parseTachModules, tachDependents, and the internal-lib cascade. Uses a
+// synthetic graph throughout — never asserts against the real tach.toml, which
+// would turn into a change-detector test that breaks on every unrelated
+// dependency edit.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseTachModules, tachDependents } = require('./turbo-discover')
+const {
+    parseTachModules,
+    parseTachDependents,
+    tachDependents,
+    checkInternalLibConsistency,
+    internalLibDependents,
+    internalLibPackageToModule,
+    buildMatrix,
+} = require('./turbo-discover')
 
 test('normalization round-trip: dashed input resolves against underscored tach names and returns dashed output', () => {
     const toml = `
@@ -263,4 +272,207 @@ layer = "modules"
     const graph = parseTachModules(toml)
     assert.deepEqual(graph.get('a'), ['b'])
     assert.equal(graph.has('no_deps'), false)
+})
+
+// --- Internal libs (posthog/libs/<name>) as cascade sources ---
+//
+// An internal lib is a tach module, so its consumers are declared in tach.toml
+// and enforced by `tach check`. The cascade reads those declarations instead of
+// scanning imports, and it has to see consumers outside products/ too, which
+// the product graph deliberately drops.
+
+test('internal lib package names map to their tach module, with dashes becoming underscores', () => {
+    assert.equal(internalLibPackageToModule('@posthog/lib-probe'), 'posthog.libs.probe')
+    assert.equal(internalLibPackageToModule('@posthog/lib-slack-digest'), 'posthog.libs.slack_digest')
+})
+
+test('fail closed: a package name outside the @posthog/lib-<name> convention throws rather than inventing a module', () => {
+    assert.throws(() => internalLibPackageToModule('@posthog/owners'), /@posthog\/lib-/)
+    assert.throws(() => internalLibPackageToModule('@posthog/lib-'), /@posthog\/lib-/)
+    assert.throws(() => internalLibPackageToModule('@acme/lib-probe'), /@posthog\/lib-/)
+    assert.throws(() => internalLibPackageToModule('@posthog/lib-Probe'), /@posthog\/lib-/)
+})
+
+test('reverse edges cover every module path as written, products and core and libs alike', () => {
+    const toml = `
+[[modules]]
+path = "<root>"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "posthog.libs.probe"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "posthog"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog", "posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "posthog.libs.other"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+`
+    const reverse = parseTachDependents(toml)
+    assert.deepEqual(reverse.get('posthog.libs.probe').sort(), ['posthog', 'posthog.libs.other', 'products.stamphog'])
+    assert.deepEqual(reverse.get('posthog'), ['products.stamphog'])
+    assert.equal(reverse.has('posthog.libs.other'), false)
+})
+
+test('reverse edges survive a comment carrying a bracket inside depends_on', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = [
+    "posthog.libs.probe",
+    # Facade-only (enforced by c's [[interfaces]] block): a queues c's work.
+    "products.c",
+]
+layer = "modules"
+`
+    const reverse = parseTachDependents(toml)
+    assert.deepEqual(reverse.get('posthog.libs.probe'), ['products.a'])
+    assert.deepEqual(reverse.get('products.c'), ['products.a'])
+})
+
+test('an internal lib reaches its declared product consumers as dashed product ids', () => {
+    const toml = `
+[[modules]]
+path = "posthog.libs.probe"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.data_warehouse"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+`
+    const result = internalLibDependents(['posthog.libs.probe'], parseTachDependents(toml))
+    assert.deepEqual(result, { products: ['data-warehouse'], core: [], libs: [] })
+})
+
+test('a lib depending on a lib is walked transitively, and the seed is not reported as its own dependent', () => {
+    const toml = `
+[[modules]]
+path = "posthog.libs.probe"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "posthog.libs.middle"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "posthog.libs.outer"
+depends_on = ["posthog.libs.middle"]
+layer = "modules"
+
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog.libs.outer"]
+layer = "modules"
+`
+    const result = internalLibDependents(['posthog.libs.probe'], parseTachDependents(toml))
+    assert.deepEqual(result.libs, ['posthog.libs.middle', 'posthog.libs.outer'])
+    assert.deepEqual(result.products, ['stamphog'])
+    assert.deepEqual(internalLibDependents(['posthog.libs.probe', 'posthog.libs.middle'], parseTachDependents(toml)).libs, ['posthog.libs.outer'])
+})
+
+test('a core dependent is reported by module path, which is what forces Django to run', () => {
+    const toml = `
+[[modules]]
+path = "posthog.libs.probe"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "posthog"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "common.hogvm"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "<root>"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+`
+    const result = internalLibDependents(['posthog.libs.probe'], parseTachDependents(toml))
+    assert.deepEqual(result.core, ['<root>', 'common.hogvm', 'posthog'])
+    assert.deepEqual(result.products, [])
+})
+
+// Products and core are terminals: the product graph closes over product
+// dependents separately, and a core dependent already means the full suite. A
+// walk that continued through them would reach the whole repo from any lib.
+test('the walk stops at products and core rather than continuing through them', () => {
+    const toml = `
+[[modules]]
+path = "posthog.libs.probe"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "products.downstream"
+depends_on = ["products.stamphog"]
+layer = "modules"
+
+[[modules]]
+path = "posthog"
+depends_on = ["posthog.libs.probe"]
+layer = "modules"
+
+[[modules]]
+path = "ee"
+depends_on = ["posthog"]
+layer = "modules"
+`
+    const result = internalLibDependents(['posthog.libs.probe'], parseTachDependents(toml))
+    assert.deepEqual(result.products, ['stamphog'])
+    assert.deepEqual(result.core, ['posthog'])
+})
+
+// Half a declaration under-tests silently in both directions, so discovery
+// fails instead of running with it.
+test('a tach lib module with no workspace package throws, naming the package to add', () => {
+    assert.throws(
+        () => checkInternalLibConsistency(['posthog.libs.probe', 'posthog.libs.slack_digest'], ['posthog.libs.probe']),
+        /tach module posthog\.libs\.slack_digest has no @posthog\/lib-slack-digest workspace package/
+    )
+})
+
+test('a lib workspace package with no tach module throws, naming the module to add', () => {
+    assert.throws(
+        () => checkInternalLibConsistency(['posthog.libs.probe'], ['posthog.libs.probe', 'posthog.libs.slack_digest']),
+        /workspace package @posthog\/lib-slack-digest has no posthog\.libs\.slack_digest module in tach\.toml/
+    )
+})
+
+test('matching sets pass, including the case where the repo has no internal libs at all', () => {
+    checkInternalLibConsistency(['posthog.libs.probe', 'posthog.libs.slack_digest'], ['posthog.libs.slack_digest', 'posthog.libs.probe'])
+    checkInternalLibConsistency([], [])
+})
+
+test('internal libs get their own matrix entry, filtered by lib package rather than product package', () => {
+    const matrix = buildMatrix([], null, ['posthog.libs.probe', 'posthog.libs.slack_digest'])
+    assert.deepEqual(matrix, [
+        { group: 'lib: probe', filters: '--filter=@posthog/lib-probe', pytest_args: '' },
+        { group: 'lib: slack-digest', filters: '--filter=@posthog/lib-slack-digest', pytest_args: '' },
+    ])
 })

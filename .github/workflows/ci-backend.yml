@@ -236,6 +236,10 @@ jobs:
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
+                        # Internal libs are tach nodes whose dependents are declared, so
+                        # turbo-discover selects their own tests and their dependents'
+                        # tests. They must not force the full Django suite.
+                        - '!posthog/libs/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -1065,7 +1069,7 @@ jobs:
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
-                  junit-paths: products/*/junit-product.xml
+                  junit-paths: products/*/junit-product.xml,posthog/libs/*/junit-product.xml
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1088,6 +1092,11 @@ jobs:
                   for f in products/*/junit-product.xml; do
                       [ -f "$f" ] || continue
                       cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
+                  done
+                  # Internal libs (posthog/libs/<name>) run in the same matrix; keep their files apart from products'.
+                  for f in posthog/libs/*/junit-product.xml; do
+                      [ -f "$f" ] || continue
+                      cp "$f" "junit-staging/junit-product-lib-$(basename "$(dirname "$f")").xml"
                   done
             # Separate artifact prefix from junit-results-backend-* so consumers can select
             # product JUnit by download pattern; the product name rides in each inner filename
@@ -3106,6 +3115,7 @@ jobs:
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
+                        --ignore=posthog/libs \
                         --ignore=common/hogvm/python/test \
                         --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \

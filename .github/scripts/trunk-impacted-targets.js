@@ -19,7 +19,7 @@
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
-// The bias is relaxed in exactly two places, both bounded by what one PR can
+// The bias is relaxed in exactly three places, all bounded by what one PR can
 // name in another. The conflict that lanes exist to prevent is semantic rather
 // than textual, because a textual one would force a rebase and a retest: PR A
 // renames a facade function and updates every current caller, PR B adds a new
@@ -62,6 +62,15 @@
 //      tach.toml means every member reaches every other, so any seed inside it
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
+//
+//   3. A change to an internal lib under posthog/libs/<name>/ claims the lanes
+//      of the modules that declare it, rather than every Python lane the rest
+//      of posthog/ claims. A lib is a tach module with `depends_on = []`, so
+//      `tach check` forces every importer, posthog and ee included, to list it,
+//      and the declarations bound the importer set the same way they do for a
+//      product. A dependent that is not a product or another lib is core, which
+//      keeps the full widening. A lib tach does not declare at all is
+//      unconstrained and widens to everything.
 //
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
@@ -1465,6 +1474,25 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
+        // An internal lib is a tach module of its own, unlike the rest of
+        // posthog/, so its importers are declared and the lane can follow them
+        // instead of taking every backend lane. Everything in the directory
+        // follows the lib: its package.json and turbo.json define the task that
+        // runs its tests, and its tests read the same symbols an importer does.
+        // Its markdown never reaches here, the prose rule above takes it.
+        if (top === 'posthog' && segments[1] === 'libs' && segments.length > 2) {
+            const lanes = internalLibLanes(segments[2], tachGraph, products)
+            if (lanes === null) {
+                return everything(context)
+            }
+            if (lanes.widen) {
+                allPyProducts()
+            }
+            for (const product of lanes.products) {
+                targets.add(pyProduct(product))
+            }
+            continue
+        }
         if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
             continue
@@ -1647,8 +1675,8 @@ function computeTargets(changedFiles, context) {
     //
     // The seeds are the products whose contract surface changed, plus any
     // product whose own declarations changed, and the dependents are one hop
-    // deep. See the two numbered narrowings at the top of this file for what
-    // that gives up.
+    // deep. See narrowings 1 and 2 at the top of this file for what that gives
+    // up.
     if (cascadeSeeds.size > 0) {
         const dependents = tachDependentProducts([...cascadeSeeds], tachGraph)
         if (dependents === null) {
@@ -1728,11 +1756,83 @@ function tachDependentProducts(changedProducts, tachGraph) {
     }
 }
 
+const TACH_PRODUCT_MODULE_PREFIX = 'products.'
+const TACH_LIB_MODULE_PREFIX = 'posthog.libs.'
+
+// The lanes a change under posthog/libs/<name>/ claims, or null when the lib's
+// importer set cannot be bounded and the caller has to widen to everything.
+// `widen` asks for every Python lane; `products` are the product lanes to add.
+//
+// Walking through a dependent lib is required rather than optional: a lib that
+// imports this one can re-export its symbols, so that lib's own importers can
+// name the changed symbols without ever listing the changed lib themselves.
+// Product dependents are direct importers only, which is narrowing 2 at the top
+// of this file and carries the same accepted risk. A dependent that is neither
+// a product nor a lib is posthog, ee, or a common.* module, none of which has a
+// bounded set of readers, so it takes every Python lane.
+//
+// This is sound against a PR that adds a new importer while another PR changes
+// the lib: `tach check` fails until the new importer is declared in tach.toml,
+// and tach.toml is a tripwire mapped to the python domain, which claims every
+// Python lane. So the PR adding the importer overlaps every lane set this
+// function can return.
+function internalLibLanes(libName, tachGraph, products) {
+    if (!tachGraph || !tachGraph.reverse || !tachGraph.libModules) {
+        return null
+    }
+    const seed = `${TACH_LIB_MODULE_PREFIX}${libName}`
+    if (!tachGraph.libModules.has(seed)) {
+        return null
+    }
+    const dependentProducts = new Set()
+    let widen = false
+    const visited = new Set([seed])
+    const queue = [seed]
+    while (queue.length > 0) {
+        for (const dependent of tachGraph.reverse.get(queue.shift()) || []) {
+            if (visited.has(dependent)) {
+                continue
+            }
+            visited.add(dependent)
+            if (dependent.startsWith(TACH_LIB_MODULE_PREFIX)) {
+                queue.push(dependent)
+                continue
+            }
+            if (!dependent.startsWith(TACH_PRODUCT_MODULE_PREFIX)) {
+                widen = true
+                continue
+            }
+            const product = dependent.slice(TACH_PRODUCT_MODULE_PREFIX.length).replace(/-/g, '_')
+            // A product tach names but products/ does not hold has no lane to
+            // claim, so there is nothing narrower to report than everything.
+            // Same answer the product rule gives an unknown product directory.
+            if (!products.includes(product)) {
+                return null
+            }
+            dependentProducts.add(product)
+        }
+    }
+    // No product dependent leaves nothing to claim, either because core is the
+    // only importer or because nothing declares the lib yet. Both take the lanes
+    // the rest of posthog/ takes rather than leaving the target set empty, which
+    // would read to Trunk as "overlaps nothing". A lib nothing imports should
+    // not exist in the first place.
+    if (dependentProducts.size === 0) {
+        widen = true
+    }
+    return { products: [...dependentProducts], widen }
+}
+
 function loadTachGraph(repoRoot) {
     try {
-        const { parseTachModules, tachDependents } = require('./turbo-discover')
+        const { parseTachModules, parseTachDependents, internalLibModulePaths, tachDependents } = require('./turbo-discover')
         const text = fs.readFileSync(path.join(repoRoot, 'tach.toml'), 'utf8')
-        return { graph: parseTachModules(text), tachDependents }
+        return {
+            graph: parseTachModules(text),
+            reverse: parseTachDependents(text),
+            libModules: new Set(internalLibModulePaths(text)),
+            tachDependents,
+        }
     } catch (error) {
         console.error(`tach.toml graph unavailable (${error.message}); backend changes widen to all products`)
         return null

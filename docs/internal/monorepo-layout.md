@@ -9,6 +9,7 @@ posthog/               # Legacy monolith code
   api/                 # DRF views, serializers
   models/              # Django models
   queries/             # HogQL query runners
+  libs/                # Shared in-venv Python libs: posthog.libs.<name>, tach nodes + turbo packages
   ...
 
 ee/                    # Enterprise features (being migrated to products/ and posthog/)
@@ -87,6 +88,30 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 - Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
 
 `pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
+
+### Shared Python: which home
+
+- One product owns it: `products/<product>/`, exposed through its facade.
+- Several products import it, nothing from Django or the rest of `posthog/`: `posthog/libs/<name>/` (below).
+- It needs Django, Redis, settings, or core imports it: `posthog/<mechanism>/`, egress-style, accepting that a change runs the full suite.
+- A consumer installs it outside the monorepo venv: a uv workspace member under `packages/<name>/`.
+
+### Libs
+
+Shared Python that more than one product imports, living in the monorepo venv with no packaging step.
+`posthog/libs/<name>/` is a plain package imported as `posthog.libs.<name>`.
+
+Unlike `common/`, a lib is mechanically bounded; unlike `packages/<name>/`, it is not a distribution.
+
+- It is a tach node: `[[modules]] path = "posthog.libs.<name>"` with `depends_on = []` and an interfaces block, so it stays a leaf and only its declared surface is importable.
+- Every consumer lists it in its own `depends_on` (`"posthog.libs.<name>"`), and `tach check` fails on an undeclared import. Those declarations are the record `turbo-discover` reads: a lib change runs the lib's own tests plus the tests of the products that declare it, and skips the Django suite.
+- If `posthog` or `ee` declares it, a lib change runs the full Django suite instead, because core has no narrower test selection. Python that needs Django or core belongs in `posthog/<mechanism>/` from the start (see `posthog/egress/`).
+- It carries a `package.json` (`@posthog/lib-<name>`) with a `backend:test` script and a `turbo.json` whose inputs cover its sources; that is how turbo sees the change and how the product test matrix runs the lib's tests. `turbo-discover` fails the run if a `posthog.libs.<name>` tach module and a `@posthog/lib-<name>` package do not come as a pair.
+- Reach for `packages/<name>/` instead when a consumer must install it outside the monorepo venv.
+- The `posthog/libs/*` glob in `pnpm-workspace.yaml` and the Dockerfiles' `posthog/` copy already cover a new lib, so there is no per-lib build wiring. `ci-backend.yml`'s `legacy` filter excludes `posthog/libs/**`, so a lib change does not force the Django suite.
+- Same nest-then-promote rule as the package tiers: code one product owns stays under `products/<product>/` until a second product actually imports it.
+
+Folder names are `under_score` cased, because dashes break Python imports. See [posthog/libs/README.md](/posthog/libs/README.md).
 
 ### Services
 
