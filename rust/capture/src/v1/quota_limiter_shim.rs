@@ -236,12 +236,7 @@ mod tests {
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
-            continuous_profiling: ContinuousProfilingConfig {
-                continuous_profiling_enabled: false,
-                pyroscope_server_address: String::new(),
-                pyroscope_application_name: String::new(),
-                pyroscope_sample_rate: 100,
-            },
+            continuous_profiling: ContinuousProfilingConfig::default(),
             capture_v1_sinks: String::new(),
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,

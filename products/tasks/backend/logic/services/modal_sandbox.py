@@ -118,6 +118,9 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 # a snapshot baked under the default app.
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
+CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
+CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
@@ -278,6 +281,7 @@ LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-gua
 # so a local build context needs the package and the module that computes the hash.
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
+LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -620,6 +624,11 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_gh_guard_path = context_dir / LOCAL_MODAL_GH_GUARD_SCRIPT
     destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
+
+    if template in {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE}:
+        destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
+        destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -1767,12 +1776,51 @@ class ModalSandbox(SandboxBase):
             )
 
     def read_cpu_usage_usec(self) -> int | None:
-        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
-        for line in cpu_stat.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "usage_usec":
-                return int(value)
+        try:
+            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        except Exception:
+            cpu_stat = None
+        if cpu_stat is not None:
+            for line in cpu_stat.splitlines():
+                key, _, value = line.partition(" ")
+                if key == "usage_usec":
+                    return int(value)
+        try:
+            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            if cpuacct_usage.strip():
+                return int(cpuacct_usage) // 1000
+        except Exception:
+            pass
         return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        command = (
+            f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
+            f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
+            f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
+            ">/dev/null 2>&1 </dev/null & "
+            f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
+        )
+        result = self.execute(command, timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        values = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH).split()
+        if len(values) != 3:
+            return None
+        billed_usec, previous_cpu, previous_time = (int(value) for value in values)
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        elapsed_ns = max(0, time.time_ns() - previous_time)
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        floor_usec = round(request_cores * elapsed_ns / 1000)
+        return billed_usec + max(current_cpu - previous_cpu, floor_usec)
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

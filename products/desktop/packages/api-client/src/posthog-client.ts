@@ -242,6 +242,12 @@ export interface TaskListOptions {
   prState?: string;
   /** Filter by the CI rollup on the latest run's pull request (passing/failing/pending/none). */
   ciStatus?: string;
+  /** List only tasks the requesting user has pinned. */
+  pinned?: boolean;
+  /** Filter to tasks with a thread comment from this user ID. */
+  commentedBy?: number;
+  /** Filter to tasks whose thread mentions this user ID. */
+  mentions?: number;
   /** List only archived tasks; the server excludes them by default. */
   archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
@@ -354,6 +360,20 @@ export interface UserGitHubIntegration {
   } | null;
   uses_shared_installation?: boolean;
   created_at?: string;
+}
+
+/** A personal GitHub App install awaiting (or granted) org-owner approval; the
+ * durable server-side counterpart to the in-flight connect spinner. Mirrors
+ * `GitHubInstallRequest` on the backend. */
+export interface GitHubInstallRequest {
+  id: string;
+  github_login: string;
+  /** `unidentified` means the requester could not be resolved, so approval can
+   *  never be detected and the user has to restart the connect flow. */
+  status: "pending" | "approved" | "unidentified";
+  installation_id?: string | null;
+  requested_at: string;
+  resolved_at?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -1762,6 +1782,27 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
+  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      results?: GitHubInstallRequest[];
+    };
+    return data.results ?? [];
+  }
+
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2381,6 +2422,18 @@ export class PostHogAPIClient {
 
     if (options?.ciStatus) {
       params.ci_status = options.ciStatus;
+    }
+
+    if (options?.pinned) {
+      params.pinned = true;
+    }
+
+    if (options?.commentedBy) {
+      params.commented_by = options.commentedBy;
+    }
+
+    if (options?.mentions) {
+      params.mentions = options.mentions;
     }
 
     if (options?.archived) {
