@@ -24,7 +24,6 @@ import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
-import { AlertNotFoundModal } from './EditAlertModal/AlertNotFoundModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -88,7 +87,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         alertDestinationCounts,
     } = useValues(logic)
 
-    const { alert, alertLoading } = useValues(alertLogic({ alertId }))
+    const { alert } = useValues(alertLogic({ alertId }))
 
     const columns: LemonTableColumns<AlertType> = [
         {
@@ -257,10 +256,6 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                         push(urls.alerts())
                     }}
                 />
-            )}
-
-            {alertId && !alertForEditModal && !alertLoading && (
-                <AlertNotFoundModal isOpen onClose={() => push(urls.alerts())} />
             )}
 
             {isEmpty ? null : (

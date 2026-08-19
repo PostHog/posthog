@@ -1,10 +1,9 @@
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from requests import Response
-
-from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -43,7 +42,7 @@ FIRST_PAGE = 1
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SleekplanResumeConfig:
     # Next page to fetch, for the top-level endpoints.
     page: Optional[int] = None

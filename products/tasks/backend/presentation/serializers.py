@@ -1871,17 +1871,6 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
-    target_scope = serializers.ChoiceField(
-        choices=["desktop_canvas"],
-        allow_null=True,
-        required=False,
-        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
-    )
-    target_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Identifier of the activity target. Present together with target_scope.",
-    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -1899,8 +1888,6 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
-            "target_scope",
-            "target_id",
             "is_unread",
         ]
 

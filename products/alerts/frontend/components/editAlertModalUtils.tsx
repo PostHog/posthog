@@ -74,10 +74,11 @@ export const ALERT_INTERVAL_OPTIONS: AlertCalculationInterval[] = [
 
 export function getAlertIntervalOptions(
     hasHighFrequencyAlertsEntitlement: boolean,
-    hasRealTimeAlertsEntitlement: boolean
+    hasRealTimeAlertsEntitlement: boolean,
+    showRealTimeOption: boolean
 ): Array<{ label: string | JSX.Element; value: AlertCalculationInterval }> {
     const intervals = [
-        AlertCalculationInterval.REAL_TIME,
+        ...(showRealTimeOption ? [AlertCalculationInterval.REAL_TIME] : []),
         AlertCalculationInterval.EVERY_15_MINUTES,
         ...ALERT_INTERVAL_OPTIONS,
     ]

@@ -53,7 +53,6 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
-from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -6955,22 +6954,6 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
-@frozen
-class _ActivityTarget:
-    scope: str | None
-    id: str | None
-
-
-def _activity_target(task: Task) -> _ActivityTarget:
-    target = (task.state or {}).get("activity_target")
-    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
-        return _ActivityTarget(scope=None, id=None)
-    target_id = target.get("id")
-    if not isinstance(target_id, str) or not target_id:
-        return _ActivityTarget(scope=None, id=None)
-    return _ActivityTarget(scope="desktop_canvas", id=target_id)
-
-
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -7030,8 +7013,6 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
-                target_scope=_activity_target(row.task).scope,
-                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows

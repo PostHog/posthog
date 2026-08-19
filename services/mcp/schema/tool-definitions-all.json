@@ -1111,50 +1111,8 @@
             "readOnlyHint": false
         }
     },
-    "canvas-layout-get": {
-        "description": "Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Read grid canvas layout",
-        "title": "Read grid canvas layout",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "canvas-layout-patch": {
-        "description": "Apply surgical operations to a grid canvas's layout — the DEFAULT way to change one: add_placement (a new widget box), update_placement (fill a box with a component, move/resize it, change its status or config), remove_placement, set_grid. Operations apply in order to the current layout, the result is validated atomically, and the new version is live immediately (layout is data — no build). `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, re-apply, and patch again. To fill a drawn box: update_placement with changes {status: \"live\", component: <component canvas id>, config: {...}}. The component must be published (canvas-list kind=component shows component_meta and published_build_id) and the config must match its configSchema.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Patch grid canvas layout",
-        "title": "Patch grid canvas layout",
-        "required_scopes": ["canvas:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "canvas-layout-publish": {
-        "description": "Publish a COMPLETE layout document as a grid canvas's new head version. Prefer canvas-layout-patch for incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The layout is validated first (grid bounds, overlaps, component references, per-placement config against each component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild the document on the new head, and publish again.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Publish grid canvas layout",
-        "title": "Publish grid canvas layout",
-        "required_scopes": ["canvas:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "canvas-list": {
-        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. With `kind=component` this is the COMPONENT STORE: reusable widgets grid canvases place. Before building a new widget, ALWAYS search here first (`kind=component` plus `search=<what the widget shows>`) — placing an existing component with the right `config` beats authoring a duplicate. A component is placeable when `component_meta` (its size contract and configSchema) and `published_build_id` are both set. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
+        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "List canvases",

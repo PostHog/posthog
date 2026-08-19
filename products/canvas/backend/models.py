@@ -52,9 +52,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.
     generation_task_id = models.UUIDField(null=True, blank=True)
-    # Unlike generation_task_id, this task stays fixed so canvas comments and
-    # shared discussion survive later generation runs.
-    discussion_task_id = models.UUIDField(null=True, blank=True)
     # Set when the canvas is pinned to its channel (shared across users).
     pinned_at = models.DateTimeField(null=True, blank=True)
 

@@ -45,7 +45,6 @@ import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
-import { AlertNotFoundModal } from './EditAlertModal/AlertNotFoundModal'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
 import { defaultAlertTabs, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
 
@@ -409,10 +408,6 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined
     const scheduleRestrictionFormError = quietHoursFormError(alertForm.schedule_restriction)
-
-    if (alertId && !alertLoading && !alert) {
-        return <AlertNotFoundModal isOpen={Boolean(isOpen)} onClose={handleClose} />
-    }
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">

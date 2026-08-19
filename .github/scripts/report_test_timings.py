@@ -69,16 +69,6 @@ from posthog_owners import OwnersResolver
 
 logger = logging.getLogger("report_test_timings")
 
-
-def find_repo_root(path: Path) -> Path:
-    """Find the checkout root without depending on this script's directory depth."""
-    for parent in path.resolve().parents:
-        if (parent / "owners.yaml").is_file() and (parent / ".github").is_dir():
-            return parent
-    raise RuntimeError(f"Could not find the repository root from {path}")
-
-
-REPO_ROOT = find_repo_root(Path(__file__))
 DEFAULT_OTLP_ENDPOINT = "https://us.i.posthog.com/i/v1/traces"
 Runner = Literal["pytest", "jest"]
 
@@ -102,9 +92,8 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
-    file: str  # normalized repo-relative test file; '' when no checked-in file can be found
-    file_source: Literal["junit", "inferred", "missing"]
-    selector: str  # runnable runner-specific selector; '' when the file cannot be found
+    file: str  # normalized repo-relative test file; '' when JUnit omitted or escaped the repo
+    selector: str  # runnable runner-specific selector; '' when JUnit omitted the file
 
 
 @dataclass(frozen=True)
@@ -292,41 +281,15 @@ def normalize_jest_file(file: str) -> str:
     return normalized
 
 
-def infer_pytest_file(classname: str) -> str:
-    """Find a safe pytest file path from a JUnit classname."""
-    parts = classname.split(".")
-    if not parts or any(not part or "/" in part or "\\" in part for part in parts):
-        return ""
-
-    for module_length in range(len(parts), 0, -1):
-        candidate = REPO_ROOT.joinpath(*parts[:module_length]).with_suffix(".py")
-        if candidate.is_file():
-            return candidate.relative_to(REPO_ROOT).as_posix()
-
-    for module_length, part in enumerate(parts, start=1):
-        if part.startswith("test_") or part.endswith("_test"):
-            return Path(*parts[:module_length]).with_suffix(".py").as_posix()
-    return ""
-
-
-def test_identity(
-    runner: Runner, file: str, classname: str, name: str
-) -> tuple[str, str, str, Literal["junit", "inferred", "missing"]]:
-    """Return normalized file, stable id, selector, and file source for one runner's JUnit shape."""
+def test_identity(runner: Runner, file: str, classname: str, name: str) -> tuple[str, str, str]:
+    """Return normalized (file, stable id, runnable selector) for one runner's JUnit shape."""
     if runner == "jest":
         normalized_file = normalize_jest_file(file)
         selector = f"{normalized_file}::{name}" if normalized_file and name else ""
-        file_source: Literal["junit", "inferred", "missing"] = "junit" if normalized_file else "missing"
-        return normalized_file, selector or name, selector, file_source
-
-    normalized_file = file or infer_pytest_file(classname)
-    file_source = "junit" if file else "inferred" if normalized_file else "missing"
-    return (
-        normalized_file,
-        to_pytest_nodeid(classname, name),
-        to_pytest_selector(normalized_file, classname, name),
-        file_source,
-    )
+        return normalized_file, selector or name, selector
+    # Products run pytest with `--rootdir ../..`, so `file`/`classname` are already
+    # repo-relative (`products/<name>/...`) — no prefixing needed here.
+    return file, to_pytest_nodeid(classname, name), to_pytest_selector(file, classname, name)
 
 
 def product_name(junit_filename: str) -> str:
@@ -469,7 +432,7 @@ def parse_shard(
         for tc in suite_elem.iter("testcase"):
             classname = tc.get("classname", "")
             name = tc.get("name", "")
-            file, nodeid, selector, file_source = test_identity(runner, tc.get("file", ""), classname, name)
+            file, nodeid, selector = test_identity(runner, tc.get("file", ""), classname, name)
             outcome, attempts = classify_testcase(tc)
             if outcome == "passed" and nodeid in quarantined_test_ids:
                 outcome = "xfailed"
@@ -492,7 +455,6 @@ def parse_shard(
                     classname=classname,
                     name=name,
                     file=file,
-                    file_source=file_source,
                     selector=selector,
                     duration_seconds=duration,
                     start=test_start,
@@ -798,9 +760,6 @@ def _emit_shard_span(
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
-            if test.file:
-                test_span.set_attribute("test.file", test.file)
-            test_span.set_attribute("test.file_source", test.file_source)
             if test.selector:
                 test_span.set_attribute("test.selector", test.selector)
             owner_team = owner_of(test.file)

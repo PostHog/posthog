@@ -63,7 +63,6 @@
         "maxArtifactFileBytes": 4194304,
         "maxArtifactTotalBytes": 12582912,
         "maxStateValueBytes": 65536,
-        "maxStateKeysPerScope": 256,
-        "maxGridPlacements": 24
+        "maxStateKeysPerScope": 256
     }
 }
