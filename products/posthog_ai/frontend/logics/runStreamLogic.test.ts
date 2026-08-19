@@ -717,9 +717,7 @@ describe('runStreamLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(exitPlanModeToolCall())
             }).toFinishAllListeners()
-            logic.actions.ingestPermissionRequest(
-                parsePermissionRequestFrame(planPermissionParams('req-p3', PLAN))!
-            )
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(planPermissionParams('req-p3', PLAN))!)
 
             expect(logic.values.toolInvocations.get('plan-1')?.input.plan).toEqual(PLAN)
         })

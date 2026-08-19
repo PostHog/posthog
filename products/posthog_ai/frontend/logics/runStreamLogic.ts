@@ -1316,9 +1316,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/permission_request') {
-            const toolCall = params.toolCall as
-                | { toolCallId?: unknown; rawInput?: Record<string, unknown> }
-                | undefined
+            const toolCall = params.toolCall as { toolCallId?: unknown; rawInput?: Record<string, unknown> } | undefined
             const plan = recoveredPlanOf(toolCall?.rawInput)
             if (typeof toolCall?.toolCallId === 'string' && toolCall.toolCallId && plan) {
                 recoveredPlans.set(toolCall.toolCallId, plan)
