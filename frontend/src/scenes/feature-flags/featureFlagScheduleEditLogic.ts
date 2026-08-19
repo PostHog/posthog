@@ -45,12 +45,8 @@ export interface featureFlagScheduleEditLogicActions {
     closeEdit: () => {
         value: true
     }
-    openEdit: (
-        schedule: ScheduledChangeType,
-        timezone: string
-    ) => {
+    openEdit: (schedule: ScheduledChangeType) => {
         schedule: ScheduledChangeType
-        timezone: string
     }
     saveEdit: () => {
         value: true
@@ -132,7 +128,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         values: [teamLogic, ['currentTeam']],
     })),
     actions({
-        openEdit: (schedule: ScheduledChangeType, timezone: string) => ({ schedule, timezone }),
+        openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
         closeEdit: true,
         setEditScheduledAt: (date: Dayjs | null) => ({ date }),
         setEditCronExpression: (cron: string | null) => ({ cron }),
@@ -157,8 +153,6 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editScheduledAt: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule, timezone }) =>
-                    schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null,
                 setEditScheduledAt: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -182,8 +176,6 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editEndDate: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule, timezone }) =>
-                    schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, timezone) : null,
                 setEditEndDate: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -340,6 +332,15 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         ],
     }),
     listeners(({ actions, values, props: logicProps }) => ({
+        openEdit: ({ schedule }) => {
+            // Reducers can't read `values`, so the project timezone is applied here rather than
+            // being threaded through the action payload, matching how the rest of this scene works.
+            const timezone = values.projectTimezone
+            actions.setEditScheduledAt(
+                schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null
+            )
+            actions.setEditEndDate(schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, timezone) : null)
+        },
         setEditRepeatsValue: ({ value }) => {
             if (value === 'none') {
                 actions.setEditIsRecurring(false)

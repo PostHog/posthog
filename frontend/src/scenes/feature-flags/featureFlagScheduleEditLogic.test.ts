@@ -37,7 +37,7 @@ describe('featureFlagScheduleEditLogic', () => {
             end_date: null,
         }
 
-        expect(() => logic.actions.openEdit(schedule, 'America/Los_Angeles')).not.toThrow()
+        expect(() => logic.actions.openEdit(schedule)).not.toThrow()
 
         expectLogic(logic).toMatchValues({
             isEditOpen: true,
