@@ -84,7 +84,7 @@ def _item(fingerprint_hint: str = "abc:0") -> SourceItem:
     )
 
 
-_PROMOTION_ITEM_METRICS = {"pct_change": -30.0}
+_PROMOTION_ITEM_METRICS: dict[str, float | int | str] = {"pct_change": -30.0}
 
 
 def _item_citing(insight_short_id: str, fingerprint_hint: str = "unknown:9") -> SourceItem:
@@ -326,13 +326,13 @@ class TestPersistBriefOutput(BaseTest):
         # persist time — the promotion's own resolution is what catches it.
         item = SourceItem(
             source="anchored_insights",
-            kind="movement",
+            kind=SourceItemKind.MOVEMENT,
             title="t",
             description="d",
             metrics={"pct_change": -30.0},
             evidence=[
-                {"type": "dashboard", "ref": "7", "label": "Home"},
-                {"type": "insight", "ref": "abc", "label": ""},
+                EvidenceRef(type=EvidenceType.DASHBOARD, ref="7", label="Home"),
+                EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label=""),
             ],
             fingerprint_hint="abc:0",
         )
@@ -356,13 +356,13 @@ class TestPersistBriefOutput(BaseTest):
         mock_calculate.return_value = MagicMock(result=[{"data": [1.0] * 7 + [3.0] * 7}])
         item = SourceItem(
             source="anchored_insights",
-            kind="movement",
+            kind=SourceItemKind.MOVEMENT,
             title="t",
             description="d",
             metrics={"pct_change": -30.0},
             evidence=[
-                {"type": "dashboard", "ref": "7", "label": "Home"},
-                {"type": "insight", "ref": insight.short_id, "label": "Subscriptions created"},
+                EvidenceRef(type=EvidenceType.DASHBOARD, ref="7", label="Home"),
+                EvidenceRef(type=EvidenceType.INSIGHT, ref=insight.short_id, label="Subscriptions created"),
             ],
             fingerprint_hint="abc:0",
         )

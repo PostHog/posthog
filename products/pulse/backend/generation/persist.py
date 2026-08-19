@@ -195,7 +195,7 @@ def _promoted_metric(
         return None
     # The minimal shape accountability's usability gate requires — the same snapshot semantics
     # as anchored-insights movement numbers (current window total over period_days).
-    return dict(target), {"current_total": float(sum(windows[1])), "period_days": period_days}
+    return dict(target), {"current_total": float(sum(windows.current)), "period_days": period_days}
 
 
 def _build_opportunity(
