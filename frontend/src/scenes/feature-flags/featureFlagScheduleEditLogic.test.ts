@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -9,7 +11,8 @@ describe('featureFlagScheduleEditLogic', () => {
     let logic: ReturnType<typeof featureFlagScheduleEditLogic.build>
 
     beforeEach(() => {
-        initKeaTests()
+        // A non-UTC project timezone so timezone conversion is observable in assertions.
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'America/Los_Angeles' })
         logic = featureFlagScheduleEditLogic({ id: 1 })
         logic.mount()
     })
@@ -43,6 +46,9 @@ describe('featureFlagScheduleEditLogic', () => {
             isEditOpen: true,
             editingSchedule: schedule,
         })
-        expect(logic.values.editScheduledAt).not.toBeNull()
+        // The project is in America/Los_Angeles (PDT, UTC-7), so the stored 12:00Z surfaces as a
+        // 05:00 wall clock. Asserting the exact time proves openEdit applied the project timezone
+        // rather than silently falling back to UTC.
+        expect(logic.values.editScheduledAt?.format('YYYY-MM-DD HH:mm')).toBe('2026-08-10 05:00')
     })
 })
