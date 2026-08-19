@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database, SerializedField, get_data_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
@@ -55,6 +56,40 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+# Which request surface each transport attributes a table to. The PostHog apps and the headless
+# agents share `self_driving`, matching how the source path collapses them. Agent transports that
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
+# clients, and anything without a surface of its own is a plain API caller.
+_EVENT_SOURCE_TO_CREATED_VIA = {
+    EventSource.WEB: DataWarehouseTable.CreatedVia.WEB,
+    EventSource.WIZARD: DataWarehouseTable.CreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.MCP: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.CLI: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.POSTHOG_AI: DataWarehouseTable.CreatedVia.MCP,
+}
+
+
+def resolve_created_via(request: request.Request) -> str:
+    """Attribute a table to the surface the request came from.
+
+    Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
+    request body, so no caller can label its own tables as wizard- or web-created. The values line
+    up with `ExternalDataSource.CreatedVia`, which reaches the same answer from the other direction:
+    a source takes `created_via` from the body because the MCP server injects it there, then
+    upgrades that value using this same transport signal.
+    """
+    event_source = get_event_source(request)
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTable.CreatedVia.API)
+    # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
+    # distinguishable by the marker it adds to that UA.
+    if created_via == DataWarehouseTable.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return DataWarehouseTable.CreatedVia.SELF_DRIVING
+    return created_via
 
 
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
@@ -111,6 +146,19 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
     options = serializers.DictField(required=False, default=dict)
+    created_via = serializers.ChoiceField(
+        choices=DataWarehouseTable.CreatedVia.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where the table came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a "
+            "self-driving run, `source` for a table a data source syncs, `materialized_view` for "
+            "the table behind a materialized view, and `demo` for a demo project's sample table. "
+            "Set server-side from the request, never from the request body. Null on tables created "
+            "before this was recorded."
+        ),
+    )
 
     class Meta:
         model = DataWarehouseTable
@@ -122,6 +170,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "format",
             "created_by",
             "created_at",
+            "created_via",
             "url_pattern",
             "credential",
             "columns",
@@ -134,6 +183,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "created_by",
             "created_at",
+            "created_via",
             "hogql_name",
             "columns",
             "external_data_source",
@@ -197,6 +247,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)
+        validated_data["created_via"] = resolve_created_via(self.context["request"])
         credential = validated_data.get("credential")
 
         if not credential:
@@ -678,6 +729,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             format=FILE_FORMAT_TO_TABLE_FORMAT[file_format],
             url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=resolve_created_via(request),
         )
         try:
             table.columns = table.get_columns()
@@ -779,6 +831,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     name=table_name,
                     format=file_format,
                     created_by=created_by,
+                    created_via=resolve_created_via(request),
                 )
 
             # Generate URL pattern and store file in object storage
