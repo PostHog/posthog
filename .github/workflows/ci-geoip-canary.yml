@@ -20,9 +20,18 @@ on:
         # run when the canary machinery itself changes, so master-push bursts do
         # not launch a run each.
         paths:
+            # Canary machinery.
             - 'bin/download-mmdb'
             - 'nodejs/src/common/utils/geoip*'
             - '.github/workflows/ci-geoip-canary.yml'
+            - '.github/actions/pnpm-install/**'
+            # Dependency graph behind the sparse-checkout list and frozen install.
+            # A new workspace dependency can need another sparse-checkout directory,
+            # so run the canary on the commit that changes the graph, not on a later
+            # silent cron run.
+            - 'nodejs/package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
     schedule:
         - cron: '23 */6 * * *' # every 6 hours
     workflow_dispatch:
