@@ -1950,7 +1950,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            # The worker drops these with no terminal row, stranding the run — never enqueue.
+            # A disabled destination is rejected up front, so it never reaches the enqueue path.
             mock_rerun.assert_not_called()
 
     def test_rerun_allowed_for_destination(self):

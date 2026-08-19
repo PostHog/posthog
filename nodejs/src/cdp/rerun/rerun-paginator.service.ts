@@ -618,10 +618,10 @@ export class RerunPaginatorService {
                 return null
             }
 
-            // A disabled or deleted destination is dropped by the worker with no terminal
-            // lifecycle row, which strands the run at `running` forever. The API rejects
-            // these up front; this is the backstop for any rerun job that reaches the worker
-            // anyway.
+            // A destination can be disabled or deleted between the API check and this
+            // re-enqueue. Skip it rather than queue an invocation the worker would only
+            // resolve to `failed`. The API rejects these up front; this is the backstop
+            // for any rerun job that reaches the worker anyway.
             if (!hogFunction.enabled || hogFunction.deleted) {
                 logger.warn('⚠️', 'Skipping rerun of invocation with disabled or deleted function', {
                     functionId,

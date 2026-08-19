@@ -1124,9 +1124,9 @@ class HogFunctionViewSet(
                 status=400,
             )
 
-        # A disabled destination drops every re-enqueued invocation in the worker. The
-        # worker writes no terminal row for that skip, so the run stays at `running`
-        # forever and can never be rerun again. Reject up front instead. (Deleted
+        # A disabled destination drops every re-enqueued invocation in the worker,
+        # resolving each to `failed`. Rerunning only to fail them all is wasteful and
+        # confusing, so reject up front and ask the operator to enable it first. (Deleted
         # functions never reach here — the queryset excludes them, so get_object 404s.)
         if not hog_function.enabled:
             return Response(
