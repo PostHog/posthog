@@ -18,6 +18,7 @@ export function DuplicateDashboardModal(): JSX.Element {
             title="Duplicate dashboard"
             onClose={hideDuplicateDashboardModal}
             isOpen={duplicateDashboardModalVisible}
+            closable={!isDuplicateDashboardSubmitting}
             footer={
                 <>
                     <LemonButton
