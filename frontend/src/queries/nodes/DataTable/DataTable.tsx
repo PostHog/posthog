@@ -211,16 +211,9 @@ export function DataTable({
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
-    const {
-        dataTableRows,
-        columnsInQuery,
-        columnsInResponse,
-        queryWithDefaults,
-        canSort,
-        sourceFeatures,
-        expandedRows,
-    } = useValues(dataTableLogic(dataTableLogicProps))
-    const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
+    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
+        dataTableLogic(dataTableLogicProps)
+    )
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
@@ -743,9 +736,6 @@ export function DataTable({
                 ? contextExpandable
                 : expandable && columnsInResponse?.includes('*')
                   ? {
-                        isRowExpanded: (_: DataTableRow, rowIndex: number) => expandedRows.includes(rowIndex),
-                        onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
-                        onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
                             if (isEventsQuery(query.source) && Array.isArray(result)) {
                                 return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
@@ -758,7 +748,7 @@ export function DataTable({
                         noIndent: true,
                     }
                   : undefined,
-        [contextExpandable, expandable, columnsInResponse, expandedRows, toggleRowExpanded, query.source]
+        [contextExpandable, expandable, columnsInResponse, query.source]
     )
 
     const rowActions = useMemo(

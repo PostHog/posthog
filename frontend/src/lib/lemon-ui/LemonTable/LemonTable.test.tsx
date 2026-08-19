@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -51,6 +51,33 @@ describe('LemonTable', () => {
             />
         )
         expect(renderedOrder()).toEqual(expectedOrder)
+    })
+
+    it('expands a row on toggle click, and keeps working after the data source refreshes', () => {
+        // Guards the dead expand chevron: expansion must follow the clicked row and stay live after
+        // the result set is replaced, not fall out of sync with stale row state.
+        const expandable = {
+            rowExpandable: () => true,
+            expandedRowRender: (row: Row) => <div data-attr="expanded">{`details-${row.name}`}</div>,
+        }
+        const toggle = (index: number): void => {
+            fireEvent.click(document.querySelectorAll('.LemonTable__toggle button')[index])
+        }
+
+        const { rerender } = render(
+            <LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} expandable={expandable} />
+        )
+        expect(screen.queryByTestId('expanded')).not.toBeInTheDocument()
+
+        toggle(0)
+        expect(screen.getByTestId('expanded')).toHaveTextContent('details-alpha')
+
+        // Refresh with a fresh result set — a click on a new row must still expand it.
+        const REFRESHED: Row[] = [{ id: 4, name: 'delta', value: 5 }]
+        rerender(<LemonTable rowKey="id" dataSource={REFRESHED} columns={COLUMNS} expandable={expandable} />)
+
+        toggle(0)
+        expect(screen.getByTestId('expanded')).toHaveTextContent('details-delta')
     })
 
     it('keeps group headers aligned when the sticky first group has a single column', () => {
