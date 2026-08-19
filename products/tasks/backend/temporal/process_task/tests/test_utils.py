@@ -1153,15 +1153,7 @@ class TestGetRelayedMcpServerNames(TestCase):
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
 
 
-@patch(
-    "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-    return_value="test-jwt-key",
-)
-@patch(
-    "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-    return_value="https://us.posthog.com",
-)
-def _gateway_ctx_task():
+def _gateway_ctx_task() -> tuple[MagicMock, MagicMock]:
     """Duck ctx/task for build_sandbox_environment_variables' run-context shape."""
     ctx = MagicMock()
     ctx.team_id = 1
@@ -1174,6 +1166,17 @@ def _gateway_ctx_task():
     return ctx, task
 
 
+_CTX, _TASK = _gateway_ctx_task()
+
+
+@patch(
+    "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+    return_value="test-jwt-key",
+)
+@patch(
+    "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+    return_value="https://us.posthog.com",
+)
 class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
     def _build(self):
         ctx, task = _gateway_ctx_task()
@@ -1218,9 +1221,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(
-                None, "access-token", *_gateway_ctx_task(), otel_telemetry_enabled=True
-            )
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
 
         assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
         assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
@@ -1240,9 +1241,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(
-                None, "access-token", *_gateway_ctx_task(), otel_telemetry_enabled=True
-            )
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
 
         assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
 
@@ -1260,7 +1259,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(None, "access-token", *_gateway_ctx_task())
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK)
 
         assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
 
