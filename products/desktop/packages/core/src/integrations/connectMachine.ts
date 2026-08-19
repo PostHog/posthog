@@ -1,3 +1,5 @@
+import { githubInstallRequestKeys } from "./repositoryKeys";
+
 export type ConnectState = "idle" | "connecting" | "timed-out" | "error";
 
 export interface ConnectError {
@@ -76,6 +78,7 @@ export function githubInvalidationKeys(
   keys.push(["integrations", "list"]);
   keys.push(["user-github-integrations"]);
   keys.push(["github_login"]);
+  keys.push([...githubInstallRequestKeys.all]);
   return keys;
 }
 
