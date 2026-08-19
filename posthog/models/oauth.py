@@ -1,4 +1,5 @@
 import enum
+import uuid
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -7,7 +8,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
@@ -652,6 +653,57 @@ def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
         return None
 
 
+def live_oauth_access_tokens(user: "User") -> models.QuerySet[OAuthAccessToken]:
+    """Access tokens an application can still present as `user`."""
+    return OAuthAccessToken.objects.filter(user=user, application__isnull=False, expires__gt=timezone.now())
+
+
+def live_oauth_refresh_tokens(user: "User") -> models.QuerySet[OAuthRefreshToken]:
+    """Refresh tokens an application can still exchange for a new access token as `user`.
+
+    Unrevoked is the whole test. DOT's `validate_refresh_token` checks the token value, the
+    `revoked` timestamp, and the client, and never compares `created` against
+    REFRESH_TOKEN_EXPIRE_SECONDS; that setting only drives the `clear_expired` cleanup job. So a
+    refresh token whose access token lapsed hours ago still mints a new one on demand, which
+    means it has to count as standing access anywhere we answer "who can act as this user".
+    """
+    return OAuthRefreshToken.objects.filter(user=user, revoked__isnull=True)
+
+
+def has_live_third_party_oauth_access(user: "User") -> bool:
+    """Whether any non-first-party application can act as `user` right now.
+
+    Refresh tokens have to be counted here, because a provisioning partner holds one for the life
+    of the connection and owns no live access token at all between refreshes. Checking access
+    tokens alone would therefore report no access for a partner that has full standing access.
+
+    First-party applications are excluded because they are PostHog's own surfaces, so a token from
+    one is not the third-party access this answers about.
+    """
+    return OAuthApplication.objects.filter(
+        Q(id__in=live_oauth_access_tokens(user).values("application_id"))
+        | Q(id__in=live_oauth_refresh_tokens(user).values("application_id")),
+        is_first_party=False,
+    ).exists()
+
+
+def lock_oauth_connection(*, user_id: int, application_id: uuid.UUID) -> None:
+    """Serialize token minting against session revocation for one (user, application) pair.
+
+    Revocation cannot rely on row locks alone. DOT validates a refresh token in autocommit and only
+    locks the row later, inside `save_bearer_token`, so a mint can already hold that row lock when a
+    revoke arrives. The revoke's sweep then blocks, and when Postgres releases it the statement
+    re-checks the locked row but does not widen its snapshot, so a refresh token the mint inserted
+    meanwhile stays invisible to the sweep and outlives it.
+
+    Every party takes this lock before any row lock, so the acquisition order is identical on both
+    sides and a revoke waiting on a mint's row lock cannot deadlock against a mint waiting on this
+    one. See `OAuthValidator.save_bearer_token` for the minting side.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [user_id, str(application_id)])
+
+
 def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
@@ -689,16 +741,22 @@ def revoke_oauth_session(
     else:
         # Same ordering as revoke_application_sessions below, for the same two reasons:
         # grants deleted first so this blocks on a racing code exchange's grant-row lock
-        # instead of missing tokens it mints; refresh revoked before access deleted so a
+        # instead of missing tokens it mints; refresh tokens deleted before access tokens so a
         # mid-way failure can't leave a refresh token live after its access token is gone.
         with transaction.atomic():
+            lock_oauth_connection(user_id=user.pk, application_id=application.pk)
+
             # Delete all grants for this user+application
             OAuthGrant.objects.filter(user=user, application=application).delete()
 
-            # Revoke all refresh tokens for this user+application
-            OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(
-                revoked=now
-            )
+            # Delete, rather than revoke, every refresh token for this user+application. Absence is
+            # what makes the revoke stick: `validate_refresh_token` looks a token up by value and
+            # rejects a miss, whereas a row marked `revoked` keeps validating for
+            # REFRESH_TOKEN_GRACE_PERIOD_SECONDS and then mints a replacement pair, because
+            # `RefreshToken.revoke()` returns silently on an already-revoked row. Deleting covers a
+            # token rotation already revoked too, which a `revoked__isnull=True` filter would skip
+            # while the grace period still accepts it.
+            OAuthRefreshToken.objects.filter(user=user, application=application).delete()
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()

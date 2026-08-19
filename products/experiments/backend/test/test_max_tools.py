@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -482,6 +483,20 @@ class TestExperimentSummaryTool(APIBaseTest):
         assert "Significant: Yes" in result
         assert artifact["has_results"] is True
 
+    async def test_includes_more_than_ten_metrics(self):
+        experiment = await self._create_experiment(flag_key="many-metrics-test")
+        primary_metrics = [
+            MaxExperimentMetricResult(name=f"{i}. Metric {i}", goal="increase", variant_results=[])
+            for i in range(1, 13)
+        ]
+        context = self._build_context(experiment_id=experiment.id, primary_metrics=primary_metrics)
+        tool = self._create_tool(context)
+
+        result, _ = await tool._arun_impl()
+
+        assert "**Metric: 11. Metric 11**" in result
+        assert "**Metric: 12. Metric 12**" in result
+
     async def test_returns_frequentist_metrics(self):
         experiment = await self._create_experiment(
             flag_key="frequentist-metrics-test",
@@ -624,13 +639,18 @@ class TestExperimentSummaryTool(APIBaseTest):
 
         with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False))
+            mock_service.fetch_experiment_data = AsyncMock(
+                return_value=ExperimentSummaryData(
+                    context=mock_context, last_refresh=None, pending_calculation=False, omitted_metric_count=2
+                )
+            )
 
             result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
         assert "## Experiment: Agent Discovered Experiment" in result
         assert artifact["experiment_name"] == "Agent Discovered Experiment"
         assert artifact["has_results"] is True
+        assert "**Note:** 2 metrics were omitted from this summary." in result
 
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})

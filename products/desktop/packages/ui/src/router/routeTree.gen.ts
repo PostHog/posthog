@@ -21,6 +21,7 @@ import { Route as CodeIndexRouteImport } from './routes/code/index'
 import { Route as WebsiteSkillsRouteImport } from './routes/website/skills'
 import { Route as WebsiteNewRouteImport } from './routes/website/new'
 import { Route as WebsiteMcpServersRouteImport } from './routes/website/mcp-servers'
+import { Route as WebsiteHomeRouteImport } from './routes/website/home'
 import { Route as WebsiteCommandCenterRouteImport } from './routes/website/command-center'
 import { Route as WebsiteActivityRouteImport } from './routes/website/activity'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
@@ -138,6 +139,11 @@ const WebsiteNewRoute = WebsiteNewRouteImport.update({
 const WebsiteMcpServersRoute = WebsiteMcpServersRouteImport.update({
   id: '/mcp-servers',
   path: '/mcp-servers',
+  getParentRoute: () => WebsiteRoute,
+} as any)
+const WebsiteHomeRoute = WebsiteHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => WebsiteRoute,
 } as any)
 const WebsiteCommandCenterRoute = WebsiteCommandCenterRouteImport.update({
@@ -468,6 +474,7 @@ export interface FileRoutesByFullPath {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -537,6 +544,7 @@ export interface FileRoutesByTo {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -601,6 +609,7 @@ export interface FileRoutesById {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -675,6 +684,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -744,6 +754,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -807,6 +818,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -971,6 +983,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp-servers'
       fullPath: '/website/mcp-servers'
       preLoaderRoute: typeof WebsiteMcpServersRouteImport
+      parentRoute: typeof WebsiteRoute
+    }
+    '/website/home': {
+      id: '/website/home'
+      path: '/home'
+      fullPath: '/website/home'
+      preLoaderRoute: typeof WebsiteHomeRouteImport
       parentRoute: typeof WebsiteRoute
     }
     '/website/command-center': {
@@ -1385,6 +1404,7 @@ declare module '@tanstack/react-router' {
 interface WebsiteRouteChildren {
   WebsiteActivityRoute: typeof WebsiteActivityRoute
   WebsiteCommandCenterRoute: typeof WebsiteCommandCenterRoute
+  WebsiteHomeRoute: typeof WebsiteHomeRoute
   WebsiteMcpServersRoute: typeof WebsiteMcpServersRoute
   WebsiteNewRoute: typeof WebsiteNewRoute
   WebsiteSkillsRoute: typeof WebsiteSkillsRoute
@@ -1403,6 +1423,7 @@ interface WebsiteRouteChildren {
 const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteActivityRoute: WebsiteActivityRoute,
   WebsiteCommandCenterRoute: WebsiteCommandCenterRoute,
+  WebsiteHomeRoute: WebsiteHomeRoute,
   WebsiteMcpServersRoute: WebsiteMcpServersRoute,
   WebsiteNewRoute: WebsiteNewRoute,
   WebsiteSkillsRoute: WebsiteSkillsRoute,
