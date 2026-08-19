@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -74,6 +75,12 @@ from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPa
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
+
+# A brief provider blip (5xx, rate limit, timeout, connection reset) often clears on a second
+# attempt, so retry the transient class a bounded number of times with exponential backoff before
+# surfacing a failure to the user. Only retried when nothing has streamed yet this attempt — a
+# mid-stream retry would replay already-shown content.
+MAX_TRANSIENT_RETRIES = 2
 
 
 class SubagentCallbackHandler(CallbackHandler):
@@ -271,9 +278,10 @@ class BaseAgentRunner(ABC):
         if stream_message_chunks:
             stream_mode.append("messages")
 
-        generator: AsyncIterator[Any] = self._graph.astream(
-            state, config=config, stream_mode=stream_mode, subgraphs=stream_subgraphs
-        )
+        # A resume (None input or a Command) restarts a checkpointed interrupt, so re-invoking it
+        # after a state reset would drop the resume. Only auto-retry a fresh generation.
+        is_resume = state is None or isinstance(state, Command)
+
         async with self._lock_conversation():
             # Assign the conversation id to the client.
             if not stream_only_assistant_messages and self._is_new_conversation:
@@ -284,160 +292,147 @@ class BaseAgentRunner(ABC):
                 yield AssistantEventType.MESSAGE, self._latest_message
 
             self._pending_conversation_update = False
-            try:
-                async for update in generator:
-                    if messages := await self._process_update(update):
-                        for message in messages:
-                            if isinstance(message, get_args(AssistantStreamedMessageUnion)):
-                                message = cast(AssistantStreamedMessageUnion, message)
-                                yield AssistantEventType.MESSAGE, message
+            transient_retries = 0
+            while True:
+                generator: AsyncIterator[Any] = self._graph.astream(
+                    state, config=config, stream_mode=stream_mode, subgraphs=stream_subgraphs
+                )
+                # Tracks whether this attempt has streamed anything to the user, so a transient
+                # retry only fires before any content is shown.
+                streamed_message = False
+                try:
+                    async for update in generator:
+                        if messages := await self._process_update(update):
+                            for message in messages:
+                                if isinstance(message, get_args(AssistantStreamedMessageUnion)):
+                                    message = cast(AssistantStreamedMessageUnion, message)
+                                    streamed_message = True
+                                    yield AssistantEventType.MESSAGE, message
 
-                            if stream_only_assistant_messages:
-                                continue
+                                if stream_only_assistant_messages:
+                                    continue
 
-                            if isinstance(message, AssistantGenerationStatusEvent):
-                                yield AssistantEventType.STATUS, message
-                            elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
-                                yield AssistantEventType.UPDATE, message
+                                if isinstance(message, AssistantGenerationStatusEvent):
+                                    yield AssistantEventType.STATUS, message
+                                elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
+                                    yield AssistantEventType.UPDATE, message
 
-                    # Re-yield the conversation when the title generator has
-                    # produced a title. Checked after _process_update so the
-                    # flag set by ConversationTitleAction is picked up.
-                    if self._pending_conversation_update:
-                        self._pending_conversation_update = False
-                        yield AssistantEventType.CONVERSATION, self._conversation
-            except GraphInterrupt:
-                # GraphInterrupt is raised when interrupt() is called in a tool.
-                # TRICKY: don't reset state. The interrupt handling code
-                # below will process the interrupt via aget_state().
-                pass
-            except GraphRecursionError:
-                recursion_limit_message = AssistantMessage(
-                    content="I've reached the maximum number of steps. Would you like me to continue?",
-                    id=str(uuid4()),
-                )
-                yield AssistantEventType.MESSAGE, recursion_limit_message
-
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(
-                        config,
-                        self._partial_state_type(messages=[recursion_limit_message]),
-                    )
-                return  # Don't run interrupt handling after recursion error
-            except LLM_CLIENT_EXCEPTIONS as e:
-                # Client/validation errors (400, 422) - these won't resolve on retry
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = resolve_llm_provider(e)
-                LLM_CLIENT_ERROR_COUNTER.labels(provider=provider).inc()
-                logger.exception("llm_client_error", error=str(e), provider=provider)
-                posthoganalytics.capture_exception(
-                    e,
-                    distinct_id=self._user.distinct_id if self._user else None,
-                    properties={
-                        "error_type": "llm_client_error",
-                        "provider": provider,
-                        "tag": "max_ai",
-                    },
-                )
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="I'm unable to process this request. The conversation may be too long. Please start a new conversation.",
-                        id=str(uuid4()),
-                    ),
-                )
-                return  # Don't run interrupt handling after client errors
-            except HTTPX_TRANSPORT_EXCEPTIONS as e:
-                # Network-level transport errors (not LLM provider errors).
-                # Tracked on a separate counter to avoid false provider alerts.
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                error_type = type(e).__name__
-                LLM_TRANSPORT_ERROR_COUNTER.labels(error_type=error_type).inc()
-                logger.exception("llm_transport_error", error=str(e), error_type=error_type)
-                posthoganalytics.capture_exception(
-                    e,
-                    distinct_id=self._user.distinct_id if self._user else None,
-                    properties={
-                        "error_type": "llm_transport_error",
-                        "tag": "max_ai",
-                    },
-                )
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
-                        id=str(uuid4()),
-                    ),
-                )
-                return  # Don't run interrupt handling after transport errors
-            except LLM_TRANSIENT_EXCEPTIONS as e:
-                # Transient errors (5xx, rate limits, timeouts) - may resolve on retry
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = resolve_llm_provider(e)
-                LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
-                logger.exception("llm_provider_error", error=str(e), provider=provider)
-                posthoganalytics.capture_exception(
-                    e,
-                    distinct_id=self._user.distinct_id if self._user else None,
-                    properties={
-                        "error_type": "llm_provider_error",
-                        "provider": provider,
-                        "tag": "max_ai",
-                    },
-                )
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
-                        id=str(uuid4()),
-                    ),
-                )
-                return  # Don't run interrupt handling after LLM errors
-            except LLM_API_EXCEPTIONS as e:
-                # Catch-all for other API errors (auth errors, etc.)
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = resolve_llm_provider(e)
-                LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
-                logger.exception("llm_api_error", error=str(e), provider=provider)
-                posthoganalytics.capture_exception(
-                    e,
-                    distinct_id=self._user.distinct_id if self._user else None,
-                    properties={
-                        "error_type": "llm_api_error",
-                        "provider": provider,
-                        "tag": "max_ai",
-                    },
-                )
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="I'm unable to respond right now. Please try again later.",
-                        id=str(uuid4()),
-                    ),
-                )
-                return  # Don't run interrupt handling after LLM errors
-            except Exception as e:
-                if self._use_checkpointer:
-                    # Reset the state, so that the next generation starts from the beginning.
-                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-
-                if not isinstance(e, GenerationCanceled):
-                    AGENT_RUN_UNHANDLED_ERROR_COUNTER.labels(error_type=type(e).__name__).inc()
-                    logger.exception("Error in assistant stream", error=e)
-                    self._capture_exception(e)
-
-                    # This is an unhandled error, so we just stop further generation at this point
+                        # Re-yield the conversation when the title generator has
+                        # produced a title. Checked after _process_update so the
+                        # flag set by ConversationTitleAction is picked up.
+                        if self._pending_conversation_update:
+                            self._pending_conversation_update = False
+                            yield AssistantEventType.CONVERSATION, self._conversation
+                except LLM_TRANSIENT_EXCEPTIONS as e:
+                    # Transient errors (5xx, rate limits, timeouts) - may resolve on retry
                     if self._use_checkpointer:
-                        snapshot = await self._graph.aget_state(config)
-                        state_snapshot = validate_state_update(snapshot.values, self._state_type)
-                        # Some nodes might have already sent a failure message, so we don't want to send another one.
-                        if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
-                            yield AssistantEventType.MESSAGE, FailureMessage()
-                return  # Don't run interrupt handling after errors
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    provider = resolve_llm_provider(e)
+                    LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+                    logger.exception("llm_provider_error", error=str(e), provider=provider)
+                    self._capture_llm_error(e, error_type="llm_provider_error", provider=provider)
+                    transient_retries += 1
+                    if transient_retries <= MAX_TRANSIENT_RETRIES and not streamed_message and not is_resume:
+                        await asyncio.sleep(2 ** (transient_retries - 1))
+                        continue
+                    yield (
+                        AssistantEventType.MESSAGE,
+                        FailureMessage(
+                            content="The model provider is having trouble and my retries didn't get through. I've reset this conversation, so you can try again in a moment.",
+                            id=str(uuid4()),
+                        ),
+                    )
+                    return  # Don't run interrupt handling after LLM errors
+                except GraphInterrupt:
+                    # GraphInterrupt is raised when interrupt() is called in a tool.
+                    # TRICKY: don't reset state. The interrupt handling code
+                    # below will process the interrupt via aget_state().
+                    break
+                except GraphRecursionError:
+                    recursion_limit_message = AssistantMessage(
+                        content="I've reached the maximum number of steps. Would you like me to continue?",
+                        id=str(uuid4()),
+                    )
+                    yield AssistantEventType.MESSAGE, recursion_limit_message
+
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(
+                            config,
+                            self._partial_state_type(messages=[recursion_limit_message]),
+                        )
+                    return  # Don't run interrupt handling after recursion error
+                except LLM_CLIENT_EXCEPTIONS as e:
+                    # Client/validation errors (400, 422) - these won't resolve on retry
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    provider = resolve_llm_provider(e)
+                    LLM_CLIENT_ERROR_COUNTER.labels(provider=provider).inc()
+                    logger.exception("llm_client_error", error=str(e), provider=provider)
+                    self._capture_llm_error(e, error_type="llm_client_error", provider=provider)
+                    yield (
+                        AssistantEventType.MESSAGE,
+                        FailureMessage(
+                            content="I'm unable to process this request. The conversation may be too long. Please start a new conversation.",
+                            id=str(uuid4()),
+                        ),
+                    )
+                    return  # Don't run interrupt handling after client errors
+                except HTTPX_TRANSPORT_EXCEPTIONS as e:
+                    # Network-level transport errors (not LLM provider errors).
+                    # Tracked on a separate counter to avoid false provider alerts.
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    error_type = type(e).__name__
+                    LLM_TRANSPORT_ERROR_COUNTER.labels(error_type=error_type).inc()
+                    logger.exception("llm_transport_error", error=str(e), error_type=error_type)
+                    self._capture_llm_error(e, error_type="llm_transport_error")
+                    yield (
+                        AssistantEventType.MESSAGE,
+                        FailureMessage(
+                            content="I couldn't reach the model because of a network problem. I've reset this conversation, so you can try again.",
+                            id=str(uuid4()),
+                        ),
+                    )
+                    return  # Don't run interrupt handling after transport errors
+                except LLM_API_EXCEPTIONS as e:
+                    # Catch-all for other API errors (auth errors, etc.)
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    provider = resolve_llm_provider(e)
+                    LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+                    logger.exception("llm_api_error", error=str(e), provider=provider)
+                    self._capture_llm_error(e, error_type="llm_api_error", provider=provider)
+                    yield (
+                        AssistantEventType.MESSAGE,
+                        FailureMessage(
+                            content="I'm unable to respond right now. Please try again later.",
+                            id=str(uuid4()),
+                        ),
+                    )
+                    return  # Don't run interrupt handling after LLM errors
+                except Exception as e:
+                    if self._use_checkpointer:
+                        # Reset the state, so that the next generation starts from the beginning.
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+
+                    if not isinstance(e, GenerationCanceled):
+                        AGENT_RUN_UNHANDLED_ERROR_COUNTER.labels(error_type=type(e).__name__).inc()
+                        logger.exception("Error in assistant stream", error=e)
+                        self._capture_exception(e)
+
+                        # This is an unhandled error, so we just stop further generation at this point
+                        if self._use_checkpointer:
+                            snapshot = await self._graph.aget_state(config)
+                            state_snapshot = validate_state_update(snapshot.values, self._state_type)
+                            # Some nodes might have already sent a failure message, so we don't want to send another one.
+                            if not state_snapshot.messages or not isinstance(
+                                state_snapshot.messages[-1], FailureMessage
+                            ):
+                                yield AssistantEventType.MESSAGE, FailureMessage()
+                    return  # Don't run interrupt handling after errors
+                else:
+                    # Normal completion — leave the retry loop and run interrupt handling.
+                    break
 
             # Interrupt handling - runs after normal completion or GraphInterrupt
             if not self._use_checkpointer:
@@ -677,6 +672,25 @@ class BaseAgentRunner(ABC):
             with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
                 self._conversation.status = Conversation.Status.IDLE
                 await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_llm_error(self, e: Exception, *, error_type: str, provider: str | None = None) -> None:
+        """Capture an LLM error and flush right away.
+
+        The runner can run inside a Temporal worker, where the SDK's background flush is not
+        guaranteed to run before the activity is torn down, so these events were under-reported.
+        """
+        properties: dict[str, Any] = {"error_type": error_type, "tag": "max_ai"}
+        if provider is not None:
+            properties["provider"] = provider
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties=properties,
+        )
+        try:
+            posthoganalytics.flush()
+        except Exception:
+            logger.warning("Failed to flush LLM error telemetry", exc_info=True)
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

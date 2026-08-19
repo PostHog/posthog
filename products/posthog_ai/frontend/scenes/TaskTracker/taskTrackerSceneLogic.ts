@@ -8,7 +8,7 @@ import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
-import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
+import { tasksCreate, tasksDestroy, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ModelChoiceApi,
     OriginProductEnumApi,
@@ -40,6 +40,7 @@ import {
 } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
+import { describeTaskSubmitError, type TaskSubmitStep } from './taskSubmitError'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
@@ -524,6 +525,19 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.setActiveCreation({ streamKey })
             stream.actions.startOptimisticRun(description)
 
+            // Show the backend's reason (naming which call failed) and return to the composer with the typed
+            // text intact. Billing and access refusals route to a next step instead of a dead toast.
+            const failSubmit = (error: unknown, step: TaskSubmitStep): void => {
+                actions.releaseApplyBackTargets(streamKey)
+                actions.clearActiveCreation()
+                const { message, button } = describeTaskSubmitError(error, step)
+                lemonToast.error(message, button ? { button } : undefined)
+                actions.submitNewTaskFailure(message)
+            }
+
+            const projectId = String(values.currentProjectId)
+
+            let newTask: Task
             try {
                 const taskData: TaskWriteApi = {
                     title: '',
@@ -533,14 +547,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     repository: repositoryConfig.repository ?? null,
                     github_integration: repositoryConfig.integrationId ?? null,
                 }
+                newTask = await tasksCreate(projectId, taskData)
+            } catch (error) {
+                failSubmit(error, 'create')
+                return
+            }
 
-                const projectId = String(values.currentProjectId)
-                const newTask = await tasksCreate(projectId, taskData)
-
+            let runResponse: Awaited<ReturnType<typeof tasksRunCreate>>
+            try {
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                const runResponse = await tasksRunCreate(
+                runResponse = await tasksRunCreate(
                     projectId,
                     newTask.id,
                     buildRunCreateRequest(
@@ -562,37 +580,37 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         }
                     )
                 )
-
-                // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
-                // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
-                const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
-                if (seededKeys.length > 0) {
-                    actions.markContextSent(newTask.id, seededKeys)
-                }
-
-                // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
-                // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
-                // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
-                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
-                // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
-                // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
-                if (!props.panelId) {
-                    router.actions.push(`/tasks/${newTask.id}`)
-                }
-
-                // Reset before signaling success: the success listener applies any seed held during this
-                // submission, and resetting afterwards would wipe that seed's prefill.
-                actions.resetNewTaskData()
-                actions.submitNewTaskSuccess()
-                actions.loadTasks(values.taskListParams)
-                actions.loadRepositories()
             } catch (error) {
-                actions.releaseApplyBackTargets(streamKey)
-                // Show the existing failure and return to the composer with the typed text intact.
-                actions.clearActiveCreation()
-                lemonToast.error('Failed to create task')
-                actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
+                // The task row exists but never got a run, so a retry would create a second one. Delete it
+                // (best effort) so refused submissions don't leave orphan tasks behind.
+                void tasksDestroy(projectId, newTask.id).catch(() => undefined)
+                failSubmit(error, 'run')
+                return
             }
+
+            // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
+            // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
+            const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+            if (seededKeys.length > 0) {
+                actions.markContextSent(newTask.id, seededKeys)
+            }
+
+            // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
+            // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
+            // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
+            actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
+            // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
+            // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
+            if (!props.panelId) {
+                router.actions.push(`/tasks/${newTask.id}`)
+            }
+
+            // Reset before signaling success: the success listener applies any seed held during this
+            // submission, and resetting afterwards would wipe that seed's prefill.
+            actions.resetNewTaskData()
+            actions.submitNewTaskSuccess()
+            actions.loadTasks(values.taskListParams)
+            actions.loadRepositories()
         },
         openExistingTask: ({ task }) => {
             if (task.latest_run) {

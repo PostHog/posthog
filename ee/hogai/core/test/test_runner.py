@@ -216,7 +216,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             self.assertIsInstance(message, FailureMessage)
             self.assertEqual(
                 message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                "The model provider is having trouble and my retries didn't get through. I've reset this conversation, so you can try again in a moment.",
             )
 
             # Verify state was reset
@@ -237,6 +237,37 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    async def test_transient_error_on_fresh_generation_is_retried_before_failing(self):
+        exception = anthropic.InternalServerError(
+            message="Internal server error",
+            response=httpx.Response(
+                status_code=500, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            ),
+            body=None,
+        )
+        runner, mock_graph = self._create_mock_runner(exception)
+        # A new generator per attempt, each raising the transient error.
+        mock_graph.astream = MagicMock(side_effect=lambda *a, **k: _async_generator_that_raises(exception))
+
+        with (
+            # A non-None, non-Command state is a fresh generation, so retries apply.
+            patch.object(
+                runner, "_init_or_update_state", new_callable=AsyncMock, return_value=AssistantState(messages=[])
+            ),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER"),
+            patch("ee.hogai.core.runner.posthoganalytics"),
+            patch("ee.hogai.core.runner.logger"),
+        ):
+            results = [message async for _, message in runner.astream(stream_only_assistant_messages=True)]
+
+        # One initial attempt plus MAX_TRANSIENT_RETRIES retries, then a single failure surfaces.
+        self.assertEqual(mock_graph.astream.call_count, 3)
+        self.assertEqual(mock_sleep.await_count, 2)
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0], FailureMessage)
 
     @parameterized.expand(
         [
@@ -278,7 +309,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             self.assertIsInstance(message, FailureMessage)
             self.assertEqual(
                 message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                "I couldn't reach the model because of a network problem. I've reset this conversation, so you can try again.",
             )
 
             mock_graph.aupdate_state.assert_called()
