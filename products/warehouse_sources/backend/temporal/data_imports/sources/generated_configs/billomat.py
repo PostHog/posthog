@@ -5,5 +5,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class BillomatRegisteredAppConfig(config.Config):
+    app_id: str
+    app_secret: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class BillomatSourceConfig(config.Config):
-    pass
+    billomat_id: str
+    api_key: str
+    registered_app: BillomatRegisteredAppConfig | None = None
