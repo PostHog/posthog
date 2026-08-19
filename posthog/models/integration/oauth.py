@@ -87,6 +87,7 @@ INSTAGRAM_OAUTH_SCOPE = (
 )
 
 
+# nosemgrep: prefer-frozen-dataclasses -- mutated in place: oauth_config_for_kind sets client_id_fallback/client_secret_fallback on the instance after construction
 @dataclass
 class OauthConfig:
     authorize_url: str
