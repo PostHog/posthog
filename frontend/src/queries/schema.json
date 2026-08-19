@@ -20652,6 +20652,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
