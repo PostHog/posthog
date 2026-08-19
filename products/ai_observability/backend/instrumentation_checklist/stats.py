@@ -21,7 +21,7 @@ CHECKLIST_EVENTS = ("$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding")
 # materialized view strips heavy properties out of the JSON blob, so a properties read returns a
 # silent zero and the checklist would warn that tool instrumentation is broken when it is fine.
 #
-# Column aliases are the ChecklistStats field names — `_row_to_stats` maps by name, so a renamed
+# Column aliases are the ChecklistStats field names. `_row_to_stats` maps by name, so a renamed
 # column raises instead of shifting a count onto the wrong check.
 _STATS_SQL = """
 SELECT
