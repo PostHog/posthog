@@ -2823,12 +2823,26 @@ When set, the specified dashboard's filters and date range override will be appl
             return insights, 0
 
         self.user_access_control.preload_object_access_controls(cast(list, insights))
-        editable = [
-            insight
-            for insight in insights
-            if (level := self.user_access_control.get_user_access_level(insight))
-            and access_level_satisfied_for_resource("insight", level, "editor")
-        ]
+
+        # EE adds `CanEditInsight` as an object permission, and a detail=False action never calls get_object, so
+        # the dashboard restriction it enforces has to be applied here or the bulk path would edit insights the
+        # single-insight PATCH refuses. Tiles are loaded for the whole batch because UserInsightPermissions
+        # queries per insight; the per-dashboard privilege behind `can_edit` is cached across insights.
+        dashboards_by_insight: dict[int, list[Dashboard]] = {}
+        for tile in DashboardTile.objects.filter(insight_id__in=[insight.id for insight in insights]).select_related(
+            "dashboard"
+        ):
+            dashboards_by_insight.setdefault(tile.insight_id, []).append(tile.dashboard)
+
+        editable: list[Insight] = []
+        for insight in insights:
+            level = self.user_access_control.get_user_access_level(insight)
+            if not (level and access_level_satisfied_for_resource("insight", level, "editor")):
+                continue
+            dashboards = dashboards_by_insight.get(insight.id, [])
+            if dashboards and not any(self.user_permissions.dashboard(board).can_edit for board in dashboards):
+                continue
+            editable.append(insight)
         return editable, len(insights) - len(editable)
 
     def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
