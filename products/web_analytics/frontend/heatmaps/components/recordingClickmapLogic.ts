@@ -231,9 +231,6 @@ export interface recordingClickmapLogicActions {
     recomputeClickmap: () => {
         value: true
     }
-    watchSnapshotReflow: () => {
-        value: true
-    }
     selectClickmapBox: (key: string | null) => {
         key: string | null
     }
@@ -248,6 +245,9 @@ export interface recordingClickmapLogicActions {
     }
     setMatchLinksByHref: (matchLinksByHref: boolean) => {
         matchLinksByHref: boolean
+    }
+    watchSnapshotReflow: () => {
+        value: true
     }
 }
 
