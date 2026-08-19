@@ -342,7 +342,7 @@ describe('handleToken', () => {
         expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'us', { expirationTtl: 3600 })
     })
 
-    it('returns error when mapping exists but both regions reject the refresh_token', async () => {
+    it('forwards the upstream error when mapping exists but both regions reject the refresh_token', async () => {
         const clientHash = await hashKey('proxy_client_bad')
         mockKVGet(mockKV, (key: string, type?: unknown) => {
             if (key === `region:${clientHash}`) {
@@ -386,12 +386,99 @@ describe('handleToken', () => {
         const data = (await response.json()) as Record<string, unknown>
 
         expect(response.status).toBe(400)
-        expect(data.error).toBe('invalid_request')
-        expect(data.error_description).toBe('Unable to determine region')
+        expect(data.error).toBe('invalid_grant')
         // Tried both regions
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
         // Did not re-store region
         expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
+    })
+
+    it('forwards the upstream error when try-both rejects in both regions', async () => {
+        mockKVGetValue(mockKV, null)
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Token is expired' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Token is expired' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_dead&client_id=unknown_client',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('invalid_grant')
+        expect(data.error_description).toBe('Token is expired')
+        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+    })
+
+    it('forwards the client error from the reachable region when the other region is unhealthy', async () => {
+        mockKVGetValue(mockKV, null)
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(new Response('bad gateway', { status: 502 }))
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_dead&client_id=unknown_client',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('invalid_grant')
+    })
+
+    it('keeps a 5xx as a 5xx when both regions are unhealthy', async () => {
+        mockKVGetValue(mockKV, null)
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(new Response('upstream failure', { status: 500 }))
+                .mockResolvedValueOnce(new Response('service unavailable', { status: 503 }))
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_live&client_id=unknown_client',
+        })
+
+        const response = await handleToken(request, mockKV)
+
+        expect(response.status).toBe(500)
+        expect(await response.text()).toBe('upstream failure')
     })
 
     it('does not use client mapping for authorization_code even when mapping exists', async () => {
