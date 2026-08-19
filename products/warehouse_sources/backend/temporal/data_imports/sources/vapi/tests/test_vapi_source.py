@@ -53,6 +53,7 @@ class TestVapiSource:
         [
             "401 Client Error: Unauthorized for url: https://api.vapi.ai/call?limit=100",
             "403 Client Error: Forbidden for url: https://api.vapi.ai/assistant?limit=100",
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/v2/phone-number?limit=100&page=1&sortOrder=ASC&sortBy=createdAt",
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -64,6 +65,9 @@ class TestVapiSource:
             "429 Client Error: Too Many Requests for url: https://api.vapi.ai/call",
             "500 Server Error: Internal Server Error for url: https://api.vapi.ai/call",
             "HTTPSConnectionPool(host='api.vapi.ai', port=443): Read timed out.",
+            # A 400 on a different endpoint must stay retryable — only the known-bad v2
+            # phone-number path is non-retryable, not every 400 from api.vapi.ai.
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/call?limit=100",
         ]
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):

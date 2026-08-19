@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -55,8 +56,12 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_quality.backend.facade import api as data_quality_facade
+from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
+from products.warehouse_sources.backend.facade.hooks import saved_query_binding
+from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
 
@@ -177,7 +182,7 @@ class MaterializeViewInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MaterializeViewResult:
     node_id: str
     node_name: str
@@ -185,16 +190,21 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
+    quality_audit: QualityAuditMode = QUALITY_AUDIT_SKIP
     # Whether this run upserted a window rather than rebuilding. Defaulted so old workflow
     # histories decode without it.
     incremental: bool = False
+    # Whether this run staged row projections for a person/group-target warehouse property, which is
+    # what the workflow gates the person-property child on. Defaulted to the skip value so an old
+    # history decodes without it and never fires that child during replay.
+    person_property_sync_enabled: bool = False
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
     return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
 
 
-def _get_aws_storage_options() -> dict[str, str]:
+def get_aws_storage_options() -> dict[str, str]:
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
@@ -600,6 +610,65 @@ def _get_matview_input_objects(
     return MatviewInputObjects(team=team, node=node, saved_query=saved_query, job=job)
 
 
+async def _build_person_property_sink(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger, *, incremental: bool
+) -> PersonPropertyRowSink | None:
+    """A sink for this view, or None when no warehouse property reads it.
+
+    The gate is one query behind ``should_run()``, so a view nobody maps pays that and nothing else.
+    A failure to resolve it must not fail the materialization, which is the run that matters.
+    """
+    sink = PersonPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+        is_incremental=incremental,
+    )
+    try:
+        return sink if await sink.should_run() else None
+    except Exception as e:
+        await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
+        capture_exception(e)
+        return None
+
+
+async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
+    """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
+    try:
+        await sink.clear()
+    except Exception as e:
+        await logger.awarning(f"Could not clear stale person-property staging: {e}")
+        capture_exception(e)
+
+
+async def _stage_person_property_batch(
+    sink: PersonPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch, *, fatal: bool
+) -> None:
+    """Stage one written batch's projected columns, if a warehouse property reads this view.
+
+    Staged from the transformed batch, so the values a person property gets are the ones the Delta
+    table gets.
+
+    ``fatal`` follows the write path. A full rebuild re-stages every row on its next run, so there a
+    staging failure only costs that run's updates and is swallowed (``fatal=False``). An incremental
+    run stages only its own window and then advances the watermark past it, so a swallowed failure
+    would move the watermark past rows that never reached staging, which no later incremental run
+    re-stages until they change again. The incremental path therefore raises (``fatal=True``) to fail
+    the run before the watermark is recorded — matching the import pipeline's sink contract — so
+    Temporal retries the whole window.
+    """
+    if sink is None:
+        return
+    try:
+        await sink.stage_chunk(batch_index, pa.Table.from_batches([batch]))
+    except Exception as e:
+        await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
+        if fatal:
+            raise
+        capture_exception(e)
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -607,6 +676,7 @@ async def _materialize_fully(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
@@ -637,12 +707,15 @@ async def _materialize_fully(
     # batch (hogql_table yields ~100MB combined batches) and, because each write is a
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
+    batch_index = 0
     async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _force_nullable(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
+        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+        batch_index += 1
         if delta_table is None:
             pa_schema = batch.schema
             await asyncio.to_thread(
@@ -699,6 +772,7 @@ async def _materialize_incrementally(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
 
@@ -720,6 +794,9 @@ async def _materialize_incrementally(
     row_count = 0
     watermark: typing.Any = None
     tracker = UniqueKeyTracker(config.unique_key)
+    # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
+    # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
+    batch_index = 0
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
@@ -735,6 +812,8 @@ async def _materialize_incrementally(
             # Checked before the upsert so a duplicate split across batches fails the run instead
             # of the later batch silently replacing the earlier one.
             await asyncio.to_thread(tracker.check, batch)
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
+            batch_index += 1
 
             stats = await asyncio.to_thread(
                 upsert_batch,
@@ -812,7 +891,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
-    storage_options = _get_aws_storage_options()
+    storage_options = get_aws_storage_options()
     plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
@@ -826,19 +905,32 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     )
     await database_sync_to_async_pool(objects.job.save)()
 
+    person_property_sink = await _build_person_property_sink(
+        objects, inputs.job_id, logger, incremental=plan.incremental
+    )
+    if person_property_sink is not None:
+        # Cleared once at run start, like the import pipeline's sinks. The sink itself decides what to
+        # drop: a rebuild re-reads every row so a dead attempt's files are safe to remove, while an
+        # incremental retry resumes past its saved watermark and must keep them. Either way this is
+        # what sweeps long-abandoned sibling job prefixes.
+        await _clear_person_property_staging(person_property_sink, logger)
+
     async with Heartbeater():
         hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
         if plan.incremental:
             row_count, file_uris = await _materialize_incrementally(
-                objects, plan, hogql_query, table_uri, storage_options, logger
+                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
             )
         else:
             row_count, file_uris = await _materialize_fully(
-                objects, plan, hogql_query, table_uri, storage_options, logger
+                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
             )
 
         await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+        inputs.team_id, str(objects.saved_query.id)
+    )
     return MaterializeViewResult(
         node_id=objects.node.id,
         node_name=objects.node.name,
@@ -846,5 +938,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         table_uri=table_uri,
         file_uris=file_uris,
         saved_query_id=str(objects.saved_query.id),
+        quality_audit=quality_audit,
         incremental=plan.incremental,
+        person_property_sync_enabled=person_property_sink is not None,
     )

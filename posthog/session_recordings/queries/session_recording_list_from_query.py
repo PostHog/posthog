@@ -276,6 +276,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
+        # Resolved before predicate construction, not just before the join: resolution can clear
+        # the redundant test-account filters, which _where_predicates otherwise bakes in.
+        self._resolve_experiment_exposure()
         parsed_query = parse_select(
             self.BASE_QUERY,
             {
@@ -318,8 +321,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """Resolve the experiment-exposure linkage once per query instance.
 
         run() resolves eagerly, but composition callers (to_query(), the replay-vision
-        candidate query) consume get_query() without run(), so _join_experiment_exposure
-        resolves too; the cached linkage keeps the resolution from running twice.
+        candidate query) consume get_query() without run(), so get_query() resolves too;
+        the cached linkage keeps the resolution from running twice.
         """
         if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
             return
@@ -341,6 +344,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
         )
+        if self._experiment_exposure_linkage.population_filters_test_accounts:
+            # The exposure population already applies the team's test-account filters on the
+            # exposure events, and the listing inner-joins to that population, so the
+            # recordings-side copy would only rescan the whole events window to re-drop persons
+            # the experiment's analysis counts. The query copy is cleared too, so everything
+            # derived from it (scoped exclusion queries, blocklist probes) agrees with the
+            # main query.
+            self._test_account_filters = []
+            self._query.filter_test_accounts = False
 
     def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
         """Restrict the list to sessions of persons exposed to the queried experiment.
@@ -388,7 +400,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
-    @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.excluded_sessions_queries")
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
         """The scoped counterpart to `skip_negative_blocklists`: which of `session_ids` are excluded.
 
@@ -398,10 +410,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         Empty when nothing is excluded, which is also how a caller can tell it has nothing to run.
         """
-        return [q for b in self._negative_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
+        return [q for b in self._events_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
 
-    def _negative_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
-        """Every builder that can contribute a negative blocklist: the query's own, plus test accounts."""
+    def matches_on_events(self) -> bool:
+        """Whether any filter narrows sessions by their events, so `events_timestamp_floor` can cost results."""
+        return any(b.get_queries_for_session_id_matching() for b in self._events_filter_builders())
+
+    def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
+        """Every builder that can contribute an events subquery: the query's own, plus test accounts."""
         builders = [ReplayFiltersEventsSubQuery(self._team, self._query, self._allow_event_property_expansion)]
         if self._test_account_filters:
             builders.append(

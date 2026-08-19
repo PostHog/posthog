@@ -14,7 +14,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -46,6 +46,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
+from products.tasks.backend.temporal.oauth import is_interactive_signals_task
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -98,7 +99,7 @@ class TaskProcessingContext:
     # activity retries. This means "create any Modal resume snapshot"; filesystem
     # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = False
+    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -111,6 +112,8 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # Captured at workflow start so the warmup decision stays stable across retries.
+    desktop_workspace_warm_enabled: bool = False
     # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
     agent_proxy_keep_stream_open: bool = False
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
@@ -122,6 +125,10 @@ class TaskProcessingContext:
     # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
     continue_as_new_enabled: bool = False
     continue_as_new_history_threshold: int = 0
+    # Wall-clock cap for interactive signals-origin runs, resolved activity-side. The None
+    # default is what pre-existing run histories decode, so replays schedule no new timer
+    # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
+    interactive_max_run_duration_seconds: int | None = None
 
     @property
     def mode(self) -> str:
@@ -237,10 +244,14 @@ class TaskProcessingContext:
 
         Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
         wedged-but-heartbeating agent that would otherwise run forever. User-driven
-        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
-        get the cap as a safety net unless the setting disables it deployment-wide.
+        sessions can legitimately run for hours, so they are uncapped — except interactive
+        signals-origin runs, whose inference is unbilled and which therefore get their own
+        (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
+        the cap as a safety net unless the setting disables it deployment-wide.
         """
         if self.mode == "interactive" or self._is_user_origin():
+            if self.interactive_max_run_duration_seconds:
+                return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
         return resolve_max_run_duration()
 
@@ -617,6 +628,35 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
+def _is_desktop_workspace_warm_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("desktop_workspace_warm_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "desktop_workspace_warm_flag_checked",
+        run_id=run_id,
+        desktop_workspace_warm_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -665,35 +705,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
         debug_domains=debug_domains,
         debug_ports=debug_ports,
     )
-
-
-def _is_modal_directory_resume_snapshots_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "modal_directory_resume_snapshots_flag_checked",
-        run_id=run_id,
-        use_modal_directory_resume_snapshots=enabled,
-    )
-    return enabled
 
 
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
@@ -996,7 +1007,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
-    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
+    desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -1004,7 +1015,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(
         run_id,
         "debug",
-        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
+        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
     )
     agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
         distinct_id=distinct_id,
@@ -1028,6 +1039,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"rtk_enabled: {rtk_enabled} for this task run",
     )
+    # The same test that mints the token's interactive-run marker: user-started signals runs get
+    # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
+    # exemption would leave them bounded only by the inactivity timer.
+    interactive_max_run_duration_seconds = None
+    if (
+        (state or {}).get("mode") == "interactive"
+        and is_interactive_signals_task(task)
+        and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
+    ):
+        interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
+
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1072,14 +1094,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
-        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
+        use_modal_resume_snapshots=True,
+        use_modal_directory_resume_snapshots=True,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
@@ -1089,4 +1112,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             run_id=run_id,
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
+        interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
     )

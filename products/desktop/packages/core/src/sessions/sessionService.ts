@@ -9,9 +9,13 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type {
-  CreateResourceCommentRequest,
-  ResourceComment,
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import {
+  type CreateResourceCommentRequest,
+  type PostHogAPIClient,
+  type ResourceComment,
+  SESSION_LOGS_MAX_PAGE_SIZE,
+  type TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -32,6 +36,7 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  leadingSlashCommand,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -96,7 +101,9 @@ import {
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
+  collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
+  createConversationClearedEvents,
   createUserShellExecuteEvent,
   extractPromptText,
   getStoredLogEventPosition,
@@ -117,6 +124,19 @@ const LOCAL_SESSION_RECONNECT_BACKOFF = {
   initialDelayMs: 1_000,
   maxDelayMs: 5_000,
 };
+const CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF = {
+  initialDelayMs: 1_000,
+  maxDelayMs: 30_000,
+};
+/**
+ * Recovery keeps retrying past this point (a later attempt can still succeed,
+ * e.g. after the main process finishes restarting), but from here on the
+ * session shows the retryable error banner instead of stalling silently.
+ */
+const CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS = 3;
+const CLOUD_SUBSCRIPTION_ERROR_TITLE = "Stream connection lost";
+const CLOUD_SUBSCRIPTION_ERROR_MESSAGE =
+  "Lost connection to the cloud run. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
@@ -127,6 +147,33 @@ const AUTO_RETRY_DELAY_MS = 10_000;
 const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
 const MAX_SUPERSEDED_RUN_IDS = 100;
 const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
+/**
+ * A transport that ends a subscription with no error can be resubscribed, but
+ * one that does so on every attempt must not be retried forever. The counter
+ * resets as soon as an event arrives, so a healthy resubscribe costs nothing.
+ */
+const MAX_HOST_ENDED_RESUBSCRIBES = 3;
+/**
+ * A local turn that delivers nothing to this renderer for this long is logged
+ * once, with whether the run is still subscribed, so a transcript that stops
+ * updating can be told apart from an agent that is quietly working.
+ */
+const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
+const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+
+/** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
+function describeAcpMethod(acpMsg: AcpMessage): string {
+  const msg = acpMsg.message as {
+    method?: unknown;
+    params?: { update?: { sessionUpdate?: unknown } };
+    error?: unknown;
+  };
+  if (typeof msg.method !== "string") {
+    return msg.error ? "error-response" : "response";
+  }
+  const update = msg.params?.update?.sessionUpdate;
+  return typeof update === "string" ? `${msg.method}:${update}` : msg.method;
+}
 /**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
@@ -168,6 +215,34 @@ const SESSION_EVENT_EVICT_GRACE_MS = 20_000;
  */
 const OPEN_TAIL_BYTES = 1_500_000;
 
+/**
+ * Staggered repaint attempts after a cloud `/clear`. The persisted run log is
+ * S3-backed, so a read immediately after the boundary POST can miss the
+ * append; the budget stays small so an explicit user action never waits long.
+ */
+const CLEAR_REPAINT_ATTEMPT_DELAYS_MS = [0, 250, 750];
+
+/**
+ * Whether the thread already ends at a `/clear` boundary. The backend appends
+ * the boundary pair at the log tail, but this scans the last few events
+ * rather than only the very last one so the check survives a backend that
+ * ever writes the pair in a different order or adds a trailing entry after
+ * it. The window stays small so an ancestor run's old boundary, buried
+ * mid-log, cannot satisfy it.
+ */
+function endsAtConversationClearedBoundary(events: AcpMessage[]): boolean {
+  return events
+    .slice(-3)
+    .some(
+      (event) =>
+        isJsonRpcNotification(event.message) &&
+        isNotification(
+          event.message.method,
+          POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+        ),
+    );
+}
+
 class GitHubAuthorizationRequiredForCloudHandoffError extends Error {
   constructor(
     message = "Connect GitHub before continuing this task in cloud.",
@@ -182,7 +257,11 @@ type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
   subscribe: (
     input: any,
-    handlers: { onData: (data: any) => void; onError?: (err: unknown) => void },
+    handlers: {
+      onData: (data: any) => void;
+      onError?: (err: unknown) => void;
+      onComplete?: () => void;
+    },
   ) => { unsubscribe: () => void };
 };
 
@@ -190,6 +269,27 @@ interface CloudHydrationResult {
   historyEntryCount: number;
   liveStreamLineCount: number;
 }
+
+const CLOUD_HYDRATION_MAX_ENTRIES = 100_000;
+
+/** Entries the first paint of a big transcript renders; the rest pages in on scroll. */
+const INITIAL_TAIL_WINDOW = 2000;
+
+/** How long hydration waits for auth to finish restoring before giving up. */
+const AUTH_RESTORE_WAIT_MS = 30_000;
+const AUTH_RESTORE_POLL_MS = 250;
+
+interface ChainTranscriptWindow {
+  entries: StoredLogEntry[];
+  /** Absolute index in the chain log of `entries[0]`. */
+  windowStart: number;
+  chainTotal: number;
+}
+
+type SessionLogsClient = Pick<
+  PostHogAPIClient,
+  "getTaskRunSessionLogsPage" | "getTaskRunSessionLogsResult"
+>;
 
 interface CloudTaskWatcher {
   runId: string;
@@ -203,6 +303,14 @@ interface CloudTaskWatcher {
   bufferedResumeUpdates: CloudTaskUpdatePayload[];
   processCloudUpdate: (update: CloudTaskUpdatePayload) => void;
   subscription: { unsubscribe: () => void };
+  /** Bumped on every attach, so a replaced subscription's late callbacks are ignored. */
+  subscriptionGeneration: number;
+  subscriptionRecoveryAttempts: number;
+  subscriptionRecoveryTimeoutId: ReturnType<typeof setTimeout> | null;
+  subscriptionRecoveryInFlight: boolean;
+  /** An error that arrived mid-recovery, retried once that recovery settles. */
+  subscriptionRecoveryQueued: boolean;
+  subscriptionErrorSurfaced: boolean;
   onStatusChange?: () => void;
 }
 
@@ -1641,8 +1749,21 @@ export class SessionService {
       permission?: { unsubscribe: () => void };
     }
   >();
+  /** Resubscribes since the run's last received event, per taskRunId. */
+  private hostEndedResubscribes = new Map<string, number>();
+  /** When each local run last delivered a session event to this renderer. */
+  private lastSessionEventAt = new Map<string, number>();
+  /** Per-run tallies of what this renderer received and failed to apply. */
+  private sessionEventStats = new Map<
+    string,
+    { received: number; failed: number; lastMethod: string }
+  >();
+  /** Runs already logged for their current stretch of silence. */
+  private silenceLogged = new Set<string>();
+  private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
+  private olderTranscriptLoads = new Set<string>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
   /** Maps toolCallId → cloud requestId for routing permission responses */
   private cloudPermissionRequestIds = new Map<string, string>();
@@ -2634,6 +2755,13 @@ export class SessionService {
   private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.set(taskRunId, Date.now());
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
+    const stats = this.statsFor(taskRunId);
+    stats.received += 1;
+    stats.lastMethod = describeAcpMethod(acpMsg);
     if (isAgentTextStreamEvent(acpMsg)) {
       this.lastAgentTextAt.set(taskRunId, Date.now());
     }
@@ -2656,8 +2784,8 @@ export class SessionService {
     const batches = this.pendingSessionEvents;
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
-      for (const acpMsg of events) {
-        this.handleSessionEvent(taskRunId, acpMsg);
+      for (const acpMsg of collapseSupersededToolCallUpdates(events)) {
+        this.applySessionEvent(taskRunId, acpMsg);
       }
     }
   }
@@ -2668,8 +2796,89 @@ export class SessionService {
     const events = this.pendingSessionEvents.get(taskRunId);
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
-    for (const acpMsg of events) {
+    for (const acpMsg of collapseSupersededToolCallUpdates(events)) {
+      this.applySessionEvent(taskRunId, acpMsg);
+    }
+  }
+
+  /**
+   * One event that throws must not take the rest of its batch (and every other
+   * run's batch in the same flush) down with it: that leaves the transcript
+   * frozen with nothing in the log. Log it, count it, keep going.
+   */
+  private applySessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    try {
       this.handleSessionEvent(taskRunId, acpMsg);
+    } catch (error) {
+      const stats = this.statsFor(taskRunId);
+      stats.failed += 1;
+      if (stats.failed === 1 || stats.failed % 100 === 0) {
+        this.d.log.error("Session event handling failed", {
+          taskRunId,
+          method: describeAcpMethod(acpMsg),
+          failed: stats.failed,
+          received: stats.received,
+          error,
+        });
+      }
+    }
+  }
+
+  private statsFor(taskRunId: string): {
+    received: number;
+    failed: number;
+    lastMethod: string;
+  } {
+    let stats = this.sessionEventStats.get(taskRunId);
+    if (!stats) {
+      stats = { received: 0, failed: 0, lastMethod: "" };
+      this.sessionEventStats.set(taskRunId, stats);
+    }
+    return stats;
+  }
+
+  private ensureSilenceCheck(): void {
+    if (this.silenceCheckHandle !== null) return;
+    this.silenceCheckHandle = setInterval(
+      () => this.checkLocalSessionSilence(),
+      LOCAL_SILENCE_CHECK_INTERVAL_MS,
+    );
+  }
+
+  private checkLocalSessionSilence(): void {
+    const now = Date.now();
+    let anyPending = false;
+    for (const session of Object.values(this.d.store.getSessions())) {
+      if (session.isCloud || !session.isPromptPending) continue;
+      if (session.status !== "connected") continue;
+      anyPending = true;
+      const { taskRunId } = session;
+      if (this.silenceLogged.has(taskRunId)) continue;
+      const lastSignalAt = Math.max(
+        this.lastSessionEventAt.get(taskRunId) ?? 0,
+        session.promptStartedAt ?? 0,
+      );
+      if (lastSignalAt === 0) continue;
+      const silentForMs = now - lastSignalAt;
+      if (silentForMs < LOCAL_SILENCE_WARN_AFTER_MS) continue;
+      this.silenceLogged.add(taskRunId);
+      const stats = this.sessionEventStats.get(taskRunId);
+      this.d.log.warn("Local session silent while a prompt is pending", {
+        taskRunId,
+        taskId: session.taskId,
+        silentForMs,
+        subscribed: this.subscriptions.has(taskRunId),
+        bufferedEvents: this.pendingSessionEvents.get(taskRunId)?.length ?? 0,
+        eventCount: session.events.length,
+        received: stats?.received ?? 0,
+        failed: stats?.failed ?? 0,
+        lastMethod: stats?.lastMethod ?? null,
+        online: this.d.getIsOnline(),
+      });
+    }
+    if (!anyPending && this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
     }
   }
 
@@ -2801,6 +3010,7 @@ export class SessionService {
             "Lost connection to the agent. Please retry or start a new session.",
           );
         },
+        onComplete: () => this.resubscribeIfHostEnded(taskRunId, "event"),
       },
     );
 
@@ -2817,6 +3027,8 @@ export class SessionService {
               error: err,
             });
           },
+          onComplete: () =>
+            this.resubscribeIfHostEnded(taskRunId, "permission"),
         },
       );
 
@@ -2826,14 +3038,51 @@ export class SessionService {
     });
   }
 
+  /**
+   * A subscription completing without an error means the host tore down the
+   * transport rather than the agent finishing: the renderer would otherwise
+   * keep showing a "connected" session that never receives another event.
+   * Our own teardown removes the entry from `subscriptions` before
+   * unsubscribing, so the completion it triggers finds nothing to redo.
+   */
+  private resubscribeIfHostEnded(
+    taskRunId: string,
+    which: "event" | "permission",
+  ): void {
+    const current = this.subscriptions.get(taskRunId);
+    if (!current) return;
+    this.subscriptions.delete(taskRunId);
+    current.event.unsubscribe();
+    current.permission?.unsubscribe();
+
+    const attempts = (this.hostEndedResubscribes.get(taskRunId) ?? 0) + 1;
+    if (attempts > MAX_HOST_ENDED_RESUBSCRIBES) {
+      this.d.log.error(
+        "Session subscription keeps ending without an error, giving up",
+        { taskRunId, which, attempts },
+      );
+      return;
+    }
+    this.hostEndedResubscribes.set(taskRunId, attempts);
+    this.d.log.warn(
+      "Session subscription ended without an error, resubscribing",
+      { taskRunId, which, attempts },
+    );
+    this.subscribeToChannel(taskRunId);
+  }
+
   private unsubscribeFromChannel(taskRunId: string): void {
     // Apply anything still buffered before we stop listening, so a closing
     // channel doesn't drop its final events.
     this.flushSessionEventsForTask(taskRunId);
     const subscription = this.subscriptions.get(taskRunId);
+    this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
-    this.subscriptions.delete(taskRunId);
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.delete(taskRunId);
+    this.sessionEventStats.delete(taskRunId);
+    this.silenceLogged.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
     this.lastAgentTextAt.delete(taskRunId);
@@ -2868,6 +3117,14 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.hostEndedResubscribes.clear();
+    this.lastSessionEventAt.clear();
+    this.sessionEventStats.clear();
+    this.silenceLogged.clear();
+    if (this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
+    }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
@@ -2913,6 +3170,7 @@ export class SessionService {
     if (!tally) return;
     this.liveTurnContent.delete(taskRunId);
     const session = this.d.store.getSessions()[taskRunId];
+    const stats = this.sessionEventStats.get(taskRunId);
     const payload = {
       taskRunId,
       taskId: session?.taskId,
@@ -2921,11 +3179,14 @@ export class SessionService {
       agentTextChunks: tally.agentTextChunks,
       agentOutputEvents: tally.agentOutputEvents,
       durationMs: Math.max(0, endedAtTs - tally.startedAtTs),
+      eventCount: session?.events.length ?? 0,
+      received: stats?.received ?? 0,
+      failed: stats?.failed ?? 0,
     };
     if (tally.agentTextChunks === 0 && tally.agentOutputEvents === 0) {
       this.d.log.warn("Turn completed with no agent output", payload);
     } else {
-      this.d.log.debug("Turn completed", payload);
+      this.d.log.info("Turn completed", payload);
     }
   }
 
@@ -3888,6 +4149,8 @@ export class SessionService {
       promptStartedAt: Date.now(),
       pausedDurationMs: 0,
     });
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
 
     const skillButtonId = this.d.h.extractSkillButtonId(blocks);
     if (skillButtonId) {
@@ -4246,12 +4509,30 @@ export class SessionService {
     }
 
     if (isTerminalStatus(session.cloudStatus)) {
+      // `/clear` is handled by the agent, not the model, so resuming would spin a
+      // whole sandbox to clear a conversation the next run rebuilds from the log
+      // anyway. The backend records the boundary against this run instead, but only
+      // when the agent understands it. An older one ignores the marker and resumes the
+      // conversation it was meant to retire, so an ordinary resume is the honest
+      // degradation: the clear doesn't happen, and nothing claims it did.
+      if (
+        leadingSlashCommand(transport.messageText) === "/clear" &&
+        session.conversationClear
+      ) {
+        return this.clearCloudConversation(session);
+      }
       // If the agent never booted (no `run_started`), resuming spins another
       // sandbox that hits the same provisioning failure — surface the error
       // instead of looping.
       if (session.cloudStatus === "failed" && session.status !== "connected") {
+        let errorMessage = session.cloudErrorMessage;
+        if (!errorMessage) {
+          await this.refreshCloudRunStatus(session);
+          errorMessage =
+            this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+        }
         throw new Error(
-          session.cloudErrorMessage ??
+          errorMessage ??
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
@@ -4502,8 +4783,9 @@ export class SessionService {
     try {
       const session = this.d.store.getSessionByTaskId(taskId);
       if (!session?.isCloud || session.messageQueue.length === 0) return;
-      // Terminal cloud runs route through `resumeCloudRun`, which spins a
-      // new run and consumes the prompt itself — so dispatch is fine.
+      // Terminal cloud runs are fine to dispatch: they route through
+      // `resumeCloudRun` (a new run that consumes the prompt), or through
+      // `clearCloudConversation` for a /clear on a clear-capable run.
       // Otherwise gate on the agent-ready handshake (`run_started` flips
       // status to "connected") to avoid racing with `sendInitialTaskMessage`.
       const isTerminal = isTerminalStatus(session.cloudStatus);
@@ -4549,6 +4831,62 @@ export class SessionService {
     } finally {
       this.dispatchingCloudQueues.delete(taskId);
     }
+  }
+
+  /**
+   * Records the `/clear` boundary against a finished run and repaints the
+   * thread from the updated log.
+   */
+  private async clearCloudConversation(
+    session: AgentSession,
+  ): Promise<{ stopReason: string }> {
+    const current = this.d.store.getSessions()[session.taskRunId];
+    if (endsAtConversationClearedBoundary(current?.events ?? [])) {
+      // A previous clear already recorded and painted the boundary, and a
+      // finished run's thread only grows through another clear, so a repeat
+      // has nothing to record or repaint.
+      return { stopReason: "end_turn" };
+    }
+    const client = await this.d.getAuthenticatedClient();
+    if (!client) {
+      throw new Error("Authentication required for cloud commands");
+    }
+    this.d.log.info("Clearing cloud conversation", {
+      taskId: session.taskId,
+      taskRunId: session.taskRunId,
+    });
+    await client.clearTaskRunConversation(session.taskId, session.taskRunId);
+    // The backend appended the boundary pair to this run's log, so repaint
+    // from the log rather than fabricating the frames locally. Log-derived
+    // copies carry the backend's timestamps, which is what lets a later
+    // resume's hydration reconcile them away; a fabricated copy stamped with
+    // the local clock never matches and renders the pair twice. The log read
+    // can lag the append (or a stale in-flight hydration can win the memo),
+    // so give the repaint a few staggered attempts before giving up.
+    for (const delayMs of CLEAR_REPAINT_ATTEMPT_DELAYS_MS) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      await this.hydrateCloudTaskSessionFromLogs(
+        session.taskId,
+        session.taskRunId,
+        session.logUrl,
+        undefined,
+        session.cloudStatus,
+      );
+      const repainted = this.d.store.getSessions()[session.taskRunId];
+      if (endsAtConversationClearedBoundary(repainted?.events ?? [])) {
+        return { stopReason: "end_turn" };
+      }
+    }
+    // The log never showed the boundary within the retry budget. Paint
+    // locally so the clear is still visible; this copy can duplicate after a
+    // later resume, so it stays strictly a fallback.
+    this.d.store.appendEvents(
+      session.taskRunId,
+      createConversationClearedEvents(Date.now()),
+    );
+    return { stopReason: "end_turn" };
   }
 
   private async resumeCloudRun(
@@ -4642,29 +4980,45 @@ export class SessionService {
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
-      // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
-      updatedTask = await authCredentials.client.runTaskInCloud(
-        session.taskId,
-        previousBaseBranch,
-        {
-          adapter: runtimeOptions.adapter,
-          model: runtimeOptions.model,
-          reasoningLevel: runtimeOptions.reasoningLevel,
-          initialPermissionMode: runtimeOptions.initialPermissionMode,
-          resumeFromRunId: session.taskRunId,
-          pendingUserMessage: transport.messageText,
-          pendingUserArtifactIds:
-            artifactIds.length > 0 ? artifactIds : undefined,
-          prAuthorshipMode,
-          autoPublish: previousState.auto_publish === true || undefined,
-          rtkEnabled: this.d.settings.rtkEnabledCloud,
-          runSource: getCloudRunSource(previousState),
-          signalReportId:
-            typeof previousState.signal_report_id === "string"
-              ? previousState.signal_report_id
-              : undefined,
-        },
-      );
+      try {
+        // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
+        updatedTask = await authCredentials.client.runTaskInCloud(
+          session.taskId,
+          previousBaseBranch,
+          {
+            adapter: runtimeOptions.adapter,
+            model: runtimeOptions.model,
+            reasoningLevel: runtimeOptions.reasoningLevel,
+            initialPermissionMode: runtimeOptions.initialPermissionMode,
+            resumeFromRunId: session.taskRunId,
+            pendingUserMessage: transport.messageText,
+            pendingUserArtifactIds:
+              artifactIds.length > 0 ? artifactIds : undefined,
+            prAuthorshipMode,
+            autoPublish: previousState.auto_publish === true || undefined,
+            rtkEnabled: this.d.settings.rtkEnabledCloud,
+            runSource: getCloudRunSource(previousState),
+            signalReportId:
+              typeof previousState.signal_report_id === "string"
+                ? previousState.signal_report_id
+                : undefined,
+          },
+        );
+      } catch (error) {
+        // Only the resume call gates on authorship: non-creators of a channeled
+        // task get a 404 (not a 403) here, so on a task the app can already read
+        // it means the control gate. 404s from the upload or run fetch above
+        // mean a missing resource, so those keep their real error.
+        if (
+          requestErrorStatus(error) === 404 &&
+          session.isTaskAuthor === false
+        ) {
+          throw new Error(
+            "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
+          );
+        }
+        throw error;
+      }
     } catch (error) {
       rollbackOptimisticPrompt();
       throw error;
@@ -6062,7 +6416,19 @@ export class SessionService {
         taskRunId,
         normalizedUpdate,
       );
-      this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      try {
+        this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      } catch (error) {
+        // Same reasoning as applySessionEvent: one bad update must not end
+        // the stream silently. The subscription stays up for the next one.
+        this.d.log.error("Cloud task update handling failed", {
+          taskId,
+          taskRunId,
+          kind: update.kind,
+          error,
+        });
+        return;
+      }
       if (
         (update.kind === "status" ||
           update.kind === "snapshot" ||
@@ -6088,29 +6454,23 @@ export class SessionService {
       bufferedResumeUpdates: [],
       processCloudUpdate,
       subscription: { unsubscribe: () => undefined },
+      subscriptionGeneration: 0,
+      subscriptionRecoveryAttempts: 0,
+      subscriptionRecoveryTimeoutId: null,
+      subscriptionRecoveryInFlight: false,
+      subscriptionRecoveryQueued: false,
+      subscriptionErrorSurfaced: false,
       onStatusChange,
     };
     this.cloudTaskWatchers.set(taskId, watcher);
 
     // Subscribe before starting the main-process watcher so the first replayed
     // SSE/log burst cannot race ahead of the renderer subscription.
-    watcher.subscription = this.d.trpc.cloudTask.onUpdate.subscribe(
-      { taskId, runId },
-      {
-        onData: (update: CloudTaskUpdatePayload) => {
-          const activeWatcher = this.cloudTaskWatchers.get(taskId);
-          if (!activeWatcher || activeWatcher.runId !== runId) {
-            return;
-          }
-          if (activeWatcher.bufferResumeUpdates) {
-            activeWatcher.bufferedResumeUpdates.push(update);
-            return;
-          }
-          activeWatcher.processCloudUpdate(update);
-        },
-        onError: (err: unknown) =>
-          this.d.log.error("Cloud task subscription error", { taskId, err }),
-      },
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      startToken,
+      watcher.subscriptionGeneration,
     );
 
     if (shouldHydrateSession) {
@@ -6201,6 +6561,9 @@ export class SessionService {
     if (existing) {
       return existing;
     }
+    if (hydrationMode === "terminal-chain") {
+      this.d.store.updateSession(taskRunId, { isHydratingTranscript: true });
+    }
     const hydration = this.performCloudTaskSessionHydration(
       taskId,
       taskRunId,
@@ -6220,6 +6583,14 @@ export class SessionService {
     void hydration.finally(() => {
       if (this.cloudHydrationPromises.get(hydrationKey) === hydration) {
         this.cloudHydrationPromises.delete(hydrationKey);
+      }
+      if (
+        hydrationMode === "terminal-chain" &&
+        this.d.store.getSessions()[taskRunId]
+      ) {
+        this.d.store.updateSession(taskRunId, {
+          isHydratingTranscript: false,
+        });
       }
     });
     return hydration;
@@ -6277,6 +6648,168 @@ export class SessionService {
     );
   }
 
+  private logHydrationTruncation(
+    taskId: string,
+    runId: string,
+    result: TaskRunSessionLogsResult,
+  ): void {
+    if (result.truncatedHeadCount > 0) {
+      this.d.log.info("Session log hydration dropped oldest entries", {
+        taskId,
+        runId,
+        truncatedHeadCount: result.truncatedHeadCount,
+        hydratedCount: result.entries.length,
+      });
+    }
+  }
+
+  /**
+   * A one-entry probe learns the chain total without downloading a page an
+   * oversized log would throw away, then only the newest
+   * INITIAL_TAIL_WINDOW entries are fetched; older pages load on scroll.
+   * Null on failure.
+   */
+  private async fetchChainTranscriptWindow(
+    client: SessionLogsClient,
+    taskId: string,
+    taskRunId: string,
+  ): Promise<ChainTranscriptWindow | null> {
+    try {
+      const probe = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+        limit: 1,
+      });
+      if (!probe.hasMore) {
+        return {
+          entries: probe.entries,
+          windowStart: 0,
+          chainTotal: probe.entries.length,
+        };
+      }
+      if (probe.matchingCount === null) {
+        const result = await client.getTaskRunSessionLogsResult(
+          taskId,
+          taskRunId,
+          { limit: CLOUD_HYDRATION_MAX_ENTRIES },
+        );
+        if (!result.complete) return null;
+        return {
+          entries: result.entries,
+          windowStart: result.truncatedHeadCount,
+          chainTotal: result.truncatedHeadCount + result.entries.length,
+        };
+      }
+      const tailStart = Math.max(0, probe.matchingCount - INITIAL_TAIL_WINDOW);
+      const tail: StoredLogEntry[] = [];
+      let offset = tailStart;
+      // The probe's count is a snapshot, and a run whose log is still being
+      // persisted grows behind it. Following the server's own end-of-log signal
+      // as well keeps those newest entries from going missing until a restart —
+      // older-history paging only moves backward, so nothing else recovers them.
+      let chainEnd = probe.matchingCount;
+      while (offset < chainEnd && tail.length < CLOUD_HYDRATION_MAX_ENTRIES) {
+        const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+          limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, chainEnd - offset),
+          offset,
+        });
+        if (page.entries.length === 0) break;
+        tail.push(...page.entries);
+        offset += page.entries.length;
+        if (page.matchingCount !== null && page.matchingCount > chainEnd) {
+          chainEnd = page.matchingCount;
+        } else if (offset >= chainEnd && page.hasMore) {
+          chainEnd = offset + SESSION_LOGS_MAX_PAGE_SIZE;
+        }
+      }
+      const chainTotal = tailStart + tail.length;
+      if (tailStart > 0) {
+        this.d.log.info("Hydrating cloud transcript tail window", {
+          taskId,
+          taskRunId,
+          windowStart: tailStart,
+          chainTotal,
+        });
+      }
+      return {
+        entries: tail,
+        windowStart: tailStart,
+        chainTotal,
+      };
+    } catch (error) {
+      this.d.log.warn("Cloud transcript window fetch failed", {
+        taskId,
+        taskRunId,
+        error,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Prepend the page of chain history just above the hydrated window.
+   * Driven by the thread scrolling near the top; one page per call.
+   */
+  async loadOlderCloudTranscript(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud) return;
+    const taskRunId = session.taskRunId;
+    const windowStart = session.transcriptWindowStart ?? 0;
+    if (windowStart <= 0 || this.olderTranscriptLoads.has(taskRunId)) return;
+    this.olderTranscriptLoads.add(taskRunId);
+    this.d.store.updateSession(taskRunId, { isLoadingOlderTranscript: true });
+    try {
+      const authStatus = await this.getAuthCredentialsStatus();
+      if (authStatus.kind !== "ready") return;
+
+      const pageStart = Math.max(0, windowStart - SESSION_LOGS_MAX_PAGE_SIZE);
+      const older: StoredLogEntry[] = [];
+      let offset = pageStart;
+      while (offset < windowStart) {
+        const page = await authStatus.auth.client.getTaskRunSessionLogsPage(
+          taskId,
+          taskRunId,
+          {
+            limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, windowStart - offset),
+            offset,
+          },
+        );
+        if (page.entries.length === 0) break;
+        older.push(...page.entries.slice(0, windowStart - offset));
+        offset += page.entries.length;
+      }
+      if (older.length === 0) return;
+
+      const current = this.d.store.getSessionByTaskId(taskId);
+      if (!current || current.taskRunId !== taskRunId) return;
+      if ((current.transcriptWindowStart ?? 0) !== windowStart) return;
+
+      const olderEvents = convertStoredEntriesToEvents(older);
+      this.d.store.updateSession(taskRunId, {
+        events: [...olderEvents, ...current.events],
+        transcriptWindowStart: windowStart - older.length,
+      });
+      this.d.log.info("Older cloud transcript page loaded", {
+        taskId,
+        taskRunId,
+        pageStart,
+        loadedCount: older.length,
+      });
+    } catch (error) {
+      this.d.log.warn("Older cloud transcript page load failed", {
+        taskId,
+        taskRunId,
+        windowStart,
+        error,
+      });
+    } finally {
+      this.olderTranscriptLoads.delete(taskRunId);
+      if (this.d.store.getSessions()[taskRunId]) {
+        this.d.store.updateSession(taskRunId, {
+          isLoadingOlderTranscript: false,
+        });
+      }
+    }
+  }
+
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
@@ -6288,6 +6821,12 @@ export class SessionService {
     let rawEntries: StoredLogEntry[];
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
+    let transcriptWindow: ChainTranscriptWindow | null = null;
+    // How many entries a capped fetch dropped off the front of rawEntries on
+    // paths that produce no window. The stream cursors count from the start of
+    // the chain, and the engine's own totals still include those entries, so
+    // they have to be added back.
+    let truncatedHeadCount = 0;
     const resumeFromRunId =
       typeof runState?.resume_from_run_id === "string"
         ? runState.resume_from_run_id
@@ -6299,19 +6838,25 @@ export class SessionService {
       // active; otherwise a renderer restart hydrates only the final run.
       // Non-resume in-progress runs keep using the single-run log so hydrate
       // cannot race the live stream and double the active turn.
-      const authStatus = await this.getAuthCredentialsStatus();
+      // Boot reaches here while auth is still restoring; bailing would leave
+      // the thread blank until something happens to re-trigger hydration.
+      const authStatus = await this.awaitAuthCredentialsSettled();
       if (authStatus.kind !== "ready") {
+        this.d.log.warn("Cloud session hydration skipped without credentials", {
+          taskId,
+          taskRunId,
+          auth: authStatus.kind,
+        });
         return;
       }
       if (resumeFromRunId) {
         if (isTerminalStatus(runStatus)) {
-          const result =
-            await authStatus.auth.client.getTaskRunSessionLogsResult(
-              taskId,
-              taskRunId,
-              { limit: 100000 },
-            );
-          if (!result.complete) {
+          const window = await this.fetchChainTranscriptWindow(
+            authStatus.auth.client,
+            taskId,
+            taskRunId,
+          );
+          if (!window) {
             this.d.log.warn("Resume session log hydration was incomplete", {
               taskId,
               taskRunId,
@@ -6319,7 +6864,8 @@ export class SessionService {
             });
             return;
           }
-          rawEntries = result.entries;
+          transcriptWindow = window;
+          rawEntries = window.entries;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
           );
@@ -6334,12 +6880,12 @@ export class SessionService {
             authStatus.auth.client.getTaskRunSessionLogsResult(
               taskId,
               resumeFromRunId,
-              { limit: 100000 },
+              { limit: CLOUD_HYDRATION_MAX_ENTRIES },
             ),
             authStatus.auth.client.getTaskRunSessionLogsResult(
               taskId,
               taskRunId,
-              { limit: 100000 },
+              { limit: CLOUD_HYDRATION_MAX_ENTRIES },
             ),
           ]);
           if (!ancestorResult.complete || !currentRunResult.complete) {
@@ -6352,6 +6898,11 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, resumeFromRunId, ancestorResult);
+          this.logHydrationTruncation(taskId, taskRunId, currentRunResult);
+          // rawEntries below starts at the ancestor window, so only the
+          // ancestor fetch's drop moves the front of the chain.
+          truncatedHeadCount = ancestorResult.truncatedHeadCount;
           const ancestorEntries: StoredLogEntry[] = ancestorResult.entries;
           const currentRunEntries: StoredLogEntry[] = currentRunResult.entries;
           const ancestorKeys = ancestorEntries.map((entry) =>
@@ -6380,27 +6931,30 @@ export class SessionService {
           );
         }
       } else {
-        const result = await authStatus.auth.client.getTaskRunSessionLogsResult(
+        const window = await this.fetchChainTranscriptWindow(
+          authStatus.auth.client,
           taskId,
           taskRunId,
-          { limit: 100000 },
         );
-        if (!result.complete) {
+        if (!window) {
           this.d.log.warn("Session log hydration was incomplete", {
             taskId,
             taskRunId,
           });
           return;
         }
-        rawEntries = result.entries;
-        liveStreamLineCount = rawEntries.length;
+        transcriptWindow = window;
+        rawEntries = window.entries;
+        liveStreamLineCount = window.chainTotal;
         // A terminal run whose persisted chain comes back empty can still
         // have a complete S3 session log (persistence raced teardown); fall
         // back to it rather than hydrating an empty final transcript.
         if (rawEntries.length === 0 && logUrl) {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           if (parsed.rawEntries.length > 0) {
+            transcriptWindow = null;
             rawEntries = parsed.rawEntries;
+            truncatedHeadCount = 0;
             liveStreamLineCount = parsed.totalLineCount;
           }
         }
@@ -6416,11 +6970,26 @@ export class SessionService {
       return;
     }
 
-    let events = convertStoredEntriesToEvents(rawEntries, undefined, {
-      taskRunId,
-      startEntryIndex: 0,
-      firstPositionedEntryIndex: resumeLeafEntryStartIndex,
-    });
+    const chainTotal =
+      transcriptWindow?.chainTotal ?? rawEntries.length + truncatedHeadCount;
+    const windowStart = transcriptWindow?.windowStart ?? 0;
+    // Resume positions are leaf-relative; windowed single runs offset by the
+    // window start. A truncated resume window that lost its leaf marker stays
+    // unpositioned rather than mislabeled from index 0.
+    const positionOptions = isResumeRun
+      ? windowStart === 0 || resumeLeafEntryStartIndex !== undefined
+        ? {
+            taskRunId,
+            startEntryIndex: 0,
+            firstPositionedEntryIndex: resumeLeafEntryStartIndex,
+          }
+        : undefined
+      : { taskRunId, startEntryIndex: windowStart };
+    let events = convertStoredEntriesToEvents(
+      rawEntries,
+      undefined,
+      positionOptions,
+    );
     if (isResumeRun && session.events.length > 0) {
       const inheritedEvents = reconcileLiveEventsWithHydratedEvents(
         session.events,
@@ -6485,7 +7054,7 @@ export class SessionService {
     // that newer state with the persisted baseline fetched during startup.
     // Terminal hydration is different: it is the final transcript, so apply
     // it whenever the persisted chain has more lines than the local stream.
-    const effectiveLineCount = Math.max(liveStreamLineCount, rawEntries.length);
+    const effectiveLineCount = Math.max(liveStreamLineCount, chainTotal);
     const alreadyApplied = isTerminalRun
       ? (session.processedLineCount ?? 0) >= effectiveLineCount
       : session.processedLineCount !== undefined &&
@@ -6495,7 +7064,7 @@ export class SessionService {
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
-        historyEntryCount: rawEntries.length,
+        historyEntryCount: chainTotal,
         liveStreamLineCount: session.processedLineCount ?? liveStreamLineCount,
       };
     }
@@ -6513,7 +7082,8 @@ export class SessionService {
       events,
       isCloud: true,
       logUrl: logUrl ?? session.logUrl,
-      cloudTranscriptEntryCount: rawEntries.length,
+      cloudTranscriptEntryCount: chainTotal,
+      transcriptWindowStart: windowStart,
       // Terminal hydration records the whole chain as processed so nothing
       // re-applies it; live resume runs keep the leaf-stream cursor.
       processedLineCount: isTerminalRun
@@ -6530,7 +7100,7 @@ export class SessionService {
       this.clearTerminalCloudPromptState(taskRunId);
     }
     return {
-      historyEntryCount: rawEntries.length,
+      historyEntryCount: chainTotal,
       liveStreamLineCount,
     };
   }
@@ -6592,6 +7162,213 @@ export class SessionService {
     return watcher?.runId === runId && watcher.startToken === startToken;
   }
 
+  private attachCloudTaskSubscription(
+    taskId: string,
+    runId: string,
+    startToken: number,
+    generation: number,
+  ): { unsubscribe: () => void } {
+    // Recovery replaces the subscription while the watcher stays current, so
+    // the generation is what tells a live handler from one belonging to the
+    // subscription we just discarded.
+    const isCurrentSubscription = () =>
+      this.isCurrentCloudTaskWatcher(taskId, runId, startToken) &&
+      this.cloudTaskWatchers.get(taskId)?.subscriptionGeneration === generation;
+
+    return this.d.trpc.cloudTask.onUpdate.subscribe(
+      { taskId, runId },
+      {
+        onData: (update: CloudTaskUpdatePayload) => {
+          const activeWatcher = this.cloudTaskWatchers.get(taskId);
+          if (!activeWatcher || activeWatcher.runId !== runId) {
+            return;
+          }
+          activeWatcher.subscriptionRecoveryAttempts = 0;
+          if (activeWatcher.bufferResumeUpdates) {
+            activeWatcher.bufferedResumeUpdates.push(update);
+            return;
+          }
+          activeWatcher.processCloudUpdate(update);
+        },
+        onError: (err: unknown) => {
+          if (!isCurrentSubscription()) return;
+          this.d.log.error("Cloud task subscription error", { taskId, err });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
+        },
+        onComplete: () => {
+          if (!isCurrentSubscription()) return;
+          // A completion that passes the guard is host transport teardown
+          // (a committed navigation sweeping the transport's operations, not
+          // the run finishing — our own teardown deletes the watcher before
+          // unsubscribing): recover just like an error, or updates stop until
+          // an app reload.
+          this.d.log.warn("Cloud task subscription ended without an error", {
+            taskId,
+            runId,
+          });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
+        },
+      },
+    );
+  }
+
+  /**
+   * The tRPC subscription carrying cloud updates died (an error in the host
+   * stream, or transport teardown). Without recovery the transcript silently
+   * stops advancing until an app reload rebuilds the subscription — none of
+   * the existing recovery triggers fire, because the session never reaches an
+   * error status. Rebuild both sides here: a fresh subscription, plus a watch
+   * call whose snapshot replay backfills whatever was missed while the
+   * channel was down (the dead subscription's server-side teardown may also
+   * have unwatched, and thereby stopped, the main-process watcher).
+   */
+  private scheduleCloudSubscriptionRecovery(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    // A running recovery already rebuilds the subscription. Queue the failure
+    // for it to retry rather than starting a second, overlapping recovery: the
+    // main-process watcher is reference counted, so two watch calls against one
+    // teardown leave it running forever.
+    if (watcher.subscriptionRecoveryInFlight) {
+      watcher.subscriptionRecoveryQueued = true;
+      return;
+    }
+    if (watcher.subscriptionRecoveryTimeoutId) return;
+
+    const delay = getBackoffDelay(
+      watcher.subscriptionRecoveryAttempts,
+      CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF,
+    );
+    watcher.subscriptionRecoveryTimeoutId = setTimeout(() => {
+      watcher.subscriptionRecoveryTimeoutId = null;
+      void this.recoverCloudSubscription(taskId, runId);
+    }, delay);
+  }
+
+  private async recoverCloudSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    const startToken = watcher.startToken;
+
+    watcher.subscriptionRecoveryAttempts += 1;
+    watcher.subscriptionRecoveryInFlight = true;
+    watcher.subscriptionRecoveryQueued = false;
+    // Bump the generation before unsubscribing: a transport that completes
+    // the old subscription synchronously on unsubscribe would otherwise pass
+    // the generation guard and queue a recovery against itself, forever.
+    watcher.subscriptionGeneration += 1;
+    watcher.subscription.unsubscribe();
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      startToken,
+      watcher.subscriptionGeneration,
+    );
+
+    try {
+      await this.d.trpc.cloudTask.watch.mutate({
+        taskId,
+        runId,
+        apiHost: watcher.apiHost,
+        teamId: watcher.teamId,
+        resumeFromEntryCount: watcher.resumeFromEntryCount,
+      });
+
+      // Same compensation as the initial watch path: if teardown won while this
+      // watch request was in flight, the main-process watcher is now running
+      // with no renderer subscriber, so unwatch it.
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+        await this.d.trpc.cloudTask.unwatch.mutate({ taskId, runId });
+        return;
+      }
+
+      this.d.log.info("Cloud task subscription recovered", {
+        taskId,
+        attempts: watcher.subscriptionRecoveryAttempts,
+      });
+      this.clearCloudSubscriptionRecoveryError(taskId, runId);
+    } catch (err) {
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) return;
+      this.d.log.warn("Cloud task subscription recovery failed", {
+        taskId,
+        attempt: watcher.subscriptionRecoveryAttempts,
+        err,
+      });
+      this.maybeSurfaceCloudSubscriptionError(taskId, runId);
+      watcher.subscriptionRecoveryQueued = true;
+    } finally {
+      watcher.subscriptionRecoveryInFlight = false;
+      // Either this attempt failed, or the rebuilt subscription died while the
+      // watch call was still in flight. Both mean the stream is still down.
+      if (
+        watcher.subscriptionRecoveryQueued &&
+        this.isCurrentCloudTaskWatcher(taskId, runId, startToken)
+      ) {
+        watcher.subscriptionRecoveryQueued = false;
+        this.scheduleCloudSubscriptionRecovery(taskId, runId);
+      }
+    }
+  }
+
+  private maybeSurfaceCloudSubscriptionError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (watcher.subscriptionErrorSurfaced) return;
+    if (
+      watcher.subscriptionRecoveryAttempts <
+      CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS
+    ) {
+      return;
+    }
+    const session = this.d.store.getSessions()[runId];
+    if (!session || session.status === "error") return;
+
+    watcher.subscriptionErrorSurfaced = true;
+    this.d.store.updateSession(runId, {
+      status: "error",
+      errorTitle: CLOUD_SUBSCRIPTION_ERROR_TITLE,
+      errorMessage: CLOUD_SUBSCRIPTION_ERROR_MESSAGE,
+      errorRetryable: true,
+      isPromptPending: false,
+    });
+  }
+
+  private clearCloudSubscriptionRecoveryError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (!watcher.subscriptionErrorSurfaced) return;
+
+    watcher.subscriptionErrorSurfaced = false;
+    const session = this.d.store.getSessions()[runId];
+    // Only clear the banner this recovery raised: a real task error can land
+    // (over the rebuilt subscription) before the watch call resolves, and
+    // wiping it would hide the actual failure.
+    if (
+      session?.status !== "error" ||
+      session.errorTitle !== CLOUD_SUBSCRIPTION_ERROR_TITLE
+    ) {
+      return;
+    }
+    this.d.store.updateSession(runId, {
+      status: "disconnected",
+      errorTitle: undefined,
+      errorMessage: undefined,
+      errorRetryable: undefined,
+    });
+  }
+
   /**
    * Fully stop a cloud task watcher. The tRPC subscription unwatches from the
    * main process in its finally handler; the in-flight watch path below sends a
@@ -6601,8 +7378,12 @@ export class SessionService {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher) return;
 
-    watcher.subscription.unsubscribe();
     this.cloudTaskWatchers.delete(taskId);
+    if (watcher.subscriptionRecoveryTimeoutId) {
+      clearTimeout(watcher.subscriptionRecoveryTimeoutId);
+      watcher.subscriptionRecoveryTimeoutId = null;
+    }
+    watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 
@@ -7817,6 +8598,19 @@ export class SessionService {
     }
   }
 
+  /** Poll auth out of its boot-time "restoring" state, bounded so a broken
+   *  restore can't hold callers forever. */
+  private async awaitAuthCredentialsSettled(): Promise<AuthCredentialsStatus> {
+    const deadline = Date.now() + AUTH_RESTORE_WAIT_MS;
+    for (;;) {
+      const status = await this.getAuthCredentialsStatus();
+      if (status.kind !== "restoring" || Date.now() >= deadline) return status;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, AUTH_RESTORE_POLL_MS),
+      );
+    }
+  }
+
   private async getAuthCredentialsStatus(): Promise<AuthCredentialsStatus> {
     const authState = await this.d.fetchAuthState();
     // `bootstrapComplete === false` also covers the pre-initialize window where
@@ -8015,11 +8809,16 @@ export class SessionService {
       this.d.store.clearTailOptimisticItems(taskRunId);
     }
     this.cloudRunIdleTracker.delete(taskRunId);
+    // The reconciled log is the complete chain, so any hydration window is
+    // gone; resetting the window start also trips loadOlderCloudTranscript's
+    // stale-window guard if a prepend was in flight, instead of duplicating
+    // entries the reconcile already committed.
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
       logUrl,
       processedLineCount,
+      transcriptWindowStart: 0,
     });
     this.updatePromptStateFromEvents(taskRunId, events);
   }

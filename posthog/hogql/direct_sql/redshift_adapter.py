@@ -10,7 +10,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.postgres_adapter import postgres_error_to_message, postgres_oid_to_clickhouse_type
+from posthog.hogql.direct_sql.pgwire import postgres_error_to_message, postgres_oid_to_clickhouse_type
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_postgres_identifier

@@ -35,6 +35,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
     increment_snapshot_usage,
+    modal_sandbox_backend_label,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -327,6 +328,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             used_snapshot=used_snapshot,
             origin_product=ctx.origin_product,
             runtime=runtime,
+            sandbox_backend=modal_sandbox_backend_label(),
         ) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its

@@ -244,16 +244,17 @@ export function buildSandboxDocument(
           shortId,
           dateRange: opts && opts.dateRange,
           variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
         }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
       // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
-      query: (queryOrHogql, params) =>
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -612,7 +613,16 @@ export function buildSandboxDocument(
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
-        if (seq === mountSeq) reportError(err && err.message, err && err.stack);
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
       }
     };
 
