@@ -706,10 +706,12 @@ export function SessionView({
                     </Flex>
                   </Flex>
                 ) : hideInput ? null : firstPendingPermission ? (
-                  // Keyed on the prompt, so each new one arrives shown even if
-                  // the last one was hidden.
+                  // Keyed on when the prompt arrived, not just which tool call
+                  // it belongs to, so a re-asked permission for the same call
+                  // arrives shown rather than inheriting the last one's hidden
+                  // state.
                   <PermissionDock
-                    key={firstPendingPermission.toolCall.toolCallId}
+                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
                     compact={compact}
                   >
                     <PermissionSelector

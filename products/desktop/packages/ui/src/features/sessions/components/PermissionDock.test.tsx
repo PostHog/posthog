@@ -65,6 +65,26 @@ describe("PermissionDock", () => {
     expect(dockEl.style.maxHeight).toBe(`min(${expected}, calc(100% - 120px))`);
   });
 
+  it("answering mid-drag leaves the app without a stuck cursor", () => {
+    const { unmount } = render(
+      <div>
+        <PermissionDock compact={false}>
+          <div>Question card</div>
+        </PermissionDock>
+      </div>,
+    );
+
+    const separator = screen.getByRole("separator");
+    stubHeights(separator, 300, 600);
+    fireEvent.mouseDown(separator, { clientY: 400 });
+    expect(document.body.style.cursor).toBe("row-resize");
+
+    unmount();
+
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.userSelect).toBe("");
+  });
+
   it("hiding and showing again keeps the card's own state", () => {
     let mounts = 0;
     function Card() {

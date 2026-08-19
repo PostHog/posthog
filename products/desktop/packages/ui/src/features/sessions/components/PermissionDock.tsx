@@ -11,7 +11,7 @@ import {
   usePermissionDockHeight,
   useSessionViewActions,
 } from "@posthog/ui/features/sessions/sessionViewStore";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Shortest the dock goes, and the room the thread above always keeps. */
 const MIN_DOCK_HEIGHT = 96;
@@ -40,6 +40,8 @@ export function PermissionDock({
   const { setPermissionDockHeight } = useSessionViewActions();
   const [isHidden, setIsHidden] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
+  /** Set while a drag is in flight, so an unmount can end it. */
+  const endDragRef = useRef<(() => void) | null>(null);
   // What the handle reports to assistive tech. Measured rather than read off
   // the store, because until the first drag the dock sits at its default share
   // of the column and has no stored height to report.
@@ -89,20 +91,27 @@ export function PermissionDock({
       const onMouseMove = (moveEvent: MouseEvent) => {
         resizeTo(startHeight + (startY - moveEvent.clientY));
       };
-      const onMouseUp = () => {
+      const endDrag = () => {
         document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+        document.removeEventListener("mouseup", endDrag);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        endDragRef.current = null;
       };
 
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
       document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      document.addEventListener("mouseup", endDrag);
+      endDragRef.current = endDrag;
     },
     [resizeTo],
   );
+
+  // Answering the prompt unmounts the dock, and that can land mid-drag: without
+  // this the listeners outlive it, and the whole app keeps the resize cursor
+  // with text selection off.
+  useEffect(() => () => endDragRef.current?.(), []);
 
   const handleResizeKey = useCallback(
     (e: React.KeyboardEvent) => {
