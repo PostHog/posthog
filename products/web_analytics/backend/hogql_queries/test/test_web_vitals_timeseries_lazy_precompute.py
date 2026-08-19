@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 
@@ -137,6 +138,21 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
+    def _warm(self, query: WebVitalsQuery) -> None:
+        # Mimic the SWR revalidation task: under a warming trigger the ensure
+        # runs inserts inline instead of check-only, building the buckets a
+        # plain user read can then be served from.
+        tag_queries(
+            team_id=self.team.pk,
+            trigger="webAnalyticsStaleRevalidation",
+            feature=Feature.CACHE_WARMUP,
+            product=Product.WEB_ANALYTICS,
+        )
+        try:
+            WebVitalsQueryRunner(team=self.team, query=query).calculate()
+        finally:
+            reset_query_tags()
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_precomputed_matches_live_trends(self) -> None:
         self._seed()
@@ -147,9 +163,14 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         live = TrendsQueryRunner(team=self.team, query=source).calculate()
 
         with self._enable():
+            self._warm(query)
             precomputed = WebVitalsQueryRunner(team=self.team, query=query).calculate()
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+        # The live path stamps printed HogQL on the response; the bucket path
+        # never does. A None here proves the serve did not silently fall back.
+        assert precomputed.hogql is None
+        assert live.hogql is not None
         assert len(precomputed.results) == len(live.results) == 4
         for live_series, pre_series in zip(live.results, precomputed.results):
             assert pre_series["days"] == live_series["days"]
