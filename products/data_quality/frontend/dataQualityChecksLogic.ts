@@ -805,9 +805,15 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             let polled: DataQualitySuiteRunApi
             try {
                 polled = await checksApi.suiteRunRetrieve(subjectRef(props), running.id)
-            } catch {
-                // A transient failure mid-run is not worth a toast; the next poll retries until the
-                // timeout, so a persistently failing request stops rather than polling forever.
+            } catch (error) {
+                // A permanent 403 — the flag turned off mid-run, or query access revoked — takes the
+                // panel's access-denied path immediately, like every other request here.
+                if (isForbidden(error)) {
+                    actions.setAccessDenied()
+                    return
+                }
+                // Other failures are treated as transient and not worth a toast; the next poll retries
+                // until the timeout, so a persistently failing request stops rather than polling forever.
                 if (cache.pollElapsedMs >= POLL_TIMEOUT_MS) {
                     actions.setPollTimedOut()
                     return

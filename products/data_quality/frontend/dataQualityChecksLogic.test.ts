@@ -463,6 +463,22 @@ describe('dataQualityChecksLogic', () => {
         )
     })
 
+    it('stops polling and denies access when a poll is forbidden', async () => {
+        // A permanent 403 mid-run (flag off, or query access revoked) should take the access-denied
+        // path at once rather than retrying until the 15 minute cap.
+        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockRejectedValue(forbidden())
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        await advancePoll(3000)
+
+        expect(logic.values.accessDenied).toBe(true)
+        const pollsBeforeDenied = (warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length
+        await advancePoll(15000)
+        expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
+    })
+
     it('adopts a run that was already in flight on mount', async () => {
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
 
