@@ -388,9 +388,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const datedSections = sections.filter(
     (section) => section.key !== PINNED_SECTION_KEY,
   );
-  // Under "Pinned" every row would wear the same badge, so the header says it
-  // once instead — but only while a header below marks where the pins stop. An
-  // alphabetical run carries no header of its own, so there the badges stay.
+  // Under "Pinned" every row wears the same badge, so the header says it once
+  // instead, but only while a header below marks where the pins stop. An
+  // alphabetical run carries no header, so there the badges stay.
   const showPinnedBadges = datedSections[0]?.label == null;
 
   const narrowed = filtersActive || searchOpen;
@@ -487,35 +487,31 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       };
 
   /**
-   * The pinned run, doubling as the drop target that decides pin from unpin.
-   * Always rendered, empty or not, and it opens on a drag rather than appearing
-   * — see the notes below on why nothing here may jump into place.
+   * The pinned run, doubling as the box that decides pin from unpin. Always
+   * rendered, empty or not, and it opens on a drag rather than appearing. See
+   * below for why nothing here may jump into place.
    */
-  const pinnedRun = (
-    pinnedItems: ChannelItemModel[],
-    showPinBadge: boolean,
-  ) => {
+  const pinnedRun = () => {
     const drag = pinDrag.drag;
+    const pinnedItems = pinnedSection?.items ?? [];
     return (
       <div
         key={PINNED_SECTION_KEY}
         ref={pinDrag.pinnedZoneRef}
         className={cn(
-          // `min-h-0` is the resting end of the transition: min-height's initial
-          // `auto` is not interpolable, so without it the run snaps open.
+          // `min-h-0` is the resting end of the transition. min-height starts at
+          // `auto`, which is not interpolable, so without it the run snaps open.
           "flex min-h-0 flex-col gap-px rounded-md transition-[min-height,background-color] duration-150 ease-out motion-reduce:transition-none",
-          // Opens to a target you can aim at without precision. Only a floor,
-          // so a run that is already taller keeps its own height.
+          // A floor, not a height, so a taller run keeps its own.
           drag && "min-h-[100px]",
           drag?.overPinned &&
             !drag.sourcePinned &&
             "bg-accent-2 ring-1 ring-accent-6",
         )}
       >
-        {/* Rendered even when the run is empty, and opened by a transition
-            rather than by appearing: a drag dies at birth if anything above its
-            source jumps in the same frame as `dragstart`. Grid rows rather than
-            a height, so the label keeps its own. */}
+        {/* Opened by a transition rather than by appearing: a drag dies at
+            birth if anything above its source jumps in the same frame as
+            `dragstart`. Grid rows, so the label keeps its own height. */}
         <div
           className={cn(
             "grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none",
@@ -528,14 +524,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             <MenuLabel>Pinned</MenuLabel>
           </div>
         </div>
-        {pinnedItems.map((item) => taskRow(item, showPinBadge))}
+        {pinnedItems.map((item) => taskRow(item, showPinnedBadges))}
       </div>
     );
   };
 
-  // Every row gets the wrapper, not just the dragged one: swapping a row
-  // between wrapped and bare would remount it, and Chromium ends a native drag
-  // the moment its source element leaves the DOM.
+  // Every row gets the wrapper, not just the dragged one. Swapping a row
+  // between wrapped and bare remounts it, and Chromium ends a native drag the
+  // moment its source leaves the DOM.
   const taskRow = (item: (typeof items)[number], showPinBadge: boolean) => (
     <motion.div
       key={item.key}
@@ -697,10 +693,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             />
           </div>
         )}
-        {/* The list is the drop target, not the window: releasing over a
-            command centre tile is that tile's drop, and must not also unpin
-            what it just filed. Pin and unpin stay reachable from the row's menu
-            and its context menu, so the drag adds no keyboard-only path. */}
+        {/* Pin and unpin stay reachable from the row's menu and its context
+            menu, so the drag adds no keyboard-only path. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
         <div
           aria-busy={isLoading}
@@ -729,12 +723,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               <TabEmptyState tab={tab} />
             ) : sections.length > 0 ? (
               <div className="flex flex-col gap-px">
-                {/* Always mounted, empty or not: inserting the run when a drag
-                    starts restructures the list under the row being dragged,
-                    and Chromium ends the drag on the spot — dragstart, then
-                    dragend, before the pointer has moved. Growing a run that is
-                    already there is fine. */}
-                {pinnedRun(pinnedSection?.items ?? [], showPinnedBadges)}
+                {/* Always mounted, empty or not. Inserting the run on
+                    dragstart restructures the list under the dragged row, and
+                    Chromium ends the drag on the spot: dragstart, then dragend,
+                    before the pointer moves. Growing one already there is
+                    fine. */}
+                {pinnedRun()}
                 {datedSections.map((section) => (
                   <Fragment key={section.key}>
                     {section.label && <MenuLabel>{section.label}</MenuLabel>}

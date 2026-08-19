@@ -470,8 +470,8 @@ function SidebarMenuComponent() {
     >
       <MarqueeOverlay rect={marquee} />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {/* Full height, so the empty space under the last row still belongs to
-            the list — that space is where an unpin drag is released. */}
+        {/* Full height, so the space under the last row still belongs to the
+            list. That space is where an unpin drag is released. */}
         <Flex direction="column" className="min-h-full gap-px px-2 pb-2">
           {sidebarData.isLoading ? (
             <SidebarItem

@@ -10,18 +10,15 @@ import {
   motion,
   useReducedMotion,
 } from "framer-motion";
-import { useMemo } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * The session card that follows the pointer during a pin drag, badged with what
- * releasing here would do — and unbadged where releasing would do nothing.
+ * The card that follows the pointer during a pin drag, badged with what
+ * releasing here would do, unbadged where it would do nothing.
  *
- * Portalled out of the sidebar because its two panes slide on a transform, and
- * a transformed ancestor is what `position: fixed` resolves against — the card
- * would be positioned inside the pane, and clipped by it. It lands on the theme
- * root rather than the body: Radix scopes `--accent-*` and the rest of the
- * palette to that element, so a card on the body draws its colours as
+ * Portalled to the theme root for two reasons. The sidebar's panes slide on a
+ * transform, which `position: fixed` would resolve against; and Radix scopes
+ * the palette to that element, so a card on the body draws colours as
  * transparent.
  */
 export function ChannelItemDragPreview({
@@ -34,13 +31,10 @@ export function ChannelItemDragPreview({
   y: MotionValue<number>;
 }) {
   const prefersReducedMotion = useReducedMotion();
-  const host = useMemo(
-    () => document.querySelector<HTMLElement>(".radix-themes") ?? document.body,
-    [],
-  );
-  // The card is a picture of the row, so it takes the marks the row already
-  // shows and skips the PR lookup behind them — that one is a query into git
-  // per row, and the row under the pointer is already paying for it.
+  const host =
+    document.querySelector<HTMLElement>(".radix-themes") ?? document.body;
+  // Skips the PR lookup: that is a query into git per row, and the row under
+  // the pointer is already paying for it.
   const status = useChannelTaskStatus(drag.item, { withPrStatus: false });
   const action = getPinDropAction(drag.sourcePinned, drag.overPinned);
   const spring = prefersReducedMotion
@@ -63,8 +57,8 @@ export function ChannelItemDragPreview({
       <AnimatePresence>
         {action !== null ? (
           <motion.span
-            // Keyed on the action, so crossing into the pinned run swaps the
-            // badge rather than retitling the one already there.
+            // Keyed on the action, so crossing into the run swaps the badge
+            // rather than retitling the one already there.
             key={String(action)}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}

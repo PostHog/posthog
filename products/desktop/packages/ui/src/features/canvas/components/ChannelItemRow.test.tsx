@@ -258,13 +258,12 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  // The cursor is the only thing saying what the release will do, and a pinned
-  // session dragged out of the pinned run is moved rather than copied.
+  // The cursor is the only thing saying what the release will do.
   it.each([
     { pinned: false, effectAllowed: "copyMove" },
     { pinned: true, effectAllowed: "move" },
   ])(
-    "makes tasks draggable, pinned=$pinned as $effectAllowed",
+    "makes tasks draggable, offering $effectAllowed when pinned=$pinned",
     ({ pinned, effectAllowed }) => {
       renderRow(item({ pinned }));
       const setData = vi.fn();

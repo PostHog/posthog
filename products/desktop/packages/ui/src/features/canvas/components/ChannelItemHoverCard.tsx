@@ -99,9 +99,8 @@ export function ChannelItemPreviewCardProvider({
     handle.close();
   }, [handle]);
 
-  // A drag passes the pointer over row after row, and each one would hand the
-  // card to the next: a card the size of this one then sits over the list you
-  // are dragging across. It stands down for the length of the drag.
+  // A drag passes the pointer over row after row, each handing the card to the
+  // next, until a card this size sits over the list. It stands down instead.
   const dragging = useIsPinDragging();
   useEffect(() => {
     if (dragging) close();

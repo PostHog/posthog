@@ -19,11 +19,9 @@ const OFFSCREEN = -10_000;
 
 export interface PinDrag<T> {
   item: T;
-  /** Where the drag started, which is what decides whether a drop pins or unpins. */
+  /** Where the drag started, which decides whether a drop pins or unpins. */
   sourcePinned: boolean;
-  /** The pointer is over the pinned run right now. */
   overPinned: boolean;
-  /** The row's own width, so the card under the pointer is the row it came from. */
   previewWidth: number;
 }
 
@@ -31,7 +29,7 @@ export interface PinDragApi<T> {
   drag: PinDrag<T> | null;
   /** Goes on the pinned run, whose box decides what counts as a pin. */
   pinnedZoneRef: RefObject<HTMLDivElement | null>;
-  /** Goes on the list, which is what accepts the drop. */
+  /** Goes on the list, which accepts the drop. */
   listProps: {
     onDragOver: (event: DragEvent) => void;
     onDrop: (event: DragEvent) => void;
@@ -45,22 +43,16 @@ export interface PinDragApi<T> {
 /**
  * Drag a session in or out of a sidebar's pinned run.
  *
- * Native HTML drag rather than a pointer-driven one, because the same rows are
- * already draggable onto the command centre's tiles and a session can only have
- * one drag. That decides the shape of the rest: the browser gives no cursor
- * position outside `dragover` and swallows every keystroke for the length of a
- * drag, so the card under the pointer is moved from a window listener, and a
- * `dragend` with no drop behind it is the only cancel signal there is.
+ * Native HTML drag, because these rows are already draggable onto Command
+ * Center tiles and an element gets one drag. Three constraints follow, and none
+ * of them show up in the code they shape:
  *
- * The list is the drop target, not the window: releasing over a command centre
- * tile is that tile's drop, and must not also unpin what it filed.
- *
- * Both sidebars run this one copy. The rules it encodes were expensive to find
- * and are invisible in the code they protect — a second implementation would
- * drift off them without anything failing loudly.
- *
- * `isPinned` and `togglePin` are what the two lists disagree on: one holds
- * channel items, the other tasks. Everything else here is the same drag.
+ * 1. The browser reports the cursor only in `dragover`, so a window listener
+ *    moves the card.
+ * 2. It swallows every keystroke for the length of a drag, so a `dragend` with
+ *    no drop behind it is the only cancel signal.
+ * 3. The list is the drop target, not the window. Releasing over a Command
+ *    Center tile is that tile's drop and must not also unpin what it filed.
  */
 export function usePinDrag<T>({
   isPinned,
@@ -70,8 +62,8 @@ export function usePinDrag<T>({
   togglePin: (item: T) => void;
 }): PinDragApi<T> {
   const [drag, setDrag] = useState<PinDrag<T> | null>(null);
-  // The handlers below run inside native drag events, which need the live drag
-  // synchronously — a render behind is a drop applied to the wrong state.
+  // Native drag handlers need the live drag synchronously; a render behind is a
+  // drop applied to the wrong state.
   const dragRef = useRef<PinDrag<T> | null>(null);
   const pinnedZoneRef = useRef<HTMLDivElement | null>(null);
   const pointerOffsetRef = useRef({ x: 0, y: 0 });
@@ -107,20 +99,16 @@ export function usePinDrag<T>({
       previewY.set(event.clientY - pointerOffsetRef.current.y);
       const overPinned = overPinnedAt(event.clientX, event.clientY);
       if (overPinned === current.overPinned) return;
-      // Leaving the pinned run with a pinned session is the destructive turn,
-      // so it gets the sound the trash gets.
+      // Leaving the run with a pinned session is the destructive turn.
       if (current.sourcePinned && !overPinned) playTrashSound();
       write({ ...current, overPinned });
     };
-    // A drag whose source leaves the DOM is killed by the browser without a
-    // `dragend`, and the lists poll — so the card can't rely on the row's own
-    // end event alone. Once the drag is dead the pointer is a pointer again,
-    // which is the signal this listener waits for.
+    // A drag whose source leaves the DOM dies without a `dragend`, and the
+    // lists poll. Once it is dead the pointer works again, which is the signal.
     const endStrandedDrag = () => {
       if (dragRef.current) clear();
     };
-    // Capture, so a drop target that stops propagation can't freeze the card
-    // under the pointer.
+    // Capture, so a drop target that stops propagation can't freeze the card.
     window.addEventListener("dragover", followPointer, true);
     window.addEventListener("dragend", endStrandedDrag, true);
     window.addEventListener("mouseup", endStrandedDrag, true);
@@ -134,9 +122,8 @@ export function usePinDrag<T>({
   const onItemDragStart = useCallback(
     (item: T, event: DragEvent) => {
       const rect = event.currentTarget.getBoundingClientRect();
-      // The browser's own ghost is a translucent stamp of the row taken before
-      // the list reacts to the drag. An empty one hands the job to the card,
-      // which can then say what the drop will do.
+      // The browser's own ghost is stamped before the list reacts to the drag.
+      // An empty one hands the job to the card.
       const ghost = document.createElement("div");
       ghost.style.cssText = "position:fixed;top:-10px;width:1px;height:1px";
       document.body.appendChild(ghost);
@@ -184,8 +171,8 @@ export function usePinDrag<T>({
     pinnedZoneRef,
     listProps: { onDragOver: onListDragOver, onDrop: onListDrop },
     onItemDragStart,
-    // Reached by a cancelled drag and by a drop the list didn't take (a command
-    // centre tile). A drop the list did take has already cleared.
+    // Reached by a cancelled drag, and by a drop the list didn't take (a
+    // Command Center tile). A drop the list took has already cleared.
     onItemDragEnd: clear,
     previewX,
     previewY,

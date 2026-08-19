@@ -220,10 +220,8 @@ export function TaskListView({
 
   return (
     <LayoutGroup id="sidebar-task-list">
-      {/* The list is the drop target, not the window: releasing over a command
-          centre tile is that tile's drop, and must not also unpin what it
-          filed. Pin and unpin stay reachable from the row's hover actions and
-          its context menu, so the drag adds no keyboard-only path. */}
+      {/* Pin and unpin stay reachable from the row's hover actions and its
+          context menu, so the drag adds no keyboard-only path. */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
       <div
         className="flex min-h-full flex-1 flex-col"
@@ -343,8 +341,8 @@ export function TaskListView({
                         openTaskInput({
                           folderId: groupFolderId,
                           // Cloud-only groups have no registered folder, and the
-                          // group id is the repo slug — without it the new-task
-                          // screen would keep whichever repo was last used.
+                          // group id is the repo slug. Without it the new-task
+                          // screen keeps whichever repo was last used.
                           folderRepository: group.id,
                           folderRunEnvironment: mostRecentRunEnvironment(
                             group.tasks,

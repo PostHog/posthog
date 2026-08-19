@@ -138,10 +138,9 @@ function CanvasBadgeStack({
 }
 
 /**
- * A row's leading mark: always the task-list state vocabulary. Canvases have no
- * live run, so they use the quiet dot and move their glyph to the right-side
- * identity stack — except while one is being deleted, which is the one thing a
- * canvas row has to shout.
+ * A row's leading mark, always the task-list state vocabulary. Canvases have no
+ * live run, so they take the quiet dot and move their glyph to the trailing
+ * stack. Deleting is the exception: that one a canvas row has to shout.
  */
 function ChannelItemDot({
   item,
@@ -158,15 +157,12 @@ function ChannelItemDot({
 }
 
 /**
- * What a row looks like, with nothing behind it.
+ * What a row looks like, with nothing behind it, so the drag preview can draw
+ * one without wiring it. Rendering `ChannelItemRow` for that opened a second PR
+ * lookup per drag, plus a hover card and a context menu nothing could reach.
  *
- * Split from `ChannelItemRow` so a row can be drawn without being wired: the
- * drag preview is a picture of the row under the pointer, and rendering the
- * interactive one to get it opened a second PR lookup per drag, plus a hover
- * card and a context menu nothing could reach.
- *
- * Takes `status` rather than resolving it, because how much of it is worth
- * resolving is the caller's call — see `useChannelTaskStatus`.
+ * Takes `status` rather than resolving it: how much is worth resolving is the
+ * caller's call, see `useChannelTaskStatus`.
  */
 export function ChannelItemRowView({
   item,
@@ -207,11 +203,9 @@ export function ChannelItemRowView({
       onClick={onClick}
       endContent={
         <span className={TRAILING_CLASS}>
-          {/* Badges take the timestamp's slot on a task row: the row's identity
-              (pin, source, cloud, PR) is what you scan a task list for, and the
-              relative age is still in the preview card. The pin joins whichever
-              stack the row has, rather than standing beside it as a badge of
-              its own. */}
+          {/* Badges take the timestamp's slot: identity (pin, source, cloud,
+              PR) is what you scan a task list for, and the age is still on the
+              preview card. */}
           {status ? (
             <TaskBadgeStack status={status} pinned={pinBadge} />
           ) : item.kind === "canvas" ? (
@@ -284,7 +278,6 @@ export function ChannelItemRow({
     },
     [item.id, item.kind, item.pinned, onDragStart],
   );
-  const rowIcon = <ChannelItemDot item={item} status={status} />;
 
   // A canvas gets the same menu with the items it actually has: pin, and delete
   // instead of archive. Filing and command-centre cells are task-shaped, and the
@@ -323,7 +316,7 @@ export function ChannelItemRow({
     return (
       <InlineEditInput
         depth={0}
-        icon={rowIcon}
+        icon={<ChannelItemDot item={item} status={status} />}
         label={item.title}
         isActive={isActive}
         onSubmit={(newTitle) => onEditSubmit?.(newTitle)}
