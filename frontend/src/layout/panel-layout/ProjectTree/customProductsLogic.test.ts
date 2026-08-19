@@ -21,11 +21,13 @@ describe('customProductsLogic', () => {
     let listCalls: number
     let serverPaths: string[]
     let failBulkUpdate: boolean
+    let failPaths: Set<string>
 
     beforeEach(() => {
         listCalls = 0
         serverPaths = []
         failBulkUpdate = false
+        failPaths = new Set()
         useMocks({
             get: {
                 '/api/environments/:team_id/user_product_list/': () => {
@@ -34,8 +36,11 @@ describe('customProductsLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/user_product_list/bulk_update/': () =>
-                    failBulkUpdate ? [400, { detail: 'nope' }] : [200, { results: [] }],
+                '/api/environments/:team_id/user_product_list/bulk_update/': async ({ request }) => {
+                    const body = (await request.json()) as { items: { product_path: string }[] }
+                    const shouldFail = failBulkUpdate || body.items.some((item) => failPaths.has(item.product_path))
+                    return shouldFail ? [400, { detail: 'nope' }] : [200, { results: [] }]
+                },
             },
         })
         initKeaTests()
@@ -66,6 +71,21 @@ describe('customProductsLogic', () => {
         }).toFinishAllListeners()
 
         expect(listCalls).toBe(0)
+    })
+
+    it('keeps a concurrent tool that saved when another tool fails', async () => {
+        // Enable A and B back to back. A's save fails while B's succeeds. Reverting A must revert
+        // only A against the current list — replaying a whole-array snapshot would drop B even
+        // though the server stored it.
+        failPaths = new Set(['a'])
+        serverPaths = []
+
+        await expectLogic(logic, () => {
+            logic.actions.setToolEnabled('a', true)
+            logic.actions.setToolEnabled('b', true)
+        }).toFinishAllListeners()
+
+        expect(logic.values.enabledToolPaths).toEqual(new Set(['b']))
     })
 
     it('reverts the optimistic row locally when a save fails, without a refetch', async () => {

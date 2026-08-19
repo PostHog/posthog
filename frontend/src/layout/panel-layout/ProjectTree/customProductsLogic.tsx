@@ -109,9 +109,16 @@ export const customProductsLogic = kea<customProductsLogicType>([
                 await api.userProductList.bulkUpdate([{ product_path: productPath, enabled }])
             } catch (error) {
                 console.error('Failed to save tool changes:', error)
-                // Revert to the pre-toggle state locally. A refetch would also fail while the
-                // backend is down, leaving the unsaved toggle on screen as if it had saved.
-                actions.loadCustomProductsSuccess(previousProducts)
+                // Revert only this tool against the current list, not the whole snapshot. A refetch
+                // would also fail while the backend is down, leaving the unsaved toggle on screen as
+                // if it had saved. Replaying `previousProducts` wholesale would drop any other tool a
+                // concurrent toggle added after the snapshot, so restore just this tool to its
+                // pre-toggle membership and keep every other current entry.
+                const previousEntry = previousProducts.find((item) => item.product_path === productPath)
+                const currentWithoutTool = values.customProducts.filter((item) => item.product_path !== productPath)
+                actions.loadCustomProductsSuccess(
+                    previousEntry ? [...currentWithoutTool, previousEntry] : currentWithoutTool
+                )
                 lemonToast.error('Failed to save some changes.', {
                     button: {
                         label: 'Try again',
