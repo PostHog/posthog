@@ -14,8 +14,18 @@ export const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
 export const RIGHT_PANEL_MIN_WIDTH = 280;
 const RIGHT_PANEL_DEFAULT_WIDTH = 340;
 
+/** What share of the window an expanded panel takes before anyone drags it. */
+const EXPANDED_DEFAULT_SHARE = 0.75;
+
 interface RightPanelStore {
   width: number;
+  /**
+   * How wide the expanded panel's drawer was last dragged to, or `null` for one
+   * nobody has dragged. The drawer floats over the content instead of taking a
+   * column beside it, so it keeps its own width: the docked column's is held to
+   * half the window, which is the ceiling expanding is there to escape.
+   */
+  expandedWidth: number | null;
   isResizing: boolean;
   /**
    * The panel each session (or the sessionless fallback key) has open, so
@@ -41,9 +51,16 @@ interface RightPanelStore {
    * `sideByKey` isn't - this is within-run memory.
    */
   seenArtifactCountByKey: Record<string, number | undefined>;
+  /**
+   * Which sessions have their panel expanded into the drawer. Not persisted, for
+   * the same reason `sideByKey` isn't - this is within-run memory.
+   */
+  expandedByKey: Record<string, boolean | undefined>;
   setWidth: (width: number) => void;
+  setExpandedWidth: (width: number) => void;
   setIsResizing: (isResizing: boolean) => void;
   setSideForKey: (key: string, side: RightPanelSide | null) => void;
+  setExpandedForKey: (key: string, expanded: boolean) => void;
   markArtifactsSeen: (key: string, count: number) => void;
 }
 
@@ -106,16 +123,37 @@ export function resolveArtifactMark({
   return { markSeen: false, hasNew: count > seen };
 }
 
+/**
+ * How wide the expanded panel opens: the width someone dragged its drawer to,
+ * or three quarters of the window for a drawer nobody has dragged. Either way it
+ * is held to the panel's floor and to the window's own edge, so a width dragged
+ * out on a wide monitor still fits when the app is opened on a narrow one - and
+ * a window narrower than the floor gives all of itself rather than overflowing.
+ */
+export function resolveExpandedWidth(
+  stored: number | null,
+  windowWidth: number = window.innerWidth,
+): number {
+  const wanted = stored ?? Math.round(windowWidth * EXPANDED_DEFAULT_SHARE);
+  return Math.max(
+    Math.min(RIGHT_PANEL_MIN_WIDTH, windowWidth),
+    Math.min(wanted, windowWidth),
+  );
+}
+
 export const useRightPanelStore = create<RightPanelStore>()(
   persist(
     (set) => ({
       width: RIGHT_PANEL_DEFAULT_WIDTH,
+      expandedWidth: null,
       isResizing: false,
       sideByKey: {},
       closedByDefault: false,
       seenArtifactCountByKey: {},
+      expandedByKey: {},
       setWidth: (width) =>
         set({ width: Math.max(RIGHT_PANEL_MIN_WIDTH, width) }),
+      setExpandedWidth: (width) => set({ expandedWidth: width }),
       setIsResizing: (isResizing) => set({ isResizing }),
       setSideForKey: (key, side) =>
         set((state) => ({
@@ -125,6 +163,10 @@ export const useRightPanelStore = create<RightPanelStore>()(
           // resolving refuses to carry Changes into a session with no review
           // open anyway. So a review leaves the preference where it was.
           closedByDefault: side === "changes" ? state.closedByDefault : !side,
+        })),
+      setExpandedForKey: (key, expanded) =>
+        set((state) => ({
+          expandedByKey: { ...state.expandedByKey, [key]: expanded },
         })),
       markArtifactsSeen: (key, count) =>
         set((state) =>
@@ -147,6 +189,7 @@ export const useRightPanelStore = create<RightPanelStore>()(
       partialize: (state) => ({
         width: state.width,
         closedByDefault: state.closedByDefault,
+        expandedWidth: state.expandedWidth,
       }),
     },
   ),

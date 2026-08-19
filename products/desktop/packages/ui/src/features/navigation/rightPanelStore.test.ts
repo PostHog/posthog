@@ -3,6 +3,7 @@ import {
   DEFAULT_RIGHT_PANEL_SIDE,
   type RightPanelSide,
   resolveArtifactMark,
+  resolveExpandedWidth,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "./rightPanelStore";
@@ -189,4 +190,46 @@ describe("resolveArtifactMark", () => {
       });
     },
   );
+});
+
+describe("resolveExpandedWidth", () => {
+  it.each<{
+    name: string;
+    stored: number | null;
+    windowWidth: number;
+    expected: number;
+  }>([
+    {
+      name: "a drawer nobody has dragged takes three quarters of the window",
+      stored: null,
+      windowWidth: 1600,
+      expected: 1200,
+    },
+    {
+      name: "a dragged width is kept as it is",
+      stored: 900,
+      windowWidth: 1600,
+      expected: 900,
+    },
+    {
+      name: "a width dragged out on a wider window still fits this one",
+      stored: 2400,
+      windowWidth: 1600,
+      expected: 1600,
+    },
+    {
+      name: "a width dragged in past the panel's floor is held at it",
+      stored: 120,
+      windowWidth: 1600,
+      expected: 280,
+    },
+    {
+      name: "a window narrower than the floor gives all of itself",
+      stored: 120,
+      windowWidth: 200,
+      expected: 200,
+    },
+  ])("$name", ({ stored, windowWidth, expected }) => {
+    expect(resolveExpandedWidth(stored, windowWidth)).toBe(expected);
+  });
 });

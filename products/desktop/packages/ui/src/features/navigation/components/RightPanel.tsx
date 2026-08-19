@@ -1,4 +1,6 @@
 import {
+  ArrowsInSimpleIcon,
+  ArrowsOutSimpleIcon,
   ChatCircleIcon,
   GitDiffIcon,
   type Icon,
@@ -7,6 +9,9 @@ import {
 } from "@phosphor-icons/react";
 import {
   Button,
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -20,6 +25,7 @@ import {
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
 import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
+import { DrawerResizeHandle } from "@posthog/ui/features/navigation/components/DrawerResizeHandle";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import {
@@ -37,12 +43,13 @@ import {
 import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
   type RightPanelSide,
   resolveArtifactMark,
+  resolveExpandedWidth,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "../rightPanelStore";
@@ -244,6 +251,162 @@ function ChangesPanelContent({ task }: { task: Task }) {
   );
 }
 
+/** The control that takes a panel between the column and the expanded drawer. */
+function ExpandButton({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const label = expanded ? "Collapse panel" : "Expand panel";
+  return (
+    <TooltipProvider delay={400}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={label}
+              onClick={onToggle}
+              className="text-muted-foreground"
+            >
+              {expanded ? (
+                <ArrowsInSimpleIcon size={16} />
+              ) : (
+                <ArrowsOutSimpleIcon size={16} />
+              )}
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/** What the title reads like in either place the panel is drawn. */
+const PANEL_TITLE_CLASS = "min-w-0 flex-1 truncate font-medium text-[13px]";
+
+/**
+ * The panel's title row. Docked, it stops short of the corner the switcher
+ * floats over; expanded, the drawer carries a switcher of its own and the row
+ * runs to its edge.
+ */
+function PanelHeader({
+  title,
+  reserveSwitcher,
+  children,
+}: {
+  title: ReactNode;
+  reserveSwitcher: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className="flex h-[32px] shrink-0 items-center gap-0.5 border-border border-b pl-3"
+      style={{ paddingRight: reserveSwitcher ? SWITCHER_WIDTH_PX : 8 }}
+    >
+      {title}
+      {children}
+    </div>
+  );
+}
+
+/** A panel's contents, the same whether it is docked or expanded. */
+function PanelContent({
+  task,
+  side,
+}: {
+  task: Task | null;
+  side: RightPanelSide;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {task &&
+        (side === "changes" ? (
+          <ChangesPanelContent task={task} />
+        ) : (
+          <ActivityPanelBody task={task} tab={side} canOpenInPlace />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * The expanded panel: the same panel in a drawer over the content rather than a
+ * column beside it, so it can take as much of the window as it is dragged to -
+ * the column is held to half of it, which is the ceiling expanding escapes. Its
+ * title row and switcher come along, because the drawer covers the ones the
+ * column leaves floating in the corner.
+ */
+export function ExpandedPanelDrawer({
+  taskId,
+  task,
+  side,
+  active,
+  hasNewArtifacts,
+  onCollapse,
+}: {
+  taskId: string;
+  task: Task | null;
+  side: RightPanelSide;
+  active: RightPanelSide | null;
+  hasNewArtifacts: boolean;
+  onCollapse: () => void;
+}) {
+  const storedWidth = useRightPanelStore((s) => s.expandedWidth);
+  const setExpandedWidth = useRightPanelStore((s) => s.setExpandedWidth);
+  const isResizing = useRightPanelStore((s) => s.isResizing);
+  const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
+
+  return (
+    <Drawer
+      open
+      swipeDirection="right"
+      onOpenChange={(next) => {
+        // Escape, a click outside, and a swipe out all mean the same thing here:
+        // put the panel back in its column, rather than close it altogether.
+        if (!next) onCollapse();
+      }}
+    >
+      <DrawerContent
+        className="right-panel-drawer"
+        style={{ width: resolveExpandedWidth(storedWidth) }}
+        // Base UI reads a horizontal drag anywhere in a right drawer as a swipe
+        // toward dismissal, which this panel has no room for: the drag that sets
+        // its width is horizontal, and so is selecting a line of a diff or
+        // scrolling a wide one. Escape, the backdrop, and the collapse button are
+        // how it closes.
+        data-base-ui-swipe-ignore
+      >
+        <PanelHeader
+          reserveSwitcher={false}
+          title={
+            <DrawerTitle className={PANEL_TITLE_CLASS}>
+              {SIDES[side].label}
+            </DrawerTitle>
+          }
+        >
+          <ExpandButton expanded onToggle={onCollapse} />
+          <RightPanelButtons
+            active={active}
+            taskId={taskId}
+            hasNewArtifacts={hasNewArtifacts}
+          />
+        </PanelHeader>
+        <PanelContent task={task} side={side} />
+        <DrawerResizeHandle
+          isResizing={isResizing}
+          setIsResizing={setIsResizing}
+          setWidth={setExpandedWidth}
+        />
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
 /**
  * The panel's title and contents fade with its slide, so the two read as one
  * movement: in over the slide's own duration, out quicker, so the panel is
@@ -311,8 +474,15 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   const setWidth = useRightPanelStore((s) => s.setWidth);
   const isResizing = useRightPanelStore((s) => s.isResizing);
   const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
+  const setExpandedForKey = useRightPanelStore((s) => s.setExpandedForKey);
+  const wantsExpanded = useRightPanelStore(
+    (s) => s.expandedByKey[taskId] ?? false,
+  );
 
   const open = active != null;
+  // A closed panel has nothing to expand, so the drawer waits for it to open
+  // again rather than dropping the mode the reader chose.
+  const expanded = open && wantsExpanded;
   const drawn = useFadingSide(active, isResizing);
 
   useEffect(() => preloadReviewPages(), []);
@@ -333,7 +503,7 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   return (
     <>
       <ResizableSidebar
-        open={open}
+        open={open && !expanded}
         width={width}
         setWidth={setWidth}
         isResizing={isResizing}
@@ -351,44 +521,58 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
               : `${PANEL_FADE_OUT_MS}ms`,
           }}
         >
-          {drawn && (
+          {/* Expanded, the panel is drawn in the drawer instead - mounting it in
+              both places would run a session's review twice. */}
+          {drawn && !expanded && (
             <>
-              <div
-                className="flex h-[32px] shrink-0 items-center border-border border-b pl-3"
-                style={{ paddingRight: SWITCHER_WIDTH_PX }}
+              <PanelHeader
+                reserveSwitcher
+                title={
+                  <span className={PANEL_TITLE_CLASS}>
+                    {SIDES[drawn].label}
+                  </span>
+                }
               >
-                <span className="min-w-0 truncate font-medium text-[13px]">
-                  {SIDES[drawn].label}
-                </span>
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {task &&
-                  (drawn === "changes" ? (
-                    <ChangesPanelContent task={task} />
-                  ) : (
-                    <ActivityPanelBody task={task} tab={drawn} canOpenInPlace />
-                  ))}
-              </div>
+                <ExpandButton
+                  expanded={false}
+                  onToggle={() => setExpandedForKey(taskId, true)}
+                />
+              </PanelHeader>
+              <PanelContent task={task} side={drawn} />
             </>
           )}
         </div>
       </ResizableSidebar>
+      {drawn && expanded && (
+        <ExpandedPanelDrawer
+          taskId={taskId}
+          task={task}
+          side={drawn}
+          active={active}
+          hasNewArtifacts={hasNewArtifacts}
+          onCollapse={() => setExpandedForKey(taskId, false)}
+        />
+      )}
       {/* Outside the sliding column, so the buttons hold their place while the
           panel comes and goes under them. It has to outrank the panel's closed
           layer, which sweeps across this corner at z-50 on the way out; the
-          row's own `isolate` keeps that rank from reaching the app's overlays. */}
-      <div
-        className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
-        style={{ width: SWITCHER_WIDTH_PX }}
-      >
-        <RightPanelButtons
-          active={active}
-          taskId={taskId}
-          hasNewArtifacts={hasNewArtifacts}
-          offerArtifactsTip={hasNewArtifacts && !isWorking}
-          artifactCount={artifactCount}
-        />
-      </div>
+          row's own `isolate` keeps that rank from reaching the app's overlays.
+          Expanded, the drawer's own row stands in for it, since this one would
+          sit under the backdrop. */}
+      {!expanded && (
+        <div
+          className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
+          style={{ width: SWITCHER_WIDTH_PX }}
+        >
+          <RightPanelButtons
+            active={active}
+            taskId={taskId}
+            hasNewArtifacts={hasNewArtifacts}
+            offerArtifactsTip={hasNewArtifacts && !isWorking}
+            artifactCount={artifactCount}
+          />
+        </div>
+      )}
     </>
   );
 }
