@@ -206,6 +206,7 @@ Views are persisted as `ColumnConfiguration` rows under `context_key = 'customer
 
 **Auto-restore:** the last-used view `id` is persisted in a team-scoped localStorage key (`currentViewId`).
 A shared link's `#view=` URL hash always wins over the saved `currentViewId`.
+When saved views exist but the viewer has no last-used view, the selector remains available without applying a view automatically.
 `isDirty` is true when the live state diverges from the selected view's saved state.
 
 **One-time tiles migration:** on first load, if the signed-in user is the creator of the existing default `ColumnConfiguration` row and its `properties.tiles` is empty while their localStorage tiles differ from `DEFAULT_TILES`, `accountsViewsLogic` patches the localStorage tiles into that row.
