@@ -26,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.faire.sett
 
 @frozen
 class FaireResumeConfig:
+    """Immutable resume-cursor state passed between incremental sync runs."""
+
     cursor: str
 
 
