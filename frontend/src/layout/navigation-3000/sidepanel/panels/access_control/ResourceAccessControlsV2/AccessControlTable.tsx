@@ -158,6 +158,10 @@ function getColumns(
         {
             title: 'Access',
             key: 'resource',
+            // This column takes the space that the other columns do not use. The other columns
+            // then get the width of their content, and this one starts at the same position for
+            // each filter.
+            width: '100%',
             render: function RenderResource(_: any, entry: AccessControlSettingsEntry) {
                 return (
                     <AccessSummary
