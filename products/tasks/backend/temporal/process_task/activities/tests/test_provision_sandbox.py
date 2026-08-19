@@ -9,8 +9,10 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.exceptions import RepositoryCloneError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -224,12 +226,17 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         state=state,
         _branch="feature-branch",
     )
     sandbox = mocker.Mock()
     sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
 
     async_to_sync(activity_environment.run)(
         clone_repository_in_sandbox,
@@ -247,6 +254,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         github_token="github-token",
         shallow=True,
         branch=expected_branch,
+        blobless=True,
     )
 
 
@@ -294,11 +302,69 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             github_token="github-token",
             shallow=True,
             branch="branch-from-a-sibling-repository",
+            blobless=False,
         ),
         mocker.call(
             "posthog/posthog",
             github_token="github-token",
             shallow=True,
             branch=None,
+            blobless=False,
         ),
     ]
+
+
+def test_clone_failure_records_failed_latency_and_captures_command_result(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="clone output",
+        stderr="",
+        exit_code=124,
+        error="execution stopped",
+    )
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="posthog/posthog",
+                github_token="github-token",
+                shallow_clone=True,
+            ),
+        )
+
+    assert "exit code 124" in str(error.value)
+    assert error.value.context == {
+        "repository": "posthog/posthog",
+        "sandbox_id": "sandbox-id",
+        "exit_code": 124,
+        "stderr": "",
+        "stdout": "clone output",
+        "error": "execution stopped",
+        "team": "array",
+    }
+    metric_meter.assert_called_once_with(
+        {
+            "step": "repository_clone",
+            "used_snapshot": "false",
+            "status": "FAILED",
+            "runtime": "gvisor",
+        }
+    )
+    assert str(capture_exception.call_args.args[0]) == "clone output"

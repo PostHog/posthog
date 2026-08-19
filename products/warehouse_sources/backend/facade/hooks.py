@@ -9,10 +9,15 @@ on the startup path does not drag the whole pipeline onto every process boot.
 """
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    BINDING_KIND_SAVED_QUERY,
+    BINDING_KIND_SCHEMA,
+    MATERIALIZED_VIEW_SOURCE_TYPE,
     EmitSignalsActivityInputs,
     PersonPropertySourceProjection,
+    PersonPropertySyncActivityInputs,
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
+    WarehouseBinding,
     person_property_projection_for,
     register_data_quality_checks_gate,
     register_emit_signals_gate,
@@ -22,16 +27,23 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     register_person_property_sync_sources,
     register_revenue_view_sync,
     run_revenue_view_sync,
+    saved_query_binding,
+    schema_binding,
 )
 
 from .contracts import RevenueViewSyncInput
 
 __all__ = [
+    "BINDING_KIND_SAVED_QUERY",
+    "BINDING_KIND_SCHEMA",
+    "MATERIALIZED_VIEW_SOURCE_TYPE",
     "EmitSignalsActivityInputs",
     "PersonPropertySourceProjection",
+    "PersonPropertySyncActivityInputs",
     "PersonPropertySyncRunRecord",
     "PersonPropertySyncSource",
     "RevenueViewSyncInput",
+    "WarehouseBinding",
     "person_property_projection_for",
     "register_data_quality_checks_gate",
     "register_emit_signals_gate",
@@ -41,4 +53,6 @@ __all__ = [
     "register_person_property_sync_sources",
     "register_revenue_view_sync",
     "run_revenue_view_sync",
+    "saved_query_binding",
+    "schema_binding",
 ]

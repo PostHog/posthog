@@ -113,9 +113,6 @@ docs/**/node_modules
 **/__pycache__
 rust/.env
 rust/.github
-rust/cyclotron-node/dist
-rust/cyclotron-node/index.node
-rust/cyclotron-node/node_modules
 rust/docker
 rust/target
 **/__snapshots__

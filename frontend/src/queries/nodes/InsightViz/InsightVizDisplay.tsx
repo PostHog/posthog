@@ -172,10 +172,10 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
-    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
@@ -404,7 +404,6 @@ export function InsightVizDisplay({
             hasFunnelResults &&
             !disableTable
         ) {
-            const funnelVizType = funnelsFilter?.funnelVizType
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />
