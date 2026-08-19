@@ -1,7 +1,8 @@
-import dataclasses
 from typing import Any, Optional, cast
 
 import requests
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -34,7 +35,7 @@ class SigmaAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class SigmaComputingResumeConfig:
     # Opaque framework checkpoint: `{"cursor": ...}` for a top-level endpoint's
     # JSONResponseCursorPaginator, or the fan-out manager's combined state for a workbook-scoped
