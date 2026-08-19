@@ -10,8 +10,8 @@ import {
   useFeedQuerySuggestions,
 } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
-import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import type {
   Command,
@@ -132,7 +132,7 @@ export function useFeedQueryCommands({
   );
   const results = useTaskFeedResults(previewQuery);
   const counting = isPending || results.isLoading;
-  const feeds = useTaskFeedsStore((state) => state.feeds);
+  const feeds = useProjectTaskFeeds();
   const { channels } = useChannels();
 
   // A query that matches nothing is usually one clause too narrow, so count

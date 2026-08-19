@@ -1,4 +1,8 @@
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -8,6 +12,7 @@ import { TaskFeedModal } from "./TaskFeedModal";
 
 const FEED: TaskFeed = {
   id: "feed-1",
+  projectId: 1,
   name: "Billing work",
   query: "billing -status:failed pr:any",
   createdAt: "2026-07-01T08:00:00Z",
@@ -47,6 +52,17 @@ const meta: Meta<typeof TaskFeedModal> = {
   title: "Spaces/TaskFeedModal",
   component: TaskFeedModal,
   parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => {
+      useAuthStore.setState({
+        authState: {
+          ...ANONYMOUS_AUTH_STATE,
+          currentProjectId: FEED.projectId,
+        },
+      });
+      return <Story />;
+    },
+  ],
   args: { open: true, onOpenChange: () => {} },
 };
 

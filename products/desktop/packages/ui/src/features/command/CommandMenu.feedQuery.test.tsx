@@ -83,6 +83,10 @@ vi.mock("@posthog/ui/router/navigationBridge", async (importOriginal) => ({
   navigateToFeed: mocks.navigateToFeed,
 }));
 
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { CommandMenu } from "./CommandMenu";
 
@@ -117,11 +121,22 @@ describe("CommandMenu feed queries", () => {
   });
 
   it("opens a saved search from the saved: filter", async () => {
+    useAuthStore.setState({
+      authState: { ...ANONYMOUS_AUTH_STATE, currentProjectId: 1 },
+    });
     useTaskFeedsStore.setState({
       feeds: [
         {
           id: "feed-1",
+          projectId: 1,
           name: "My failing tasks",
+          query: "created-by:@me status:failed",
+          createdAt: "2026-08-01T00:00:00Z",
+        },
+        {
+          id: "feed-2",
+          projectId: 2,
+          name: "My failing tasks elsewhere",
           query: "created-by:@me status:failed",
           createdAt: "2026-08-01T00:00:00Z",
         },
@@ -138,6 +153,7 @@ describe("CommandMenu feed queries", () => {
       screen.getByPlaceholderText(/Search commands and tasks/),
       "saved:fail",
     );
+    expect(screen.queryByText("My failing tasks elsewhere")).toBeNull();
     await user.click(await screen.findByText("My failing tasks"));
     expect(mocks.navigateToFeed).toHaveBeenCalledWith("feed-1");
   });

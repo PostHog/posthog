@@ -10,6 +10,7 @@ import { persist } from "zustand/middleware";
  */
 export interface TaskFeed {
   id: string;
+  projectId: number;
   name: string;
   /** Free-text task query, run against the tasks list search filter. */
   query: string;
@@ -18,7 +19,11 @@ export interface TaskFeed {
 
 interface TaskFeedsState {
   feeds: TaskFeed[];
-  addFeed: (input: { name: string; query: string }) => TaskFeed;
+  addFeed: (input: {
+    name: string;
+    query: string;
+    projectId: number;
+  }) => TaskFeed;
   updateFeed: (id: string, patch: { name?: string; query?: string }) => void;
   removeFeed: (id: string) => void;
 }
@@ -26,13 +31,16 @@ interface TaskFeedsState {
 // Per-device on purpose for the first cut: a feed is a personal saved view,
 // like the sidebar's collapsed sections. Team-shared feeds need a backend
 // model and visibility rules, which this store deliberately doesn't fake.
+// Every feed carries the project it was saved in: read it through
+// `useProjectTaskFeeds`, never `feeds` directly, or searches cross projects.
 export const useTaskFeedsStore = create<TaskFeedsState>()(
   persist(
     (set) => ({
       feeds: [],
-      addFeed: ({ name, query }) => {
+      addFeed: ({ name, query, projectId }) => {
         const feed: TaskFeed = {
           id: crypto.randomUUID(),
+          projectId,
           name: name.trim(),
           query: query.trim(),
           createdAt: new Date().toISOString(),

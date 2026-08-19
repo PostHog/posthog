@@ -2,6 +2,7 @@ import { XIcon } from "@phosphor-icons/react";
 import { parseFeedQuery, suggestFeedName } from "@posthog/core/tasks/feedQuery";
 import { Button, cn, Spinner } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { unfinishedFilterKeys } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import {
@@ -52,6 +53,7 @@ export function TaskFeedModal({
 }) {
   const addFeed = useTaskFeedsStore((s) => s.addFeed);
   const updateFeed = useTaskFeedsStore((s) => s.updateFeed);
+  const projectId = useAuthStateValue((s) => s.currentProjectId);
   const seedQuery = feed?.query ?? initialQuery ?? "";
   const [name, setName] = useState(
     feed?.name ?? (seedQuery ? suggestFeedName(seedQuery) : ""),
@@ -78,7 +80,10 @@ export function TaskFeedModal({
 
   const trimmedName = name.trim();
   const trimmedQuery = query.trim();
-  const canSubmit = trimmedName !== "" && trimmedQuery !== "";
+  const canSubmit =
+    trimmedName !== "" &&
+    trimmedQuery !== "" &&
+    (feed !== undefined || projectId !== null);
 
   // Live preview: what the query matches right now, debounced so each
   // keystroke doesn't become a request.
@@ -110,7 +115,12 @@ export function TaskFeedModal({
         query_length: trimmedQuery.length,
       });
     } else {
-      const created = addFeed({ name: trimmedName, query: trimmedQuery });
+      if (projectId === null) return;
+      const created = addFeed({
+        name: trimmedName,
+        query: trimmedQuery,
+        projectId,
+      });
       track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
         action_type: "create",
         surface,

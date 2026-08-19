@@ -10,6 +10,7 @@ import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/Channe
 import { ChannelFeedView } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
+import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import type { ThreadPanelTab } from "@posthog/ui/features/canvas/stores/threadPanelStore";
@@ -30,7 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
  */
 export function TaskFeedHome({ feedId }: { feedId: string }) {
   const navigate = useNavigate();
-  const feed = useTaskFeedsStore((s) => s.feeds.find((f) => f.id === feedId));
+  const feed = useProjectTaskFeed(feedId);
   const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
   const { tasks, isLoading, issues } = useTaskFeedResults(feed?.query);
   const [editOpen, setEditOpen] = useState(false);
@@ -85,8 +86,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 bg-gray-1 px-4 text-center">
         <Heading className="font-bold text-xl">Saved search not found</Heading>
         <Text className="max-w-md text-(--gray-9)">
-          This saved search doesn't exist on this device. Searches are saved
-          locally, so one saved elsewhere won't appear here.
+          This saved search isn't in this project. Searches are saved per
+          project on this device, so one saved in another project or on another
+          device won't appear here.
         </Text>
       </div>
     );
