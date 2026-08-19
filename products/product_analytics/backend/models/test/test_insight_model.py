@@ -398,3 +398,17 @@ class TestInsightModel(BaseTest):
     def test_get_analytics_query_kinds(self, _name: str, query: dict | None, expected: dict) -> None:
         insight = Insight.objects.create(team=self.team, query=query)
         assert insight.get_analytics_query_kinds() == expected
+
+    def test_query_from_filters_returns_none_for_non_dict_filters(self) -> None:
+        # Legacy rows can hold a double-encoded JSON string, which used to raise an AttributeError.
+        insight = Insight.objects.create(team=self.team, filters='{"insight": "TRENDS"}')
+        assert insight.query_from_filters is None
+
+    def test_dashboard_filters_handles_non_dict_filters(self) -> None:
+        # A non-dict `filters` used to raise an uncaught AttributeError on a dashboard request.
+        insight = Insight.objects.create(team=self.team, filters='{"insight": "TRENDS"}')
+        assert insight.dashboard_filters(dashboard=None) == {}
+
+        dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-7d"})
+        merged = insight.dashboard_filters(dashboard=dashboard)
+        assert merged["date_from"] == "-7d"

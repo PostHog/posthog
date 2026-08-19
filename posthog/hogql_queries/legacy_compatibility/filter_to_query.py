@@ -613,7 +613,12 @@ def _insight_type(filter: dict) -> INSIGHT_TYPE:
         return "STICKINESS"
     elif filter.get("insight") == "SESSIONS":
         return "TRENDS"
-    return filter.get("insight", "TRENDS")
+    insight = filter.get("insight", "TRENDS")
+    # The stored `insight` value can be a frontend `InsightType` we don't map to a query type
+    # (for example "SQL"). Fall back to TRENDS instead of raising a KeyError on the lookup below.
+    if insight not in insight_to_query_type:
+        return "TRENDS"
+    return insight
 
 
 def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQueryNode:

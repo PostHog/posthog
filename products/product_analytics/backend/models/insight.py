@@ -273,6 +273,11 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def query_from_filters(self):
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
+        # Legacy rows can hold a non-dict `filters` (for example a double-encoded JSON string).
+        # `filter_to_query` expects a dict, so treat anything else as no filters.
+        if not isinstance(self.filters, dict):
+            return None
+
         try:
             return {
                 "kind": "InsightVizNode",
@@ -285,6 +290,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def dashboard_filters(
         self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
     ):
+        # Legacy rows can hold a non-dict `filters` (for example a double-encoded JSON string).
+        # The merges below assume a dict, so treat anything else as no filters.
+        insight_filters = self.filters if isinstance(self.filters, dict) else {}
         # query date range is set in a different function, see dashboard_query
         if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
             dashboard_filters = {
@@ -309,13 +317,13 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves  # noqa: PLC0415
 
                 dashboard_properties = flatten_property_leaves(dashboard_properties)
-            insight_date_from = self.filters.get("date_from", None)
-            insight_date_to = self.filters.get("date_to", None)
+            insight_date_from = insight_filters.get("date_from", None)
+            insight_date_to = insight_filters.get("date_to", None)
             dashboard_date_from = dashboard_filters.get("date_from", None)
             dashboard_date_to = dashboard_filters.get("date_to", None)
 
             filters = {
-                **self.filters,
+                **insight_filters,
                 **dashboard_filters,
             }
 
@@ -330,32 +338,32 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 filters["compare"] = None
 
             if dashboard_properties:
-                if isinstance(self.filters.get("properties"), list):
+                if isinstance(insight_filters.get("properties"), list):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
-                            {"type": "AND", "values": self.filters["properties"]},
+                            {"type": "AND", "values": insight_filters["properties"]},
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif not self.filters.get("properties"):
+                elif not insight_filters.get("properties"):
                     filters["properties"] = dashboard_properties
-                elif self.filters.get("properties").get("type"):
+                elif insight_filters.get("properties").get("type"):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
-                            self.filters["properties"],
+                            insight_filters["properties"],
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
                 else:
-                    raise ValidationError("Unrecognized property format: ", self.filters["properties"])
-            elif self.filters.get("properties"):
-                filters["properties"] = self.filters.get("properties")
+                    raise ValidationError("Unrecognized property format: ", insight_filters["properties"])
+            elif insight_filters.get("properties"):
+                filters["properties"] = insight_filters.get("properties")
 
             return filters
         else:
-            return self.filters
+            return insight_filters
 
     def get_effective_query(
         self,

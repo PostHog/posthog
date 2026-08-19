@@ -1311,6 +1311,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_create_insight_rejects_non_object_filters(self) -> None:
+        # Guards the read paths that assume `filters` is a dict — a string used to land and later break.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"name": "bad filters", "filters": '{"events": [{"id": "$pageview"}]}'},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(Insight.objects.count(), 0)
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_with_no_names_logs_no_activity(self) -> None:
         response = self.client.post(

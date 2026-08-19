@@ -968,6 +968,15 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(query.kind, "StickinessQuery")
 
+    def test_unknown_insight_type_falls_back_to_trends(self):
+        # Legacy rows can store an `insight` value with no query-type mapping (for example "SQL"),
+        # which used to raise a KeyError on the query-type lookup.
+        filter: dict[str, Any] = {"insight": "SQL"}
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(query.kind, "TrendsQuery")
+
     def test_date_range(self):
         filter: dict[str, Any] = {"date_from": "-14d", "date_to": "-7d"}
 

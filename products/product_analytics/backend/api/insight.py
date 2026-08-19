@@ -711,6 +711,14 @@ class InsightSerializer(InsightBasicSerializer):
             "is_cached",
         )
 
+    def validate_filters(self, filters: Any) -> dict:
+        # `filters` is a plain JSONField, so a string, list, or number passes model-level validation
+        # and then breaks every read path that expects a dict (see Insight.query_from_filters). Reject
+        # non-object values at the write boundary so no new row lands in that shape.
+        if not isinstance(filters, dict):
+            raise serializers.ValidationError("Filters must be an object.")
+        return filters
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
         using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
