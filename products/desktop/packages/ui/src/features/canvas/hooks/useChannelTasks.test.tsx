@@ -84,6 +84,22 @@ describe("useChannelTaskMutations", () => {
     expect(invalidatedChannels()).toEqual(["dest", "source"]);
   });
 
+  it("filing a task invalidates a channel whose list is still loading", async () => {
+    // A first load has no cached membership to check, and its request may have
+    // gone out before the mutation. Skipping it lets the pre-mutation response
+    // land and sit fresh, leaving the task showing in the space it left.
+    queryClient
+      .getQueryCache()
+      .build(queryClient, { queryKey: listKey("loading") });
+    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+
+    await act(async () => {
+      await result.current.fileTask("dest", "t1");
+    });
+
+    expect(invalidatedChannels()).toEqual(["dest", "loading", "source"]);
+  });
+
   it("unfiling a task invalidates only the channel that listed it", async () => {
     const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
 

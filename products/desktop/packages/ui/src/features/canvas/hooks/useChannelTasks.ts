@@ -72,10 +72,14 @@ export function useChannelTaskMutations() {
     }
     void queryClient.invalidateQueries({
       ...trpc.channelTasks.list.pathFilter(),
-      predicate: (query) =>
-        ((query.state.data as ChannelTaskRecord[] | undefined) ?? []).some(
-          (record) => record.taskId === taskId,
-        ),
+      predicate: (query) => {
+        const tasks = query.state.data as ChannelTaskRecord[] | undefined;
+        // A list still loading has no membership to check, and its in-flight
+        // request may have been sent before this mutation. Refetch rather than
+        // let a pre-mutation response land and sit fresh.
+        if (!tasks) return true;
+        return tasks.some((record) => record.taskId === taskId);
+      },
     });
   };
 
