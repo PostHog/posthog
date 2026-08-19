@@ -33,14 +33,14 @@ def _make_http_response(body: Any, status_code: int = 200) -> Response:
 class TestGetResource:
     def test_metrics_has_no_data_selector_or_extra_params(self) -> None:
         resource = get_resource("Metrics")
-        endpoint = resource["endpoint"]
+        endpoint = cast(dict[str, Any], resource["endpoint"])
         assert endpoint["path"] == "/metrics"
         assert endpoint.get("data_selector") is None
         assert endpoint.get("params") is None
 
     def test_incidents_paginates_and_selects_the_data_key(self) -> None:
         resource = get_resource("Incidents")
-        endpoint = resource["endpoint"]
+        endpoint = cast(dict[str, Any], resource["endpoint"])
         assert endpoint["path"] == "/incidents"
         assert endpoint["data_selector"] == "data"
         assert endpoint["params"] == {"limit": 100}
