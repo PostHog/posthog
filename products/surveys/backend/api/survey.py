@@ -557,7 +557,10 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
         help_text="Optional override for the back button label. Defaults to 'Back'.",
     )
     widgetType = serializers.ChoiceField(choices=["button", "tab", "selector"], required=False)
-    widgetSelector = serializers.CharField(required=False)
+    widgetSelector = serializers.CharField(
+        required=False,
+        help_text="CSS selector for the custom feedback button. The survey opens when a matching element is clicked. Used when widgetType is 'selector'.",
+    )
     widgetLabel = serializers.CharField(required=False)
     widgetColor = serializers.CharField(required=False)
     fontFamily = serializers.CharField(required=False)
@@ -593,7 +596,15 @@ class SurveyEventsConditionSchemaSerializer(serializers.Serializer):
 
 class SurveyConditionsSchemaSerializer(serializers.Serializer):
     url = serializers.CharField(required=False, allow_blank=True)
-    selector = serializers.CharField(required=False, allow_blank=True)
+    selector = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "CSS selector that gates when the survey can show. The survey shows only while a matching element is "
+            "present on the page. This does not wait for a click. To open a survey when a button is clicked, use the "
+            "custom feedback button (appearance.widgetSelector) instead."
+        ),
+    )
     seenSurveyWaitPeriodInDays = serializers.IntegerField(
         required=False,
         min_value=0,

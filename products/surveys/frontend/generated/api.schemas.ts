@@ -1168,6 +1168,7 @@ export const DeviceTypesEnumApi = {
 
 export interface SurveyConditionsSchemaApi {
     url?: string
+    /** CSS selector that gates when the survey can show. The survey shows only while a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, use the custom feedback button (appearance.widgetSelector) instead. */
     selector?: string
     /**
      * Don't show this survey to users who saw any survey in the last x days.
@@ -1238,6 +1239,7 @@ export interface SurveyAppearanceSchemaApi {
     /** Optional override for the back button label. Defaults to 'Back'. */
     backButtonText?: string
     widgetType?: WidgetTypeEnumApi
+    /** CSS selector for the custom feedback button. The survey opens when a matching element is clicked. Used when widgetType is 'selector'. */
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string

@@ -666,7 +666,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 url: zod.string().optional(),
-                selector: zod.string().optional(),
+                selector: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'CSS selector that gates when the survey can show. The survey shows only while a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, use the custom feedback button (appearance.widgetSelector) instead.'
+                    ),
                 seenSurveyWaitPeriodInDays: zod
                     .number()
                     .min(surveysCreateBodyConditionsOneSeenSurveyWaitPeriodInDaysMin)
@@ -765,7 +770,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .enum(['button', 'tab', 'selector'])
                     .optional()
                     .describe('\* `button` - button\n\* `tab` - tab\n\* `selector` - selector'),
-                widgetSelector: zod.string().optional(),
+                widgetSelector: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "CSS selector for the custom feedback button. The survey opens when a matching element is clicked. Used when widgetType is 'selector'."
+                    ),
                 widgetLabel: zod.string().optional(),
                 widgetColor: zod.string().optional(),
                 fontFamily: zod.string().optional(),
@@ -1612,7 +1622,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 url: zod.string().optional(),
-                selector: zod.string().optional(),
+                selector: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'CSS selector that gates when the survey can show. The survey shows only while a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, use the custom feedback button (appearance.widgetSelector) instead.'
+                    ),
                 seenSurveyWaitPeriodInDays: zod
                     .number()
                     .min(surveysPartialUpdateBodyConditionsOneSeenSurveyWaitPeriodInDaysMin)
@@ -1711,7 +1726,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .enum(['button', 'tab', 'selector'])
                     .optional()
                     .describe('\* `button` - button\n\* `tab` - tab\n\* `selector` - selector'),
-                widgetSelector: zod.string().optional(),
+                widgetSelector: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "CSS selector for the custom feedback button. The survey opens when a matching element is clicked. Used when widgetType is 'selector'."
+                    ),
                 widgetLabel: zod.string().optional(),
                 widgetColor: zod.string().optional(),
                 fontFamily: zod.string().optional(),
