@@ -6350,31 +6350,11 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """All live public channels plus the requester's personal channel if it exists,
-    personal first, then the general channel, then the rest by name. ``starred`` reflects
-    the requester's stars. Does not create anything."""
-    channels: list[Channel] = []
-    if user_id is not None:
-        personal = (
-            _team_channels(team_id)
-            .select_related("created_by")
-            .filter(deleted=False, created_by_id=user_id)
-            .filter(Q(system_role=Channel.SystemRole.PERSONAL) | Q(channel_type=Channel.ChannelType.PERSONAL))
-            .first()
-        )
-        if personal is not None:
-            channels.append(personal)
-    channels.extend(
-        Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
-        .select_related("created_by")
-        .order_by(
-            Case(
-                When(system_role=Channel.SystemRole.GENERAL, then=0),
-                When(system_role__isnull=True, name=Channel.GENERAL_CHANNEL_NAME, then=0),
-                default=1,
-            ),
-            "name",
-        )
+    """Every space the requester can see — the team's public spaces plus their own personal
+    one — by name. Which spaces matter more is the reader's question, so the order carries no
+    opinion about it. ``starred`` reflects the requester's stars. Does not create anything."""
+    channels = list(
+        _team_channels(team_id).select_related("created_by").filter(Channel.visible_to_q(user_id)).order_by("name")
     )
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
