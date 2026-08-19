@@ -13,7 +13,6 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
-    delete_personless_distinct_ids_activity,
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
@@ -62,7 +61,6 @@ EMAIL_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 # Bulky Postgres phases, run in dependency-safe order (each its own retryable activity).
 BULKY_POSTGRES_ACTIVITIES = (
     delete_misc_small_tables_activity,
-    delete_personless_distinct_ids_activity,
     delete_cohort_members_activity,
     delete_groups_activity,
     delete_team_persons_activity,

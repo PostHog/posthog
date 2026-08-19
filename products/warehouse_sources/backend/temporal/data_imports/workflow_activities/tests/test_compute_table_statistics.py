@@ -195,6 +195,25 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_recovers_from_stale_connection_during_write(self) -> None:
+        # The Delta-log read can run long enough for the pooled connection opened by the earlier
+        # metadata queries to go stale before the write loop runs, raising OperationalError on the
+        # first upsert. The retry-after-reconnect must recover instead of failing the whole activity.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        add_actions = pa.table({"num_records": [10], "null_count.amount": [1], "min.amount": [5], "max.amount": [9]})
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch.object(
+                comp, "_upsert_statistics", side_effect=[OperationalError("server conn crashed?"), None]
+            ) as mock_upsert,
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert mock_upsert.call_count == 2
+
     def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
         # job is fetched without select_related("schema"), so job.folder_path() (which reads
         # job.schema.source.source_type) would otherwise fire a lazy SELECT on a pooled connection a
