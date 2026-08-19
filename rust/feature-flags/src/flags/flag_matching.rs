@@ -717,14 +717,15 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (self.router.get_persons_writer().clone(), "persons_writer")
         } else {
-            self.router.get_persons_reader().clone()
+            (self.router.get_persons_reader().clone(), "persons_reader")
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
             self.team_id,
             target_distinct_ids,
         )
@@ -2385,6 +2386,7 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_writer().clone(),
+                            "persons_writer",
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )

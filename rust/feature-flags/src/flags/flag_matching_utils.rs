@@ -765,6 +765,7 @@ pub fn match_flag_value_to_flag_filter(
 /// exponential backoff on transient database errors.
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
+    pool_name: &'static str,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -781,6 +782,7 @@ pub async fn get_feature_flag_hash_key_overrides(
     Retry::spawn(retry_strategy, || async {
         let result = try_get_feature_flag_hash_key_overrides(
             &reader,
+            pool_name,
             team_id,
             &distinct_id_and_hash_key_override,
         )
@@ -825,16 +827,14 @@ pub async fn get_feature_flag_hash_key_overrides(
 /// This is separated to make it easy to retry with tokio-retry.
 async fn try_get_feature_flag_hash_key_overrides(
     reader: &PostgresReader,
+    pool_name: &'static str,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn = get_connection_with_metrics(
-        reader,
-        "persons_reader",
-        "get_feature_flag_hash_key_overrides",
-    )
-    .await?;
+    let mut conn =
+        get_connection_with_metrics(reader, pool_name, "get_feature_flag_hash_key_overrides")
+            .await?;
 
     // Get person data and their hash key overrides in one query
     let hash_override_query = r#"
