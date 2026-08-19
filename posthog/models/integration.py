@@ -3269,7 +3269,26 @@ class LinearIntegration:
             variables={"title": title, "description": description, "teamId": linear_team_id},
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+        # Linear reports failures in a 200 body; without this check a failed create would
+        # persist a reference with id None. Nothing was created, so raising is safe.
+        if body.get("errors") or not linear_issue_id:
+            raise ValidationError("Failed to create the Linear issue")
 
+        # Best-effort: the Linear issue already exists at this point, so failing the whole
+        # create over a missing back-link would produce duplicate issues on retry.
+        try:
+            self.create_attachment(linear_issue_id, attachment_url)
+        except ValidationError:
+            logger.warning("linear_issue_attachment_failed", issue_id=linear_issue_id)
+
+        return {"id": linear_issue_id}
+
+    def create_attachment(self, issue_id: str, url: str) -> None:
+        """Attach a PostHog issue link to a Linear issue (shows as a back-link in Linear).
+
+        Raises on failure: Linear reports errors in the GraphQL body with HTTP 200,
+        and the mutation itself can report success=false.
+        """
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
@@ -3277,12 +3296,41 @@ class LinearIntegration:
             }
         }
         """
-        self.query(
+        body = self.query(
             link_attachment_query,
-            variables={"issueId": linear_issue_id, "title": "PostHog issue", "url": attachment_url},
+            variables={"issueId": issue_id, "title": "PostHog issue", "url": url},
         )
+        if body.get("errors") or not dot_get(body, "data.attachmentCreate.success"):
+            raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
-        return {"id": linear_issue_id}
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Linear issues by title / identifier for the link-existing flow."""
+        search_query = """
+        query SearchIssues($term: String!, $first: Int!) {
+            searchIssues(term: $term, first: $first) {
+                nodes { identifier title url }
+            }
+        }
+        """
+        body = self.query(search_query, variables={"term": query, "first": limit})
+        if body.get("errors") or dot_get(body, "data.searchIssues") is None:
+            raise ValidationError("Failed to search Linear issues")
+        nodes = dot_get(body, "data.searchIssues.nodes") or []
+        results: list[dict[str, Any]] = []
+        for node in nodes:
+            identifier = node.get("identifier")
+            if not identifier:
+                continue
+            results.append(
+                {
+                    "id": identifier,
+                    "title": node.get("title") or identifier,
+                    "url": node.get("url") or "",
+                    # Matches the shape LinearIntegration.create_issue stores.
+                    "external_context": {"id": identifier},
+                }
+            )
+        return results
 
     def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         response = requests.post(
@@ -3438,6 +3486,55 @@ class JiraIntegration:
             self._raise_create_issue_error(response, issue)
 
         return {"key": issue["key"], "id": issue.get("id", "")}
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Jira issues for the link-existing flow.
+
+        Uses Jira's purpose-built issue picker endpoint, which matches on summary and
+        issue key without us having to build (and escape) a JQL string from user input.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/picker",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            # Without currentJQL the picker only returns history suggestions (issues the
+            # user recently viewed); this constant JQL makes it search all accessible issues.
+            params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to search Jira issues (status {response.status_code})")
+        body = response.json()
+
+        site_url = self.site_url()
+        results: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for section in body.get("sections", []) or []:
+            for issue in section.get("issues", []) or []:
+                key = issue.get("key")
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                results.append(
+                    {
+                        "id": str(issue.get("id", "")),
+                        "title": issue.get("summaryText") or issue.get("summary") or key,
+                        "url": f"{site_url}/browse/{key}" if site_url else "",
+                        # Matches the shape JiraIntegration.create_issue stores.
+                        "external_context": {"key": key, "id": str(issue.get("id", ""))},
+                    }
+                )
+                if len(results) >= limit:
+                    return results
+        return results
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
@@ -3757,6 +3854,58 @@ class GitHubIntegration(GitHubIntegrationBase):
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitHub issues in a repository for the link-existing flow."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            raise GitHubIntegrationError(f"GitHubIntegration: invalid repository path {repo_path!r}")
+
+        # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
+        # the org, matching what create_issue persists.
+        repository_name = repo_path.split("/", 1)[1]
+
+        # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
+        # is matched literally instead of rewriting the query, which would fill the result page
+        # with foreign matches and hide valid ones.
+        search_term = query.replace("\\", " ").replace('"', " ").strip()
+        q = f'repo:{repo_path} "{search_term}" in:title type:issue' if search_term else f"repo:{repo_path} type:issue"
+
+        response = self.api_request(
+            "GET",
+            "/search/issues",
+            endpoint="/search/issues",
+            params={"q": q, "per_page": limit},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to search issues in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+
+        results: list[dict[str, Any]] = []
+        for issue in response.json().get("items", []) or []:
+            number = issue.get("number")
+            if number is None:
+                continue
+            # The issues search API returns pull requests too; those aren't linkable issues.
+            if issue.get("pull_request"):
+                continue
+            # Search-syntax operators in the user's query (e.g. "foo OR bar") can escape the
+            # repo: qualifier, so drop anything that isn't actually from the chosen repository.
+            repository_url = issue.get("repository_url") or ""
+            if not repository_url.lower().endswith(f"/repos/{repo_path.lower()}"):
+                continue
+            results.append(
+                {
+                    "id": str(number),
+                    "title": issue.get("title") or f"#{number}",
+                    "url": issue.get("html_url") or "",
+                    # Matches the shape GitHubIntegration.create_issue stores.
+                    "external_context": {"repository": repository_name, "number": number},
+                }
+            )
+        return results
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
@@ -4143,6 +4292,49 @@ class GitLabIntegration:
         )
 
         return {"issue_id": issue["iid"]}
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitLab issues in the connected project for the link-existing flow."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        url = f"{hostname}/api/v4/projects/{project_id}/issues"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
+        params: dict[str, str | int] = {"search": query, "per_page": limit, "in": "title"}
+        response = requests.get(
+            url,
+            headers={"PRIVATE-TOKEN": access_token},
+            params=params,
+            allow_redirects=False,
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to search issues: {response.text[:300]}",
+            )
+        issues = response.json()
+        if not isinstance(issues, list):
+            return []
+
+        results: list[dict[str, Any]] = []
+        for issue in issues:
+            iid = issue.get("iid")
+            if iid is None:
+                continue
+            results.append(
+                {
+                    "id": str(iid),
+                    "title": issue.get("title") or f"#{iid}",
+                    "url": issue.get("web_url") or "",
+                    # Matches the shape GitLabIntegration.create_issue stores.
+                    "external_context": {"issue_id": iid},
+                }
+            )
+        return results
 
 
 class MetaGraphIntegration:
