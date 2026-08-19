@@ -43,6 +43,9 @@ jobs:
               id: app-token
               # forks can't read org secrets, so fall back to github.token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # A token failure must not skip the build: the filter falls back to
+              # github.token, and a hard failure still reaches the fail-closed build.
+              continue-on-error: true
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -50,6 +53,9 @@ jobs:
             - name: Detect relevant changes
               id: filter
               if: github.event_name == 'pull_request'
+              # A filter failure must not skip the build: it stays visible in
+              # steps.filter.outcome so the decide step below falls closed to a build.
+              continue-on-error: true
               uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -79,14 +85,20 @@ jobs:
               id: decide
               # Runs before checkout, so it cannot use the products/desktop default.
               working-directory: ${{ github.workspace }}
+              # Step outputs reach the shell through env vars, never inline in run:.
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  FILTER_OUTCOME: ${{ steps.filter.outcome }}
+                  FILTER_CODE: ${{ steps.filter.outputs.code }}
+                  FILTER_WORKFLOW: ${{ steps.filter.outputs.workflow }}
               run: |
-                  if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+                  if [[ "$EVENT_NAME" == "merge_group" ]]; then
                     echo "build=false" >> "$GITHUB_OUTPUT"
-                  elif [[ "${{ github.event_name }}" != "pull_request" ]]; then
+                  elif [[ "$EVENT_NAME" != "pull_request" ]]; then
                     echo "build=true" >> "$GITHUB_OUTPUT"
-                  elif [[ "${{ steps.filter.outcome }}" != "success" ]]; then
+                  elif [[ "$FILTER_OUTCOME" != "success" ]]; then
                     echo "build=true" >> "$GITHUB_OUTPUT"
-                  elif [[ "${{ steps.filter.outputs.code }}" == "true" || "${{ steps.filter.outputs.workflow }}" == "true" ]]; then
+                  elif [[ "$FILTER_CODE" == "true" || "$FILTER_WORKFLOW" == "true" ]]; then
                     echo "build=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "build=false" >> "$GITHUB_OUTPUT"
