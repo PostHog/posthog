@@ -53,6 +53,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -180,6 +181,7 @@ __all__ = [
     "create_task",
     "create_task_automation",
     "create_task_without_run",
+    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -242,6 +244,9 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_activity_for_users",
+    "set_task_activity_target",
+    "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -404,6 +409,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_artifact_delivery",
+        "slack_chart_delivery",
         "slack_thread_url",
     }
 )
@@ -596,6 +603,7 @@ def _task_detail_to_dto(
         latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
         created_at=task.created_at,
         updated_at=task.updated_at,
+        last_activity_at=task.last_activity_at or task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
@@ -1343,6 +1351,66 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
         title=title,
         description=description,
         channel=channel,
+    )
+
+
+def create_shared_channel_task_without_run(
+    *,
+    team_id: int,
+    channel_id: str | UUID,
+    title: str,
+    description: str,
+    origin_product: "Task.OriginProduct",
+    state: dict[str, Any] | None = None,
+    signal_report_id: str | UUID | None = None,
+) -> UUID:
+    """Create a shared channel task without starting an agent run."""
+    channel = Channel.objects.filter(
+        id=channel_id,
+        team_id=team_id,
+        channel_type=Channel.ChannelType.PUBLIC,
+        deleted=False,
+    ).first()
+    if channel is None:
+        raise ValueError("Shared channel not found")
+    task = Task.objects.create(
+        team_id=team_id,
+        channel=channel,
+        title=title,
+        description=description,
+        origin_product=origin_product,
+        state=state or {},
+        signal_report_id=signal_report_id,
+    )
+    return task.id
+
+
+def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
+    """Project one task into each recipient's personal Activity feed."""
+    activity_at = django_timezone.now()
+    for user_id in set(user_ids):
+        TaskActivity.record(
+            team_id=team_id,
+            user_id=user_id,
+            task_id=task_id,
+            kind=kind,
+            activity_at=activity_at,
+        )
+
+
+def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
+    if scope != "desktop_canvas":
+        raise ValueError("Unsupported Activity target scope")
+    task = Task.objects.get(id=task_id, team_id=team_id)
+    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
+    task.save(update_fields=["state", "updated_at"])
+
+
+def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
+    Task.objects.filter(id=task_id, team_id=team_id).update(
+        title=title[:255],
+        description=description,
+        updated_at=django_timezone.now(),
     )
 
 
@@ -4488,11 +4556,23 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
+#: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a
+#: page boundary can't drop or repeat a row when two tasks share a timestamp. A null
+#: `last_activity_at` (rows written outside the ORM) sorts first under `DESC`, which is where a row
+#: with no known activity belongs.
+TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
+    "-last_activity_at": ("-last_activity_at", "-id"),
+    "-created_at": ("-created_at", "-id"),
+}
+DEFAULT_TASK_LIST_ORDERING = "-created_at"
+
+
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
+    ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -6939,6 +7019,22 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
+@frozen
+class _ActivityTarget:
+    scope: str | None
+    id: str | None
+
+
+def _activity_target(task: Task) -> _ActivityTarget:
+    target = (task.state or {}).get("activity_target")
+    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
+        return _ActivityTarget(scope=None, id=None)
+    target_id = target.get("id")
+    if not isinstance(target_id, str) or not target_id:
+        return _ActivityTarget(scope=None, id=None)
+    return _ActivityTarget(scope="desktop_canvas", id=target_id)
+
+
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -6998,6 +7094,8 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
+                target_scope=_activity_target(row.task).scope,
+                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows

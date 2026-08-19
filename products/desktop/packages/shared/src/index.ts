@@ -95,6 +95,7 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,

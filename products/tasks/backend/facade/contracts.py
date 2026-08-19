@@ -159,7 +159,8 @@ class TaskDetailDTO:
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
     ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
     to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
-    mirrors core ``UserBasicSerializer`` output.
+    mirrors core ``UserBasicSerializer`` output. ``last_activity_at`` is when something last
+    happened in the task, as opposed to ``updated_at``, which is when the row was last written.
     """
 
     id: UUID
@@ -183,6 +184,7 @@ class TaskDetailDTO:
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
@@ -284,6 +286,8 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
+    target_scope: str | None = None
+    target_id: str | None = None
     is_unread: bool = True
 
 

@@ -1,17 +1,29 @@
 import json
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.db import DatabaseError, connection
+from django.db.models import Model
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _settled_catalog_certifications
+from posthog.hogql.database.schema import information_schema
+from posthog.hogql.database.schema.information_schema import (
+    _catalog_accepted_relationships,
+    _catalog_certification_rows,
+    _catalog_certifications,
+    _catalog_metrics,
+    _catalog_relationship_proposals,
+    _catalog_table_visible,
+)
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
@@ -44,6 +56,15 @@ def _fail_queries_for_table(table_name: str) -> Callable[..., object]:
         return execute(sql, params, many, context)
 
     return wrapper
+
+
+_CATALOG_READERS: list[tuple[str, Callable[..., Any], type[Model], Any]] = [
+    ("metrics", _catalog_metrics, Metric, []),
+    ("tables", _catalog_certifications, TableCertification, {}),
+    ("certifications", _catalog_certification_rows, TableCertification, []),
+    ("relationships", _catalog_accepted_relationships, RelationshipProposal, {}),
+    ("relationship_proposals", _catalog_relationship_proposals, RelationshipProposal, []),
+]
 
 
 class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
@@ -864,3 +885,54 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             "SELECT target_name FROM system.information_schema.certifications", team=self.team
         )
         assert response.results == []
+
+
+class TestCatalogReadCounters(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
+    def _context(self) -> HogQLContext:
+        database = Database.create_for(team=self.team, user=self.user)
+        return HogQLContext(team=self.team, team_id=self.team.pk, database=database)
+
+    def _counts(self, surface: str) -> tuple[float, float]:
+        return (
+            REGISTRY.get_sample_value("posthog_data_catalog_reads_total", {"surface": surface}) or 0.0,
+            REGISTRY.get_sample_value("posthog_data_catalog_read_failures_total", {"surface": surface}) or 0.0,
+        )
+
+    @parameterized.expand(_CATALOG_READERS)
+    def test_read_failure_increments_its_surface_and_stays_fail_soft(
+        self, surface: str, read: Callable[..., object], failing_model: type[Model], empty: object
+    ) -> None:
+        reads, failures = self._counts(surface)
+        with connection.execute_wrapper(_fail_queries_for_table(failing_model._meta.db_table)):
+            assert read(self._context(), None) == empty
+        assert self._counts(surface) == (reads + 1, failures + 1)
+
+    @parameterized.expand(_CATALOG_READERS)
+    def test_successful_read_counts_only_as_an_attempt(
+        self, surface: str, read: Callable[..., object], _failing_model: type[Model], _empty: object
+    ) -> None:
+        reads, failures = self._counts(surface)
+        read(self._context(), None)
+        assert self._counts(surface) == (reads + 1, failures)
+
+    def test_schema_serialization_failure_increments_and_returns_no_marks(self) -> None:
+        reads, failures = self._counts("schema_serialization")
+        with connection.execute_wrapper(_fail_queries_for_table(TableCertification._meta.db_table)):
+            assert _settled_catalog_certifications(self._context()) == ({}, {})
+        assert self._counts("schema_serialization") == (reads + 1, failures + 1)
+
+    def test_table_visibility_failure_increments_and_logs(self) -> None:
+        context = self._context()
+        reads, failures = self._counts("table_visibility")
+        with patch.object(Database, "has_table", side_effect=RuntimeError("database resolution broke")):
+            with patch.object(information_schema.logger, "exception") as log_exception:
+                assert _catalog_table_visible(context, "events") is False
+
+        assert self._counts("table_visibility") == (reads + 1, failures + 1)
+        assert log_exception.call_count == 1

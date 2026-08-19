@@ -435,8 +435,11 @@ class FeatureRequestCreateSerializer(serializers.Serializer):
         help_text="Required customer-facing request title.",
     )
     description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
         trim_whitespace=True,
-        help_text="Required customer-facing request description in Markdown.",
+        help_text="Optional customer-facing request description in Markdown.",
     )
     account_id = serializers.UUIDField(help_text="ID of the affected Customer Analytics account.")
     product_area_ids = serializers.ListField(
@@ -462,8 +465,9 @@ class FeatureRequestUpdateSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         required=False,
+        allow_blank=True,
         trim_whitespace=True,
-        help_text="Updated customer-facing request description in Markdown.",
+        help_text="Updated optional customer-facing request description in Markdown.",
     )
     account_id = serializers.UUIDField(required=False, help_text="Updated affected Customer Analytics account ID.")
     product_area_ids = serializers.ListField(

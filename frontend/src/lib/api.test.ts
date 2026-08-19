@@ -336,6 +336,13 @@ describe('API helper', () => {
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
+        it('resolves a 204 to null even when reading its empty body rejects', async () => {
+            fakeFetch.mockResolvedValue(
+                fakeResponse({ status: 204, text: () => Promise.reject(new TypeError('Load failed')) })
+            )
+            await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))

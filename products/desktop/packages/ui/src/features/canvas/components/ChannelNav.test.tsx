@@ -24,6 +24,7 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
+  navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
 }));

@@ -14,6 +14,8 @@ import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
+from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -69,7 +71,7 @@ def emit_signals_enabled_for(
 
 
 # --- Revenue-analytics view sync ------------------------------------------------------
-RevenueViewSync = Callable[["ExternalDataSchema", "ExternalDataSource"], None]
+RevenueViewSync = Callable[[RevenueViewSyncInput], None]
 _revenue_view_sync: Optional[RevenueViewSync] = None
 
 
@@ -78,10 +80,10 @@ def register_revenue_view_sync(fn: RevenueViewSync) -> None:
     _revenue_view_sync = fn
 
 
-def run_revenue_view_sync(schema: "ExternalDataSchema", source: "ExternalDataSource") -> None:
+def run_revenue_view_sync(sync_input: RevenueViewSyncInput) -> None:
     if _revenue_view_sync is None:
         return
-    _revenue_view_sync(schema, source)
+    _revenue_view_sync(sync_input)
 
 
 # --- Engineering-analytics view sync --------------------------------------------------

@@ -37,6 +37,11 @@
             "minimum": 0,
             "type": "number"
         },
+        "ordering": {
+            "description": "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n* `-created_at` - -created_at\n* `-last_activity_at` - -last_activity_at",
+            "enum": ["-created_at", "-last_activity_at"],
+            "type": "string"
+        },
         "organization": {
             "description": "Filter by repository organization",
             "minLength": 1,

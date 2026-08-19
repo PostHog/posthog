@@ -24,8 +24,13 @@ from .preempt_dag_run import PreemptDAGRunInputs, preempt_dag_run_activity
 from .prepare_queryable_table import (
     PrepareQueryableTableInputs,
     PrepareQueryableTableResult,
+    PublishQueryableTableInputs,
+    StageQueryableFilesResult,
     prepare_queryable_table_activity,
+    publish_queryable_table_activity,
+    stage_queryable_files_activity,
 )
+from .quality_block_materialization import QualityBlockMaterializationInputs, quality_block_materialization_activity
 from .succeed_materialization import (
     SucceedMaterializationInputs,
     SucceedMaterializationResult,
@@ -48,6 +53,9 @@ __all__ = [
     "PreemptDAGRunInputs",
     "PrepareQueryableTableInputs",
     "PrepareQueryableTableResult",
+    "PublishQueryableTableInputs",
+    "QualityBlockMaterializationInputs",
+    "StageQueryableFilesResult",
     "SucceedMaterializationInputs",
     "SucceedMaterializationResult",
     "check_duckgres_shadow_enabled_activity",
@@ -61,5 +69,8 @@ __all__ = [
     "get_dag_structure_activity",
     "preempt_dag_run_activity",
     "prepare_queryable_table_activity",
+    "publish_queryable_table_activity",
+    "quality_block_materialization_activity",
+    "stage_queryable_files_activity",
     "succeed_materialization_activity",
 ]

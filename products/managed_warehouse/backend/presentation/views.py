@@ -12,7 +12,7 @@ per organization (not per team).
 
 import re
 from datetime import date
-from typing import TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from django.conf import settings
@@ -25,9 +25,9 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-logger = structlog.get_logger(__name__)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
 
-DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
+logger = structlog.get_logger(__name__)
 
 # The Postgres database to connect to is always "ducklake"; the user-chosen warehouse
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone
@@ -52,6 +52,21 @@ class PresentedConnection(TypedDict):
     port: int
     database: str
     username: str
+
+
+ManagedWarehouseMonitoringMetric = Literal[
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "sessions_active",
+    "s3_bytes_rate",
+    "acquire_p95",
+    "acquire_by_source",
+    "storage_bytes",
+    "worker_crash_rate",
+]
+ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
 
 
 def managed_warehouse_domain() -> str:
@@ -340,8 +355,8 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
     duckgres creates the provisioning team's row from the provision request itself (and
     `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here — the team just gets its SQL-editor query connection and its earliest-event-date
-    sync kicked off, the same tail `onboard_team` runs for later teams.
+    here. The team gets its auto-provisioned external SQL source and starts its
+    earliest-event-date sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
@@ -354,11 +369,10 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
 
 def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: register the org's managed warehouse as the team's query connection.
+    """Best-effort: create or refresh the team's external managed-warehouse source.
 
-    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server and authenticated with its org root
-    credential. A failure here must never block onboarding.
+    This snapshots the stored DuckgresServer login. Project-reader provisioning has a
+    separate lifecycle, and this path never creates or modifies one.
     """
     try:
         from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
@@ -894,6 +908,26 @@ def status_for(organization_id: UUID | str) -> Response:
         # WarehouseStatusResponse schema. Backend callers use cp_bucket_for instead.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live monitoring data for one organization."""
+    return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
+
+
+def monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
 
 
 def cp_bucket_for(organization_id: UUID | str) -> str | None:

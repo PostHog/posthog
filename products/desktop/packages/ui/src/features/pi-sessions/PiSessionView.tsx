@@ -329,7 +329,9 @@ function usePiSubmit(
       );
       void controller
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => onSuccess(action))
+        .then(() => {
+          onSuccess(action);
+        })
         .catch((error) => {
           handleControllerError(
             error,

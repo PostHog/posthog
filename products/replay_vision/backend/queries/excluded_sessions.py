@@ -27,14 +27,14 @@ from opentelemetry import trace
 from posthog.models import Team
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
-    BackfillCandidateQuery,
     CandidateSession,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
     execute_candidate_query,
 )
 
 # Both fetch candidates with the in-query blocklists off, so both owe the caller this question.
-CandidateQuery = ScannerCandidateQuery | BackfillCandidateQuery
+CandidateQuery = ScannerCandidateQuery | WindowedCandidateQuery
 
 tracer = trace.get_tracer(__name__)
 

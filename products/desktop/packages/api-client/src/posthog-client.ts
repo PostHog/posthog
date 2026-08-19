@@ -218,10 +218,22 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
   "posthog_code_billing_limit_exceeded";
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
+export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
   complete: boolean;
+  truncatedHeadCount: number;
+}
+
+type SessionLogsPage =
+  | { ok: true; entries: StoredLogEntry[]; headers: Headers }
+  | { ok: false; status: number; statusText: string };
+
+export interface TaskRunSessionLogsPage {
+  entries: StoredLogEntry[];
+  hasMore: boolean;
+  matchingCount: number | null;
 }
 
 export interface TaskListOptions {
@@ -232,6 +244,12 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+  /**
+   * Which end of the list the page is cut from. A surface that asks for a short page and means
+   * "what has been happening here" has to say so, or the server hands back the newest-created
+   * few and a long-running session never makes the page.
+   */
+  ordering?: "-last_activity_at" | "-created_at";
 }
 
 export interface TaskSearchResult {
@@ -2338,6 +2356,10 @@ export class PostHogAPIClient {
       params.channel = options.channel;
     }
 
+    if (options?.ordering) {
+      params.ordering = options.ordering;
+    }
+
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {
       path: { project_id: teamId.toString() },
       query: params,
@@ -3675,6 +3697,88 @@ export class PostHogAPIClient {
       .entries;
   }
 
+  // AbortController + setTimeout because Hermes, which runs this client on
+  // mobile, has no AbortSignal.timeout.
+  private async fetchSessionLogsPage(
+    url: URL,
+    path: string,
+    offset: number,
+  ): Promise<SessionLogsPage> {
+    for (let attempt = 0; ; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () =>
+          controller.abort(new Error("Session logs page request timed out")),
+        SESSION_LOGS_PAGE_TIMEOUT_MS,
+      );
+      try {
+        const response = await this.api.fetcher.fetch({
+          method: "get",
+          url,
+          path,
+          overrides: { signal: controller.signal },
+        });
+        if (!response.ok) {
+          return {
+            ok: false,
+            status: response.status,
+            statusText: response.statusText,
+          };
+        }
+        // Read the body here, while the timer is still armed: fetch resolves on
+        // headers, and a page body stalling after them is what wedges hydration.
+        const entries = (await response.json()) as StoredLogEntry[];
+        return { ok: true, entries, headers: response.headers };
+      } catch (err) {
+        const status = requestErrorStatus(err);
+        const retryable = status === undefined || status >= 500;
+        if (attempt > 0 || !retryable) throw err;
+        log.warn(`Retrying session logs page at offset ${offset}`, err);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  async getTaskRunSessionLogsPage(
+    taskId: string,
+    runId: string,
+    options: { limit: number; offset?: number; after?: string },
+  ): Promise<TaskRunSessionLogsPage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/session_logs/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("limit", String(options.limit));
+    if (options.offset) {
+      url.searchParams.set("offset", String(options.offset));
+    }
+    if (options.after) {
+      url.searchParams.set("after", options.after);
+    }
+    const page = await this.fetchSessionLogsPage(
+      url,
+      path,
+      options.offset ?? 0,
+    );
+    if (!page.ok) {
+      throw new Error(
+        `Failed to fetch session logs page at offset ${options.offset ?? 0}: ${page.status} ${page.statusText}`,
+      );
+    }
+    // Number(null) is 0, so an absent header must stay null.
+    const matchingHeader = page.headers.get("X-Matching-Count");
+    const matchingCount =
+      matchingHeader === null ? null : Number(matchingHeader);
+    return {
+      entries: page.entries,
+      hasMore: page.headers.get("X-Has-More") === "true",
+      matchingCount:
+        matchingCount !== null && Number.isFinite(matchingCount)
+          ? matchingCount
+          : null,
+    };
+  }
+
   async getTaskRunSessionLogsResult(
     taskId: string,
     runId: string,
@@ -3682,49 +3786,40 @@ export class PostHogAPIClient {
   ): Promise<TaskRunSessionLogsResult> {
     const maxEntries = options?.limit ?? SESSION_LOGS_MAX_PAGE_SIZE;
     const entries: StoredLogEntry[] = [];
+    let truncatedHeadCount = 0;
     try {
-      const teamId = await this.getTeamId();
-      const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/session_logs/`;
       let offset = 0;
+      let isFirstPage = true;
       while (entries.length < maxEntries) {
-        const url = new URL(`${this.api.baseUrl}${path}`);
-        url.searchParams.set(
-          "limit",
-          String(
-            Math.min(SESSION_LOGS_MAX_PAGE_SIZE, maxEntries - entries.length),
+        const page = await this.getTaskRunSessionLogsPage(taskId, runId, {
+          limit: Math.min(
+            SESSION_LOGS_MAX_PAGE_SIZE,
+            maxEntries - entries.length,
           ),
-        );
-        if (offset > 0) {
-          url.searchParams.set("offset", String(offset));
-        }
-        if (options?.after) {
-          url.searchParams.set("after", options.after);
-        }
-        const response = await this.api.fetcher.fetch({
-          method: "get",
-          url,
-          path,
+          offset,
+          after: options?.after,
         });
-
-        if (!response.ok) {
-          log.warn(
-            `Failed to fetch session logs page at offset ${offset}: ${response.status} ${response.statusText}`,
-          );
-          return { entries, complete: false };
+        if (isFirstPage) {
+          isFirstPage = false;
+          if (page.matchingCount !== null && page.matchingCount > maxEntries) {
+            // Restart from the tail so the newest maxEntries survive the cap.
+            truncatedHeadCount = page.matchingCount - maxEntries;
+            offset = truncatedHeadCount;
+            continue;
+          }
         }
-
-        const page = (await response.json()) as StoredLogEntry[];
-        entries.push(...page);
-        const hasMore = response.headers.get("X-Has-More") === "true";
-        if (!hasMore || page.length === 0) {
-          return { entries, complete: true };
+        entries.push(...page.entries);
+        if (!page.hasMore || page.entries.length === 0) {
+          return { entries, complete: true, truncatedHeadCount };
         }
-        offset += page.length;
+        offset += page.entries.length;
       }
-      return { entries, complete: false };
+      // A deliberate tail fetch is complete; capping out without a matching
+      // count means unknown loss.
+      return { entries, complete: truncatedHeadCount > 0, truncatedHeadCount };
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);
-      return { entries, complete: false };
+      return { entries, complete: false, truncatedHeadCount };
     }
   }
 

@@ -78,6 +78,11 @@ export interface Task {
   description: string;
   created_at: string;
   updated_at: string;
+  /**
+   * When something last happened in the session, as opposed to `updated_at` (when the row was
+   * last written). The timestamp a "recent activity" sort reads. Empty on older responses.
+   */
+  last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")

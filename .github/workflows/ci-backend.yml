@@ -39,7 +39,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -1455,8 +1455,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1481,6 +1480,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
 
             - name: Wait for Docker services
               env:
@@ -2772,7 +2776,10 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"

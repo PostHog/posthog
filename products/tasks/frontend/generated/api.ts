@@ -121,6 +121,7 @@ import type {
     TaskSummariesRequestApi,
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
+    TaskUsageResponseApi,
     TaskWriteApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
@@ -1563,6 +1564,25 @@ export const tasksStagedArtifactsPrepareUploadCreate = async (
             body: JSON.stringify(taskStagedArtifactsPrepareUploadRequestApi),
         }
     )
+}
+
+export const getTasksUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/usage/`
+}
+
+/**
+ * Return estimated model and cloud compute costs attributed to a task.
+ * @summary Get task usage
+ */
+export const tasksUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskUsageResponseApi> => {
+    return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {

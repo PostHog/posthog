@@ -51,8 +51,12 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
+  const isHydratingEmptyTranscript =
+    isCloud && events.length === 0 && (session?.isHydratingTranscript ?? false);
   const isInitializing = isCloud
-    ? !hasError && (!session || (events.length === 0 && isCloudRunNotTerminal))
+    ? isHydratingEmptyTranscript ||
+      (!hasError &&
+        (!session || (events.length === 0 && isCloudRunNotTerminal)))
     : !session ||
       (session.status === "connecting" && events.length === 0) ||
       (session.status === "connected" &&

@@ -49,9 +49,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
+    observe_queue_query,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -305,12 +307,13 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(
-            conn,
-            grace_seconds=grace_seconds,
-            sync_types=self._claim_sync_types,
-            exclude_sync_types=self._claim_exclude_sync_types,
-        )
+        with observe_queue_query("get_stale_executing"):
+            return await BatchQueue.get_stale_executing(
+                conn,
+                grace_seconds=grace_seconds,
+                sync_types=self._claim_sync_types,
+                exclude_sync_types=self._claim_exclude_sync_types,
+            )
 
     async def reconcile_failed_runs(
         self,
@@ -339,12 +342,13 @@ class DeltaBatchConsumerAdapter:
             logger.debug("reconcile_sweep_slot_held_elsewhere")
             return
 
-        refs = await BatchQueue.get_failed_runs(
-            conn,
-            grace_seconds=grace_seconds,
-            lookback_seconds=lookback_seconds,
-            limit=limit,
-        )
+        with observe_queue_query("get_failed_runs"):
+            refs = await BatchQueue.get_failed_runs(
+                conn,
+                grace_seconds=grace_seconds,
+                lookback_seconds=lookback_seconds,
+                limit=limit,
+            )
         for ref in refs:
             # A producer can enqueue a batch into a run after fail_run swept it (the
             # extraction is still in flight when a sibling batch exhausts retries).
@@ -446,7 +450,8 @@ class DeltaBatchConsumerAdapter:
         batch. Failing batches first also self-heals a crash mid-sweep: the run then has a failed batch,
         so ``reconcile_failed_runs`` finalizes the job next cycle.
         """
-        refs = await BatchQueue.get_stale_stranded_runs(conn, stale_seconds=stale_seconds, limit=limit)
+        with observe_queue_query("get_stale_stranded_runs"):
+            refs = await BatchQueue.get_stale_stranded_runs(conn, stale_seconds=stale_seconds, limit=limit)
         for ref in refs:
             try:
                 failed_batches = await BatchQueue.fail_run(
@@ -520,7 +525,17 @@ class DeltaBatchConsumerAdapter:
         """
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+                with observe_queue_query("oldest_unclaimed_probe"):
+                    age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+                # Set immediately, so a failure in the depth probe below can never
+                # blind the age gauge this alert hangs off.
+                OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
+                # Depth rides the same probe and timeout: age says how stale the head
+                # of the queue is, depth says how much sits behind it — a stall and a
+                # burst are indistinguishable on age alone.
+                with observe_queue_query("claimable_depth_probe"):
+                    depth = await BatchQueue.get_claimable_batch_count(conn)
+                CLAIMABLE_BATCHES.set(depth)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
@@ -532,7 +547,6 @@ class DeltaBatchConsumerAdapter:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
             return
-        OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
 
     async def should_process_batch(
         self,

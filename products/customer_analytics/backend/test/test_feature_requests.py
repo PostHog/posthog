@@ -85,6 +85,25 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(retrieved.json()["request_status"], "requested")
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 1)
 
+    def test_description_can_be_omitted_or_cleared(self) -> None:
+        payload_without_description = self._payload()
+        payload_without_description.pop("description")
+
+        created_without_description = self.client.post(self.requests_url, payload_without_description, format="json")
+
+        self.assertEqual(created_without_description.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created_without_description.json()["description"], "")
+
+        created_with_description = self.client.post(self.requests_url, self._payload(), format="json").json()
+        cleared = self.client.patch(
+            f"{self.requests_url}{created_with_description['id']}/",
+            {"expected_version": created_with_description["version"], "description": ""},
+            format="json",
+        )
+
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["description"], "")
+
     def test_create_rejects_relations_from_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         with team_scope(other_team.id):

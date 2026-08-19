@@ -1,3 +1,5 @@
+import { Gauge, register } from 'prom-client'
+
 import { GROUPS_OUTPUT } from '~/common/outputs'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 
@@ -28,9 +30,16 @@ describe('IngestionApiServer', () => {
         }
     }
 
-    function handle(res: ReturnType<typeof makeRes>): Promise<void> {
-        const req = { body: { batch_id: 'b1', messages: [makeMessage()] } }
+    function handle(res: ReturnType<typeof makeRes>, messageCount = 1): Promise<void> {
+        const messages = Array.from({ length: messageCount }, makeMessage)
+        const req = { body: { batch_id: 'b1', messages } }
         return (server as any).handleIngestRequest(req, res)
+    }
+
+    async function eventsInFlight(): Promise<number> {
+        const gauge = register.getSingleMetric('ingestion_api_events_in_flight') as Gauge<string>
+        const { values } = await gauge.get()
+        return values[0]?.value ?? 0
     }
 
     function isHealthy(): { status: string } {
@@ -45,6 +54,8 @@ describe('IngestionApiServer', () => {
         ;(server as any).hogTransformer = { processInvocationResults: jest.fn().mockResolvedValue(undefined) }
         // stop() would call process.exit; stub it so the test only observes that it was invoked.
         stopSpy = jest.spyOn(server, 'stop').mockResolvedValue(undefined)
+        // The gauge is a module-level singleton shared across tests in this file.
+        register.getSingleMetric('ingestion_api_events_in_flight')?.reset()
     })
 
     it('reports healthy before any failure', () => {
@@ -89,6 +100,155 @@ describe('IngestionApiServer', () => {
         expect(res.body()).toMatchObject({ status: 'ok', accepted: 1 })
         expect(isHealthy().status).toBe('ok')
         expect(stopSpy).not.toHaveBeenCalled()
+    })
+
+    describe('events in flight gauge', () => {
+        type Gate = { resolve: () => void; reject: (error: Error) => void }
+
+        // One gate per in-flight batch. The handler calls next() exactly once
+        // (the mock resolves to null, ending its drain loop), so holding that
+        // promise open holds the batch in flight and lets a test decide the
+        // order batches finish in.
+        let gates: Gate[]
+
+        beforeEach(() => {
+            gates = []
+        })
+
+        function gateBatches(): void {
+            pipeline.feed.mockResolvedValue({ ok: true })
+            pipeline.next.mockImplementation(
+                () =>
+                    new Promise<null>((resolve, reject) => {
+                        gates.push({ resolve: () => resolve(null), reject })
+                    })
+            )
+        }
+
+        // Let pending callbacks run so a started request reaches next() before
+        // the test reads the gauge.
+        function flush(): Promise<void> {
+            return new Promise((resolve) => setImmediate(resolve))
+        }
+
+        // Starts a batch and returns its completion promise. Deliberately not
+        // async: an async wrapper's promise would adopt this one, so awaiting
+        // the helper would wait for the batch to finish instead of starting it.
+        // Callers `await flush()` once the batches they want in flight are up.
+        function start(messageCount: number): Promise<void> {
+            return handle(makeRes(), messageCount)
+        }
+
+        it('sums events across concurrent batches of different sizes', async () => {
+            gateBatches()
+
+            const small = start(5)
+            const medium = start(100)
+            const large = start(1000)
+            await flush()
+
+            // 3 if it counted batches; the sum is the point of the metric.
+            expect(await eventsInFlight()).toBe(1105)
+
+            gates.forEach((gate) => gate.resolve())
+            await Promise.all([small, medium, large])
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('releases exactly the finished batch, leaving the others in flight', async () => {
+            gateBatches()
+
+            const first = start(100)
+            const second = start(5)
+            const third = start(20)
+            await flush()
+            expect(await eventsInFlight()).toBe(125)
+
+            // Finish out of order: a decrement keyed to the wrong request would
+            // subtract someone else's count and drift the gauge.
+            gates[1].resolve()
+            await second
+            expect(await eventsInFlight()).toBe(120)
+
+            gates[2].resolve()
+            await third
+            expect(await eventsInFlight()).toBe(100)
+
+            gates[0].resolve()
+            await first
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('leaves in-flight batches untouched when another is rejected at capacity', async () => {
+            gateBatches()
+            const accepted = start(100)
+            await flush()
+
+            pipeline.feed.mockResolvedValueOnce({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+            const rejectedRes = makeRes()
+            await handle(rejectedRes, 50)
+
+            expect(rejectedRes.statusCode()).toBe(503)
+            expect(await eventsInFlight()).toBe(100)
+
+            gates[0].resolve()
+            await accepted
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('releases a crashed batch while a concurrent batch stays in flight', async () => {
+            gateBatches()
+            const crashing = start(100)
+            const surviving = start(7)
+            await flush()
+
+            gates[0].reject(new Error('pipeline poisoned'))
+            await crashing
+            expect(await eventsInFlight()).toBe(7)
+
+            gates[1].resolve()
+            await surviving
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('does not count a batch rejected as empty', async () => {
+            const res = makeRes()
+            await handle(res, 0)
+
+            expect(res.statusCode()).toBe(400)
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        // A leaked increment would make the gauge climb forever and, since this
+        // drives processor autoscaling, scale the fleet out on phantom load.
+        it.each([
+            {
+                outcome: 'success',
+                arrange: () => {
+                    pipeline.feed.mockResolvedValue({ ok: true })
+                    pipeline.next.mockResolvedValue(null)
+                },
+            },
+            {
+                outcome: 'capacity rejection',
+                arrange: () => {
+                    pipeline.feed.mockResolvedValue({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+                },
+            },
+            {
+                outcome: 'pipeline crash',
+                arrange: () => {
+                    pipeline.feed.mockResolvedValue({ ok: true })
+                    pipeline.next.mockRejectedValue(new Error('pipeline poisoned'))
+                },
+            },
+        ])('returns to zero after a $outcome', async ({ arrange }) => {
+            arrange()
+
+            await handle(makeRes(), 5)
+
+            expect(await eventsInFlight()).toBe(0)
+        })
     })
 
     describe('cleanup', () => {

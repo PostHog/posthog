@@ -36,7 +36,6 @@ import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTask
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
@@ -137,17 +136,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const openSettingsDialog = openSettings;
   const closeSettingsDialog = closeSettings;
   const { folders } = useFolders();
-  // Channels (and the task→channel detail) are a Project Bluebird feature. Gate
-  // the channel fetches behind the flag so they never reach ungated users.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const taskChannelMap = useTaskChannelMap(channels, {
-    enabled: open && bluebirdEnabled,
-  });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const view = useAppView();
@@ -503,11 +497,16 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           provisioningTaskIds.has(task.id)),
     );
     if (visibleTasks.length === 0) return [];
+    const channelsById = new Map(
+      channels.map((channel) => [channel.id, channel] as const),
+    );
     return [
       {
         label: "Tasks",
         items: visibleTasks.map((task) => {
-          const channel = taskChannelMap.get(task.id);
+          const channel = task.channel
+            ? channelsById.get(task.channel)
+            : undefined;
           return {
             id: `task-${task.id}`,
             label: task.title,
@@ -538,7 +537,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     workspaces,
     workspacesFetched,
     provisioningTaskIds,
-    taskChannelMap,
+    channels,
     bluebirdEnabled,
     closeSettingsDialog,
   ]);
