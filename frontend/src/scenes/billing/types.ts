@@ -50,7 +50,7 @@ export type BillingUsageInteractionProps = {
 }
 
 export type BillingSeriesForCsv = {
-    id: number
+    key: string
     label: string
     data: number[]
 }

@@ -13,6 +13,7 @@ import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 
 export interface BillingSeriesType {
     id: number
+    key: string
     label: string
     data: number[]
     dates: string[]
@@ -22,7 +23,7 @@ export interface BillingLineGraphProps {
     series: BillingSeriesType[]
     dates: string[]
     isLoading?: boolean
-    hiddenSeries: number[]
+    hiddenSeries: string[]
     valueFormatter?: (value: number) => string
     showLegend?: boolean
     interval?: 'day' | 'week' | 'month'
@@ -48,16 +49,17 @@ export function BillingLineGraph({
     const theme = useChartTheme()
 
     // Hide via `visibility.excluded` rather than by filtering the array, so a hidden series stays
-    // listed (dimmed) if the legend is ever turned on. Color by series id, not by position: the
-    // ribbons in BillingDataTable are keyed to the id, and the two have to agree.
+    // listed (dimmed) if the legend is ever turned on. Hide by the stable series key so a
+    // selection survives a date-range change; color by series id, matching the ribbons in
+    // BillingDataTable.
     const chartSeries = useMemo<Series[]>(
         () =>
             series.map((s) => ({
-                key: String(s.id),
+                key: s.key,
                 label: s.label,
                 data: s.data,
                 color: getSeriesColor(s.id),
-                visibility: { excluded: hiddenSeries.includes(s.id) },
+                visibility: { excluded: hiddenSeries.includes(s.key) },
             })),
         [series, hiddenSeries]
     )

@@ -15,8 +15,8 @@ export interface BillingDataTableProps {
     series: BillingSeriesType[]
     dates: string[]
     isLoading?: boolean
-    hiddenSeries: number[]
-    toggleSeries: (id: number) => void
+    hiddenSeries: string[]
+    toggleSeries: (seriesKey: string) => void
     toggleAllSeries: () => void
     valueFormatter?: (value: number) => string | number
     totalLabel?: string
@@ -94,12 +94,12 @@ export function BillingDataTable({
                     </div>
                 ),
                 render: (_, record: BillingSeriesType) => {
-                    const isHidden = hiddenSeries.includes(record.id)
+                    const isHidden = hiddenSeries.includes(record.key)
                     return (
                         <div className="flex items-center gap-1">
                             <LemonCheckbox
                                 checked={!isHidden}
-                                onChange={() => toggleSeries(record.id)}
+                                onChange={() => toggleSeries(record.key)}
                                 className="mr-2"
                             />
                             <SeriesColorDot colorIndex={record.id} />
@@ -127,7 +127,7 @@ export function BillingDataTable({
                 loading={isLoading}
                 embedded
                 size="small"
-                rowClassName={(record) => (hiddenSeries.includes(record.id) ? 'opacity-50' : '')}
+                rowClassName={(record) => (hiddenSeries.includes(record.key) ? 'opacity-50' : '')}
                 defaultSorting={{
                     columnKey: 'total',
                     order: -1,

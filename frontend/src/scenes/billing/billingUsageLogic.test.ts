@@ -1,4 +1,11 @@
-import { BillingUsageResponse, BillingUsageResponseBreakdownType, convertDesktopUsageSeries } from './billingUsageLogic'
+import { initKeaTests } from '~/test/init'
+
+import {
+    BillingUsageResponse,
+    BillingUsageResponseBreakdownType,
+    billingUsageLogic,
+    convertDesktopUsageSeries,
+} from './billingUsageLogic'
 
 const series = (label: string, usageType: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
@@ -7,6 +14,13 @@ const series = (label: string, usageType: string, data: number[]): BillingUsageR
     dates: ['2026-08-01'],
     breakdown_type: BillingUsageResponseBreakdownType.TYPE,
     breakdown_value: usageType,
+})
+
+const response = (results: BillingUsageResponse['results']): BillingUsageResponse => ({
+    status: 'ok',
+    type: 'timeseries',
+    customer_id: 'cus_test',
+    results,
 })
 
 describe('convertDesktopUsageSeries', () => {
@@ -56,5 +70,37 @@ describe('convertDesktopUsageSeries', () => {
             label: 'my-project::PostHog Desktop token spend (USD)',
             data: [12.34],
         })
+    })
+})
+
+describe('billingUsageLogic series selection', () => {
+    beforeEach(() => {
+        initKeaTests()
+        billingUsageLogic.mount()
+    })
+
+    it('keeps a hidden series on the same product after a reload reorders the positional ids', () => {
+        // First range: three products, ids assigned by position.
+        billingUsageLogic.actions.loadBillingUsageSuccess(
+            response([
+                { ...series('Events', 'events', [10]), id: 0 },
+                { ...series('Recordings', 'recordings', [5]), id: 1 },
+                { ...series('Feature flags', 'feature_flags', [3]), id: 2 },
+            ])
+        )
+
+        billingUsageLogic.actions.toggleSeries('recordings')
+        expect(billingUsageLogic.values.finalHiddenSeries).toEqual(['recordings'])
+
+        // Second range: 'events' has no usage and drops out, so 'recordings' now sits at id 0.
+        // A positional selection would follow the id and hide the wrong product.
+        billingUsageLogic.actions.loadBillingUsageSuccess(
+            response([
+                { ...series('Recordings', 'recordings', [7]), id: 0 },
+                { ...series('Feature flags', 'feature_flags', [4]), id: 1 },
+            ])
+        )
+
+        expect(billingUsageLogic.values.finalHiddenSeries).toEqual(['recordings'])
     })
 })

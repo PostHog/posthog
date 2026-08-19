@@ -25,8 +25,8 @@ jest.mock('lib/colors', () => ({
 const DATES = ['2026-01-01', '2026-01-02', '2026-01-03']
 
 const SERIES: BillingSeriesType[] = [
-    { id: 0, label: 'Events', data: [10, 20, 30], dates: DATES },
-    { id: 1, label: 'Recordings', data: [1, 2, 3], dates: DATES },
+    { id: 0, key: 'events', label: 'Events', data: [10, 20, 30], dates: DATES },
+    { id: 1, key: 'recordings', label: 'Recordings', data: [1, 2, 3], dates: DATES },
 ]
 
 describe('BillingLineGraph', () => {
@@ -40,13 +40,13 @@ describe('BillingLineGraph', () => {
     })
 
     it('renders only the series that are not hidden', async () => {
-        render(<BillingLineGraph series={SERIES} dates={DATES} hiddenSeries={[1]} />)
+        render(<BillingLineGraph series={SERIES} dates={DATES} hiddenSeries={['recordings']} />)
 
         await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
     })
 
     it('colors the surviving series by its id, not its position after filtering', async () => {
-        render(<BillingLineGraph series={SERIES} dates={DATES} hiddenSeries={[0]} />)
+        render(<BillingLineGraph series={SERIES} dates={DATES} hiddenSeries={['events']} />)
 
         const chart = getHogChart()
         await waitFor(() => expect(chart.seriesCount).toBe(1))

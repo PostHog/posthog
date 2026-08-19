@@ -587,6 +587,22 @@ export function calculateBillingPeriodMarkers(
     return markers
 }
 
+/**
+ * Build a stable identifier for a billing series that survives a date-range reload.
+ * The billing service numbers series positionally within each response, so a product
+ * dropping in or out of a date range shifts every id. The breakdown value (usage type,
+ * team id, or the pair for a multiple breakdown) stays with the product instead, so we
+ * key the user's series selection on it. The label is a fallback for series with no
+ * breakdown.
+ */
+export function getBillingSeriesKey(series: { breakdown_value: string | string[] | null; label: string }): string {
+    const { breakdown_value } = series
+    if (Array.isArray(breakdown_value)) {
+        return breakdown_value.join('::')
+    }
+    return breakdown_value ?? series.label
+}
+
 const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
 
 /**
@@ -614,12 +630,12 @@ export const formatWithDecimals = (value: number, decimals?: number): string => 
 export function buildBillingCsv(params: {
     series: BillingSeriesForCsv[]
     dates: string[]
-    hiddenSeries?: number[]
+    hiddenSeries?: string[]
     options?: BuildBillingCsvOptions
 }): string {
     const { series, dates, hiddenSeries = [], options } = params
 
-    const visible = series.filter((s) => !hiddenSeries.includes(s.id))
+    const visible = series.filter((s) => !hiddenSeries.includes(s.key))
     const withTotalSorted = visible.map((s) => ({ ...s, total: sumSeries(s.data) })).sort((a, b) => b.total - a.total)
 
     const header = ['Series', 'Total', ...dates]
