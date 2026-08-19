@@ -15,7 +15,8 @@ from products.alerts.backend.forecasting.engine import (
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
-    save_time_anchor,
+    intervals_between,
+    max_evaluable_horizon,
 )
 
 
@@ -155,29 +156,23 @@ class TestForecastReach:
 
     @parameterized.expand(
         [
-            ("hourly", IntervalType.HOUR, 0),
-            ("daily", IntervalType.DAY, 1),
-            ("weekly", IntervalType.WEEK, 7),
-            ("monthly", IntervalType.MONTH, 31),
+            # The last complete bucket is calendar aligned, so its distance from today varies
+            # across the cycle. These are real distances, not a formula restated.
+            ("daily, one day back", IntervalType.DAY, 1),
+            ("weekly, just after a boundary", IntervalType.WEEK, 7),
+            ("weekly, just before one", IntervalType.WEEK, 13),
+            ("monthly, short gap", IntervalType.MONTH, 28),
+            ("monthly, long gap", IntervalType.MONTH, 61),
         ]
     )
-    def test_a_date_accepted_at_save_still_evaluates(self, _name, interval, interval_days) -> None:
-        """Evaluation counts from the last completed bucket, which is behind today. Validating from
-        today accepted a date the first check then rejected, which auto-disabled the alert and
-        emailed its subscribers."""
+    def test_evaluation_reaches_any_date_save_accepted(self, _name, interval, bucket_age_days) -> None:
+        """Save caps reach from today; evaluation counts from the last complete bucket. No constant
+        offset can reconcile the two, so evaluation must not re-check the cap at all."""
         today = datetime.date(2026, 3, 1)
-        anchor = save_time_anchor(interval, today)
+        furthest_saveable = today + datetime.timedelta(days=MAX_FORECAST_REACH_DAYS)
+        horizon_for_target_date(furthest_saveable, interval, today)
 
-        latest_settable = None
-        for days in range(1, 400):
-            try:
-                horizon_for_target_date(today + datetime.timedelta(days=days), interval, anchor)
-            except ValueError:
-                break
-            latest_settable = days
-        assert latest_settable is not None
-
-        target = today + datetime.timedelta(days=latest_settable)
-        last_completed_bucket = today - datetime.timedelta(days=max(interval_days - 1, 0))
-        # Must not raise: the first check has to accept what save accepted.
-        horizon_for_target_date(target, interval, last_completed_bucket)
+        last_bucket = today - datetime.timedelta(days=bucket_age_days)
+        horizon = intervals_between(last_bucket, furthest_saveable, interval)
+        # Must stay evaluable however far back the bucket sits.
+        assert horizon <= max_evaluable_horizon(interval)

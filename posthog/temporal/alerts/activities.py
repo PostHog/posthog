@@ -263,11 +263,20 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
-        except InsufficientHistoryError as err:
-            # The alert is fine, the insight is just young. Record the check so the reason is
-            # visible in history, but leave the alert enabled: disabling would need a manual
-            # re-enable for a condition that resolves itself as buckets accumulate.
-            alert_check, _ = add_alert_check(alert, None, {"message": str(err)})
+        except InsufficientHistoryError:
+            # The alert is fine, the insight is just young. Record a check so next_check_at
+            # advances, under the same lock the other write paths take.
+            #
+            # Deliberately no error payload: insight alerts set errors_set_errored_state, so
+            # passing one would mark the alert ERRORED and open a failure streak that suppresses
+            # the next genuine error, which is the opposite of "nothing is wrong yet".
+            with transaction.atomic():
+                locked = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                alert_check, _ = add_alert_check(locked, None, None)
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
                 should_notify=False,

@@ -83,6 +83,14 @@ from products.product_analytics.backend.models.insight import Insight
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
+def _target_date_is_changing(forecast_config: dict | None, instance: AlertConfiguration | None) -> bool:
+    """Whether this request sets a target date different from the stored one."""
+    if not forecast_config:
+        return False
+    stored = (instance.forecast_config or {}) if instance is not None else {}
+    return forecast_config.get("target_date") != stored.get("target_date")
+
+
 def _validate_interval_entitlement(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
@@ -828,9 +836,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
                 forecast_config=forecast_config,
-                # Only this request's own date has to be in the future. An inherited one was
-                # legitimate when it was saved, and re-rejecting it would lock the alert.
-                require_future_target_date="forecast_config" in attrs,
+                # Only a target date this request actually changes has to be in the future. An
+                # unchanged one was legitimate when it was saved, and re-rejecting it would lock
+                # the alert. Compared against the stored value rather than trusting the payload,
+                # so a client that echoes the whole object back is not penalised for it.
+                require_future_target_date=_target_date_is_changing(forecast_config, self.instance),
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
@@ -1067,9 +1077,11 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
     def validate_forecast_config(self, value):
         if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
             raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
-        # Shape is already validated by ForecastConfigField.to_internal_value; only bounds remain.
+        # Shape is already validated by ForecastConfigField.to_internal_value; only the width
+        # remains here. The horizon bound depends on the insight's interval, which this field
+        # validator cannot see, so simulate_forecast_on_insight checks it once the query is known.
         try:
-            validate_forecast_horizon_and_width(ForecastConfig.model_validate(value))
+            validate_forecast_horizon_and_width(ForecastConfig.model_validate(value), None, check_horizon=False)
         except ValueError as e:
             raise serializers.ValidationError(str(e))
         return value

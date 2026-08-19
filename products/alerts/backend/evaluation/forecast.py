@@ -29,7 +29,8 @@ from products.alerts.backend.forecasting.engine import (
     ForecastResult,
     bounded_training_points,
     get_forecast_engine,
-    horizon_for_target_date,
+    intervals_between,
+    max_evaluable_horizon,
     min_forecast_points,
     validate_forecast_horizon_and_width,
     validate_forecast_interval,
@@ -293,14 +294,14 @@ def _evaluate_target_by_date(
     target_date = forecast_config.get("target_date")
     if target is None or not target_date:
         raise AlertExtractionError("A target alert needs both a target and a target date.")
-    try:
-        # Count from the last completed bucket, which is where Prophet extends from. Counting from
-        # today lands the final point one interval short of the date the user asked about.
-        horizon = horizon_for_target_date(
-            date.fromisoformat(str(target_date)), interval_type, date.fromisoformat(dates[-1][:10])
+    # Count from the last completed bucket, which is where Prophet extends from. Counting from
+    # today lands the final point one interval short of the date the user asked about.
+    horizon = intervals_between(date.fromisoformat(dates[-1][:10]), date.fromisoformat(str(target_date)), interval_type)
+    if horizon > max_evaluable_horizon(interval_type):
+        raise InsufficientHistoryError(
+            "This insight has no recent data, so the forecast cannot reach the target date. "
+            "The alert will work once the insight is receiving data again."
         )
-    except ValueError as e:
-        raise AlertExtractionError(str(e))
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
     at = _index_for_target_date(forecast.dates, str(target_date))
     return _evaluate_target_by_date_values(
@@ -465,8 +466,8 @@ def simulate_forecast_on_insight(
         target_date = forecast_config.get("target_date")
         if not target_date:
             raise ValueError("A target alert needs a target date.")
-        horizon = horizon_for_target_date(
-            date.fromisoformat(str(target_date)), interval_type, date.fromisoformat(dates[-1][:10])
+        horizon = intervals_between(
+            date.fromisoformat(dates[-1][:10]), date.fromisoformat(str(target_date)), interval_type
         )
     else:
         horizon = _resolve_horizon(forecast_config)
