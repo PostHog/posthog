@@ -129,7 +129,7 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                        |
 | Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                                    |
-| Assignment override (assignment-side SRM) | hash-recomputation agreement well under 100% (the decisive test below); then localize with the SDK split / bootstrap mix below                     |
+| Assignment override (assignment-side SRM) | the reassignment component carries the gap in the decisive test below; then localize with the SDK split / bootstrap mix below                    |
 | Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                         |
 | Flag read before load (capture-side SRM)  | `false`/`null` person count near the short-arm gap and concentrated on that arm's `$lib`/surface                                                   |
 | Pre-launch skew                           | the same directional skew _before_ `start_date` ⇒ points at assignment, not capture                                                                |
@@ -174,8 +174,8 @@ If in doubt, ask which configured split reproduces the observed p — only one w
 ### Localizing a confirmed SRM (assignment vs capture)
 
 Run these only _after_ SRM is confirmed. First run the **decisive test** below to pick the half,
-then run the matching queries: ~100% agreement ⇒ capture-side (run the surface / dropped-`false` /
-SDK queries), well under 100% ⇒ assignment-side (run the SDK / bootstrap queries). All queries
+then run the matching queries: a **capture** verdict sends you to the surface / dropped-`false` /
+SDK queries, an **assignment** verdict to the SDK / bootstrap queries. All queries
 collapse to one row per person at first exposure, mirroring the product; substitute the two real
 variant keys. They assume the default exposure event — for a custom exposure event, swap the event
 filter and read the variant from `properties.$feature/<flag-key>` instead (as in §3), and for a
@@ -183,14 +183,32 @@ group-aggregated flag count the group key rather than `person_id` (see §1).
 
 #### The decisive test: recompute assignment offline
 
-Recompute each user's variant from the flag hash and compare it to the recorded
-`$feature_flag_response`:
+Recompute each user's variant from the flag hash, then split the gap between the **recorded** split
+and the **configured** split into the only two places it can come from. For each variant, over a
+sample of `n` identifiers, with `expected = n × configured share`:
 
-- **~100% agreement** ⇒ assignment was correct for everyone recorded, so the skew is in _which_
-  users got recorded — **capture-side**. Localize with the surface / dropped-`false` / SDK queries below.
-- **Well under 100% agreement** ⇒ something overrode assignment at serve time — **assignment-side**.
+```text
+recorded − expected  =  (predicted − expected)  +  (recorded − predicted)
+  the observed gap        selection component       reassignment component
+                          ⇒ CAPTURE-side            ⇒ ASSIGNMENT-side
+```
+
+That's an identity, not a heuristic — the two components always sum to the gap. `predicted` is the
+hash-recomputed variant, so:
+
+- **Selection carries the gap** ⇒ the users who got _recorded_ were already a skewed draw before
+  assignment is even considered — **capture-side**. Localize with the surface / dropped-`false` /
+  SDK queries below.
+- **Reassignment carries the gap** ⇒ something overrode assignment at serve time — **assignment-side**.
   Localize with the SDK / bootstrap queries below; suspect stale local-eval, an inherited bootstrap
   value, a forced release-condition variant, or a mid-run rehash.
+
+**Don't route on the raw agreement percentage.** A handful of scattered disagreements can't produce a
+_directional_ SRM, so agreement alone doesn't separate the halves: a large capture-side skew sitting
+under ~2% of unrelated override noise reads as "98% agreement" and looks assignment-side, when
+selection is carrying the entire gap. The share of the gap each component explains is the number that
+routes; `srm_check.py` prints both, each with its own significance test, and refuses to name a side
+when neither dominates.
 
 **The algorithm** — verified byte-exact against PostHog's implementation in
 `rust/feature-flags/src/flags/flag_matching.rs` (`get_matching_variant`) and `flag_matching_utils.rs`
@@ -232,10 +250,27 @@ eyeballed; don't build it by substituting values you haven't looked at.
 - **Order- and split-sensitive.** The walk depends on the exact array order and percentages in the
   _live_ flag's `filters.multivariate.variants`; a wrong order silently inverts the prediction. Pass
   them to `--variants` in stored order.
+- **Population must match the SRM.** The SRM is computed per _person_ with the `$multiple` bucket
+  excluded, so the export restricts to that same analyzable population — otherwise the agreement rate
+  describes a different set of users than the gap you're explaining. Under `first_seen` handling no
+  one is excluded, so drop the `IN (SELECT ...)` filter. The excluded `$multiple` persons are a
+  finding in their own right, not a rounding error: size them from §2's `total_exposures`, since a
+  large bucket on an uneven split is the bias-banner cause.
+- **Ambiguous identifiers are evidence, not noise.** `variants_seen > 1` marks an identifier that
+  recorded more than one variant over time — the mid-run-rehash and bootstrap-inheritance signature.
+  Collapsing it with `argMin` would keep the earliest row and hide the disagreement entirely, so the
+  export carries the count and the script reports it separately instead of averaging it away.
+- **Per-identifier weighting.** One person with several `distinct_id`s contributes several rows, so
+  fragmented persons are upweighted relative to the per-person SRM. Cross-check against the
+  `distinct_ids / persons` ratio from §3 — well above 1 means the agreement rate is identifier-weighted
+  and the sample is not a clean stand-in for the person-level population.
 - **Identifier must match production.** The recompute is only valid if you hash the identifier
   production hashed — the **group key** for group flags, `$device_id` for device-bucketed flags
   (`bucketing_identifier == "device_id"`), otherwise `distinct_id` (see §1). Hash the wrong one and
-  correctly-assigned users read as disagreements, so a clean assignment looks assignment-side. Sanity
+  correctly-assigned users read as disagreements, so a clean assignment looks assignment-side. The
+  script guards the worst case: agreement that can't beat the rate a coin flip would reach on this
+  split (50% on 50/50) means the recompute carries no signal at all, and it reports the test as
+  inapplicable rather than blaming assignment. A subtler mismatch still slips through — sanity
   guard: if agreement is far below 100% _everywhere_ — including a slice you already know is balanced,
   or the pre-launch window — suspect a wrong identifier (or continuity, below) before concluding
   assignment-side.
@@ -245,18 +280,36 @@ eyeballed; don't build it by substituting values you haven't looked at.
 
 ```sql
 -- Deterministic sample for the offline recompute (n=800 → SE ~1.8pp; drop LIMIT for all rows).
+-- One row per hashed identifier, restricted to the SRM-analyzable population so the agreement
+-- rate describes the same users the SRM gap is computed over.
 -- Custom exposure event: filter that event and read the variant from properties.$feature/<flag-key>.
--- Group-aggregated flag: export the group key instead of distinct_id.
+-- Group-aggregated flag: export the group key instead of distinct_id, and group person_variant by it.
 -- Device-ID bucketing (bucketing_identifier == "device_id"): select
 --   coalesce(nullIf(properties.$device_id, ''), distinct_id) AS distinct_id instead — production
 --   hashed the device id, so hashing distinct_id would fabricate disagreements.
+WITH person_variants AS (
+    SELECT person_id,
+           -- Mirrors multiple_variant_handling = 'exclude' (the default).
+           -- For 'first_seen': argMin(properties.$feature_flag_response, timestamp)
+           if(uniqExact(properties.$feature_flag_response) > 1, '$multiple',
+              any(properties.$feature_flag_response)) AS variant
+    FROM events
+    WHERE event = '$feature_flag_called'
+      AND properties.$feature_flag = '<flag-key>'
+      AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
+      AND timestamp >= '<start_date>'
+    GROUP BY person_id
+)
 SELECT distinct_id,
-       argMin(properties.$feature_flag_response, timestamp) AS recorded_variant
+       argMin(properties.$feature_flag_response, timestamp) AS recorded_variant,
+       uniqExact(properties.$feature_flag_response) AS variants_seen
 FROM events
 WHERE event = '$feature_flag_called'
   AND properties.$feature_flag = '<flag-key>'
   AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
   AND timestamp >= '<start_date>'
+  -- Drop this filter under 'first seen' handling, which excludes no one.
+  AND person_id IN (SELECT person_id FROM person_variants WHERE variant != '$multiple')
 GROUP BY distinct_id
 ORDER BY cityHash64(distinct_id)
 LIMIT 800

@@ -88,12 +88,17 @@ one of two places:
   users get an exposure recorded is selected: one arm reaches a surface the other never does, or
   one arm's users read the flag before it loaded and are silently dropped.
 
-The decisive test that tells you which half you're in — recompute the assignment hash offline and
-compare it to the recorded variant — is the
+The decisive test that tells you which half you're in — recompute the assignment hash offline, then
+split the observed gap into the part explained by _which users got recorded_ (selection ⇒
+capture-side) and the part explained by _users recorded onto the wrong arm_ (reassignment ⇒
+assignment-side) — is the
 [decisive test in references/pulling-the-data.md](references/pulling-the-data.md#the-decisive-test-recompute-assignment-offline),
-with a runnable [`srm_check.py`](scripts/srm_check.py). Run it before guessing: ~100% agreement ⇒
-capture-side, well under 100% ⇒ assignment-side. The causes below are tagged with the half they sit
-in.
+with a runnable [`srm_check.py`](scripts/srm_check.py). Run it before guessing. It names a side only
+when one component both dominates the gap and is statistically distinguishable from zero; otherwise
+it reports the split as mixed, or the test as inapplicable, and says why. Don't route on the raw
+agreement percentage — scattered disagreements can't produce a _directional_ SRM, so a large
+capture-side skew under a little override noise still reads as high agreement. The causes below are
+tagged with the half they sit in.
 
 - **Uneven split + "Exclude from analysis" (the bias banner).** This is the most common real
   cause. When the variant split is uneven _and_ multiple-variant handling is set to **Exclude
