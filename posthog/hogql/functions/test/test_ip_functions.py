@@ -23,6 +23,10 @@ IP_FUNCTION_CASES: list[tuple[str, object]] = [
     ("isIPv4String('1.2.3.4')", 1),
     ("isIPv6String('::1')", 1),
     ("isIPAddressInRange('66.249.84.5', '66.249.80.0/20')", 1),
+    # A real $ip value that is not an address must not abort the query - it matches nothing.
+    ("isIPAddressInRange('0', '10.0.0.0/8')", 0),
+    # A native IPv4 argument still matches - the safety wrapper coerces before checking.
+    ("isIPAddressInRange(toIPv4('192.168.5.2'), '192.168.0.0/16')", 1),
     ("toString(tupleElement(IPv4CIDRToRange(toIPv4('192.168.5.2'), 16), 1))", "192.168.0.0"),
     ("toString(tupleElement(IPv6CIDRToRange(toIPv6('2001:db8::8a2e:370:7334'), 32), 1))", "2001:db8::"),
     ("toString(cutIPv6(toIPv6('2001:db8::8a2e:370:7334'), 2, 0))", "2001:db8::8a2e:370:0"),

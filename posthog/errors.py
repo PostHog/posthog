@@ -358,9 +358,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    # Stays internal: the CH message embeds the failing data value, which would leak stored
-    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
-    6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
+    # Exposed with a fixed message: the raw CH message embeds the failing data value, which would
+    # leak stored data to anonymous viewers of public shared insights, so hide it behind a generic
+    # string. A user can act on this (bad value or query), so it is a 400, not a captured 500.
+    6: ErrorCodeMeta(
+        "CANNOT_PARSE_TEXT",
+        user_safe="A value could not be parsed into the type the query expected. "
+        "Check the inputs to type conversions such as IP, date, or number functions.",
+        category=QueryErrorCategory.USER_ERROR,
+    ),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
