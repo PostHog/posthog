@@ -126,6 +126,8 @@ class CanvasSerializer(serializers.ModelSerializer):
             "description",
             "channel",
             "template_id",
+            "source_product",
+            "source_resource_id",
             "context",
             "generation_task_id",
             "discussion_task_id",

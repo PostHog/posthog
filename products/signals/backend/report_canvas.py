@@ -239,6 +239,8 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
                 channel_id=channel.id,
                 name=report.title or "Report",
                 discussion_task_id=discussion_task_id,
+                source_product="signal_report",
+                source_resource_id=report.id,
             )
             session = SignalReportCanvas.objects.create(
                 team_id=team_id,

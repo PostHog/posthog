@@ -118,12 +118,18 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         canvas_id = self._create_canvas()
         discussion_task_id = uuid4()
         with team_scope(self.team.id):
-            Canvas.objects.filter(id=canvas_id).update(discussion_task_id=discussion_task_id)
+            Canvas.objects.filter(id=canvas_id).update(
+                discussion_task_id=discussion_task_id,
+                source_product="signal_report",
+                source_resource_id="report-1",
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["discussion_task_id"] == str(discussion_task_id)
+        assert response.json()["source_product"] == "signal_report"
+        assert response.json()["source_resource_id"] == "report-1"
 
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):

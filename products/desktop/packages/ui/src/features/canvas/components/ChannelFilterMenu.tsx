@@ -188,7 +188,10 @@ export function ChannelFilterMenu({
       value: source,
       // A source we have no name for still filters — the raw key is a worse
       // label than "Slack", but a missing option would be a worse answer.
-      label: getOriginProductMeta(source)?.label ?? source,
+      label:
+        source === "user_created"
+          ? "Created here"
+          : (getOriginProductMeta(source)?.label ?? source),
     })),
   ];
 
@@ -244,21 +247,19 @@ export function ChannelFilterMenu({
           onChange={(value) => onFilterChange("pinned", value)}
         />
         {showRunFilters && (
-          <>
-            <FilterSubmenu
-              label="Environment"
-              options={ENVIRONMENT_OPTIONS}
-              value={filters.environment}
-              onChange={(value) => onFilterChange("environment", value)}
-            />
-            <FilterSubmenu
-              label="Source"
-              options={sourceOptions}
-              value={filters.source}
-              onChange={(value) => onFilterChange("source", value)}
-            />
-          </>
+          <FilterSubmenu
+            label="Environment"
+            options={ENVIRONMENT_OPTIONS}
+            value={filters.environment}
+            onChange={(value) => onFilterChange("environment", value)}
+          />
         )}
+        <FilterSubmenu
+          label="Source"
+          options={sourceOptions}
+          value={filters.source}
+          onChange={(value) => onFilterChange("source", value)}
+        />
         <DropdownMenuSeparator />
         <FilterSubmenu
           label="Sort by"

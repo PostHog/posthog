@@ -25,6 +25,8 @@ Each report owns one internal `SignalReportCanvas` link used by the generation a
 - one canvas, which remains stable across report updates;
 - the current internal generation task.
 
+The canvas also records `signal_report` provenance and the report id. Clients can identify and filter report-generated canvases without depending on the current generation task.
+
 The canvas agent receives all PostHog read scopes and `canvas:write`. It cannot mutate other PostHog objects. Successful source is copied into the generation-attempt record for review.
 
 The report fingerprint includes its narrative, charts, research run, and implementation PR. A changed fingerprint starts another generation against the same canvas. PR webhooks trigger the same idempotent workflow, so a PR can enrich a canvas after its initial publication.

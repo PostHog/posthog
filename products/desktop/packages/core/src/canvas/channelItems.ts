@@ -34,6 +34,7 @@ export interface ChannelItemModel {
   environment: ChannelItemEnvironment | null;
   /** The product that filed it (`origin_product`), or null if it started here. */
   source: string | null;
+  sourceResourceId?: string | null;
   /** The agent is blocked on an answer from you. */
   needsInput: boolean;
   /** There is activity here you haven't seen. */
@@ -139,7 +140,8 @@ export function buildChannelItems({
     pinned: d.pinnedAt != null,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: d.sourceProduct,
+    sourceResourceId: d.sourceResourceId ?? null,
     needsInput: false,
     unread: false,
     authorUser: null,
@@ -167,6 +169,7 @@ export function buildChannelItems({
               sessionFacts.workspaceModeByTaskId.get(task.id),
             ),
             source: sourceOf(task),
+            sourceResourceId: task.signal_report ?? null,
             needsInput: sessionFacts.needsInputTaskIds.has(task.id),
             unread: isTaskUnread(
               taskActivityAt(task),

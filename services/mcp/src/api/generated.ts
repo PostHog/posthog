@@ -14947,6 +14947,13 @@ export namespace Schemas {
       readonly description: string;
       readonly channel: string;
       readonly template_id: string;
+      /** Product that created this canvas, or user_created when it was created directly. */
+      readonly source_product: string;
+      /**
+         * Stable identifier of the source resource, such as a Signals report id.
+         * @nullable
+         */
+      readonly source_resource_id: string | null;
       readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;

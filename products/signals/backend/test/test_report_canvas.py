@@ -98,6 +98,8 @@ class TestReportCanvasGeneration(APIBaseTest):
         discussion = self.task_model.objects.get(id=session.discussion_task_id)
         assert canvas.channel.name == "general"
         assert canvas.discussion_task_id == discussion.id
+        assert canvas.source_product == "signal_report"
+        assert canvas.source_resource_id == str(report.id)
         assert discussion.channel_id == canvas.channel_id
         assert discussion.state is not None
         assert discussion.state["activity_target"] == {"scope": "desktop_canvas", "id": str(canvas.id)}

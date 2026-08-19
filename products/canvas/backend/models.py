@@ -46,6 +46,18 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # widget shows and what its config controls.
     description = models.TextField(blank=True, default="")
     template_id = models.CharField(max_length=64, default="freeform")
+    source_product = models.CharField(
+        max_length=64,
+        default="user_created",
+        db_default="user_created",
+        help_text="Product that created this canvas, or user_created when it was created directly.",
+    )
+    source_resource_id = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="Stable identifier of the source resource, such as a Signals report id.",
+    )
     # Author-written markdown handed to generation tasks as background context.
     context = models.TextField(blank=True, default="")
     # The task currently generating/editing this canvas. A plain UUID rather

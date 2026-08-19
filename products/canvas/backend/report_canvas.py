@@ -30,12 +30,22 @@ class CanvasGenerationSourceUnavailable(Exception):
     pass
 
 
-def create_report_canvas(*, team_id: int, channel_id: str | UUID, name: str, discussion_task_id: str | UUID) -> UUID:
+def create_report_canvas(
+    *,
+    team_id: int,
+    channel_id: str | UUID,
+    name: str,
+    discussion_task_id: str | UUID,
+    source_product: str,
+    source_resource_id: str | UUID,
+) -> UUID:
     canvas = Canvas.objects.for_team(team_id).create(
         team_id=team_id,
         channel_id=channel_id,
         name=name,
         discussion_task_id=discussion_task_id,
+        source_product=source_product,
+        source_resource_id=str(source_resource_id),
     )
     return canvas.id
 
