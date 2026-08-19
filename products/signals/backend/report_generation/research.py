@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # persisted as artefacts); re-exported here because this module is where research callers and
 # prompts historically import them from.
 from products.signals.backend.artefact_schemas import (
+    LEGACY_PROPOSED_CHANGE_PLACEHOLDER,
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
@@ -272,6 +273,26 @@ def _render_previous_finding_context(previous_finding: SignalFinding | None) -> 
         return ""
 
     finding_json = previous_finding.model_dump_json(indent=2)
+
+    # A finding stored before `proposed_change` existed has the placeholder, not a real change.
+    # It cannot be confirmed as-is (there is nothing to restate), so require a fresh finding that
+    # carries a concrete change — that also upgrades the stored row on the next persist.
+    if previous_finding.proposed_change.strip() == LEGACY_PROPOSED_CHANGE_PLACEHOLDER:
+        return f"""
+## Previous finding for this signal
+
+This signal was already analyzed in an earlier report run, but the finding predates the
+`proposed_change` field and has none recorded.
+
+- Lightly validate whether the cited code paths still exist and whether the previous claim still appears true.
+- Even if the diagnosis still holds, do not confirm it. Return a replacement in `finding` with a concrete `proposed_change`, so the finding carries the change a coding agent would apply.
+
+Previous finding:
+
+```json
+{finding_json}
+```"""
+
     return f"""
 ## Previous finding for this signal
 

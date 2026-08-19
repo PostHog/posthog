@@ -13,7 +13,7 @@ from posthog.models import Team
 from posthog.models.scoping import with_team_scope
 
 from products.canvas.backend import report_canvas as canvas_api
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, parse_artefact_content
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError, parse_stored_artefact_content
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     SignalReport,
@@ -143,7 +143,7 @@ def _report_artefact_context(report: SignalReport) -> list[dict]:
                 continue
             seen_status_types.add(row.type)
         try:
-            content = parse_artefact_content(row.type, row.content).model_dump(mode="json")
+            content = parse_stored_artefact_content(row.type, row.content).model_dump(mode="json")
         except ArtefactContentValidationError:
             continue
         if row.type == SignalReportArtefact.ArtefactType.SIGNAL_FINDING:

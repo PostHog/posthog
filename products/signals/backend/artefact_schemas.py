@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Literal, cast
@@ -623,3 +624,37 @@ def parse_artefact_content(artefact_type: str, content: str | dict | list) -> Ar
         return cast(ArtefactContent, schema.model_validate(content))
     except ValidationError as e:
         raise ArtefactContentValidationError(str(e)) from e
+
+
+# `proposed_change` became a required `SignalFinding` field after some findings were already stored.
+# Reads of those rows backfill this placeholder so an old row still parses; it marks a finding that
+# has no recorded change, so re-research re-derives one instead of restating the placeholder.
+LEGACY_PROPOSED_CHANGE_PLACEHOLDER = "Not recorded: this finding predates the proposed_change field."
+
+
+def _backfill_legacy_signal_finding(content: str | dict | list) -> str | dict | list:
+    """Fill a missing `proposed_change` on a stored finding with the legacy placeholder.
+
+    Leaves non-dict / malformed content untouched so the caller's parse surfaces the real error.
+    """
+    parsed: object = content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except ValueError:
+            return content  # malformed JSON: let the strict parse surface the real error
+    if isinstance(parsed, dict) and not str(parsed.get("proposed_change") or "").strip():
+        return {**parsed, "proposed_change": LEGACY_PROPOSED_CHANGE_PLACEHOLDER}
+    return content
+
+
+def parse_stored_artefact_content(artefact_type: str, content: str | dict | list) -> ArtefactContent:
+    """Tolerant boundary parser for READING already-stored rows.
+
+    Same as `parse_artefact_content`, but backfills defaults for fields that became required after
+    some rows were written, so re-reading an old row does not fail. Write paths must keep using the
+    strict `parse_artefact_content`, so new content still has to supply those fields.
+    """
+    if artefact_type == "signal_finding":
+        content = _backfill_legacy_signal_finding(content)
+    return parse_artefact_content(artefact_type, content)

@@ -4,10 +4,12 @@ import pytest
 
 from pydantic import ValidationError
 
+from products.signals.backend.artefact_schemas import LEGACY_PROPOSED_CHANGE_PLACEHOLDER
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
     SignalFindingUpdate,
+    _render_previous_finding_context,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
@@ -191,3 +193,25 @@ class TestSignalFindingUpdate:
     def test_confirmation_accepts_restated_proposed_change(self):
         update = SignalFindingUpdate(previous_finding_correct=True, proposed_change="In a.py, add the null check.")
         assert update.finding is None
+
+
+class TestRenderPreviousFindingContext:
+    def _finding(self, proposed_change: str) -> SignalFinding:
+        return SignalFinding(
+            signal_id="s1",
+            relevant_code_paths=["a.py"],
+            data_queried="none",
+            verified=True,
+            proposed_change=proposed_change,
+        )
+
+    def test_normal_finding_can_be_confirmed(self):
+        rendered = _render_previous_finding_context(self._finding("In a.py, add the guard."))
+        assert "`previous_finding_correct: true`" in rendered
+
+    def test_legacy_finding_must_be_replaced_not_confirmed(self):
+        # A finding backfilled with the legacy placeholder has no real change to restate, so
+        # confirming it would carry the placeholder into the trace. Force a fresh replacement.
+        rendered = _render_previous_finding_context(self._finding(LEGACY_PROPOSED_CHANGE_PLACEHOLDER))
+        assert "do not confirm it" in rendered.lower()
+        assert "`previous_finding_correct: true`" not in rendered

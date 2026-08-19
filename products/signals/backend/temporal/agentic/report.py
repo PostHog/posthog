@@ -1,6 +1,5 @@
-import json
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -19,7 +18,13 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    ArtefactContent,
+    ArtefactContentValidationError,
+    RelatedTo,
+    SuggestedReviewers,
+    parse_stored_artefact_content,
+)
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -73,12 +78,6 @@ class RunAgenticReportOutput:
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
 
-# `proposed_change` became a required `SignalFinding` field after some findings were already stored.
-# Backfill this placeholder when a stored finding predates the field, so re-research can still load
-# prior context and either confirm it (restating a real change) or replace it. Never persisted:
-# a confirmation writes nothing, and a replacement supplies its own change.
-_LEGACY_PROPOSED_CHANGE = "Not recorded: this finding predates the proposed_change field."
-
 
 def _parse_artefact_content(
     model_cls: type[_ArtefactContentT], artefact: SignalReportArtefact, report_id: str
@@ -96,18 +95,11 @@ def _parse_artefact_content(
 
 
 def _parse_stored_finding(artefact: SignalReportArtefact, report_id: str) -> SignalFinding:
-    # Tolerant read for stored findings only: unlike the strict write API, a legacy row missing
-    # `proposed_change` is backfilled rather than rejected. Any other schema mismatch still fails
-    # loudly, matching `_parse_artefact_content`.
+    # Tolerant read for stored findings: a legacy row missing `proposed_change` is backfilled rather
+    # than rejected (see `parse_stored_artefact_content`). Any other schema mismatch still fails loudly.
     try:
-        payload = json.loads(artefact.content)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"report {report_id}: {artefact.type} artefact {artefact.id} is not valid JSON") from error
-    if isinstance(payload, dict) and not str(payload.get("proposed_change") or "").strip():
-        payload["proposed_change"] = _LEGACY_PROPOSED_CHANGE
-    try:
-        return SignalFinding.model_validate(payload)
-    except ValidationError as error:
+        return cast(SignalFinding, parse_stored_artefact_content(artefact.type, artefact.content))
+    except ArtefactContentValidationError as error:
         raise ValueError(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {SignalFinding.__name__} schema"

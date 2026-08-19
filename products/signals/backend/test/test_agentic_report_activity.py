@@ -586,9 +586,10 @@ def test_parse_artefact_content_raises_on_incompatible_schema():
         _parse_artefact_content(ActionabilityAssessment, artefact, "report-1")
 
 
-def test_parse_stored_finding_backfills_missing_proposed_change():
-    # A finding stored before `proposed_change` became required must still load, or re-research
-    # crashes on every report that holds a pre-existing finding.
+def test_parse_stored_finding_loads_legacy_row_without_crashing():
+    # `_load_previous_research` reads stored findings through this wrapper. A finding stored before
+    # `proposed_change` became required must still load, or re-research crashes on every report that
+    # holds a pre-existing finding.
     legacy = '{"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": true}'
     artefact = SignalReportArtefact(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING, content=legacy)
     finding = _parse_stored_finding(artefact, "report-1")
