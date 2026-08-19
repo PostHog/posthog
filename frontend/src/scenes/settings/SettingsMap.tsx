@@ -883,7 +883,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
-                flag: LogsFeatureFlagKeys.dropRules,
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
