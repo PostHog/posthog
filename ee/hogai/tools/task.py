@@ -96,7 +96,7 @@ The following artifacts have been generated:
 
 {{{artifacts_list}}}
 
-Artifact IDs are scoped to this conversation and are not insight short IDs. Never write one into an `/insights/...` link: the insight was never saved to the project, so that link would 404.
+Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there.
 """
 
 

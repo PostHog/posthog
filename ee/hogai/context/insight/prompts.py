@@ -1,7 +1,7 @@
 INSIGHT_RESULT_TEMPLATE = """
 Name: {{{insight_name}}}
 {{#insight_id}}
-Insight ID: {{{insight_id}}}
+{{#insight_url}}Insight ID: {{{insight_id}}}{{/insight_url}}{{^insight_url}}Artifact ID: {{{insight_id}}}{{/insight_url}}
 {{/insight_id}}
 {{#insight_description}}
 Description: {{{insight_description}}}
@@ -10,7 +10,7 @@ Description: {{{insight_description}}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
 {{^insight_url}}
-This insight is not saved in the project, so it cannot be accessed via a URL. Any ID above is a conversation-scoped artifact ID, not an insight short ID, so never write it into an `/insights/...` link: that link would 404. If the user wants a permanent link, tell them to click the open insight icon below the chart.
+This insight is not saved in the project, so it cannot be accessed via a URL. Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there.
 {{/insight_url}}
 {{#query_schema}}
 
