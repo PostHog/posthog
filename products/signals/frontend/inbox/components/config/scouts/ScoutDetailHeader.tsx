@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCadenceLabel } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
@@ -125,6 +126,13 @@ export function ScoutDetailHeader({
                         icon={<IconExternal />}
                         to={urls.skill(config.skill_name)}
                         aria-label={`Open the ${config.skill_name} skill`}
+                        onClick={() =>
+                            captureScoutAction({
+                                actionType: 'open_skill_in_posthog',
+                                surface: 'scout_detail',
+                                skillName: config.skill_name,
+                            })
+                        }
                     />
                 </Tooltip>
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
