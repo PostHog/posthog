@@ -16,10 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 
-# How far back a first sync reaches, declared as the source's `history_lookback`. Report tables
-# drain in fixed windows, so a walk needs a start close enough that it isn't spent on empty
-# requests. Not an API limit — Google serves older rows, so this costs catch-up time, not
-# correctness.
+# Declared as the source's `history_lookback`. Not an API limit — Google serves older rows, so
+# this costs first-sync catch-up time rather than correctness.
 GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 
 

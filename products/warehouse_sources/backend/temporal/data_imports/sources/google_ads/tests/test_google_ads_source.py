@@ -1520,10 +1520,9 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
-        # The cursor arrives already shifted back by the schema's lookback, so the first windows
-        # re-read data the table has. A run that spends its whole budget on that overlap leaves the
-        # cursor where it started and the next run repeats it, so a schema behind by more than its
-        # lookback never advances. The budget has to buy new ground even when it's already spent.
+        # A run that spends its whole budget re-reading the lookback overlap leaves the cursor where
+        # it started, so the next run repeats it and a schema behind by more than its lookback never
+        # advances. The budget has to buy new ground even when it is already spent.
         clock = itertools.count()
 
         with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
@@ -1561,15 +1560,12 @@ class TestGoogleAdsQueryConstruction:
         assert "segments.date >= '2026-05-09'" in queries[-1]
 
     def test_a_straddling_window_of_only_overlap_rows_cannot_stop_the_drain(self):
-        # The cursor sits at the last day with data before a gap (a paused account that later
-        # resumed), with the real backlog past the gap. The window that straddles the cursor holds
-        # only rows at or before it — data the table already has. Arming the budget on that window
-        # lets the run stop there with the cursor unmoved, so every later run repeats the same
-        # windows and the gap is never crossed: a silent no-progress stall. The budget must not stop
-        # the drain until a window that starts past the cursor has produced rows.
+        # The same stall, reached differently: a window that straddles the cursor can hold only rows
+        # at or before it, so arming the budget on `window_end` rather than `start` stops the run
+        # with the cursor unmoved and the gap never crossed.
         cursor = dt.date(2026, 1, 1)
         w = GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS
-        # charge_from = cursor + 30d = 2026-01-31, straddled by the window starting 2026-01-29.
+        # The pre-lookback cursor is 2026-01-31, straddled by the window starting 2026-01-29.
         overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
         # One second of drain per loop check, against a two-second budget — the budget is spent long

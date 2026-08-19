@@ -623,8 +623,7 @@ def google_ads_source(
             else:
                 # A first sync and a re-import both arrive here, and both read the range the schema
                 # records, so the two stop needing to be told apart. No recorded range means
-                # unbounded: ask the account where its rows begin rather than walk empty windows
-                # from the sentinel. An account holding nothing has no range to walk.
+                # unbounded, which this drain reaches by asking the account rather than walking to it.
                 if history_start is not None:
                     start = _incremental_value_as_date(history_start)
                 else:

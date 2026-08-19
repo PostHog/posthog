@@ -101,8 +101,8 @@ class SourceInputs:
     # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
     # before it are overlap the table already holds rather than new ground.
     db_incremental_field_last_value_before_lookback: Optional[Any] = None
-    # The oldest point this schema is meant to cover, for a source that declares a `history_window`.
-    # None means the source reads everything, which is most of them.
+    # Resolved from the schema for a source that declares a `history_lookback`; `None` means
+    # unbounded. See `sources/common/history_window.py`.
     history_start: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None

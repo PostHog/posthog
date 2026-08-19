@@ -175,10 +175,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
-    # How far back a first sync reaches, for a source that bounds one. `None` means unbounded,
-    # which is most sources: they re-read everything and a re-import loses nothing. A source that
-    # sets this reads `SourceInputs.history_start` rather than resolving a constant itself. See
-    # `sources/common/history_window.py`.
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
     @property
