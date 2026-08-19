@@ -14,6 +14,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_CLAIMED,
     WORKFLOW_DISPATCH_CREATED_TOTAL,
+    WORKFLOW_DISPATCH_DEAD_TOTAL,
     WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL,
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS,
     WORKFLOW_DISPATCH_READY,
@@ -97,12 +98,12 @@ def create_dispatch(task_run: TaskRun, kind: str, payload: dict[str, Any], workf
         "payload": payload,
         "status": TaskWorkflowDispatch.Status.PENDING,
         "attempt_count": 0,
-        "enqueued_at": django_timezone.now(),
         "next_attempt_at": django_timezone.now(),
         "claimed_by": "",
         "lease_expires_at": None,
         "accepted_at": None,
         "last_error": "",
+        "enqueued_at": django_timezone.now(),
     }
     queryset = TaskWorkflowDispatch.objects.for_team(task_run.team_id)
     if kind == TaskWorkflowDispatch.Kind.RESTART:
@@ -144,15 +145,28 @@ def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> lis
 
 def sample_dispatch_metrics() -> None:
     now = django_timezone.now()
-    values = TaskWorkflowDispatch.objects.unscoped().aggregate(
-        ready=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
-        claimed=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.CLAIMED)),
-        oldest_ready=Min("created_at", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
+    values = (
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(status__in=[TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED])
+        .aggregate(
+            ready=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
+            claimed=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.CLAIMED)),
+            oldest_ready=Min(
+                "enqueued_at", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)
+            ),
+        )
     )
     WORKFLOW_DISPATCH_READY.set(values["ready"] or 0)
     WORKFLOW_DISPATCH_CLAIMED.set(values["claimed"] or 0)
     oldest = values["oldest_ready"]
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS.set(max(0.0, (now - oldest).total_seconds()) if oldest else 0)
+
+
+def dispatch_exceeded_max_age(
+    dispatch: TaskWorkflowDispatch, max_age_seconds: int, *, now: datetime | None = None
+) -> bool:
+    current_time = now or django_timezone.now()
+    return current_time - dispatch.enqueued_at > timedelta(seconds=max_age_seconds)
 
 
 def renew_leases(instance_id: str, dispatch_ids: list[Any], lease: timedelta) -> int:
@@ -200,7 +214,7 @@ def release_claims(instance_id: str) -> int:
     )
 
 
-def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
+def mark_dead(dispatch_id: Any, instance_id: str, error: str, reason: str = "payload") -> int:
     with transaction.atomic():
         dispatch = (
             TaskWorkflowDispatch.objects.unscoped().select_for_update().select_related("task_run").get(id=dispatch_id)
@@ -212,9 +226,16 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
         dispatch.claimed_by = ""
         dispatch.lease_expires_at = None
         dispatch.save(update_fields=["status", "last_error", "claimed_by", "lease_expires_at", "updated_at"])
+        WORKFLOW_DISPATCH_DEAD_TOTAL.labels(kind=dispatch.dispatch_kind, reason=reason).inc()
         run = dispatch.task_run
         if dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART:
-            _, snapshot = parse_restart_payload(dispatch.payload)
+            try:
+                _, snapshot = parse_restart_payload(dispatch.payload)
+            except (KeyError, TypeError, ValueError):
+                from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run  # noqa: PLC0415
+
+                transaction.on_commit(lambda: _terminalize_unstarted_task_run(str(run.id), error[:2000]))
+                return 1
             run.status = snapshot.status
             run.environment = snapshot.environment
             run.completed_at = datetime.fromisoformat(snapshot.completed_at) if snapshot.completed_at else None
@@ -226,7 +247,17 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
 
             execute_after_commit(lambda: _terminalize_unstarted_task_run(str(run.id), error[:2000]))
             return 1
-        run.save()
+        run.save(
+            update_fields=[
+                "status",
+                "environment",
+                "completed_at",
+                "queued_at",
+                "state",
+                "error_message",
+                "updated_at",
+            ]
+        )
         execute_after_commit(run.publish_stream_state_event)
         return 1
 

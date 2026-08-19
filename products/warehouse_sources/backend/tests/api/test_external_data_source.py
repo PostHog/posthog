@@ -2068,7 +2068,6 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 201
 
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
-        """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
@@ -2124,7 +2123,6 @@ class TestExternalDataSource(APIBaseTest):
         assert source_model.job_inputs["dataset_id"] == "my_project.my_dataset"
 
     def test_create_external_data_source_missing_required_bigquery_job_input(self):
-        """Test we fail source creation when missing inputs."""
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -5817,7 +5815,6 @@ class TestExternalDataSource(APIBaseTest):
         return_value=(True, None),
     )
     def test_update_with_new_password_updates_password(self, mock_validate_credentials):
-        """Test that explicitly providing a new password does update it."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -7662,7 +7659,6 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     def test_snowflake_auth_type_create_and_update(self):
-        """Test that we can create and update the auth type for a Snowflake source"""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
@@ -7780,7 +7776,6 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["auth_type"]["private_key"] == "my_private_key"
 
     def test_bigquery_create_and_update(self):
-        """Test that we can create and update the config for a BigQuery source"""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
@@ -8064,7 +8059,6 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json()["message"] != limit_message
 
     def test_revenue_analytics_config_created_automatically(self):
-        """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()
 
         # Config should be created automatically
@@ -8076,7 +8070,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is True
 
     def test_revenue_analytics_config_safe_property(self):
-        """Test that the safe property always returns a config even if it doesn't exist."""
         source = self._create_external_data_source()
 
         # Delete the config to test fallback
@@ -8089,7 +8082,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.enabled is True  # Stripe should be enabled by default
 
     def test_revenue_analytics_config_in_api_response(self):
-        """Test that revenue analytics config is included in API responses."""
         source = self._create_external_data_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
@@ -8102,7 +8094,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config_data["include_invoiceless_charges"] is True
 
     def test_update_revenue_analytics_config(self):
-        """Test updating revenue analytics config via PATCH endpoint."""
         source = self._create_external_data_source()
 
         response = self.client.patch(
@@ -8129,7 +8120,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is False
 
     def test_revenue_analytics_config_partial_update(self):
-        """Test partial update of revenue analytics config."""
         source = self._create_external_data_source()
 
         response = self.client.patch(
@@ -8146,7 +8136,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is True  # Should remain unchanged
 
     def test_revenue_analytics_config_queryset_optimization(self):
-        """Test that the manager uses select_related for efficient queries."""
         self._create_external_data_source()
         self._create_external_data_source()
 
@@ -8196,7 +8185,6 @@ class TestExternalDataSource(APIBaseTest):
         assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
 
     def test_create_external_data_source_rejects_invalid_prefix(self):
-        """Test that invalid characters in prefix are rejected."""
         invalid_prefixes = [
             ("email@domain.com", "@"),
             ("test-prefix", "hyphen"),
@@ -8244,7 +8232,6 @@ class TestExternalDataSource(APIBaseTest):
         return_value=(True, None),
     )
     def test_create_external_data_source_accepts_valid_prefix(self, _mock_validate):
-        """Test that valid prefixes are accepted."""
         valid_prefixes = [
             "valid_prefix",
             "_starts_with_underscore",
