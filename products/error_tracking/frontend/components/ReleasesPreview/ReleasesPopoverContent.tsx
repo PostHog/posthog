@@ -20,9 +20,10 @@ import { GitMetadataParser } from './gitMetadataParser'
 
 export interface ReleasesPopoverContentProps {
     release: ErrorTrackingRelease
+    platform?: string
 }
 
-export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
+export function ReleasePopoverContent({ release, platform }: ReleasesPopoverContentProps): JSX.Element {
     return (
         <div className="overflow-hidden">
             <div className="p-2">
@@ -32,6 +33,12 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
                         <th className="pb-1">Project</th>
                         <td className="pb-1 text-right">{release.project ?? 'Unknown'}</td>
                     </tr>
+                    {platform && (
+                        <tr>
+                            <th>Platform</th>
+                            <td className="text-right">{platform}</td>
+                        </tr>
+                    )}
                     {(() => {
                         const [displayVersion, build] = release.version.includes('+')
                             ? release.version.split('+', 2)

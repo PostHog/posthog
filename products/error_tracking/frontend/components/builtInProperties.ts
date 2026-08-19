@@ -2,12 +2,19 @@ export interface BuiltInErrorTrackingProperty {
     property: string
     title: string
     versionProperty?: string
+    /** Used when `property` is absent, for SDKs that report the same thing under another key. */
+    fallbackProperty?: string
 }
 
 export const BUILT_IN_ERROR_TRACKING_PROPERTIES: BuiltInErrorTrackingProperty[] = [
     { property: '$browser', title: 'Browser', versionProperty: '$browser_version' },
     { property: '$device_type', title: 'Device type' },
-    { property: '$os', title: 'Operating system', versionProperty: '$os_version' },
+    {
+        property: '$os',
+        title: 'Operating system',
+        versionProperty: '$os_version',
+        fallbackProperty: '$os_name',
+    },
     { property: '$pathname', title: 'Path' },
     { property: '$user_id', title: 'User ID' },
     { property: '$ip', title: 'IP address' },

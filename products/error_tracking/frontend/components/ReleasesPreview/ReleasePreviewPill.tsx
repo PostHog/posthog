@@ -7,12 +7,18 @@ import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
 
-export function ReleasePreviewPill({ release }: { release: ErrorTrackingRelease }): JSX.Element {
+export function ReleasePreviewPill({
+    release,
+    platform,
+}: {
+    release: ErrorTrackingRelease
+    platform?: string
+}): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     return (
         <Popover
             visible={isOpen}
-            overlay={<ReleasePopoverContent release={release} />}
+            overlay={<ReleasePopoverContent release={release} platform={platform} />}
             placement="right"
             padded={false}
             showArrow

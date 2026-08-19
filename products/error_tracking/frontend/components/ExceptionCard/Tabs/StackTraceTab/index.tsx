@@ -4,6 +4,7 @@ import type { ComponentProps } from 'react'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
 import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
+import { concatValues } from 'lib/components/Errors/utils'
 import { TabsContent } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
@@ -27,7 +28,12 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
             <SubHeader className="justify-between shrink-0">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    {release && <ReleasePreviewPill release={release} />}
+                    {release && (
+                        <ReleasePreviewPill
+                            release={release}
+                            platform={concatValues(exceptionAttributes, 'os', 'osVersion')}
+                        />
+                    )}
                 </div>
                 {renderActions?.()}
             </SubHeader>

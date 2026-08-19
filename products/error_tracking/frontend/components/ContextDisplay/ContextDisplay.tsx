@@ -31,12 +31,17 @@ export function ContextDisplay({
             value,
             filterKey: key,
         }))
-    const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(({ property, title, versionProperty }) => ({
-        key: title,
-        value: getBuiltInPropertyValue(properties, property, versionProperty),
-        filterKey: property,
-        filterValue: properties?.[property],
-    }))
+    const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(
+        ({ property, title, versionProperty, fallbackProperty }) => {
+            const resolvedProperty = resolveBuiltInProperty(properties, property, fallbackProperty)
+            return {
+                key: title,
+                value: getBuiltInPropertyValue(properties, resolvedProperty, versionProperty),
+                filterKey: resolvedProperty,
+                filterValue: properties?.[resolvedProperty],
+            }
+        }
+    )
     const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
 
     return (
@@ -83,6 +88,18 @@ function filterEntriesByPropertyName<T extends { key: string; filterKey?: string
             .filter((value): value is string => typeof value === 'string')
             .some((value) => value.toLocaleLowerCase().includes(normalizedPropertyNameFilter))
     )
+}
+
+function resolveBuiltInProperty(
+    properties: Record<string, unknown> | undefined,
+    property: string,
+    fallbackProperty: string | undefined
+): string {
+    if (!fallbackProperty) {
+        return property
+    }
+    const value = properties?.[property]
+    return value === undefined || value === null || value === '' ? fallbackProperty : property
 }
 
 function getBuiltInPropertyValue(

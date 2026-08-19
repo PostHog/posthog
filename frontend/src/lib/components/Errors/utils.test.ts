@@ -189,6 +189,17 @@ describe('Error Display', () => {
         expect(result.level).toEqual('fatal')
     })
 
+    // Mobile SDKs report the platform in $os_name and leave $os unset, so reading $os alone left
+    // iOS and Android errors with no platform anywhere in the UI.
+    it.each([
+        ['$os_name only', { $os_name: 'iOS' }, 'iOS'],
+        ['$os only', { $os: 'Windows' }, 'Windows'],
+        ['both keys', { $os_name: 'iPadOS', $os: 'Mac OS X' }, 'iPadOS'],
+        ['neither key', {}, undefined],
+    ])('resolves os from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).os).toEqual(expected)
+    })
+
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
     // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
     it.each([
