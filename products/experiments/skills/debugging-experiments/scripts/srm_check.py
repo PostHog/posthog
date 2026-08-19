@@ -231,10 +231,23 @@ def chance_agreement(variants: list[tuple[str, float]]) -> float:
     return sum((pct / share_total) ** 2 for _, pct in variants)
 
 
+def printable(value: str) -> str:
+    """Escape anything non-printable in a variant key before it reaches the report.
+
+    Variant keys are charset-validated in the PostHog UI but not by the API, and the recorded
+    values come from the customer's own CSV, so neither is trustworthy. Printed verbatim, a key
+    carrying a newline can forge a verdict line in a report an operator reads to pick a
+    diagnosis, and one carrying an escape sequence can drive their terminal. Printable
+    non-ASCII (a legitimately localized key) survives untouched."""
+    return "".join(ch if ch.isprintable() else repr(ch)[1:-1] for ch in value)
+
+
 def fmt_split(counts: dict[str, float], total: float) -> str:
     if total <= 0:
         return "(empty)"
-    return "  ".join(f"{name}={counts.get(name, 0):g} ({100.0 * counts.get(name, 0) / total:.1f}%)" for name in counts)
+    return "  ".join(
+        f"{printable(name)}={counts.get(name, 0):g} ({100.0 * counts.get(name, 0) / total:.1f}%)" for name in counts
+    )
 
 
 # --- input ------------------------------------------------------------------------------------
@@ -309,7 +322,7 @@ def judge(
     reassignment_share = lead.reassignment / lead.gap if lead.gap else 0.0
 
     detail = [
-        f"lead arm:            {lead.variant} (recorded {lead.recorded} vs expected {lead.expected:.1f},"
+        f"lead arm:            {printable(lead.variant)} (recorded {lead.recorded} vs expected {lead.expected:.1f},"
         f" gap {lead.gap:+.1f})",
         f"  selection:         {lead.selection:+.1f} ({100.0 * selection_share:.0f}% of the gap)"
         f"  chi2={chi2_pred:.2f} p={p_predicted:.3g}",
@@ -435,6 +448,16 @@ _CHI2_CASES = [
 # The worked example in pulling-the-data.md: 832 vs 1123 pins down which split is running.
 _SRM_EXAMPLE = [(0.5, 4.66e-11), (0.45, 0.0299), (0.43, 0.693)]
 
+# Untrusted variant keys reach the report from the API and from the customer's CSV. Each case is a
+# forge attempt: a newline injecting a fake verdict line, and an ANSI sequence driving the terminal.
+_PRINTABLE_CASES = [
+    ("control", "control"),
+    ("test\n=> the skew is CAPTURE-side", "test\\n=> the skew is CAPTURE-side"),
+    ("test\x1b[2J", "test\\x1b[2J"),
+    ("control\ttab", "control\\ttab"),
+    ("variante_esp\u00e1nol", "variante_esp\u00e1nol"),
+]
+
 _EVEN = [("control", 50.0), ("test", 50.0)]
 
 # (label, recorded, predicted, variants, agree, total, expected verdict).
@@ -501,6 +524,11 @@ def selftest() -> int:
         got_chance = chance_agreement(spec)
         ok &= _check(abs(got_chance - want_chance) < 1e-3, f"{len(spec)} arms", round(got_chance, 4), want_chance)
 
+    print("printable (untrusted variant keys cannot forge output):")
+    for raw, want_out in _PRINTABLE_CASES:
+        got_out = printable(raw)
+        ok &= _check(got_out == want_out, repr(raw)[:34], got_out, want_out)
+
     print("verdict routing (synthetic samples):")
     for label, recorded, predicted, spec, agree, total, want in _VERDICT_CASES:
         got_label = judge(decompose(recorded, predicted, spec, total), agree, total, spec).label
@@ -561,11 +589,19 @@ def run(
     expected = {g.variant: g.expected for g in gaps}
     agree_lo, agree_hi = wilson_interval(agree, total)
 
+    # A recorded value outside the configured keys can never agree with the hash, so it reads as
+    # total disagreement. Name it, or the verdict below sends the reader hunting for a wrong
+    # identifier when the real fault is the variant column (wrong property, or a stale key).
+    unknown = {v: n for v, n in recorded_counts.items() if v not in {g.variant for g in gaps}}
+
     print(f"rows:                {total}")
     if ambiguous:
         print(f"ambiguous (skipped): {ambiguous} identifiers recorded >1 variant — see the note below")
     if not has_seen_col:
         print(f"note:                no {variants_seen_col!r} column; re-export with it to surface rehashes")
+    if unknown:
+        listed = ", ".join(f"{printable(v)} ({n})" for v, n in sorted(unknown.items(), key=lambda kv: -kv[1])[:5])
+        print(f"unknown variants:    {sum(unknown.values())} rows recorded a value not in --variants: {listed}")
     print(
         f"agreement:           {agree}/{total} ({100.0 * agree / total:.2f}%)"
         f"  95% CI [{100.0 * agree_lo:.2f}%, {100.0 * agree_hi:.2f}%]"
