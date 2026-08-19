@@ -491,6 +491,9 @@ jobs:
                       --output dagster-testmon-selection-${{ matrix.group }}.json
 
             - name: Run Dagster tests
+              env:
+                  TESTMON_CACHE_HIT: ${{ steps.testmon-cache.outputs.cache-hit }}
+                  TESTMON_CACHE_MATCHED_KEY: ${{ steps.testmon-cache.outputs.cache-matched-key }}
               run: |
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
@@ -505,8 +508,8 @@ jobs:
                   fi
                   TESTMON_ARGS=()
                   if python -c "import testmon" 2>/dev/null; then
-                      if [[ "${{ github.event_name }}" == "push" && "${{ steps.testmon-cache.outputs.cache-hit }}" != "true" ]] || \
-                         [[ "${{ github.event_name }}" == "pull_request" && "${{ steps.testmon-cache.outputs.cache-matched-key }}" == "" ]]; then
+                      if [[ "$GITHUB_EVENT_NAME" == "push" && "$TESTMON_CACHE_HIT" != "true" ]] || \
+                         [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$TESTMON_CACHE_MATCHED_KEY" == "" ]]; then
                           TESTMON_ARGS=(--testmon-noselect -p no:cov)
                       fi
                   fi
