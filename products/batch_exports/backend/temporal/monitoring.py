@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -215,7 +216,7 @@ async def fetch_exported_event_counts(inputs: FetchExportedEventCountsInputs) ->
         ]
 
 
-@dataclass
+@frozen
 class ReconcileEventCountsInputs:
     """Inputs for reconciling event counts."""
 
