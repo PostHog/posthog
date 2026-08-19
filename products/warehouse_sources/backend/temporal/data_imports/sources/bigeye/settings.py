@@ -8,7 +8,7 @@ FetchMethod = Literal["get", "post"]
 # (connect, read) timeout for sync requests against the user-configured host. Bounds how long a
 # stalled or slow-responding custom host can occupy an import worker; the credential probe in
 # bigeye.py uses its own shorter timeout.
-REQUEST_TIMEOUT_SECONDS = (10, 60)
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
 
 @dataclass
