@@ -134,8 +134,8 @@ class TestHyrosSourcePagination:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_does_not_follow_redirects(self, MockSession) -> None:
-        # A redirect off the validated Hyros host would carry the API-Key header with it;
-        # the client must refuse to follow it (credential-leak guard).
+        # A redirect off the validated Hyros host would carry the API-Key header with it to an
+        # attacker-controlled origin; the client must refuse to follow it (credential-leak guard).
         session = MockSession.return_value
         _wire(session, [_response([{"id": "1"}])])
 
