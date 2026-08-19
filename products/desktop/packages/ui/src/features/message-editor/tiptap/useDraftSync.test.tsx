@@ -10,25 +10,28 @@ vi.mock("@posthog/ui/shell/rendererStorage", () => ({
 }));
 
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import type { Editor } from "@tiptap/core";
+import { Editor } from "@tiptap/core";
+import { getEditorExtensions } from "./extensions";
 import { useDraftSync } from "./useDraftSync";
 
-// The hook only reaches the editor through commands, so a stub of those is the
-// whole surface a restore test needs.
-function fakeEditor(): {
-  editor: Editor;
-  setContent: ReturnType<typeof vi.fn>;
-} {
-  const setContent = vi.fn();
-  const editor = {
-    commands: {
-      setContent,
-      focus: vi.fn(),
-      insertContent: vi.fn(),
-    },
-    getJSON: () => ({ type: "doc", content: [] }),
-  } as unknown as Editor;
-  return { editor, setContent };
+// A real editor rather than a stub of the commands the hook calls: what the
+// restore path is worth testing for is the text a user would see in the box.
+function makeEditor(): Editor {
+  const element = document.createElement("div");
+  document.body.appendChild(element);
+  return new Editor({
+    element,
+    extensions: getEditorExtensions({ sessionId: "session-1" }),
+  });
+}
+
+function DraftAttachmentsProbe({ sessionId }: { sessionId: string }) {
+  const { restoredAttachments } = useDraftSync(null, sessionId);
+  return (
+    <div>
+      {restoredAttachments.map((att) => att.label).join(",") || "empty"}
+    </div>
+  );
 }
 
 function RestoreProbe({
@@ -42,15 +45,6 @@ function RestoreProbe({
 }) {
   useDraftSync(editor, sessionId, undefined, initialContent);
   return null;
-}
-
-function DraftAttachmentsProbe({ sessionId }: { sessionId: string }) {
-  const { restoredAttachments } = useDraftSync(null, sessionId);
-  return (
-    <div>
-      {restoredAttachments.map((att) => att.label).join(",") || "empty"}
-    </div>
-  );
 }
 
 describe("useDraftSync", () => {
@@ -77,10 +71,10 @@ describe("useDraftSync", () => {
     [
       "leaves a saved draft alone",
       { segments: [{ type: "text" as const, text: "half a thought" }] },
-      undefined,
+      "half a thought",
     ],
   ])("%s", (_name, draft, expected) => {
-    const { editor, setContent } = fakeEditor();
+    const editor = makeEditor();
     if (draft) {
       useDraftStore.getState().actions.setDraft("session-restore", draft);
     }
@@ -93,18 +87,14 @@ describe("useDraftSync", () => {
       />,
     );
 
-    if (expected) {
-      expect(setContent).toHaveBeenCalledWith(expected);
-    } else {
-      expect(setContent).not.toHaveBeenCalledWith("Sales by week");
-    }
+    expect(editor.getText()).toBe(expected);
   });
 
   // Drafts land only once the store hydrates, so filling the box before that
   // would show the caller's text and then swap it for what the user had typed.
   it("holds initialContent until the draft store hydrates", () => {
     useDraftStore.setState((state) => ({ ...state, _hasHydrated: false }));
-    const { editor, setContent } = fakeEditor();
+    const editor = makeEditor();
 
     render(
       <RestoreProbe
@@ -113,12 +103,12 @@ describe("useDraftSync", () => {
         initialContent="Sales by week"
       />,
     );
-    expect(setContent).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe("");
 
     act(() => {
       useDraftStore.getState().actions.setHasHydrated(true);
     });
-    expect(setContent).toHaveBeenCalledWith("Sales by week");
+    expect(editor.getText()).toBe("Sales by week");
   });
 
   it("clears restored attachments when a draft no longer has attachments", () => {
