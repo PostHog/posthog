@@ -49715,6 +49715,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -49738,6 +49739,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -63134,7 +63136,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -78821,7 +78824,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -79982,7 +79986,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
