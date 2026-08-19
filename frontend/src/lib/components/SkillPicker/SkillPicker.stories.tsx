@@ -54,6 +54,12 @@ export const Loading: Story = {
         loading: true,
         onSelect: () => {},
     },
+    parameters: {
+        testOptions: {
+            // This story renders skeletons forever by design; the default wait would time out.
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 
 export const Empty: Story = {
