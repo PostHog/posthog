@@ -1,15 +1,16 @@
 use posthog_cli::{
     sourcemaps::{
         args::ReleaseMode,
-        content::SourceMapContent,
+        content::{MinifiedSourceFile, SourceMapContent, SourceMapFile},
         inject::{inject_pairs, inject_pairs_legacy},
         plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
-    utils::files::FileSelection,
+    utils::files::{FileSelection, SourceFile},
 };
 
 use anyhow::Result;
+use serde_json::json;
 
 use std::{
     fs,
@@ -506,6 +507,152 @@ fn test_event_mode_content_hash_is_stable_across_release_states() {
 
     assert_eq!(releaseless, with_release);
     assert_eq!(releaseless, transitioned);
+}
+
+const BUNDLER_DEBUG_ID: &str = "11111111-2222-4333-8444-555555555555";
+
+fn make_pair(source_content: &str, map_json: serde_json::Value) -> SourcePair {
+    SourcePair {
+        source: MinifiedSourceFile {
+            inner: SourceFile::new(PathBuf::from("chunk.js"), source_content.to_string()),
+        },
+        sourcemap: SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from("chunk.js.map"),
+                serde_json::from_value(map_json).expect("Failed to build SourceMapContent"),
+            ),
+        },
+    }
+}
+
+fn source_with_debug_id(debug_id: &str) -> String {
+    format!("console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=chunk.js.map\n")
+}
+
+fn map_with_debug_id(debug_id: Option<&str>) -> serde_json::Value {
+    let mut map = json!({
+        "version": 3,
+        "file": "chunk.js",
+        "sources": ["src/index.js"],
+        "sourcesContent": ["console.log(1)\n"],
+        "names": [],
+        "mappings": "AAAA",
+    });
+    if let Some(debug_id) = debug_id {
+        map["debugId"] = json!(debug_id);
+    }
+    map
+}
+
+#[test]
+fn test_inject_adopts_bundler_debug_id() {
+    // The bundler already stamped a debug id into the chunk and its map. Inject must adopt it
+    // as the chunk id and still apply the mapping adjustment for the prepended snippet — the
+    // old `alias = "debugId"` conflation made the map look already-processed and skipped it.
+    let source_before = source_with_debug_id(BUNDLER_DEBUG_ID);
+    let pair = make_pair(&source_before, map_with_debug_id(Some(BUNDLER_DEBUG_ID)));
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let pair = injected.first().unwrap();
+
+    assert_eq!(
+        pair.source.get_chunk_id().as_deref(),
+        Some(BUNDLER_DEBUG_ID)
+    );
+    assert!(pair
+        .source
+        .inner
+        .content
+        .contains(&format!("=\"{BUNDLER_DEBUG_ID}\"")));
+    let map = &pair.sourcemap.inner.content;
+    assert_eq!(map.chunk_id.as_deref(), Some(BUNDLER_DEBUG_ID));
+    assert_eq!(map.debug_id.as_deref(), Some(BUNDLER_DEBUG_ID));
+    assert_ne!(
+        map.fields.get("mappings").and_then(|v| v.as_str()),
+        Some("AAAA"),
+        "mapping adjustment for the prepended snippet was not applied"
+    );
+
+    // Undoing the injection must hand the bundler's bytes back exactly, debug id comment
+    // included — event-mode uploads hash that pristine form to dedupe across releases.
+    let mut pair = injected.into_iter().next().unwrap();
+    pair.remove_chunk_id(BUNDLER_DEBUG_ID.to_string())
+        .expect("Failed to remove chunk ID");
+    assert_eq!(pair.source.inner.content, source_before);
+}
+
+#[test]
+fn test_inject_ignores_malformed_debug_id() {
+    // Adopted ids flow into upload rows and SDK events; a bundler emitting a non-UUID debug id
+    // must not poison them — fall back to the content-derived chunk id.
+    let pair = make_pair(
+        "console.log(1);\n//# debugId=not-a-uuid\n//# sourceMappingURL=chunk.js.map\n",
+        map_with_debug_id(None),
+    );
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let chunk_id = injected.first().unwrap().source.get_chunk_id().unwrap();
+
+    assert_ne!(chunk_id, "not-a-uuid");
+    assert!(uuid::Uuid::parse_str(&chunk_id).is_ok());
+}
+
+#[test]
+fn test_inject_prefers_chunk_debug_id_over_sourcemap() {
+    // Sourcemaps can be shared across chunks, so the chunk's own debug id must win when the two
+    // disagree — flipping the precedence would stamp one chunk's id onto its siblings.
+    let map_debug_id = "99999999-8888-4777-8666-555555555555";
+    let pair = make_pair(
+        &source_with_debug_id(BUNDLER_DEBUG_ID),
+        map_with_debug_id(Some(map_debug_id)),
+    );
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let pair = injected.first().unwrap();
+
+    assert_eq!(
+        pair.source.get_chunk_id().as_deref(),
+        Some(BUNDLER_DEBUG_ID)
+    );
+}
+
+#[test]
+fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
+    // An adopted debug id keeps one chunk id across releases, so a fresh build and a re-injected
+    // dist must hash identically per release — the server keys its skip-or-overwrite decision on
+    // that hash, and drift would reject the upload as a content_hash_mismatch.
+    let load = || {
+        make_pair(
+            &source_with_debug_id(BUNDLER_DEBUG_ID),
+            map_with_debug_id(Some(BUNDLER_DEBUG_ID)),
+        )
+    };
+    let upload_of = |pair: SourcePair| {
+        pair.into_upload(ReleaseMode::Event)
+            .expect("Failed to convert to SymbolSetUpload")
+    };
+
+    let fresh = upload_of(
+        inject_pairs(vec![load()], Some("release-a"))
+            .expect("Failed to inject pairs")
+            .into_iter()
+            .next()
+            .unwrap(),
+    );
+    let transitioned = {
+        let injected = inject_pairs(vec![load()], Some("release-a")).expect("Failed to inject");
+        upload_of(
+            inject_pairs(injected, Some("release-b"))
+                .expect("Failed to re-inject pairs")
+                .into_iter()
+                .next()
+                .unwrap(),
+        )
+    };
+
+    assert_eq!(fresh.chunk_id, BUNDLER_DEBUG_ID);
+    assert_eq!(transitioned.chunk_id, BUNDLER_DEBUG_ID);
+    assert_eq!(fresh.content_hash, transitioned.content_hash);
 }
 
 #[test]
