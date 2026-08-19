@@ -596,10 +596,15 @@ function resolveDateBound(bound?: string): dayjs.Dayjs | undefined {
     return resolved.isValid() ? resolved : undefined
 }
 
+/** Parse a billing `dates` entry (always `YYYY-MM-DD`) in UTC, matching how the bounds resolve (`resolveDateBound` → `dateStringToDayJs` defaults to UTC). A bare `dayjs()` would anchor the string at local midnight, so for a user at a negative UTC offset a date equal to `dateTo` reads as the next day and the day-level comparison wrongly rejects an in-range array. */
+function parseBillingDate(date: string): dayjs.Dayjs {
+    return dayjs.tz(date, 'UTC')
+}
+
 /** Reject a `dates` array that sits entirely outside the requested range, so a stale series cannot label the chart with the wrong period. */
 function billingDatesOverlapRange(dates: string[], dateFrom?: string, dateTo?: string): boolean {
-    const first = dayjs(dates[0])
-    const last = dayjs(dates[dates.length - 1])
+    const first = parseBillingDate(dates[0])
+    const last = parseBillingDate(dates[dates.length - 1])
     const from = resolveDateBound(dateFrom)
     const to = resolveDateBound(dateTo)
     if (to && first.isAfter(to, 'day')) {
@@ -613,8 +618,8 @@ function billingDatesOverlapRange(dates: string[], dateFrom?: string, dateTo?: s
 
 /** Accept only a `dates` array that sits entirely within the requested range. A stale series can span years yet still touch the range at one end, so it merely overlaps; requiring full containment keeps such an array from outranking an exact-range one on length alone. */
 function billingDatesWithinRange(dates: string[], dateFrom?: string, dateTo?: string): boolean {
-    const first = dayjs(dates[0])
-    const last = dayjs(dates[dates.length - 1])
+    const first = parseBillingDate(dates[0])
+    const last = parseBillingDate(dates[dates.length - 1])
     const from = resolveDateBound(dateFrom)
     const to = resolveDateBound(dateTo)
     if (from && first.isBefore(from, 'day')) {
