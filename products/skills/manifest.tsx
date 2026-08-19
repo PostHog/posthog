@@ -35,8 +35,9 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/skills': ['Skills', 'skills'],
-        // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
-        // aren't captured as a skill named after the tab. Route order = match precedence.
+        // Tab routes (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
+        // aren't captured as a skill named after the tab. Route order = match precedence. Every
+        // slug here is also in RESERVED_SKILL_NAMES so no skill can claim a shadowed name.
         '/skills/scouts': ['Skills', 'skillsScouts'],
         '/skills/review-hog': ['Skills', 'skillsReviewHog'],
         '/skills/community': ['CommunitySkills', 'communitySkills'],
