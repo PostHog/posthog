@@ -210,11 +210,6 @@ time = { version = "0.3.36", features = [
   "serde",
 ] }
 thiserror = { version = "2.0" }
-# Matches the tikv-jemallocator common/alloc installs as the global allocator,
-# so the ctl bindings resolve the same prefixed jemalloc symbols. The `stats`
-# feature is what exposes the counters at all; it builds jemalloc with
-# --enable-stats, which feature-unifies onto every crate in the workspace.
-tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 tokio = { version = "1.51.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["time"] }
 tower = { version = "0.4.13", features = ["limit", "timeout", "util"] }

@@ -151,13 +151,6 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    // Allocator gauges: separate live bytes from pages jemalloc is holding back,
-    // so RSS movement can be attributed. Only useful once a recorder is installed.
-    #[cfg(not(target_env = "msvc"))]
-    if config.export_prometheus {
-        ingestion_consumer::alloc_stats::spawn_reporter();
-    }
-
     let guard = manager.monitor_background();
 
     // Debug event recorder: a bounded in-memory event buffer plus live
