@@ -1398,6 +1398,60 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("clearTaskRunConversation", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's clean error message", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [409] {"error":"Run is still active; send /clear to its agent instead"}',
+          ),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow(
+        "Run is still active; send /clear to its agent instead",
+      );
+    });
+
+    it("falls back to a status-coded message on an older backend's generic 404", async () => {
+      // A pre-#76943 backend has no clear_conversation route, so DRF's router
+      // returns its generic {"detail":"Not found."} rather than a message
+      // this endpoint controls. Surfacing that verbatim would read as "Not
+      // found." with no indication a clear was attempted or what to do next.
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Failed request: [404] {"detail":"Not found."}'),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow("Couldn’t clear the conversation. (HTTP 404)");
+    });
+  });
+
   describe("getTaskSummaries", () => {
     const SUMMARIES_PATH = "/api/projects/123/tasks/summaries/";
 
