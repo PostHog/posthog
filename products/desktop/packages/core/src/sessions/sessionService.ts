@@ -9,9 +9,11 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
   CreateResourceCommentRequest,
   ResourceComment,
+  TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -4435,8 +4437,14 @@ export class SessionService {
       // sandbox that hits the same provisioning failure — surface the error
       // instead of looping.
       if (session.cloudStatus === "failed" && session.status !== "connected") {
+        let errorMessage = session.cloudErrorMessage;
+        if (!errorMessage) {
+          await this.refreshCloudRunStatus(session);
+          errorMessage =
+            this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+        }
         throw new Error(
-          session.cloudErrorMessage ??
+          errorMessage ??
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
@@ -4827,29 +4835,45 @@ export class SessionService {
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
-      // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
-      updatedTask = await authCredentials.client.runTaskInCloud(
-        session.taskId,
-        previousBaseBranch,
-        {
-          adapter: runtimeOptions.adapter,
-          model: runtimeOptions.model,
-          reasoningLevel: runtimeOptions.reasoningLevel,
-          initialPermissionMode: runtimeOptions.initialPermissionMode,
-          resumeFromRunId: session.taskRunId,
-          pendingUserMessage: transport.messageText,
-          pendingUserArtifactIds:
-            artifactIds.length > 0 ? artifactIds : undefined,
-          prAuthorshipMode,
-          autoPublish: previousState.auto_publish === true || undefined,
-          rtkEnabled: this.d.settings.rtkEnabledCloud,
-          runSource: getCloudRunSource(previousState),
-          signalReportId:
-            typeof previousState.signal_report_id === "string"
-              ? previousState.signal_report_id
-              : undefined,
-        },
-      );
+      try {
+        // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
+        updatedTask = await authCredentials.client.runTaskInCloud(
+          session.taskId,
+          previousBaseBranch,
+          {
+            adapter: runtimeOptions.adapter,
+            model: runtimeOptions.model,
+            reasoningLevel: runtimeOptions.reasoningLevel,
+            initialPermissionMode: runtimeOptions.initialPermissionMode,
+            resumeFromRunId: session.taskRunId,
+            pendingUserMessage: transport.messageText,
+            pendingUserArtifactIds:
+              artifactIds.length > 0 ? artifactIds : undefined,
+            prAuthorshipMode,
+            autoPublish: previousState.auto_publish === true || undefined,
+            rtkEnabled: this.d.settings.rtkEnabledCloud,
+            runSource: getCloudRunSource(previousState),
+            signalReportId:
+              typeof previousState.signal_report_id === "string"
+                ? previousState.signal_report_id
+                : undefined,
+          },
+        );
+      } catch (error) {
+        // Only the resume call gates on authorship: non-creators of a channeled
+        // task get a 404 (not a 403) here, so on a task the app can already read
+        // it means the control gate. 404s from the upload or run fetch above
+        // mean a missing resource, so those keep their real error.
+        if (
+          requestErrorStatus(error) === 404 &&
+          session.isTaskAuthor === false
+        ) {
+          throw new Error(
+            "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
+          );
+        }
+        throw error;
+      }
     } catch (error) {
       rollbackOptimisticPrompt();
       throw error;
@@ -6483,6 +6507,21 @@ export class SessionService {
     );
   }
 
+  private logHydrationTruncation(
+    taskId: string,
+    runId: string,
+    result: TaskRunSessionLogsResult,
+  ): void {
+    if (result.truncatedHeadCount > 0) {
+      this.d.log.info("Session log hydration dropped oldest entries", {
+        taskId,
+        runId,
+        truncatedHeadCount: result.truncatedHeadCount,
+        hydratedCount: result.entries.length,
+      });
+    }
+  }
+
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
@@ -6494,6 +6533,10 @@ export class SessionService {
     let rawEntries: StoredLogEntry[];
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
+    // How many entries the tail fetch dropped off the front of rawEntries. The
+    // stream cursors count from the start of the chain, and the engine's own
+    // totals still include those entries, so they have to be added back.
+    let truncatedHeadCount = 0;
     const resumeFromRunId =
       typeof runState?.resume_from_run_id === "string"
         ? runState.resume_from_run_id
@@ -6525,7 +6568,9 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, taskRunId, result);
           rawEntries = result.entries;
+          truncatedHeadCount = result.truncatedHeadCount;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
           );
@@ -6558,6 +6603,11 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, resumeFromRunId, ancestorResult);
+          this.logHydrationTruncation(taskId, taskRunId, currentRunResult);
+          // rawEntries below starts at the ancestor window, so only the
+          // ancestor fetch's drop moves the front of the chain.
+          truncatedHeadCount = ancestorResult.truncatedHeadCount;
           const ancestorEntries: StoredLogEntry[] = ancestorResult.entries;
           const currentRunEntries: StoredLogEntry[] = currentRunResult.entries;
           const ancestorKeys = ancestorEntries.map((entry) =>
@@ -6598,7 +6648,9 @@ export class SessionService {
           });
           return;
         }
+        this.logHydrationTruncation(taskId, taskRunId, result);
         rawEntries = result.entries;
+        truncatedHeadCount = result.truncatedHeadCount;
         liveStreamLineCount = rawEntries.length;
         // A terminal run whose persisted chain comes back empty can still
         // have a complete S3 session log (persistence raced teardown); fall
@@ -6607,6 +6659,7 @@ export class SessionService {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           if (parsed.rawEntries.length > 0) {
             rawEntries = parsed.rawEntries;
+            truncatedHeadCount = 0;
             liveStreamLineCount = parsed.totalLineCount;
           }
         }
@@ -6687,11 +6740,12 @@ export class SessionService {
       };
     }
 
+    const chainEntryCount = rawEntries.length + truncatedHeadCount;
     // If live updates already populated a processed count, don't overwrite
     // that newer state with the persisted baseline fetched during startup.
     // Terminal hydration is different: it is the final transcript, so apply
     // it whenever the persisted chain has more lines than the local stream.
-    const effectiveLineCount = Math.max(liveStreamLineCount, rawEntries.length);
+    const effectiveLineCount = Math.max(liveStreamLineCount, chainEntryCount);
     const alreadyApplied = isTerminalRun
       ? (session.processedLineCount ?? 0) >= effectiveLineCount
       : session.processedLineCount !== undefined &&
@@ -6701,7 +6755,7 @@ export class SessionService {
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
-        historyEntryCount: rawEntries.length,
+        historyEntryCount: chainEntryCount,
         liveStreamLineCount: session.processedLineCount ?? liveStreamLineCount,
       };
     }
@@ -6719,7 +6773,7 @@ export class SessionService {
       events,
       isCloud: true,
       logUrl: logUrl ?? session.logUrl,
-      cloudTranscriptEntryCount: rawEntries.length,
+      cloudTranscriptEntryCount: chainEntryCount,
       // Terminal hydration records the whole chain as processed so nothing
       // re-applies it; live resume runs keep the leaf-stream cursor.
       processedLineCount: isTerminalRun
@@ -6736,7 +6790,7 @@ export class SessionService {
       this.clearTerminalCloudPromptState(taskRunId);
     }
     return {
-      historyEntryCount: rawEntries.length,
+      historyEntryCount: chainEntryCount,
       liveStreamLineCount,
     };
   }

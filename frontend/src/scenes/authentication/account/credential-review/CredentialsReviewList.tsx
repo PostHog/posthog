@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { ConnectedApps } from 'scenes/settings/user/ConnectedApps'
+import { connectedAppsLogic } from 'scenes/settings/user/connectedAppsLogic'
 import { type PasskeyCredential, passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 
@@ -55,9 +57,11 @@ export function CredentialsReviewList(): JSX.Element {
     const { deleteKey } = useActions(personalAPIKeysLogic)
     const { passkeys, passkeysLoading } = useValues(passkeySettingsLogic)
     const { deletePasskey } = useActions(passkeySettingsLogic)
+    const { connectedApps, connectedAppsLoading } = useValues(connectedAppsLogic)
 
     const showKeys = keysLoading || keys.length > 0
     const showPasskeys = passkeysLoading || passkeys.length > 0
+    const showConnectedApps = connectedAppsLoading || connectedApps.length > 0
 
     return (
         <div className="flex flex-col gap-6">
@@ -167,6 +171,12 @@ export function CredentialsReviewList(): JSX.Element {
                             },
                         ]}
                     />
+                </section>
+            )}
+            {showConnectedApps && (
+                <section>
+                    <h3 className="text-base font-semibold mb-2">Connected applications</h3>
+                    <ConnectedApps />
                 </section>
             )}
         </div>
