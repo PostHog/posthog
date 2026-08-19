@@ -156,6 +156,8 @@ def _reference_resource(
             "headers": _headers(),
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
             "request_timeout": REQUEST_TIMEOUT_SECONDS,
+            # The API key rides a custom header, which requests would replay to a redirect target.
+            "allow_redirects": False,
         },
         "resource_defaults": {},
         "resources": [{"name": config.name, "endpoint": _reference_endpoint(config)}],
@@ -203,6 +205,8 @@ def _report_pages(
                 "headers": _headers(),
                 "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
                 "request_timeout": REQUEST_TIMEOUT_SECONDS,
+                # The API key rides a custom header, which requests would replay to a redirect target.
+                "allow_redirects": False,
             },
             "resource_defaults": {},
             "resources": [
