@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { isAbortError } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -56,6 +56,10 @@ interface SignupEmailPrecheckResponse {
     pending_invite?: PendingInvite | null
 }
 
+// Bound the precheck request so the Continue spinner cannot run forever when the
+// request hangs. 15s is well past a healthy round trip but short enough to retry.
+const EMAIL_PRECHECK_TIMEOUT_MS = 15_000
+
 export const emailRegex: RegExp =
     // oxlint-disable-next-line no-control-regex
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
@@ -67,6 +71,7 @@ export interface signupLogicValues {
     challengeNonce: string | null
     challengeRequired: boolean
     emailCaseNotice: string | undefined
+    emailErrorIsAccountExists: boolean
     emailWasNormalized: boolean
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
@@ -148,6 +153,9 @@ export interface signupLogicActions {
     }
     setChallengeRequired: (required: boolean) => {
         required: boolean
+    }
+    setEmailErrorIsAccountExists: (value: boolean) => {
+        value: boolean
     }
     setEmailNormalized: (wasNormalized: boolean) => {
         wasNormalized: boolean
@@ -297,6 +305,7 @@ export const signupLogic = kea<signupLogicType>([
         setPanel: (panel: number) => ({ panel }),
         normalizeEmailWithDelay: (email: string) => ({ email }),
         setEmailNormalized: (wasNormalized: boolean) => ({ wasNormalized }),
+        setEmailErrorIsAccountExists: (value: boolean) => ({ value }),
         // Passkey actions
         registerPasskey: true,
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
@@ -326,6 +335,14 @@ export const signupLogic = kea<signupLogicType>([
             false,
             {
                 setEmailNormalized: (_, { wasNormalized }) => wasNormalized,
+            },
+        ],
+        // Only the "account already exists" error should offer a "Log in instead" link. A timeout
+        // or a transient failure is retryable, so it must not send the user to a login dead-end.
+        emailErrorIsAccountExists: [
+            false,
+            {
+                setEmailErrorIsAccountExists: (_, { value }) => value,
             },
         ],
         passkeyRegistered: [
@@ -416,21 +433,33 @@ export const signupLogic = kea<signupLogicType>([
             // submit, leaving the user stuck on the email panel with a different email typed in.
             preSubmit: () => {
                 actions.setSignupPanelEmailManualErrors({})
+                actions.setEmailErrorIsAccountExists(false)
             },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setPasskeyError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
+                const controller = new AbortController()
+                const timeout = window.setTimeout(() => controller.abort(), EMAIL_PRECHECK_TIMEOUT_MS)
                 try {
-                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
-                        email,
-                    })
+                    precheckResponse = await api.create<SignupEmailPrecheckResponse>(
+                        'api/signup/precheck',
+                        { email },
+                        { signal: controller.signal }
+                    )
                 } catch (e: any) {
+                    if (isAbortError(e)) {
+                        actions.setSignupPanelEmailManualErrors({
+                            email: 'The check is taking too long. Please check your connection and try again.',
+                        })
+                        return
+                    }
                     if (e?.status === 409 || e?.code === 'account_exists') {
                         const errorMessage = e?.detail || 'There is already an account with this email address.'
                         actions.setSignupPanelEmailManualErrors({
                             email: errorMessage,
                         })
+                        actions.setEmailErrorIsAccountExists(true)
                         actions.setPanel(0)
                         return
                     }
@@ -444,6 +473,8 @@ export const signupLogic = kea<signupLogicType>([
                         email: emailErrorMessage,
                     })
                     return
+                } finally {
+                    window.clearTimeout(timeout)
                 }
                 const pendingInvite = precheckResponse.pending_invite ?? null
                 if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
@@ -545,11 +576,14 @@ export const signupLogic = kea<signupLogicType>([
                     actions.resetChallenge()
 
                     // If the server returns an email validation error, send the user back to the
-                    // email step so the error appears next to the field that caused it.
+                    // email step so the error appears next to the field that caused it. By this
+                    // point the email already passed format validation in precheck, so an email
+                    // error here means the account now exists — keep the "Log in instead" link.
                     const emailError = error.data?.email
                     if (emailError) {
                         const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
                         actions.setSignupPanelEmailManualErrors({ email: message })
+                        actions.setEmailErrorIsAccountExists(true)
                         actions.setPanel(0)
                         return
                     }
@@ -635,6 +669,7 @@ export const signupLogic = kea<signupLogicType>([
         setSignupPanelEmailValue: ({ name, value }) => {
             if (name.toString() === 'email' && typeof value === 'string') {
                 actions.setEmailNormalized(false)
+                actions.setEmailErrorIsAccountExists(false)
                 actions.normalizeEmailWithDelay(value)
             }
         },

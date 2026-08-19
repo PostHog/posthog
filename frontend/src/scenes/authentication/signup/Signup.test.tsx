@@ -81,6 +81,35 @@ describe('Signup', () => {
         expect(screen.getByTestId('signup-email')).toBeInTheDocument()
     })
 
+    it('shows a "Log in instead" link when the account already exists', async () => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [
+                    409,
+                    { code: 'account_exists', detail: 'There is already an account with this email address.' },
+                ],
+            },
+        })
+        await submitEmail('taken@example.com')
+
+        expect(await screen.findByText('There is already an account with this email address.')).toBeVisible()
+        expect(screen.getByText('Log in instead →')).toBeVisible()
+    })
+
+    it('shows a retryable error without a login dead-end when the precheck fails', async () => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [500, {}],
+            },
+        })
+        await submitEmail('someone@example.com')
+
+        expect(await screen.findByText('Could not verify your email. Please try again.')).toBeVisible()
+        // A transient failure is retryable via the Continue button, so no "Log in instead" link.
+        expect(screen.queryByText('Log in instead →')).not.toBeInTheDocument()
+        expect(screen.getByTestId('signup-start')).toBeInTheDocument()
+    })
+
     it('a too-short password blocks the auth panel; a valid one advances to onboarding', async () => {
         await submitEmail('test@example.com')
 

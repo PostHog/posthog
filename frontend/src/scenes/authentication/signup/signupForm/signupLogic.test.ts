@@ -55,6 +55,8 @@ describe('signupLogic — email error surfacing', () => {
         expect(logic.values.signupPanelEmailManualErrors.email).toBe(
             'There is already an account with this email address.'
         )
+        // The account exists, so the email step keeps the "Log in instead" link.
+        expect(logic.values.emailErrorIsAccountExists).toBe(true)
     })
 })
 
@@ -197,6 +199,8 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
         expect(logic.values.signupPanelEmailManualErrors.email).toBe(
             'There is already an account with this email address.'
         )
+        // Only this error offers a "Log in instead" link in the UI.
+        expect(logic.values.emailErrorIsAccountExists).toBe(true)
 
         logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
         logic.actions.submitSignupPanelEmail()
@@ -204,6 +208,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
 
         expect(logic.values.panel).toBe(1)
         expect(logic.values.signupPanelEmailManualErrors.email).toBeUndefined()
+        expect(logic.values.emailErrorIsAccountExists).toBe(false)
     })
 
     it('reissues the signup request when onboarding is submitted again after a generic error', async () => {
@@ -224,6 +229,43 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(signupRequestCount).toBe(2)
+    })
+})
+
+describe('signupLogic — precheck timeout', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        useMocks({
+            post: {
+                // Never resolves — stands in for a hung precheck request.
+                '/api/signup/precheck': () => new Promise(() => {}),
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+        logic.unmount()
+    })
+
+    it('aborts the hung precheck and shows a retryable error instead of spinning forever', async () => {
+        logic.actions.setSignupPanelEmailValue('email', 'slow@example.com')
+        logic.actions.submitSignupPanelEmail()
+        // Fire the abort timeout, then let the aborted request settle.
+        await jest.advanceTimersByTimeAsync(15_000)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isSignupPanelEmailSubmitting).toBe(false)
+        expect(logic.values.panel).toBe(0)
+        expect(logic.values.signupPanelEmailManualErrors.email).toContain('taking too long')
+        // A timeout is retryable, so it must not offer the login dead-end.
+        expect(logic.values.emailErrorIsAccountExists).toBe(false)
     })
 })
 

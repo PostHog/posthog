@@ -40,12 +40,18 @@ const NOTES: Record<number, string[]> = {
 
 /** Step 1 — email (+ region, social, pending-invite branch). */
 function SignupEmailPanel(): JSX.Element {
-    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
-        useValues(signupLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        signupPanelEmailManualErrors,
+        emailErrorIsAccountExists,
+        pendingInvite,
+        loginUrl,
+        emailCaseNotice,
+    } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
-    const accountExists = !!signupPanelEmailManualErrors?.email
+    const emailError = signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
         return <PendingInvitePanel />
@@ -90,15 +96,17 @@ function SignupEmailPanel(): JSX.Element {
                         />
                     )}
                 </LemonField>
-                {accountExists && (
+                {emailError && (
                     <p className="text-xs text-danger -mt-2">
-                        <span>{signupPanelEmailManualErrors.email}</span>{' '}
-                        <Link
-                            to={loginUrl}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Log in instead →
-                        </Link>
+                        <span>{emailError}</span>{' '}
+                        {emailErrorIsAccountExists && (
+                            <Link
+                                to={loginUrl}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Log in instead →
+                            </Link>
+                        )}
                     </p>
                 )}
                 <LemonButton

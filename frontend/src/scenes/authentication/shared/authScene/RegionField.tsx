@@ -86,6 +86,9 @@ export function RegionField(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const [devRegion, setDevRegion] = useState<Region>(Region.US)
     const [modalOpen, setModalOpen] = useState(false)
+    // Set once the cross-region hop starts, so the field shows progress while the other cloud
+    // host loads instead of sitting silent behind a stale value.
+    const [switchingRegion, setSwitchingRegion] = useState<Region | null>(null)
 
     if (!preflight?.cloud && !preflight?.is_debug) {
         return null
@@ -98,6 +101,7 @@ export function RegionField(): JSX.Element | null {
             return
         }
         if (preflight?.cloud) {
+            setSwitchingRegion(region)
             const { pathname, search, hash } = router.values.currentLocation
             window.location.href = `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
             return
@@ -121,9 +125,11 @@ export function RegionField(): JSX.Element | null {
             <div className="flex flex-col gap-2">
                 <LemonLabel onExplanationClick={() => setModalOpen(true)}>Data region</LemonLabel>
                 <LemonSelect<Region>
-                    value={activeRegion}
+                    value={switchingRegion ?? activeRegion}
                     options={options}
                     fullWidth
+                    loading={!!switchingRegion}
+                    disabled={!!switchingRegion}
                     onChange={(value) => value && selectRegion(value)}
                     renderButtonContent={(leaf) => {
                         const region = leaf?.value ?? activeRegion
@@ -135,6 +141,11 @@ export function RegionField(): JSX.Element | null {
                         )
                     }}
                 />
+                {switchingRegion && (
+                    <span className="text-xs text-secondary">
+                        Switching to {REGIONS.find((r) => r.value === switchingRegion)?.label}…
+                    </span>
+                )}
             </div>
         </>
     )
