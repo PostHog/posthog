@@ -226,14 +226,12 @@ interface CloudHydrationResult {
   liveStreamLineCount: number;
 }
 
-/** Oldest entries a hydration keeps in memory across a cloud resume chain. */
 const CLOUD_HYDRATION_MAX_ENTRIES = 100_000;
 
 interface ChainTranscriptWindow {
   entries: StoredLogEntry[];
   /** Absolute index in the chain log of `entries[0]`. */
   windowStart: number;
-  /** Chain log entry count at fetch time. */
   chainTotal: number;
 }
 
@@ -6542,12 +6540,8 @@ export class SessionService {
   }
 
   /**
-   * Fetch the newest window of a run's chain log: one probe page to learn the
-   * total, then the tail pages. Small logs come back whole (windowStart 0);
-   * oversized ones come back as just the newest page - older pages load on
-   * demand as the thread scrolls up. Returns null when the fetch fails.
-   * Trade-off: an oversized log pays for one discarded probe page so the
-   * common small log stays a single request.
+   * One probe page learns the chain total, then only the tail pages are
+   * fetched; small logs come back whole (windowStart 0). Null on failure.
    */
   private async fetchChainTranscriptWindow(
     client: SessionLogsClient,
@@ -6566,8 +6560,6 @@ export class SessionService {
         };
       }
       if (first.matchingCount === null) {
-        // Servers without the matching-count header cannot report the total,
-        // so fall back to the sequential capped fetch.
         const result = await client.getTaskRunSessionLogsResult(
           taskId,
           taskRunId,
@@ -6628,11 +6620,8 @@ export class SessionService {
   }
 
   /**
-   * Fetch the page of chain history just above the hydrated window and
-   * prepend it. Driven by the thread scrolling near the top; each call loads
-   * one page. Older pages carry no stream positions - position stamping only
-   * matters for live-stream dedup, and windowed hydration only runs for
-   * terminal runs.
+   * Prepend the page of chain history just above the hydrated window.
+   * Driven by the thread scrolling near the top; one page per call.
    */
   async loadOlderCloudTranscript(taskId: string): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
@@ -6852,12 +6841,9 @@ export class SessionService {
     const chainTotal =
       transcriptWindow?.chainTotal ?? rawEntries.length + truncatedHeadCount;
     const windowStart = transcriptWindow?.windowStart ?? 0;
-    // Resume-chain positions are leaf-relative (stamped from the leaf marker);
-    // single-run positions are indexes into the run's own log, so a tail
-    // window offsets them by its absolute start. A truncated resume window
-    // that lost its leaf marker has no usable anchor - stamping from the
-    // window start would mislabel every entry's position, so leave those
-    // unpositioned and let reconciliation fall back to content matching.
+    // Resume positions are leaf-relative; windowed single runs offset by the
+    // window start. A truncated resume window that lost its leaf marker stays
+    // unpositioned rather than mislabeled from index 0.
     const positionOptions = isResumeRun
       ? windowStart === 0 || resumeLeafEntryStartIndex !== undefined
         ? {

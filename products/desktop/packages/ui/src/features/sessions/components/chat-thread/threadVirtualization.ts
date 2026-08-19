@@ -73,11 +73,10 @@ export interface ThreadScrollResume {
  */
 export interface FlatThreadRow {
   /**
-   * Stable list key: the row's content-derived item id, so keys hold steady when older history
-   * is prepended and the end-anchored virtualizer can keep the viewport still. Trade-off: the
-   * optimistic->real id swap of a just-sent user message remounts that one row, which the
-   * virtual engine absorbs by re-measuring — unlike the non-virtualized scroller engine, which
-   * needs ordinal keys (see {@link keyTurnRows}).
+   * Stable list key: the row's content-derived item id, so keys survive older-history prepends
+   * and the end-anchored virtualizer holds the viewport. The optimistic->real swap of a just-sent
+   * user message remounts its row, which this engine absorbs; the non-virtualized scroller cannot
+   * (see {@link keyTurnRows}).
    */
   key: string;
   item: ThreadItem;

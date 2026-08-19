@@ -216,9 +216,6 @@ describe("buildConversationItems", () => {
   });
 
   it("keeps item ids stable when older history is prepended", () => {
-    // The virtualized thread anchors the viewport on item ids across a
-    // prepend of older transcript pages, so an id must depend only on its
-    // own turn's events, never on how many items precede it.
     const older: AcpMessage[] = [
       userPromptMsg(1, 1, "first question"),
       agentMessageMsg(2, "first reply"),

@@ -118,9 +118,7 @@ interface TurnState {
   context: TurnContext;
   gitAction: ReturnType<typeof parseGitActionMessage>;
   itemCount: number;
-  /** Per-turn id sequence. Derived from the turn's own events alone, so item
-   *  ids stay identical when older history is prepended and the whole
-   *  conversation rebuilds - the virtualized thread anchors on them. */
+  /** Per-turn so item ids survive older-history prepends; the virtualized thread anchors on them. */
   nextItemId: number;
 }
 
