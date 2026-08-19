@@ -1176,7 +1176,7 @@ class DashboardBasicSerializer(
 
 class DashboardCustomizationSerializer(serializers.Serializer):
     tile_spacing = serializers.ChoiceField(
-        choices=DASHBOARD_GRID_SPACING_GAPS,
+        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
         required=False,
         help_text="Named tile density preset.",
     )
@@ -1202,7 +1202,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     )
     customization = serializers.SerializerMethodField(help_text="Dashboard display settings.")
     grid_spacing = serializers.ChoiceField(
-        choices=DASHBOARD_GRID_SPACING_GAPS,
+        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
         required=False,
         write_only=True,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",

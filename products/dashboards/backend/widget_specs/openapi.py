@@ -304,7 +304,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="List of quick filter IDs associated with this dashboard.",
     )
     grid_spacing = serializers.ChoiceField(
-        choices=DASHBOARD_GRID_SPACING_GAPS,
+        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
         required=False,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
