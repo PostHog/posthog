@@ -324,7 +324,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 // reload actions so they are immediately available throughout the app
                 actions.loadEventDefinitions()
-                actions.loadActions()
+                actions.loadActions(true)
                 actions.loadTags() // reload tags in case new tags are being saved
                 return action
             },
@@ -411,7 +411,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.resetAction()
                     deleteFromTree('action', String(actionId))
                     router.actions.push(urls.actions())
-                    actions.loadActions()
+                    actions.loadActions(true)
                 }
             })
         },
