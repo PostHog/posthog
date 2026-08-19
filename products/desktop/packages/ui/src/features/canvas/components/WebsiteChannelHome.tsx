@@ -247,7 +247,8 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     (s) => !!s.dismissedByChannel[channelId],
   );
   const dismissIntro = useChannelIntroStore((s) => s.dismissIntro);
-  const intro = !isPersonal && !introDismissed && channelName && channel ? (
+  const intro =
+    !isPersonal && !introDismissed && channelName && channel ? (
       <ChannelIntro
         channel={channel}
         channelName={channelName}
@@ -255,7 +256,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
         onCreateContextMd={() => setContextMdDialogOpen(true)}
         onDismiss={() => dismissIntro(channelId)}
       />
-  ) : undefined;
+    ) : undefined;
 
   const emptyState = (
     <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col justify-center gap-6 px-4 py-10">
