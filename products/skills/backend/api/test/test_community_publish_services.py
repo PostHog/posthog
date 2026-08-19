@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -83,6 +84,20 @@ class TestRenderSkillMd:
         with pytest.raises(CommunitySkillPublishError):
             render_skill_md(name=name, description=description, body="b")
 
+    @parameterized.expand(
+        [
+            ("a tool name with a space", ["Bash Write"]),
+            ("a tool name with a newline", ["Bash\nWrite"]),
+            ("a tool name that is not a string", [123]),
+        ]
+    )
+    def test_rejects_allowed_tools_ingest_would_drop(self, _label: str, allowed_tools: list[Any]) -> None:
+        # create_skill stores what a tool call passed without the REST serializer's checks, and
+        # ingest rejects a whitespace-bearing or non-string tool name, so publishing one opens a
+        # pull request that merges and whose skill never appears in the catalog.
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name="n", description="d", body="b", allowed_tools=allowed_tools)
+
 
 class TestRenderCommunitySkillFiles:
     def test_skill_md_path_and_bundled_files(self) -> None:
@@ -91,10 +106,20 @@ class TestRenderCommunitySkillFiles:
             name="Make PR",
             description="Open a PR.",
             body="body",
-            files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
+            files=[
+                {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"},
+                # A skill created through the Max tool can store the backslash spelling, and ingest
+                # canonicalizes it, so the publish has to write the forward-slash path ingest will
+                # then look for rather than one flat `scripts\\run.sh` tree entry.
+                {"path": "scripts\\run.sh", "content": "echo hi", "content_type": "text/plain"},
+            ],
         )
         paths = {f.path for f in rendered}
-        assert paths == {"skills/make-pr/SKILL.md", "skills/make-pr/references/playbook.md"}
+        assert paths == {
+            "skills/make-pr/SKILL.md",
+            "skills/make-pr/references/playbook.md",
+            "skills/make-pr/scripts/run.sh",
+        }
 
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
@@ -113,6 +138,10 @@ class TestRenderCommunitySkillFiles:
             # Ingest case-folds paths and drops the whole entry on a collision, so publishing both
             # opens a pull request that merges and then never appears in the catalog.
             ("paths differing only by case", ["references/Guide.md", "references/guide.md"]),
+            # Same reason: ingest canonicalizes the backslash spelling, so the two paths that look
+            # distinct here are one duplicate path by the time the merged entry is read.
+            ("the same path spelled with a backslash", ["references\\guide.md", "references/guide.md"]),
+            ("an absolute path", ["/references/guide.md"]),
             # A git tree can't hold `references` as both a blob and a directory, so GitHub rejects
             # the whole tree and the skill can't be published at all.
             ("a name used as both file and folder", ["references", "references/guide.md"]),

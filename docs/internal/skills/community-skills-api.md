@@ -90,6 +90,11 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   file count, and per-file size to the same caps, so a publish that ingest would silently drop is
   refused before the pull request exists. The manifest is also checked for paths that differ only by
   case and for a name used as both a file and a folder, neither of which a git tree can hold.
+- Bundled paths are canonicalized and allowed-tool names are held to ingest's no-whitespace rule,
+  both through the shared validators in `skill_services.py`. `create_skill` (the path the Max tool
+  takes) stores either field without the REST serializer's checks, so a skill can hold
+  `references\guide.md` or a tool named `Bash Write`. Publishing one unchanged merges a pull
+  request whose entry ingest then drops.
 - `display_name` is capped at 64 characters to match `CommunitySkill.name`. A longer name would pass
   review and then be dropped by ingest, so the skill would never appear in the catalog.
 - `author_handle` is validated against GitHub's username shape, and is self-reported. Nothing checks it

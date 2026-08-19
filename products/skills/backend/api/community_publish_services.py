@@ -27,6 +27,8 @@ from .skill_services import (
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    check_allowed_tool_name,
+    normalize_skill_file_path,
 )
 
 logger = structlog.get_logger(__name__)
@@ -124,6 +126,23 @@ def _validate_slug(slug: str) -> str:
     return slug
 
 
+def _validate_allowed_tool(tool: object) -> None:
+    """Hold one allowed-tool name to the rule ingest applies to a registry entry.
+
+    `create_skill` writes what a tool call passed straight to the model, without the REST
+    serializer's `validate_allowed_tool`, and `allowed_tools` is a JSONField, so a stored
+    `"Bash Write"` (or a non-string) renders into frontmatter that
+    community_skill_sync._validate_entry_shape rejects: the pull request merges and the skill never
+    appears in the catalog.
+    """
+    if not isinstance(tool, str):
+        raise CommunitySkillPublishError("Allowed tools must be a list of tool names.")
+    try:
+        check_allowed_tool_name(tool)
+    except ValueError as err:
+        raise CommunitySkillPublishError(f"'{tool}' can't be published as a tool name. {err}") from err
+
+
 def render_skill_md(
     *,
     name: str,
@@ -151,6 +170,8 @@ def render_skill_md(
         raise CommunitySkillPublishError("Skill description is required to publish.")
     if author_handle.strip() and not GITHUB_HANDLE_PATTERN.match(author_handle.strip()):
         raise CommunitySkillPublishError(f"'{author_handle}' is not a valid GitHub username.")
+    for tool in allowed_tools or []:
+        _validate_allowed_tool(tool)
 
     frontmatter: dict[str, Any] = {
         "name": name.strip(),
@@ -217,10 +238,12 @@ def render_community_skill_files(
 
     seen_paths = {rendered[0].path.lower()}
     for file in files or []:
-        rel_path = file["path"].lstrip("/")
-        # Confine writes to the skill directory — a bundled file must never escape skills/<slug>/.
-        if ".." in rel_path.split("/"):
-            raise CommunitySkillPublishError(f"Invalid bundled file path '{file['path']}'.")
+        # Canonical and confined to the skill directory, by the same rule ingest applies. A bundled
+        # file must never escape skills/<slug>/, and `create_skill` stores a tool-supplied path
+        # verbatim, so `references\guide.md` and `references/guide.md` arrive here as two distinct
+        # paths that community_skill_sync._validate_entry_within_caps then folds into one and
+        # rejects as a duplicate: the pull request merges and the skill never appears in the catalog.
+        rel_path = _publishable_file_path(file["path"])
         path = f"{skill_root}/{rel_path}"
         # Case-insensitive, matching community_skill_sync._validate_entry_within_caps: two paths
         # differing only by case pass every check on this side, and then ingest rejects the whole
@@ -233,6 +256,13 @@ def render_community_skill_files(
 
     _reject_blob_directory_collisions(seen_paths)
     return rendered
+
+
+def _publishable_file_path(raw_path: str) -> str:
+    try:
+        return normalize_skill_file_path(raw_path)
+    except ValueError as err:
+        raise CommunitySkillPublishError(f"'{raw_path}' can't be published as a file path. {err}") from err
 
 
 def _validate_publishable_size(*, body: str, files: list[dict[str, str]]) -> None:
