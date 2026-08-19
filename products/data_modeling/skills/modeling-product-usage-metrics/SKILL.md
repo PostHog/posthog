@@ -59,6 +59,11 @@ or joined (e.g. by `modeling-activation-metrics`).
 **dbt:** `fct_retention`, `fct_stickiness`, `fct_lifecycle` marts + tests. Recipes:
 [`references/dbt/`](references/dbt/).
 
+Then register the model (foundations [`references/governance.md`](../modeling-warehouse-foundations/references/governance.md)):
+annotate columns, and if a retention or stickiness rate is a headline number, propose it to the semantic layer
+with `data-catalog-metric-create` so other models reuse the definition instead of re-deriving it. The proposal
+lands `proposed` for a human to approve — never present your own proposal as canonical.
+
 ## File map
 
 | File                                                                               | Read when                                                         |

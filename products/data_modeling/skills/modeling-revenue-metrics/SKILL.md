@@ -88,7 +88,8 @@ Recipes: [`references/posthog/`](references/posthog/) — `mrr_and_arr.sql`, `gr
 Recipes: [`references/dbt/`](references/dbt/). Note dbt has no `convertCurrency()` — supply a rate seed.
 
 Then register the model (`references/governance.md` in foundations): annotate columns and, if MRR/ARR is a
-headline number, propose it to the semantic layer.
+headline number, propose it to the semantic layer with `data-catalog-metric-create`. The proposal lands
+`proposed` for a human to approve — never present your own proposal as canonical.
 
 ## File map
 

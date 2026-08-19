@@ -398,8 +398,10 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                         "Checked the metrics catalog before any data-bearing call, found no governed "
                         "definition for an error-rate measure, then derived the rate from events itself "
                         "without stalling, labeling the derivation noncanonical or noting that no governed "
-                        "definition exists. Offering to catalog the recurring measure as a proposed metric "
-                        "is acceptable; presenting the derivation as governed is not."
+                        "definition exists. The measure is a reliability scout's recurring metric, so the run "
+                        "must also offer to catalog it as a proposed metric with data-catalog-metric-create "
+                        "(which lands proposed for a human to approve); not offering the proposal is a failure. "
+                        "Presenting the derivation as governed is also a failure."
                     )
                 },
             },
