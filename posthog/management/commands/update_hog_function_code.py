@@ -52,6 +52,21 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # LinkedIn supports each dated version for a minimum of one year, then rejects it with a
+            # 426 NONEXISTENT_VERSION on every call. 202508 passed that mark on 2026-08-01. 202409 is
+            # deliberately excluded: those destinations have been failing for a year already, so
+            # bumping them would abruptly revive dormant-but-enabled destinations and resume
+            # conversions into customers' LinkedIn Ads accounts without warning. Reviving those is
+            # handled separately with customer awareness.
+            "linkedin-api-version-update-202607": {
+                "template_id": "template-linkedin-ads",
+                "replacements": [
+                    {
+                        "from_string": "'LinkedIn-Version': '202508'",
+                        "to_string": "'LinkedIn-Version': '202607'",
+                    },
+                ],
+            },
             "meta-ads-api-version-update": {
                 "template_id": "template-meta-ads",
                 "replacements": [
