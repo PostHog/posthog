@@ -101,6 +101,9 @@ def _report_fingerprint(report: SignalReport) -> str:
     payload = json.dumps(
         {
             "prompt_version": REPORT_CANVAS_PROMPT_VERSION,
+            "status": report.status,
+            "signal_count": report.signal_count,
+            "report_updated_at": report.updated_at.isoformat(),
             "title": report.title,
             "summary": report.summary,
             "error": report.error,

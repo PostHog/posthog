@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
@@ -197,6 +198,21 @@ class TestReportCanvasGeneration(APIBaseTest):
                 updated = _report_fingerprint(report)
 
         assert updated != original
+
+    def test_report_context_changes_the_generation_fingerprint(self) -> None:
+        report = self._report()
+        with patch("products.signals.backend.report_canvas.fetch_implementation_pr_urls_for_reports", return_value={}):
+            original = _report_fingerprint(report)
+
+            report.signal_count += 1
+            signal_count_updated = _report_fingerprint(report)
+
+            report.signal_count -= 1
+            report.updated_at += timedelta(seconds=1)
+            freshness_updated = _report_fingerprint(report)
+
+        assert signal_count_updated != original
+        assert freshness_updated != original
 
     def test_refreshes_canvas_title_and_description_before_skipping_generation(self) -> None:
         report = self._report()
