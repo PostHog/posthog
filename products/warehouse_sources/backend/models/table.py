@@ -502,8 +502,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
-            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so this SET stays until chdb is upgraded past that release.
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"

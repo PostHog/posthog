@@ -44,11 +44,9 @@ class TestRedditAdsSource:
         self.config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="789")
 
     def test_source_type(self):
-        """Test source type property."""
         assert self.source.source_type == ExternalDataSourceType.REDDITADS
 
     def test_get_source_config(self):
-        """Test get_source_config returns proper configuration."""
         config = self.source.get_source_config
 
         assert config.name.value == "RedditAds"
@@ -72,7 +70,6 @@ class TestRedditAdsSource:
         assert account_field.integrationKind == "reddit-ads"
 
     def test_validate_credentials_missing_account_id(self):
-        """Test credential validation with missing account ID."""
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -82,7 +79,6 @@ class TestRedditAdsSource:
         assert "Account ID and Reddit Ads integration are required" in error_message
 
     def test_validate_credentials_missing_integration_id(self):
-        """Test credential validation with missing integration ID."""
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=0, account_id="789")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -95,7 +91,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_validate_credentials_success(self, mock_get_oauth_integration):
-        """Test successful credential validation."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration
@@ -231,7 +226,6 @@ class TestRedditAdsSource:
         assert expected_fragment in str(excinfo.value).lower()
 
     def test_get_schemas(self):
-        """Test get_schemas returns all endpoint schemas."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         expected_endpoints = set(REDDIT_ADS_CONFIG)
@@ -296,7 +290,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_success(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with valid integration."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration
@@ -335,7 +328,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_no_access_token(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with no access token raises error."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_get_oauth_integration.return_value = mock_integration
@@ -354,7 +346,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_with_incremental(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with incremental field."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration

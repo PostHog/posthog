@@ -688,7 +688,6 @@ def get_rows(
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
-    # Get the incremental field name for this endpoint
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce
 
 
 def test_salesforce_refresh_access_token_raises_on_client_failure():
-    """Test whether an exception is raised when failing with a client error."""
     status_code = 400
     error_description = "Bad client!"
 
@@ -32,7 +31,6 @@ def test_salesforce_refresh_access_token_raises_on_client_failure():
 
 
 def test_salesforce_refresh_access_token_raises_on_server_failure():
-    """Test whether an exception is raised when failing with a server error."""
     status_code = 500
     response_body = "something went terribly wrong"
 
@@ -55,7 +53,6 @@ def test_salesforce_refresh_access_token_raises_on_server_failure():
 
 
 def test_get_salesforce_access_token_from_code_raises_on_client_failure():
-    """Test whether an exception is raised when failing with a client error."""
     status_code = 400
     error_description = "Bad client!"
 
@@ -78,7 +75,6 @@ def test_get_salesforce_access_token_from_code_raises_on_client_failure():
 
 
 def test_get_salesforce_access_token_from_code_raises_on_server_failure():
-    """Test whether an exception is raised when failing with a server error."""
     status_code = 500
     response_body = "something went terribly wrong"
 
