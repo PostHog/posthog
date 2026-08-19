@@ -296,6 +296,19 @@ class ReplayScanner(UUIDModel):
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
     _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
+    # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
+    _MACHINE_OWNED_FIELDS = (
+        "last_swept_at",
+        "last_seen_session_id",
+        "deep_swept_through",
+        "deep_seen_session_id",
+        "deep_attempted_at",
+        "sweep_read_bytes_by_hour",
+        "fast_read_bytes_by_hour",
+        "deep_read_bytes_by_hour",
+        "limit_notified_period_start",
+    )
+
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
@@ -313,37 +326,13 @@ class ReplayScanner(UUIDModel):
                     type(self)
                     .all_origins.select_for_update()
                     .filter(pk=self.pk)
-                    .only(
-                        "scanner_version",
-                        "enabled",
-                        "last_swept_at",
-                        "last_seen_session_id",
-                        "deep_swept_through",
-                        "deep_seen_session_id",
-                        "deep_attempted_at",
-                        "sweep_read_bytes_by_hour",
-                        "fast_read_bytes_by_hour",
-                        "deep_read_bytes_by_hour",
-                        "limit_notified_period_start",
-                        *relevant,
-                    )
+                    .only("scanner_version", "enabled", *self._MACHINE_OWNED_FIELDS, *relevant)
                     .first()
                 )
                 if old is not None:
                     if update_fields is None:
-                        # The sweep writes these via targeted updates; a stale full save must not
-                        # clobber a concurrent sweep's watermark or notification stamp.
-                        self.last_swept_at = old.last_swept_at
-                        self.last_seen_session_id = old.last_seen_session_id
-                        # Carried too, or a full save from the API drops a concurrent deep pass's progress.
-                        self.deep_swept_through = old.deep_swept_through
-                        self.deep_seen_session_id = old.deep_seen_session_id
-                        self.deep_attempted_at = old.deep_attempted_at
-                        # Same for the metered spend: restoring stale buckets would lower the throttle.
-                        self.sweep_read_bytes_by_hour = old.sweep_read_bytes_by_hour
-                        self.fast_read_bytes_by_hour = old.fast_read_bytes_by_hour
-                        self.deep_read_bytes_by_hour = old.deep_read_bytes_by_hour
-                        self.limit_notified_period_start = old.limit_notified_period_start
+                        for field in self._MACHINE_OWNED_FIELDS:
+                            setattr(self, field, getattr(old, field))
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
                     extra_fields = []
                     if changed:

@@ -2,7 +2,6 @@
 sweep activity can use the throttle without importing the workflow module."""
 
 import datetime as dt
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -39,17 +38,15 @@ def deep_spend_bytes_per_day(deep_by_hour: dict[str, int] | None, now: dt.dateti
     return _spend_since(deep_by_hour, now - window) // DEEP_SPEND_WINDOW_DAYS
 
 
-def parse_bucket_hour(hour_iso: Any) -> dt.datetime | None:
+def parse_bucket_hour(hour_iso: str) -> dt.datetime | None:
     """Parse an ISO timestamp, treating a naive value as UTC. None when it cannot be read.
 
-    Shared by the meter that writes these keys and the throttles that read them: parsing them on two
+    Shared because the meter writes the keys and the throttles read them: parsing them on two
     different clocks would price spend against hours it was not recorded in.
     """
-    if not isinstance(hour_iso, str):
-        return None
     try:
         hour = dt.datetime.fromisoformat(hour_iso)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
     return hour if hour.tzinfo else hour.replace(tzinfo=dt.UTC)
 

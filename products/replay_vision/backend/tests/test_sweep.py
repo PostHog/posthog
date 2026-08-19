@@ -1,5 +1,7 @@
 import uuid
 import datetime as dt
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -65,6 +67,22 @@ from products.replay_vision.backend.tests.helpers import seed_scanner_spend, sna
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH)
+
+
+_ACTIVITY = "products.replay_vision.backend.temporal.activities.find_scanner_candidates"
+
+
+@contextmanager
+def _patched_queries() -> Iterator[tuple[MagicMock, MagicMock]]:
+    """Patch both candidate queries at the activity's import site, with an empty fast batch by default."""
+    with (
+        patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
+        patch(f"{_ACTIVITY}.WindowedCandidateQuery") as MockDeep,
+    ):
+        MockQuery.return_value.run.return_value = []
+        MockQuery.return_value.matches_on_events.return_value = True
+        MockDeep.return_value.run.return_value = []
+        yield MockQuery, MockDeep
 
 
 _PAST_DEEP_INTERVAL = DEEP_SWEEP_INTERVAL + dt.timedelta(hours=1)
@@ -247,15 +265,7 @@ class TestFindScannerCandidatesActivity:
         )
         _settle_edit_clock(scanner)
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.matches_on_events.return_value = matches_on_events
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -290,21 +300,10 @@ class TestFindScannerCandidatesActivity:
         _settle_edit_clock(scanner)
 
         with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
+            _patched_queries() as (MockQuery, MockDeep),
             # The frequent sweep's own throttle would otherwise skip the tick before the deep pass runs.
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates._throttled",
-                return_value=False,
-            ),
+            patch(f"{_ACTIVITY}._throttled", return_value=False),
         ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
-            MockDeep.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -332,19 +331,9 @@ class TestFindScannerCandidatesActivity:
 
         def run_tick() -> bool:
             with (
-                patch(
-                    "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-                ) as MockQuery,
-                patch(
-                    "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-                ) as MockDeep,
-                patch(
-                    "products.replay_vision.backend.temporal.activities.find_scanner_candidates._throttled",
-                    return_value=False,
-                ),
+                _patched_queries() as (MockQuery, MockDeep),
+                patch(f"{_ACTIVITY}._throttled", return_value=False),
             ):
-                MockQuery.return_value.run.return_value = []
-                MockQuery.return_value.matches_on_events.return_value = True
                 if mode == "raise":
                     MockDeep.return_value.run.side_effect = Exception("clickhouse timeout")
                 else:
@@ -374,16 +363,7 @@ class TestFindScannerCandidatesActivity:
             CandidateSession(session_id=f"deep-{i}", session_end=stopped_at) for i in range(DEFAULT_CANDIDATE_LIMIT)
         ]
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
+        with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = batch
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -398,17 +378,7 @@ class TestFindScannerCandidatesActivity:
         scanner = _make_scanner(deep_swept_through=dt.datetime.now(dt.UTC) - dt.timedelta(days=30))
         _settle_edit_clock(scanner)
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
-            MockDeep.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -431,7 +401,6 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
-            MockQuery.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -448,17 +417,7 @@ class TestFindScannerCandidatesActivity:
         )
         assert scanner.deep_attempted_at is not None and scanner.updated_at > scanner.deep_attempted_at
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
-            MockDeep.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -474,19 +433,9 @@ class TestFindScannerCandidatesActivity:
         before = scanner.deep_attempted_at
 
         with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates._seconds_left",
-                return_value=60.0,
-            ),
+            _patched_queries() as (MockQuery, MockDeep),
+            patch(f"{_ACTIVITY}._seconds_left", return_value=60.0),
         ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -508,17 +457,7 @@ class TestFindScannerCandidatesActivity:
         )
         ReplayScanner.objects.filter(pk=scanner.pk).update(updated_at=attempted - dt.timedelta(hours=1))
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
-            MockDeep.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -532,16 +471,8 @@ class TestFindScannerCandidatesActivity:
         _settle_edit_clock(scanner)
         fast = [CandidateSession(session_id="fast-1", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC))]
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
+        with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
-            MockQuery.return_value.matches_on_events.return_value = True
             MockDeep.return_value.run.side_effect = Exception("clickhouse timeout")
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -559,17 +490,8 @@ class TestFindScannerCandidatesActivity:
         scanner = _make_scanner(deep_swept_through=dt.datetime.now(dt.UTC) - _PAST_DEEP_INTERVAL)
         assert scanner.deep_swept_through is not None
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.matches_on_events.return_value = False
-            MockDeep.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -583,16 +505,7 @@ class TestFindScannerCandidatesActivity:
             session_id="deep-sess", session_end=dt.datetime(2026, 5, 1, 6, 0, 0, tzinfo=dt.UTC)
         )
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
+        with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = [straggler]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -615,16 +528,7 @@ class TestFindScannerCandidatesActivity:
         scanner = _make_scanner(deep_swept_through=dt.datetime.now(dt.UTC) - watermark_age)
         straggler = CandidateSession(session_id="deep-a", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC))
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
+        with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = [straggler]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
@@ -646,14 +550,7 @@ class TestFindScannerCandidatesActivity:
             for i in range(2)
         ]
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
+        with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
@@ -679,16 +576,8 @@ class TestFindScannerCandidatesActivity:
             for i in range(fast_count)
         ]
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
+        with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
-            MockDeep.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=limit)
             )
@@ -714,17 +603,7 @@ class TestFindScannerCandidatesActivity:
                 completed_at=dt.datetime.now(dt.UTC),
             )
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
-            MockDeep.return_value.run.return_value = []
+        with _patched_queries() as (MockQuery, MockDeep):
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
             )
@@ -755,20 +634,7 @@ class TestFindScannerCandidatesActivity:
             CandidateSession(session_id="fresh", session_end=dt.datetime(2026, 5, 1, 7, 0, tzinfo=dt.UTC)),
         ]
 
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
-            ) as MockDeep,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates._DEEP_SWEEP_MAX_EXCLUSIONS",
-                2,
-            ),
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockQuery.return_value.matches_on_events.return_value = True
+        with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = batch
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -825,9 +691,7 @@ class TestFindScannerCandidatesActivity:
         fetched = [CandidateSession(session_id="blocked", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))]
 
         with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
+            patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
             patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
         ):
             MockQuery.return_value.run.return_value = fetched
@@ -845,9 +709,7 @@ class TestFindScannerCandidatesActivity:
         scanner = _make_scanner(query=self._NEGATIVE_QUERY)
 
         with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
+            patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
             patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
         ):
             MockQuery.return_value.run.return_value = [

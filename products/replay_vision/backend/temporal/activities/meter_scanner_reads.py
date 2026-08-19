@@ -113,7 +113,7 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
 def _merged_buckets(
     existing: dict[str, int] | None, fresh: dict[str, int], prune_cutoff: dt.datetime
 ) -> dict[str, int]:
-    """Overlay the rescanned hours onto the stored ones and drop anything past the retention cutoff."""
+    """The callers pass different cutoffs deliberately: the deep bucket must outlive its pricing window."""
     buckets = dict(existing or {})
     buckets.update(fresh)
     return {

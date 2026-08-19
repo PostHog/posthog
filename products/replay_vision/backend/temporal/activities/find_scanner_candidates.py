@@ -179,13 +179,8 @@ def _throttled(scanner: ReplayScanner) -> bool:
     lagging behind the horizon) is never throttled harder while it drains its backlog.
     """
     now = dt.datetime.now(dt.UTC)
-    # `is None`, not truthiness: only a column the meter has never written falls back to the pre-split
-    # total bucket, which keeps throttled scanners throttled across the deploy.
-    fast_buckets = (
-        scanner.sweep_read_bytes_by_hour if scanner.fast_read_bytes_by_hour is None else scanner.fast_read_bytes_by_hour
-    )
     factor = sweep_throttle_factor(
-        sweep_spend_bytes_24h(fast_buckets, now),
+        sweep_spend_bytes_24h(_buckets_or_pre_split(scanner.fast_read_bytes_by_hour, scanner), now),
         scanner.sweep_throttle_factor_override,
     )
     if factor <= 1:
@@ -193,10 +188,16 @@ def _throttled(scanner: ReplayScanner) -> bool:
     return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
+def _buckets_or_pre_split(buckets: dict[str, int] | None, scanner: ReplayScanner) -> dict[str, int] | None:
+    """`is None`, not truthiness: only a column the meter has never written falls back to the
+    pre-split total bucket, which keeps throttled scanners throttled across the deploy."""
+    return scanner.sweep_read_bytes_by_hour if buckets is None else buckets
+
+
 # Kept back for the activity's own wrap-up (exclusion filtering, result serialization).
-_ACTIVITY_RESERVE_SECONDS = 60
+_DEEP_QUERY_RESERVE_SECONDS = 60
 # Below this a deep query over a padded events window has no realistic chance of finishing.
-_MIN_DEEP_EXECUTION_SECONDS = 60
+_DEEP_QUERY_MIN_SECONDS = 60
 
 
 def _deep_execution_budget(seconds_remaining: float) -> int:
@@ -204,8 +205,8 @@ def _deep_execution_budget(seconds_remaining: float) -> int:
 
     Zero rather than a sliver, because a doomed query still costs a cadence stamp.
     """
-    affordable = int(seconds_remaining) - _ACTIVITY_RESERVE_SECONDS
-    if affordable < _MIN_DEEP_EXECUTION_SECONDS:
+    affordable = int(seconds_remaining) - _DEEP_QUERY_RESERVE_SECONDS
+    if affordable < _DEEP_QUERY_MIN_SECONDS:
         return 0
     return min(DEEP_SWEEP_MAX_EXECUTION_SECONDS, affordable)
 
@@ -230,14 +231,16 @@ def _deep_sweep(
     now = timezone.now()
     if swept_through >= scanner.last_swept_at:
         return [], None
-    # Falls back to the pre-split total bucket until the meter first writes the deep one post-deploy.
-    deep_buckets = scanner.deep_read_bytes_by_hour
-    if deep_buckets is None:
-        deep_buckets = scanner.sweep_read_bytes_by_hour
-    factor = deep_sweep_throttle_factor(deep_spend_bytes_per_day(deep_buckets, now))
     # Cadence runs off the last attempt, not the progress watermark: the watermark deliberately stays
     # put when a pass is cut short, and gating on it would let every such pass re-run on the next tick.
     last_attempt = scanner.deep_attempted_at or swept_through
+    # The factor is >= 1, so the unstretched interval is a sound pre-filter that skips pricing the
+    # spend buckets on the ~143 of 144 ticks where the pass is not remotely due.
+    if now - last_attempt < DEEP_SWEEP_INTERVAL:
+        return [], None
+    factor = deep_sweep_throttle_factor(
+        deep_spend_bytes_per_day(_buckets_or_pre_split(scanner.deep_read_bytes_by_hour, scanner), now)
+    )
     if now - last_attempt < DEEP_SWEEP_INTERVAL * factor:
         return [], None
 
@@ -249,7 +252,7 @@ def _deep_sweep(
     if settled_since_last_edit and not fast_query.matches_on_events():
         return [], _DeepProgress(swept_through=scanner.last_swept_at)
     # An edit invalidates the cursor: it points partway into a window the new filters have never walked.
-    resume_from_cursor = settled_since_last_edit and bool(scanner.deep_seen_session_id)
+    cursor_session_id = (scanner.deep_seen_session_id if settled_since_last_edit else None) or None
 
     window_end = min(scanner.last_swept_at, swept_through + DEEP_SWEEP_MAX_WINDOW)
 
@@ -274,8 +277,8 @@ def _deep_sweep(
         window_start=swept_through,
         window_end=window_end,
         ascending=True,
-        cursor_end_time=swept_through if resume_from_cursor else None,
-        cursor_session_id=scanner.deep_seen_session_id if resume_from_cursor else None,
+        cursor_end_time=swept_through if cursor_session_id else None,
+        cursor_session_id=cursor_session_id,
         query_type=DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
@@ -297,9 +300,9 @@ def _deep_sweep(
         progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
     else:
         progress = _DeepProgress(swept_through=window_end)
-    if len(observed_session_ids) == _DEEP_SWEEP_MAX_EXCLUSIONS and deep_candidates:
-        # The in-query exclusion was truncated, so already-observed sessions can come back; drop them
-        # here rather than letting duplicate dispatches burn the shared headroom.
+    if deep_candidates:
+        # The in-query exclusion is a bounded cost optimization; this filter is what guarantees an
+        # already-observed session never burns dispatch headroom, however far past the cap the backlog is.
         already_observed = set(
             ReplayObservation.objects.filter(
                 team_id=scanner.team_id,
