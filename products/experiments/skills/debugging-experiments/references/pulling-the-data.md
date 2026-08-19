@@ -129,7 +129,7 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                        |
 | Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                                    |
-| Assignment override (assignment-side SRM) | the reassignment component carries the gap in the decisive test below; then localize with the SDK split / bootstrap mix below                    |
+| Assignment override (assignment-side SRM) | the reassignment component carries the gap in the decisive test below; then localize with the SDK split / bootstrap mix below                      |
 | Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                         |
 | Flag read before load (capture-side SRM)  | `false`/`null` person count near the short-arm gap and concentrated on that arm's `$lib`/surface                                                   |
 | Pre-launch skew                           | the same directional skew _before_ `start_date` ⇒ points at assignment, not capture                                                                |
