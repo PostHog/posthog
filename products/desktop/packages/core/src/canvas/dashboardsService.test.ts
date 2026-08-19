@@ -9,6 +9,8 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     name: "Revenue board",
     channel: "chan-1",
     template_id: "freeform",
+    source_product: "signal_report",
+    source_resource_id: "report-1",
     context: "",
     generation_task_id: null,
     pinned_at: null,
@@ -69,6 +71,8 @@ describe("DashboardsService.list", () => {
       name: "Revenue board",
       createdBy: "Ada L",
       currentVersionId: "v1",
+      sourceProduct: "signal_report",
+      sourceResourceId: "report-1",
     });
     expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
   });

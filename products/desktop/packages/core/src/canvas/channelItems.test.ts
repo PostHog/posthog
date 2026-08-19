@@ -39,6 +39,7 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     kind: "freeform" as const,
     description: "",
     templateId: "freeform",
+    sourceProduct: "user_created",
     context: "",
     createdAt: 0,
     updatedAt: 1_000,
@@ -193,6 +194,30 @@ describe("buildChannelItems", () => {
       ],
     });
     expect(items.map((i) => i.source)).toEqual(["slack", null]);
+  });
+
+  it("keeps canvas provenance available to source filters", () => {
+    const items = build({
+      dashboards: [
+        canvas({ id: "signals", sourceProduct: "signal_report" }),
+        canvas({ id: "manual", sourceProduct: "user_created" }),
+      ],
+    });
+
+    expect(channelItemSources(items)).toEqual([
+      "signal_report",
+      "user_created",
+    ]);
+    expect(
+      filterChannelItems(items, {
+        query: "",
+        filters: {
+          ...DEFAULT_CHANNEL_ITEM_FILTERS,
+          source: "signal_report",
+        },
+        me: { uuid: ME.uuid },
+      }).map((item) => item.id),
+    ).toEqual(["signals"]);
   });
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
