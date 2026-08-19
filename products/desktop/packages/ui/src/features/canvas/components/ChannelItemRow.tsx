@@ -192,6 +192,7 @@ export function ChannelItemRow({
   const rowIcon = (
     <TaskStatusDot dot={deleting ? DELETING_DOT : taskDot(status ?? {})} />
   );
+
   // A canvas gets the same menu with the items it actually has: pin, and delete
   // instead of archive. Filing and command-centre cells are task-shaped, and the
   // menu drops them rather than showing them dead.

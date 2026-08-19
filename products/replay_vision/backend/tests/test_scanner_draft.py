@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.schema import RecordingsQuery
+
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
@@ -19,6 +21,7 @@ from products.replay_vision.backend.scanner_draft import (
     _generate,
     _LlmDraft,
 )
+from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
@@ -143,28 +146,6 @@ class TestFinalize:
 
         assert result.scanner_config == {"prompt": _draft().prompt, "length": "short"}
 
-    def test_offered_filter_event_becomes_a_recordings_query(self):
-        result = _finalize(_draft(filter_event="checkout_started"), offered_events=["checkout_started", "signup"])
-
-        assert result.query == {
-            "kind": "RecordingsQuery",
-            "events": [{"type": "events", "id": "checkout_started", "name": "checkout_started", "order": 0}],
-        }
-
-    @pytest.mark.parametrize(
-        "filter_event,offered_events",
-        [
-            ("checkout started", ["checkout_started"]),  # reworded, would match nothing
-            ("made_up_event", ["checkout_started"]),  # hallucinated
-            ("checkout_started", []),  # nothing offered to ground it
-            (None, ["checkout_started"]),  # model declined
-        ],
-    )
-    def test_ungrounded_filter_event_yields_no_query(self, filter_event, offered_events):
-        result = _finalize(_draft(filter_event=filter_event), offered_events=offered_events)
-
-        assert result.query is None
-
     def test_rationale_is_trimmed_and_capped(self):
         result = _finalize(_draft(rationale="  why " + "x" * 600))
 
@@ -179,6 +160,116 @@ class TestFinalize:
         # `tags: []` would 200 into a configure form the create endpoint then rejects.
         with pytest.raises(DraftError):
             _finalize(_draft(scanner_type="classifier", tags=["!!!", "***"]))
+
+    def test_monitor_carries_allow_inconclusive_only_when_on(self):
+        # Off stays absent, mirroring the wizard toggle's default; on any other type it's not a valid key.
+        assert "allow_inconclusive" not in _finalize(_draft()).scanner_config
+        assert _finalize(_draft(allow_inconclusive=True)).scanner_config["allow_inconclusive"] is True
+        assert (
+            "allow_inconclusive"
+            not in _finalize(_draft(scanner_type="summarizer", allow_inconclusive=True)).scanner_config
+        )
+
+    def test_filters_build_a_recordings_query_grounded_in_the_taxonomy(self):
+        result = _finalize(
+            _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
+            allowed_screens=["/checkout", "/cart"],
+            allowed_events=["checkout_started", "payment_failed"],
+        )
+
+        assert result.query == {
+            "kind": "RecordingsQuery",
+            "properties": [
+                {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
+            ],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
+        }
+        # The wizard and the scan pipeline both parse this as a RecordingsQuery; shape drift must fail here.
+        RecordingsQuery.model_validate(result.query)
+
+    @pytest.mark.parametrize(
+        "screens,events,expected_keys",
+        [
+            (["/checkout"], ["checkout_started"], {"kind", "properties", "events"}),
+            (["/checkout"], [], {"kind", "properties"}),
+            ([], ["checkout_started"], {"kind", "events"}),
+            ([], [], None),
+        ],
+    )
+    def test_query_carries_only_the_keys_with_surviving_filters(self, screens, events, expected_keys):
+        result = _finalize(
+            _draft(filter_screens=screens, filter_events=events),
+            allowed_screens=["/checkout"],
+            allowed_events=["checkout_started"],
+        )
+
+        if expected_keys is None:
+            assert result.query is None
+        else:
+            assert result.query is not None
+            # A key must be absent, not an empty list, when its filter kind didn't survive.
+            assert set(result.query) == expected_keys
+            RecordingsQuery.model_validate(result.query)
+
+    def test_hallucinated_filters_are_dropped(self):
+        # A filter value the product never emits would silently make the scanner match zero sessions.
+        result = _finalize(
+            _draft(filter_screens=["/imaginary"], filter_events=["made_up_event"]),
+            allowed_screens=["/checkout"],
+            allowed_events=["checkout_started"],
+        )
+
+        assert result.query is None
+
+    @pytest.mark.parametrize("screen", ["/", "/en", "/a/b"])
+    def test_short_screens_cannot_ground_a_filter(self, screen):
+        # An icontains match on "/" or "/en" catches nearly every URL: the draft would render
+        # as narrowing while narrowing nothing.
+        result = _finalize(_draft(filter_screens=[screen]), allowed_screens=[screen, "/checkout"])
+
+        assert result.query is None
+
+    def test_short_screen_does_not_consume_the_screen_cap(self):
+        result = _finalize(_draft(filter_screens=["/en", "/checkout"]), allowed_screens=["/en", "/checkout"])
+
+        assert result.query is not None
+        assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
+
+    def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
+        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+            grounded = _finalize(
+                _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+            assert grounded.query is not None
+            warn.assert_not_called()
+
+            _finalize(
+                _draft(filter_screens=["/imaginary"], filter_events=["made_up_event"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+
+        warn.assert_called_once()
+        kwargs = warn.call_args.kwargs
+        assert kwargs["team_id"] == 42
+        assert kwargs["dropped_screens"] == 1
+        assert kwargs["dropped_events"] == 1
+        assert kwargs["scans_every_session"] is True
+
+    def test_filters_are_stripped_capped_and_deduped(self):
+        result = _finalize(
+            _draft(filter_screens=["/alpha", "/beta"], filter_events=[" e1", "e1", "e2", "e3"]),
+            allowed_screens=["/alpha", "/beta"],
+            allowed_events=["e1", "e2", "e3"],
+        )
+
+        assert result.query is not None
+        assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
+        assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
 
 
 class TestDraftGrounding(_VisionAPITestCase):
@@ -332,6 +423,25 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
             "query": None,
+        }
+
+    @patch(_GENERATE_PATH)
+    @patch("products.replay_vision.backend.scanner_draft._product_taxonomy")
+    def test_returns_drafted_session_filters_grounded_in_taxonomy(self, mock_taxonomy, mock_generate):
+        mock_taxonomy.return_value = _ProductTaxonomy(events=["checkout_started"], screens=["/checkout"])
+        mock_generate.return_value = _draft(
+            filter_screens=["/checkout"], filter_events=["checkout_started", "made_up_event"]
+        )
+
+        resp = self.client.post(self.draft_url, data={"goal": "watch sessions that reach checkout"}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["query"] == {
+            "kind": "RecordingsQuery",
+            "properties": [
+                {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
+            ],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)

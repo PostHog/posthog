@@ -496,8 +496,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     ) -> ast.SelectQuery:
         entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
 
-        actor_column_name = self.entity_actor_id_column(entity)
-        actor_field = ast.Field(chain=[actor_column_name])
+        actor_field = self.coerce_actor_id_expr(self.entity_actor_id_expr(entity))
 
         timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
         assert timestamp_column_name
