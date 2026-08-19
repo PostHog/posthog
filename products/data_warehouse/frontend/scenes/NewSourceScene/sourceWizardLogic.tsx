@@ -330,6 +330,20 @@ export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[])
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 
+// Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
+// rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
+// (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
+// enabling them always takes an explicit per-table opt-in. Bulk disable still clears them.
+export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, selectAll: boolean): boolean => {
+    if (schema.permission_error) {
+        return false
+    }
+    if (selectAll && schema.should_sync_default === false) {
+        return schema.should_sync
+    }
+    return selectAll
+}
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -2374,20 +2388,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
-                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: schema.permission_error ? false : selectAll,
+                            should_sync: bulkToggledShouldSync(schema, selectAll),
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
                         should_sync: targetSet.has(schema.table)
-                            ? schema.permission_error
-                                ? false
-                                : selectAll
+                            ? bulkToggledShouldSync(schema, selectAll)
                             : schema.should_sync,
                     }))
                 },
@@ -3534,8 +3545,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     // Onboarding one-click setup: opt every syncable table in (permission errors
                     // already continued above), so the user can sync the whole source in one click.
+                    // Default-off tables stay off via the shared bulk rule: this path shows no
+                    // table picker, so nothing else stops a secrets table from syncing.
                     if (props.autoConfigureTables) {
-                        schema.should_sync = true
+                        schema.should_sync = bulkToggledShouldSync(schema, true)
                     }
                 }
 

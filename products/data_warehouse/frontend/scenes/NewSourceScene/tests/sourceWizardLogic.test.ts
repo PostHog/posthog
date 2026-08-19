@@ -825,6 +825,30 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        it('toggleAllTables(selectAll=true) never opts into default-off rows, deselect still clears them', () => {
+            // Default-off tables (e.g. Supabase Vault secrets tables) need an explicit per-table
+            // opt-in; select-all must neither enable them nor undo a deliberate manual opt-in.
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
+                buildSchema({ table: 'vault.secrets', should_sync_default: false, should_sync: true }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true)
+                let byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
+                expect(byTable['vault.secrets'].should_sync).toBe(true)
+
+                logic.actions.toggleAllTables(false)
+                byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['vault.secrets'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
         it('toggleAllTables(selectAll=true) with explicit tableNames still skips permission_error rows', () => {
             const { logic, unmount } = mountWithSchemas([
                 buildSchema({ table: 'Customer' }),
@@ -971,14 +995,16 @@ describe('sourceWizardLogic', () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({
                     table: 'Customer',
-                    should_sync_default: false, // proves autoConfigureTables overrides the per-table default
                     incremental_available: true,
                     incremental_fields: [
                         { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
                     ],
                 }),
-                apiSchema({ table: 'Product', should_sync_default: false }),
+                apiSchema({ table: 'Product' }),
                 apiSchema({ table: 'Charge', permission_error: 'Missing scope' }),
+                // Auto-configure shows no table picker, so a table the source marks default-off
+                // (e.g. a Supabase Vault secrets table) must not be silently opted in.
+                apiSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
             ] as ExternalDataSourceSyncSchema[])
 
             const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource }, autoConfigureTables: true })
@@ -995,6 +1021,7 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['Product'].should_sync).toBe(true)
                 // permission_error rows can never be synced, even under auto-configure.
                 expect(byTable['Charge'].should_sync).toBe(false)
+                expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
             } finally {
                 unmount()
             }
