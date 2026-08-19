@@ -40,7 +40,7 @@ export const SECTIONS = [
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 
-export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
+export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', alert: '🚨', fail: '❌', info: 'ℹ️' }
 
 function emojiFor(status) {
     return STATUS_EMOJI[status] ?? STATUS_EMOJI.info

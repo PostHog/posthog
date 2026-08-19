@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    _get_redis,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -673,6 +674,30 @@ class TestValidateIncrementalSync:
         # run is retried on every schedule even though only the user can resolve it.
         message = str(MissingPrimaryKeysException())
         assert [key for key in Any_Source_Errors if key in message]
+
+
+class TestGetRedis:
+    @pytest.mark.asyncio
+    async def test_yields_none_when_ping_fails(self):
+        # `handle_non_retryable_error` only takes its Redis-unreachable fast-fail path when the
+        # yielded client is None; otherwise it calls `.incr()` on the broken client, which raises
+        # the same connection error uncaught instead of failing fast as NonRetryableException.
+        # `get_async_client` only builds a lazy client, so a failed ping is the only signal that
+        # the client is unusable - it must reset the client to None rather than yield it as-is.
+        broken_client = AsyncMock(ping=AsyncMock(side_effect=ConnectionError("Connect call failed")))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.settings") as mock_settings,
+            patch(f"{_EXTRACT_MODULE}.get_async_client", return_value=broken_client),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_settings.DATA_WAREHOUSE_REDIS_HOST = "localhost"
+            mock_settings.DATA_WAREHOUSE_REDIS_PORT = 6379
+
+            async with _get_redis() as redis_client:
+                assert redis_client is None
+
+        mock_capture.assert_called_once()
 
 
 class TestHandleNonRetryableError:
