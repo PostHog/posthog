@@ -2,7 +2,7 @@ import logging
 from typing import cast
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.integration import github_rate_limited_response
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 
@@ -71,6 +72,8 @@ class ErrorTrackingExternalReferenceResultSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ErrorTrackingExternalReferenceCreate")
 class ErrorTrackingExternalReferenceSerializer(ErrorTrackingExternalReferenceResultSerializer):
+    """Payload for creating a new provider issue and linking it to an error tracking issue."""
+
     integration_id = serializers.IntegerField(
         write_only=True,
         help_text="ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira').",
@@ -230,9 +233,9 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
         response_serializer = self.get_serializer(reference)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(
-        parameters=[ErrorTrackingExternalIssueSearchQuerySerializer],
-        responses={200: ErrorTrackingExternalIssueSearchResponseSerializer},
+    @validated_request(
+        query_serializer=ErrorTrackingExternalIssueSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingExternalIssueSearchResponseSerializer)},
     )
     @action(
         methods=["GET"],
@@ -243,17 +246,14 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
         # needs read access to integrations.
         required_scopes=["error_tracking:read", "integration:read"],
     )
-    def search_issues(self, request: Request, *args, **kwargs) -> Response:
+    def search_issues(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         """Search a connected provider for existing issues to link an error to."""
-        query_serializer = ErrorTrackingExternalIssueSearchQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-
         try:
             issues = search_external_issues(
                 team_id=self.team.id,
-                integration_id=query_serializer.validated_data["integration_id"],
-                search=query_serializer.validated_data["search"],
-                repository=query_serializer.validated_data.get("repository") or None,
+                integration_id=request.validated_query_data["integration_id"],
+                search=request.validated_query_data["search"],
+                repository=request.validated_query_data.get("repository") or None,
             )
         except ExternalReferenceValidationError as error:
             raise ValidationError(str(error)) from error

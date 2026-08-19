@@ -7,6 +7,8 @@ from uuid import UUID
 from django.conf import settings
 from django.db.models import Count, Q, QuerySet
 
+import requests
+
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -332,11 +334,12 @@ def create_external_reference(
     integration_id: int,
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
-) -> ErrorTrackingExternalReference:
+) -> tuple[ErrorTrackingExternalReference, bool]:
     """Link an error tracking issue to an external provider issue.
 
     Pass ``config`` to create a brand-new provider issue, or ``external_context`` to link an
     existing one that the user picked. Exactly one of the two must be supplied.
+    Returns the reference and whether it was newly created (idempotent re-links return False).
     """
     if (config is None) == (external_context is None):
         raise ErrorTrackingExternalReferenceValidationError(
@@ -357,7 +360,7 @@ def create_external_reference(
             issue=issue, integration=integration, external_context__contains=stored_context
         ).first()
         if existing is not None:
-            return existing
+            return existing, False
         if integration.kind == Integration.IntegrationKind.LINEAR:
             # Linked issues get the same PostHog back-link attachment as created ones.
             attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
@@ -366,7 +369,7 @@ def create_external_reference(
             issue=issue,
             integration=integration,
             external_context=stored_context,
-        )
+        ), True
 
     _validate_external_reference_config(integration, config)
     provider_config = dict(config or {})
@@ -387,7 +390,7 @@ def create_external_reference(
         issue=issue,
         integration=integration,
         external_context=created_context,
-    )
+    ), True
 
 
 def search_external_issues(
@@ -425,7 +428,9 @@ def search_external_issues(
             return LinearIntegration(integration).search_issues(search)
         elif integration.kind == Integration.IntegrationKind.JIRA:
             return JiraIntegration(integration).search_issues(search)
-    except (GitHubIntegrationError, GitLabIntegrationError) as error:
+    except (GitHubIntegrationError, GitLabIntegrationError, requests.RequestException, ValueError) as error:
+        # RequestException and ValueError (JSON decoding) cover provider timeouts,
+        # connection failures, and malformed bodies from any provider.
         raise ErrorTrackingExternalReferenceValidationError(f"Failed to search {integration.kind} issues.") from error
 
     raise ErrorTrackingExternalReferenceValidationError("Provider not supported")

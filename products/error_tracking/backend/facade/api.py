@@ -594,7 +594,7 @@ def create_external_reference(
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
-    reference = logic.create_external_reference(
+    reference, created = logic.create_external_reference(
         team_id=team_id,
         issue_id=issue_id,
         integration_id=integration_id,
@@ -602,17 +602,19 @@ def create_external_reference(
         external_context=external_context,
     )
 
-    posthoganalytics.capture(
-        "error_tracking_external_issue_created",
-        distinct_id=distinct_id,
-        groups=groups(reference.issue.team.organization, reference.issue.team),
-        properties={
-            "issue_id": reference.issue_id,
-            "integration_kind": reference.integration.kind,
-            # Distinguish linking an existing issue from creating a brand-new one.
-            "linked_existing": external_context is not None,
-        },
-    )
+    # Idempotent re-links return an existing reference; counting those would inflate the metric.
+    if created:
+        posthoganalytics.capture(
+            "error_tracking_external_issue_created",
+            distinct_id=distinct_id,
+            groups=groups(reference.issue.team.organization, reference.issue.team),
+            properties={
+                "issue_id": reference.issue_id,
+                "integration_kind": reference.integration.kind,
+                # Distinguish linking an existing issue from creating a brand-new one.
+                "linked_existing": external_context is not None,
+            },
+        )
 
     return _to_external_reference(reference)
 

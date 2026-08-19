@@ -3721,7 +3721,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
             ),
         issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
     })
-    .describe('Read-only shape of an external reference, shared by every response.')
+    .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
 
 export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
     project_id: zod

@@ -28804,7 +28804,7 @@ export namespace Schemas {
     }
 
     /**
-     * Read-only shape of an external reference, shared by every response.
+     * Payload for creating a new provider issue and linking it to an error tracking issue.
      */
     export interface ErrorTrackingExternalReferenceCreate {
       /** Unique ID of the external reference. */

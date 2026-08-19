@@ -495,7 +495,7 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 export type ErrorTrackingExternalReferenceCreateApiConfig = { [key: string]: string }
 
 /**
- * Read-only shape of an external reference, shared by every response.
+ * Payload for creating a new provider issue and linking it to an error tracking issue.
  */
 export interface ErrorTrackingExternalReferenceCreateApi {
     /** Unique ID of the external reference. */

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils.timezone import now
 
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -169,9 +170,12 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert reference.external_url == "https://acme.atlassian.net/browse/ENG-42"
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
+    @patch("products.error_tracking.backend.facade.api.posthoganalytics.capture")
     @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
     @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
-    def test_link_existing_linear_issue_creates_attachment(self, mock_create_issue, mock_create_attachment):
+    def test_link_existing_linear_issue_creates_attachment(
+        self, mock_create_issue, mock_create_attachment, mock_capture
+    ):
         issue = self._create_issue(team=self.team, name="Checkout TypeError")
         integration = Integration.objects.create(
             team=self.team,
@@ -204,6 +208,12 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
         assert duplicate.id == reference.id
         assert mock_create_attachment.call_count == 1
+        created_events = [
+            call
+            for call in mock_capture.call_args_list
+            if call.args and call.args[0] == "error_tracking_external_issue_created"
+        ]
+        assert len(created_events) == 1
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
     @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
@@ -312,9 +322,18 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 team_id=self.team.id, integration_id=integration.id, search="boom", repository="other-org/repo"
             )
 
+    @parameterized.expand(
+        [
+            ("application_error", GitLabIntegrationError("rate limited")),
+            ("transport_error", requests.Timeout("timed out")),
+            ("malformed_body", ValueError("invalid json")),
+        ]
+    )
     @patch("products.error_tracking.backend.logic.GitLabIntegration.search_issues")
-    def test_search_external_issues_maps_provider_failures_to_validation_errors(self, mock_search_issues):
-        mock_search_issues.side_effect = GitLabIntegrationError("rate limited")
+    def test_search_external_issues_maps_provider_failures_to_validation_errors(
+        self, _name, side_effect, mock_search_issues
+    ):
+        mock_search_issues.side_effect = side_effect
         integration = Integration.objects.create(
             team=self.team,
             kind=Integration.IntegrationKind.GITLAB.value,

@@ -161,7 +161,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
             ),
         issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
     })
-    .describe('Read-only shape of an external reference, shared by every response.')
+    .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
 
 /**
  * Link an error to an issue that already exists in the connected provider.
