@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.models.organization_notification_lock import effective_notification_settings, notification_locks_for_users
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
@@ -90,11 +91,18 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
 
 def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
     memberships_to_email = []
-    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id
+    memberships = list(
+        OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+            organization_id=team.organization_id
+        )
     )
+    # Resolved once for the whole organization, because resolving inside the loop would run a
+    # lock query per member on every fan-out.
+    locks_by_user = notification_locks_for_users([membership.user_id for membership in memberships])
     for membership in memberships:
-        if not should_send_notification(membership.user, notification_setting):
+        if not should_send_notification(
+            membership.user, notification_setting, locks=locks_by_user.get(membership.user_id, {})
+        ):
             continue
         team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
@@ -198,6 +206,7 @@ def should_send_notification(
     user: User,
     notification_type: NotificationSettingType,
     team_id: Optional[int] = None,
+    locks: Optional[dict[tuple[str, str], bool]] = None,
 ) -> bool:
     """
     Determines if a notification should be sent to a user based on their notification settings.
@@ -206,11 +215,12 @@ def should_send_notification(
         user: The user to check settings for
         notification_type: The type of notification being sent. It must be the enum member's value!
         team_id: Optional team ID for team-specific notifications
+        locks: Pre-resolved organization locks, to avoid a query per user in a fan-out
 
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
-    settings = user.notification_settings
+    settings = effective_notification_settings(user, locks=locks)
 
     if notification_type == NotificationSetting.WEEKLY_PROJECT_DIGEST.value:
         # First check global digest setting
@@ -286,7 +296,7 @@ def should_send_pipeline_error_notification(
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
-    settings = user.notification_settings
+    settings = effective_notification_settings(user)
 
     # Check per-pipeline opt-out
     if pipeline_id is not None:

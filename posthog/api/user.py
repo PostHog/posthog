@@ -104,6 +104,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -152,6 +153,31 @@ NUM_2FA_BACKUP_CODES = 10
 
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+
+def _reject_locked_notification_settings(user: User, incoming: Notifications) -> None:
+    """Stop a member changing a setting their organization has locked.
+
+    The admin surface disables these controls, but the disabling has to be enforced here too, or
+    the lock is only a suggestion to anyone using the API directly.
+    """
+    locks = notification_locks_for_users([user.id]).get(user.id, {})
+    if not locks:
+        return
+
+    for key, value in incoming.items():
+        if isinstance(value, dict):
+            blocked = [scope_id for scope_id in value if (key, str(scope_id)) in locks]
+            if blocked:
+                raise serializers.ValidationError(
+                    f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
+                    code="permission_denied",
+                )
+        elif (key, "") in locks:
+            raise serializers.ValidationError(
+                f"{key} is set by your organization and cannot be changed here",
+                code="permission_denied",
+            )
 
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
@@ -596,6 +622,8 @@ class UserSerializer(serializers.ModelSerializer):
             **NOTIFICATION_DEFAULTS,
             **(instance.partial_notification_settings or {}),
         }
+
+        _reject_locked_notification_settings(instance, notification_settings)
 
         _dict_notification_keys = (
             "project_weekly_digest_disabled",
