@@ -6,7 +6,6 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -191,7 +190,6 @@ export interface experimentsLogicValues {
         search?: string | undefined
         status?: ExperimentStatus | 'all' | undefined
     }
-    shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
     tab: ExperimentsTabs
     unavailableFeatureFlagKeys: Set<string>
@@ -515,11 +513,6 @@ export interface experimentsLogicMeta {
             },
             featureFlagModalPageFromURL: number
         ) => PaginationManual
-        shouldShowEmptyState: (
-            experimentsLoading: boolean,
-            experiments: ExperimentsResult,
-            filters: ExperimentsFilters
-        ) => boolean
         pagination: (filters: ExperimentsFilters, count: number) => PaginationManual
         unavailableFeatureFlagKeys: (featureFlags: FeatureFlagsResult, experiments: ExperimentsResult) => Set<string>
     }
@@ -837,16 +830,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                               }
                             : undefined,
                 }
-            },
-        ],
-        shouldShowEmptyState: [
-            (s) => [s.experimentsLoading, s.experiments, s.filters],
-            (experimentsLoading: boolean, experiments: ExperimentsResult, filters: ExperimentsFilters): boolean => {
-                return (
-                    !experimentsLoading &&
-                    (experiments.results?.length ?? 0) === 0 &&
-                    objectsEqual(filters, DEFAULT_FILTERS)
-                )
             },
         ],
         pagination: [

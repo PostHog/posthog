@@ -140,9 +140,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
         )
     }
 
-    // Kafka jobs don't need explicit dequeue/cancel — they're just dropped
+    // Kafka jobs don't need explicit dequeue — they're just dropped
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
-    public async cancelInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {

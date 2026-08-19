@@ -117,11 +117,17 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        cloneLayoutItem: (item: Record<string, unknown>) => ({ ...item }),
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
             mounted: true,
         }),
+        verticalCompactor: {
+            type: 'vertical',
+            allowOverlap: false,
+            compact: (layout: unknown[]) => layout,
+        },
         Responsive: ({
             className,
             rowHeight,

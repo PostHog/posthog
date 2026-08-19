@@ -1,0 +1,105 @@
+// Shared building blocks for the product empty-state previews.
+
+// Crossfading halves of a preview must leave the accessibility tree and the tab order while
+// hidden, not merely fade out. Under `opacity: 0` alone a screen reader announces both halves
+// of every swap at once ("0% 100%", ": false : true"), which contradicts the one thing the
+// preview demonstrates, and any control in the hidden half stays focusable, so a keyboard user
+// lands on an invisible button. `pointer-events` does not help, since it suppresses only mouse
+// and touch.
+//
+// `visibility` is delayed by the fade duration when hiding so the transition still plays, and
+// applied immediately when showing. A `visibility: hidden` grid item keeps its cell, so
+// swapping the two states causes no layout shift.
+
+// Product accents are sidebar icon tints, not text colors. On the light surface most of them
+// land well under the 4.5:1 AA floor as text (endpoints 2.19:1, feature flags 2.70:1), so a
+// preview painting a label, a code keyword, or a served-version marker in the raw accent is
+// unreadable for a low-vision reader. Each preview therefore derives a text-safe variant with
+// this mix and uses it for every `color:` declaration, keeping the raw accent for fills,
+// borders, and strokes where the floor is 3:1 for graphics.
+//
+// Mixing toward `--color-text-primary` moves the accent toward whatever contrasts the current
+// theme's background, so one formula covers light and dark. 60% keeps the hue recognizable
+// while leaving the worst token at 5.6:1.
+@mixin preview-accent-text($accent) {
+    color: color-mix(in oklab, #{$accent} 60%, var(--color-text-primary));
+}
+
+$preview-swap-duration: 250ms;
+
+@mixin preview-swap-hidden($duration: $preview-swap-duration) {
+    visibility: hidden;
+    opacity: 0;
+    transition:
+        opacity $duration ease,
+        visibility 0s linear $duration;
+}
+
+@mixin preview-swap-visible($duration: $preview-swap-duration) {
+    visibility: visible;
+    opacity: 1;
+    transition:
+        opacity $duration ease,
+        visibility 0s;
+}
+
+// Every preview guards its ambient motion twice: `prefers-reduced-motion` for the user's own
+// setting, and a `--static` class the component adds under `inStorybook()` so visual-regression
+// snapshots don't catch a frame mid-animation. Both are the same two rules in every preview.
+@mixin preview-motion-guards($root) {
+    .#{$root}--static *,
+    .#{$root}--static *::after {
+        animation: none !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .#{$root} *,
+        .#{$root} *::after {
+            animation: none !important;
+        }
+    }
+}
+
+// The stat card that sits under most previews: a title and a value above a sparkline. Structure
+// only, so the sparkline's own line and fill stay with the preview that draws them. Include
+// inside the preview root, where `&` resolves to it.
+@mixin preview-sparkline {
+    &__spark-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__spark-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    &__spark-value {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin-top: 0.25rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    &__spark-svg {
+        display: block;
+        width: 100%;
+        height: 44px;
+        overflow: visible;
+    }
+}
+
+// One of the window dots in a preview's fake browser or app chrome.
+@mixin preview-chrome-dot {
+    &__chrome-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--color-fill-secondary);
+        border-radius: 50%;
+    }
+}

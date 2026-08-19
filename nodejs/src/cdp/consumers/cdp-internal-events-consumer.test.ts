@@ -221,5 +221,38 @@ describe('CDP Internal Events Consumer', () => {
             expect(invocations).toHaveLength(1)
             expect(invocations[0].functionId).toBe(internalFn.id)
         })
+
+        it('routes managed alert events only to the destination matching the event and alert id', async () => {
+            const filters = (alertId: string) => ({
+                filters: {
+                    ...HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    events: [{ id: '$billing_alert_firing', type: 'events' as const }],
+                    properties: [{ key: 'alert_id', value: alertId, operator: 'exact', type: 'event' }],
+                },
+            })
+            const matching = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...filters('alert-1'),
+            })
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...filters('alert-2'),
+            })
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const event = createInternalEvent(team.id, {})
+            event.event.event = '$billing_alert_firing'
+            event.event.properties = { alert_id: 'alert-1', current_value: '100' }
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.map((invocation) => invocation.functionId)).toEqual([matching.id])
+        })
     })
 })

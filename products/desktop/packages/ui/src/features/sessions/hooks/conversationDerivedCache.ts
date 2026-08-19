@@ -12,6 +12,15 @@ export interface ConversationBuildCache {
   pending: boolean | null;
   debug: boolean | undefined;
   result: BuildResult | null;
+  /**
+   * Stall detection for the transcript (written by useConversationItems): the
+   * last visible fingerprint, the event count when it last moved, and whether
+   * the stall was already logged. These ride along with the builder, so a
+   * stalled transcript is logged once instead of again on every re-open.
+   */
+  visible: string;
+  eventsAtLastVisibleChange: number;
+  stallLogged: boolean;
 }
 
 type ThreadGrouper = ReturnType<typeof createIncrementalThreadGrouper>;
@@ -72,6 +81,9 @@ export function createEmptyBuildCache(): ConversationBuildCache {
     pending: null,
     debug: undefined,
     result: null,
+    visible: "",
+    eventsAtLastVisibleChange: 0,
+    stallLogged: false,
   };
 }
 
