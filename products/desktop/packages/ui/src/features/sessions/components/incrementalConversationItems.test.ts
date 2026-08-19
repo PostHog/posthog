@@ -551,7 +551,7 @@ describe("createIncrementalConversationBuilder", () => {
     }
     expect(row2.update).not.toBe(row1.update);
     expect((row2.update as { status?: string }).status).toBe("completed");
-    // The shared toolCalls Map holds the merged entry the view resolves.
+    expect(row1.turnContext.toolCalls.get("t1")?.status).toBe("pending");
     expect(row2.turnContext.toolCalls.get("t1")?.status).toBe("completed");
   });
 
@@ -579,7 +579,22 @@ describe("createIncrementalConversationBuilder", () => {
     // New child arrived mid-turn: fresh parent update so the memoized row re-renders.
     expect(row2).not.toBe(row1);
     expect(row2.update).not.toBe(row1.update);
+    expect(row1.turnContext.childItems.get("agent1")).toBeUndefined();
     expect(row2.turnContext.childItems.get("agent1")?.length).toBe(1);
+
+    const withSecondChild = [...next, childToolCallMsg(4, "child2", "agent1")];
+    const r3 = inc.update(withSecondChild, true);
+    const row3 = r3.items.find(
+      (item) =>
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "tool_call" &&
+        item.update.toolCallId === "agent1",
+    );
+    if (row3?.type !== "session_update") {
+      throw new Error("expected agent session_update row");
+    }
+    expect(row2.turnContext.childItems.get("agent1")?.length).toBe(1);
+    expect(row3.turnContext.childItems.get("agent1")?.length).toBe(2);
   });
 
   it("reissues every ancestor when a nested child tool call arrives", () => {

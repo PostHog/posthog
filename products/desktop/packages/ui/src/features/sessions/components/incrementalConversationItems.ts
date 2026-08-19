@@ -3,6 +3,7 @@ import {
   type BuildConversationOptions,
   type BuildResult,
   buildConversationItems,
+  type ConversationItem,
   createItemBuilder,
   finalizeBuilder,
   type ItemBuilder,
@@ -10,6 +11,7 @@ import {
   orderEventsByTimestamp,
   processEvent,
   readLastTurnInfo,
+  type TurnContext,
 } from "./buildConversationItems";
 
 /**
@@ -53,6 +55,8 @@ export function createIncrementalConversationBuilder() {
   let firstEventRef: AcpMessage | null = null;
   let boundaryEventRef: AcpMessage | null = null;
   let showDebugLogs: boolean | undefined;
+  let publishedItems = new WeakMap<ConversationItem, ConversationItem>();
+  let publishedContexts = new WeakMap<TurnContext, PublishedTurnContext>();
   /** Timestamp of the last event fed to `b`, so a late arrival is detectable. */
   let lastProcessedTs = Number.NEGATIVE_INFINITY;
 
@@ -62,6 +66,8 @@ export function createIncrementalConversationBuilder() {
     firstEventRef = null;
     boundaryEventRef = null;
     lastProcessedTs = Number.NEGATIVE_INFINITY;
+    publishedItems = new WeakMap();
+    publishedContexts = new WeakMap();
   }
 
   function update(
@@ -175,13 +181,15 @@ export function createIncrementalConversationBuilder() {
 
     markThoughtCompletion(builder.items);
 
-    // Rows keep their identity across calls — the builder replaces a row
-    // object whenever its content changes (tool merges, child streams,
-    // progress cards), so memoized views re-render exactly the changed rows.
-    // Turn flags and `thoughtComplete` are surfaced as value props by the
-    // renderers, not via row identity.
+    // Published rows retain identity until their content or turn context
+    // changes. Snapshot contexts keep later builder mutations out of results
+    // already owned by a committed or abandoned render.
     return {
-      items: builder.items.slice(),
+      items: publishConversationItems(
+        builder.items,
+        publishedItems,
+        publishedContexts,
+      ),
       stablePrefixItemCount: didRebuild ? 0 : activeStart,
       lastTurnInfo: readLastTurnInfoForOutput(builder),
       isCompacting: builder.isCompacting,
@@ -192,6 +200,99 @@ export function createIncrementalConversationBuilder() {
   }
 
   return { update, reset };
+}
+
+interface PublishedTurnContext {
+  context: TurnContext;
+  childSources: Map<string, ConversationItem[]>;
+}
+
+function publishConversationItems(
+  items: ConversationItem[],
+  publishedItems: WeakMap<ConversationItem, ConversationItem>,
+  publishedContexts: WeakMap<TurnContext, PublishedTurnContext>,
+): ConversationItem[] {
+  const currentContexts = new WeakMap<TurnContext, TurnContext>();
+
+  const publishContext = (context: TurnContext): TurnContext => {
+    const current = currentContexts.get(context);
+    if (current) return current;
+
+    const existing = publishedContexts.get(context);
+    if (existing && isPublishedContextCurrent(existing, context)) {
+      currentContexts.set(context, existing.context);
+      return existing.context;
+    }
+
+    const childSources = new Map<string, ConversationItem[]>();
+    for (const [parentId, children] of context.childItems) {
+      childSources.set(parentId, children.slice());
+    }
+
+    const published: TurnContext = {
+      toolCalls: new Map(context.toolCalls),
+      childItems: new Map(),
+      turnCancelled: context.turnCancelled,
+      turnComplete: context.turnComplete,
+    };
+    currentContexts.set(context, published);
+    publishedContexts.set(context, { context: published, childSources });
+    for (const [parentId, children] of context.childItems) {
+      published.childItems.set(parentId, publishItems(children));
+    }
+    return published;
+  };
+
+  const publishItems = (sourceItems: ConversationItem[]): ConversationItem[] =>
+    sourceItems.map((item) => {
+      if (item.type !== "session_update") return item;
+      const existing = publishedItems.get(item);
+      const publishedContext = publishContext(item.turnContext);
+      if (
+        existing?.type === "session_update" &&
+        existing.thoughtComplete === item.thoughtComplete &&
+        existing.turnContext === publishedContext
+      ) {
+        return existing;
+      }
+      const published = {
+        ...item,
+        turnContext: publishedContext,
+      };
+      publishedItems.set(item, published);
+      return published;
+    });
+
+  return publishItems(items);
+}
+
+function isPublishedContextCurrent(
+  published: PublishedTurnContext,
+  source: TurnContext,
+): boolean {
+  const context = published.context;
+  if (
+    context.turnCancelled !== source.turnCancelled ||
+    context.turnComplete !== source.turnComplete ||
+    context.toolCalls.size !== source.toolCalls.size ||
+    published.childSources.size !== source.childItems.size
+  ) {
+    return false;
+  }
+  for (const [toolCallId, toolCall] of source.toolCalls) {
+    if (context.toolCalls.get(toolCallId) !== toolCall) return false;
+  }
+  for (const [parentId, children] of source.childItems) {
+    const publishedChildren = published.childSources.get(parentId);
+    if (
+      !publishedChildren ||
+      publishedChildren.length !== children.length ||
+      publishedChildren.some((item, index) => item !== children[index])
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function readLastTurnInfoForOutput(b: ItemBuilder) {
