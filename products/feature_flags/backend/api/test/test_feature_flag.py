@@ -9097,6 +9097,33 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    def test_user_blast_radius_excludes_inactive_matching_persons(self):
+        # A person matching the filter but with no recent activity is not reachable audience, so it
+        # must not count toward "affected" — otherwise inactive matches inflate the sized audience,
+        # which is the bug this fix guards against.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match-1"], properties={"group": "match"})
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match-2"], properties={"group": "match"})
+        # Matches the filter but emits no event in the window, so it drops out of the count.
+        _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
+        # Active but does not match, so it keeps the total above the matched count.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-nonmatch"], properties={"group": "other"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Only the two active matches count; the inactive match is excluded, and the active
+        # non-match keeps the total at three.
+        self.assertLessEqual({"affected": 2, "total": 3}.items(), response.json().items())
+
     @parameterized.expand(
         [
             (

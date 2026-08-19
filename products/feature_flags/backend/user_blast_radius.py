@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -148,7 +148,14 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def recently_active_persons_count(team: Team) -> int:
+def _recently_active_cutoff() -> datetime:
+    """Start of the flag-sizing activity window, computed in Python so it respects freeze_time in
+    tests and does not depend on ClickHouse server time. Shared by the numerator and denominator so
+    both describe persons active since the same instant."""
+    return timezone.now() - timedelta(days=RECENTLY_ACTIVE_DAYS)
+
+
+def recently_active_persons_count(team: Team, cutoff: Optional[datetime] = None) -> int:
     """Count distinct persons active in the last RECENTLY_ACTIVE_DAYS days.
 
     This is the flag-sizing denominator. It replaces an all-time person count so anonymous churn
@@ -159,7 +166,8 @@ def recently_active_persons_count(team: Team) -> int:
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
 
-    cutoff = timezone.now() - timedelta(days=RECENTLY_ACTIVE_DAYS)
+    if cutoff is None:
+        cutoff = _recently_active_cutoff()
     query = parse_select(
         "SELECT uniq(person_id) FROM events WHERE timestamp >= {cutoff}",
         placeholders={"cutoff": ast.Constant(value=cutoff)},
@@ -171,32 +179,78 @@ def recently_active_persons_count(team: Team) -> int:
     return response.results[0][0] if response.results else 0
 
 
-def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
-    """Calculate blast radius for person-based feature flags using HogQL."""
+def recently_active_matched_persons_count(team: Team, filter: Filter, cutoff: Optional[datetime] = None) -> int:
+    """Count distinct persons who match the filter and are active in the recent window.
+
+    This is the flag-sizing numerator for filtered conditions. It is rooted in events — mirroring
+    recently_active_persons_count and intersecting with the persons matching the filter — so the
+    matched count and the total it is shown against describe the same recently-active population.
+    Counting all-time matches instead would let inactive, churned persons inflate the number up to
+    the full active total (see RECENTLY_ACTIVE_DAYS).
+    """
+    from posthog.hogql import ast
+    from posthog.hogql.property import property_to_expr
     from posthog.hogql.query import execute_hogql_query
 
-    properties = filter.property_groups.flat
+    if cutoff is None:
+        cutoff = _recently_active_cutoff()
 
-    if len(properties) == 0:
-        # No filters means all persons are affected
-        total_users = recently_active_persons_count(team)
-        return BlastRadiusResult(affected=total_users, total=total_users)
-
-    # Build the SELECT query - property_to_expr handles all properties including cohorts
-    select_query = _build_person_query(team, filter, return_count=True)
-
-    # Execute the query
-    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
-    response = execute_hogql_query(
-        query=select_query,
-        team=team,
+    matched_persons = ast.SelectQuery(
+        select=[ast.Field(chain=["persons", "id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["persons", "team_id"]),
+                    right=ast.Constant(value=team.pk),
+                ),
+                property_to_expr(filter.property_groups, team, scope="person"),
+            ]
+        ),
+    )
+    query = ast.SelectQuery(
+        select=[ast.Call(name="uniq", args=[ast.Field(chain=["person_id"])])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=cutoff),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["person_id"]),
+                    right=matched_persons,
+                ),
+            ]
+        ),
     )
 
-    total_count = response.results[0][0] if response.results else 0
-    total_users = recently_active_persons_count(team)
-    blast_radius = min(total_count, total_users)
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    response = execute_hogql_query(query=query, team=team)
 
-    return BlastRadiusResult(affected=blast_radius, total=total_users)
+    return response.results[0][0] if response.results else 0
+
+
+def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
+    """Calculate blast radius for person-based feature flags using HogQL."""
+    properties = filter.property_groups.flat
+
+    # Numerator and denominator are both counts of persons active since the same instant, so the
+    # matched count is never a different population from the total it is shown against.
+    cutoff = _recently_active_cutoff()
+    total_users = recently_active_persons_count(team, cutoff)
+
+    if len(properties) == 0:
+        # No filters means every recently active person is affected
+        return BlastRadiusResult(affected=total_users, total=total_users)
+
+    affected = recently_active_matched_persons_count(team, filter, cutoff)
+    # affected is a strict subset of total_users, but both are uniq() estimates, so clamp to keep
+    # the frontend percentage coherent.
+    return BlastRadiusResult(affected=min(affected, total_users), total=total_users)
 
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
