@@ -74,17 +74,17 @@ export function ContextBreakdownPopover({
       )}
 
       {taskUsage && (
-        <div className="border-border border-t pt-3">
-          <div className="overflow-hidden rounded-lg border border-border bg-muted/30">
-            <div className="flex items-end justify-between gap-6 px-3 py-2.5">
-              <span className="pb-0.5 font-medium text-[12px] text-muted-foreground">
+        <div className="border-border border-t pt-2.5">
+          <div className="overflow-hidden rounded-md border border-border/70 bg-muted/20">
+            <div className="flex items-center justify-between gap-6 px-2.5 py-1.5">
+              <span className="font-medium text-[11px] text-muted-foreground">
                 Estimated cost
               </span>
-              <span className="font-semibold text-[20px] text-foreground tabular-nums leading-none tracking-tight">
+              <span className="font-semibold text-[15px] text-foreground tabular-nums leading-none">
                 {formatCostUsd(taskUsage.total_cost_usd)}
               </span>
             </div>
-            <div className="grid grid-cols-2 border-border border-t bg-background/60">
+            <div className="grid grid-cols-2 border-border/70 border-t bg-background/40">
               <CostDetail label="Tokens" value={taskUsage.token_cost_usd} />
               <CostDetail
                 label="Cloud compute"
@@ -110,12 +110,12 @@ function CostDetail({
 }) {
   return (
     <div
-      className={`flex min-w-0 flex-col gap-0.5 px-3 py-2 ${divided ? "border-border border-l" : ""}`}
+      className={`flex min-w-0 flex-col px-2.5 py-1.5 ${divided ? "border-border/70 border-l" : ""}`}
     >
-      <span className="truncate text-[11px] text-muted-foreground">
+      <span className="truncate text-[10px] text-muted-foreground">
         {label}
       </span>
-      <span className="font-medium text-[13px] text-foreground tabular-nums">
+      <span className="font-medium text-[12px] text-foreground tabular-nums">
         {formatCostUsd(value)}
       </span>
     </div>
