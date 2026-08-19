@@ -5352,6 +5352,16 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
+
+
+    export const PredicateScope = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Unknown: 'unknown',
+    } as const;
+
     export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
 
 
@@ -5368,12 +5378,12 @@ export namespace Schemas {
       end?: number | null;
       fix?: string | null;
       message: string;
+      /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
       operator: string;
       /** Type the value is physically stored as. */
       physical_type: string;
       property_name: string;
-      /** `event`, `person`, `group` or `unknown`. */
-      scope: string;
+      scope: PredicateScope;
       /** Type the property definition declares. */
       semantic_type: string;
       /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
@@ -44452,6 +44462,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+      indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;

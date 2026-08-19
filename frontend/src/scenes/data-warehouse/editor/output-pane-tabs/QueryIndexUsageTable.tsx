@@ -2,10 +2,12 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import { PredicateIndexUsage, PredicateIndexVerdict } from '~/queries/schema/schema-general'
+import { PredicateIndexUsage, PredicateIndexVerdict, PredicateScope } from '~/queries/schema/schema-general'
 
+// `Indexed` is deliberately not a success tag. It means an index covers the comparison, which is a
+// schema fact; whether granules are actually dropped depends on data we do not look at.
 const VERDICT_TAGS: Record<PredicateIndexVerdict, { type: LemonTagType; label: string }> = {
-    [PredicateIndexVerdict.Indexed]: { type: 'success', label: 'Skips data' },
+    [PredicateIndexVerdict.Indexed]: { type: 'default', label: 'Index applies' },
     [PredicateIndexVerdict.Blocked]: { type: 'danger', label: 'Index unused' },
     [PredicateIndexVerdict.UnindexedColumn]: { type: 'warning', label: 'Column scan' },
     [PredicateIndexVerdict.UnindexedJson]: { type: 'warning', label: 'JSON scan' },
@@ -21,9 +23,9 @@ const INDEX_LABELS: Record<string, string> = {
 
 // Scope prefixes tell `properties.x` apart from `person.properties.x`; event properties are the
 // common case and read fine unprefixed.
-const SCOPE_PREFIXES: Record<string, string> = {
-    person: 'person.',
-    group: 'group.',
+const SCOPE_PREFIXES: Partial<Record<PredicateScope, string>> = {
+    [PredicateScope.Person]: 'person.',
+    [PredicateScope.Group]: 'group.',
 }
 
 interface QueryIndexUsageTableProps {
@@ -38,8 +40,7 @@ export function QueryIndexUsageTable({ predicates }: QueryIndexUsageTableProps):
     return (
         <>
             <p className="text-xs px-2 pt-1 mb-1">
-                How each property filter reads its data. A filter backed by an index skips the rows that cannot match,
-                so it reads less.
+                How each property filter reads its data. A filter with no index behind it reads every row.
             </p>
             <LemonTable
                 size="small"

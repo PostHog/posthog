@@ -776,11 +776,18 @@ export enum PredicateIndexVerdict {
     OperatorNotIndexable = 'operator_not_indexable',
 }
 
-/** How one property filter in the query will read and prune data, decided before the query runs. */
+export enum PredicateScope {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+    Unknown = 'unknown',
+}
+
+/** How one property filter in the query reads its data, decided before the query runs. */
 export interface PredicateIndexUsage {
     property_name: string
-    /** `event`, `person`, `group` or `unknown`. */
-    scope: string
+    scope: PredicateScope
+    /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
     source_label: string
@@ -911,6 +918,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
+    /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+    indexUsage?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {

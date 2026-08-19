@@ -25,7 +25,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { QueryIndexUsage } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
@@ -461,9 +460,6 @@ function RunButton({
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
-    // `undecisive` means the query has no property filters to judge, so it is not a reason to warn.
-    const scansEveryRow =
-        metadata?.isUsingIndices === QueryIndexUsage.No || metadata?.isUsingIndices === QueryIndexUsage.Partial
     const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
     // The external-run path shows a cancel affordance only when a canceller is provided.
     const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
@@ -480,24 +476,11 @@ function RunButton({
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || !scansEveryRow || queryInput?.trim().length === 0) {
-            return ['var(--success)', 'New changes to run']
-        }
-
-        return [
-            'var(--warning)',
-            'Some filters in this query read every row. Open the Info tab to see which ones and how to fix them.',
-        ]
-    }, [
-        metadata,
-        scansEveryRow,
-        queryInput,
-        isSourceQueryLastRun,
-        onRunQuery,
-        runQueryTooltip,
-        isRunning,
-        onCancelQuery,
-    ])
+        // No index verdict colors this button. The per-filter report counts filters, and a count does
+        // not track what a query costs: one selective filter bounds the read however many others scan,
+        // and nothing here yet looks at the time range, which is what really decides how much is read.
+        return ['var(--success)', 'New changes to run']
+    }, [metadata, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip, isRunning, onCancelQuery])
 
     const sideAction = useMemo(
         () =>

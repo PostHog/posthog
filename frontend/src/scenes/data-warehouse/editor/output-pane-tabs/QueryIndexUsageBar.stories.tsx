@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { PredicateIndexUsage, PredicateIndexVerdict } from '~/queries/schema/schema-general'
+import { PredicateIndexUsage, PredicateIndexVerdict, PredicateScope } from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageBar } from './QueryIndexUsageBar'
 
@@ -15,7 +15,7 @@ type Story = StoryObj<typeof QueryIndexUsageBar>
 const PREDICATES: PredicateIndexUsage[] = [
     {
         property_name: '$browser',
-        scope: 'event',
+        scope: PredicateScope.Event,
         operator: '==',
         source_label: 'materialized column',
         column_name: 'mat_$browser',
@@ -27,7 +27,7 @@ const PREDICATES: PredicateIndexUsage[] = [
     },
     {
         property_name: 'duration',
-        scope: 'event',
+        scope: PredicateScope.Event,
         operator: '>',
         source_label: 'materialized column',
         column_name: 'mat_duration',
@@ -41,7 +41,7 @@ const PREDICATES: PredicateIndexUsage[] = [
     },
     {
         property_name: 'plan_tier',
-        scope: 'person',
+        scope: PredicateScope.Person,
         operator: '==',
         source_label: 'JSON blob',
         column_name: 'person_properties',
@@ -55,7 +55,7 @@ const PREDICATES: PredicateIndexUsage[] = [
     },
     {
         property_name: '$current_url',
-        scope: 'event',
+        scope: PredicateScope.Event,
         operator: '!=',
         source_label: 'materialized column',
         column_name: 'mat_$current_url',

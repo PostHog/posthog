@@ -10,8 +10,10 @@ function summarize(predicates: PredicateIndexUsage[]): { text: string; scanning:
     const total = predicates.length
     const scanning = predicates.filter((predicate) => predicate.verdict !== PredicateIndexVerdict.Indexed).length
 
+    // Says an index exists, not that the filter is cheap. Whether an index drops any data depends on
+    // the table's sort order and the value being compared, which the report does not look at.
     if (scanning === 0) {
-        return { text: total === 1 ? '1 filter uses an index' : `All ${total} filters use an index`, scanning: false }
+        return { text: total === 1 ? '1 filter has an index' : `All ${total} filters have an index`, scanning: false }
     }
     if (scanning === total) {
         return {

@@ -1,12 +1,13 @@
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogLanguage, HogQLMetadata
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -18,10 +19,12 @@ from posthog.hogql.index_eligibility import (
     PredicateIndexEligibility,
     PredicateIndexVerdict,
     analyze_index_eligibility,
+    build_index_eligibility_report,
     eligibility_from_plan,
 )
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.property_planner import (
     ComparisonCompatibility,
     PropertyAccessPlan,
@@ -39,6 +42,8 @@ from posthog.schema_enums import QueryIndexUsage
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
+
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
 Op = ast.CompareOperationOp
 
@@ -224,6 +229,17 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                 _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
                 True,
             ),
+            (
+                PredicateIndexVerdict.BLOCKED,
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+                    semantic_type=ast.FloatType(nullable=True),
+                ),
+                True,
+            ),
             (PredicateIndexVerdict.INDEXED, _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True), False),
             (PredicateIndexVerdict.UNINDEXED_JSON, _plan(restricted=True), False),
         ]
@@ -238,6 +254,61 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
 
         assert eligibility.verdict == expected_verdict
         assert (eligibility.fix is not None) == expects_fix
+
+    @parameterized.expand(
+        [
+            (
+                "value_type_mismatch_is_fixable_in_the_query",
+                _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
+                True,
+            ),
+            (
+                "source_type_mismatch_is_not",
+                _plan(
+                    operator=Op.Gt,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
+                    semantic_type=ast.FloatType(nullable=True),
+                ),
+                False,
+            ),
+            ("json_reads_are_not", _plan(), False),
+            ("indexed_reads_are_not", _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True), False),
+        ]
+    )
+    def test_only_query_fixable_predicates_get_a_marker(
+        self, _name: str, plan: PropertyComparisonPlan, expects_marker: bool
+    ) -> None:
+        assert eligibility_from_plan(plan).editor_actionable == expects_marker
+
+    @parameterized.expand(
+        [
+            (
+                "value_type_mismatch",
+                _plan(minmax=True, blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE),
+            ),
+            (
+                "in_against_mismatched_members",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType()]),
+                ),
+            ),
+        ]
+    )
+    def test_marked_predicates_carry_an_ai_prompt_never_prose(self, _name: str, plan: PropertyComparisonPlan) -> None:
+        # `HogQLNotice.fix` is substituted into the query verbatim by the editor's quick fix, so the
+        # marker path may only ever emit an `ai_prompt:` instruction. `metadata.py` derives that value
+        # from `ai_fix_prompt`, so a marked predicate without one would put nothing there and a marked
+        # predicate carrying only prose would put advice into the user's query.
+        eligibility = eligibility_from_plan(plan)
+
+        assert eligibility.editor_actionable is True
+        assert eligibility.ai_fix_prompt is not None
 
     def test_negation_overrides_an_otherwise_usable_index(self) -> None:
         plan = _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True)
@@ -284,6 +355,73 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
         assert report.usage == expected
 
 
+def _materialized(property_name: str, *, minmax: bool = False, bloom: bool = False) -> MaterializedColumn:
+    return MaterializedColumn(
+        name=f"mat_{property_name}",
+        details=MaterializedColumnDetails(
+            table_column="properties",
+            property_name=property_name,
+            is_disabled=False,
+        ),
+        is_nullable=False,
+        has_minmax_index=minmax,
+        has_bloom_filter_index=bloom,
+    )
+
+
+class TestIndexEligibilityThroughThePlanner(BaseTest):
+    """Verdicts reached through the real planner rather than a constructed plan.
+
+    Every other verdict test hands `eligibility_from_plan` a `PropertyComparisonPlan` built by the
+    test, so it proves the operator mapping and nothing about whether `plan_property_comparison`
+    emits such a plan for a real query. These two cover that seam: a synthetic materialized-column
+    registry stands in for ClickHouse, and the query goes through resolution and planning as it does
+    in production.
+    """
+
+    def _report(
+        self,
+        query: str,
+        *,
+        columns: MaterializedColumnsByTable,
+        property_types: dict[str, dict[str, str | None]] | None = None,
+    ) -> IndexEligibilityReport:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=context.team)
+        # Pre-setting the bundle stands in for ClickHouse and skips the Postgres-backed loader, so the
+        # planner sees a materialized column with the indexes this test is about.
+        context.property_metadata = PropertyMetadata(
+            event_properties=property_types or {},
+            materialized_columns=lambda: columns,
+        )
+        return build_index_eligibility_report(parse_select(query), context)
+
+    def test_materialized_column_with_a_bloom_filter_is_indexed(self) -> None:
+        report = self._report(
+            "select count() from events where properties.$browser = 'Chrome'",
+            columns={"events": {("$browser", "properties"): _materialized("$browser", bloom=True)}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == PredicateIndexVerdict.INDEXED
+        assert predicate.usable_indexes == (IndexKind.BLOOM_FILTER,)
+        assert report.usage == QueryIndexUsage.YES
+
+    def test_numeric_property_stored_as_string_is_blocked(self) -> None:
+        report = self._report(
+            "select count() from events where properties.duration > 100",
+            columns={"events": {("duration", "properties"): _materialized("duration", minmax=True)}},
+            property_types={"duration": {"type": PropertyType.Numeric.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.usable_indexes == ()
+        # The advice is real but not a query edit, so it must not become an editor marker.
+        assert predicate.fix is not None
+        assert predicate.editor_actionable is False
+
+
 class TestIndexEligibilityAnalysis(BaseTest):
     def _report(self, query: str) -> IndexEligibilityReport:
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -313,17 +451,22 @@ class TestIndexEligibilityAnalysis(BaseTest):
             "c": PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE,
         }
 
+    def _metadata(self, query: str) -> HogQLMetadataResponse:
+        with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True):
+            return get_hogql_metadata(
+                HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query=query,
+                    indexUsage=True,
+                ),
+                self.team,
+            )
+
     def test_metadata_reports_index_usage_for_a_json_backed_filter(self) -> None:
         PropertyDefinition.objects.create(team=self.team, name="duration", property_type=PropertyType.Numeric)
 
-        response = get_hogql_metadata(
-            HogQLMetadata(
-                kind="HogQLMetadata",
-                language=HogLanguage.HOG_QL,
-                query="select count() from events where properties.duration > 100",
-            ),
-            self.team,
-        )
+        response = self._metadata("select count() from events where properties.duration > 100")
 
         assert response.isValid is True
         assert response.isUsingIndices == QueryIndexUsage.NO
@@ -332,32 +475,8 @@ class TestIndexEligibilityAnalysis(BaseTest):
         assert usage.property_name == "duration"
         assert usage.fix is not None
 
-    def test_warning_fix_is_never_prose(self) -> None:
-        PropertyDefinition.objects.create(team=self.team, name="duration", property_type=PropertyType.Numeric)
-
-        response = get_hogql_metadata(
-            HogQLMetadata(
-                kind="HogQLMetadata",
-                language=HogLanguage.HOG_QL,
-                query="select count() from events where properties.duration > 100",
-            ),
-            self.team,
-        )
-
-        # `HogQLNotice.fix` is substituted into the query verbatim by the editor's quick fix, so any
-        # value that is not an `ai_prompt:` instruction has to be valid HogQL, never advice.
-        for warning in response.warnings:
-            assert warning.fix is None or warning.fix.startswith("ai_prompt:")
-
     def test_metadata_reports_no_index_usage_without_property_filters(self) -> None:
-        response = get_hogql_metadata(
-            HogQLMetadata(
-                kind="HogQLMetadata",
-                language=HogLanguage.HOG_QL,
-                query="select count() from events where event = '$pageview'",
-            ),
-            self.team,
-        )
+        response = self._metadata("select count() from events where event = '$pageview'")
 
         assert response.isUsingIndices == QueryIndexUsage.UNDECISIVE
         assert response.index_usage == []

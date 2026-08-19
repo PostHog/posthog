@@ -42,7 +42,12 @@ class IndexKind(StrEnum):
 
 class PredicateIndexVerdict(StrEnum):
     INDEXED = "indexed"
-    """A skip index on the source column prunes granules for this predicate."""
+    """A skip index on the source column covers this predicate's operator.
+
+    Whether it drops granules is a separate question this analysis does not answer: that depends on
+    the table's sort order and on how selective the compared value is. Read as "an index applies",
+    never as "this filter is fast".
+    """
 
     BLOCKED = "blocked"
     """The source carries an index this operator could use, but a type mismatch defeats it."""
@@ -104,6 +109,27 @@ _SOURCE_LABELS: dict[PropertySourceKind, str] = {
 }
 
 
+_PLAIN_TYPE_WORDS: dict[str, str] = {
+    "String": "text",
+    "Float": "a number",
+    "Integer": "a number",
+    "DateTime": "a date",
+    "Date": "a date",
+    "Boolean": "true or false",
+}
+
+
+def _plain_type(printed_type: str) -> str:
+    """A reader-facing word for a HogQL type.
+
+    The type names the engine prints are not the ones the property-type picker offers: it has
+    `Numeric` and `Duration` where the engine has `Float`, and no `Float` at all. Naming the engine's
+    type would send a reader looking for a setting that is not there, so the copy describes the kind
+    of value instead and leaves the exact type to the structured fields.
+    """
+    return _PLAIN_TYPE_WORDS.get(printed_type, printed_type)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PredicateIndexEligibility:
     property_name: str
@@ -131,6 +157,18 @@ class PredicateIndexEligibility:
     def prunes_data(self) -> bool:
         return self.verdict == PredicateIndexVerdict.INDEXED
 
+    @property
+    def editor_actionable(self) -> bool:
+        """Whether a marker on this predicate would point at text the reader can change.
+
+        A marker is a claim about the range it underlines. How a property is stored is a fact about
+        the property definition, not about the query, so underlining a correct comparison leaves the
+        reader nothing to edit and teaches them to ignore the markers that do carry an edit.
+        """
+        if self.verdict != PredicateIndexVerdict.BLOCKED:
+            return False
+        return self.blocker != PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+
 
 @dataclass(frozen=True, slots=True)
 class IndexEligibilityReport:
@@ -146,10 +184,6 @@ class IndexEligibilityReport:
         if pruning == 0:
             return QueryIndexUsage.NO
         return QueryIndexUsage.PARTIAL
-
-    @property
-    def actionable(self) -> tuple[PredicateIndexEligibility, ...]:
-        return tuple(predicate for predicate in self.predicates if predicate.fix is not None)
 
 
 def analyze_index_eligibility(node: AST, context: HogQLContext) -> IndexEligibilityReport:
@@ -326,7 +360,8 @@ def _copy_for(
     if verdict == PredicateIndexVerdict.INDEXED:
         index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
         return (
-            f"{label} '{name}' uses its {index_names} index, so this filter skips rows that cannot match.",
+            f"{label} '{name}' has a {index_names} index that covers this comparison. How much data it "
+            "skips depends on how the values are spread across the table.",
             None,
             None,
         )
@@ -338,16 +373,18 @@ def _copy_for(
             # Correcting the definition only helps when the definition is the thing that is wrong.
             # No AI prompt: how the value is stored is not something a query rewrite can change.
             return (
-                f"{label} '{name}' is stored as {physical_type} but compared as {semantic_type}, so every row is "
-                f"converted before the filter runs and the index on '{name}' cannot skip any data.",
-                f"If '{name}' is not really {semantic_type}, correct its type in data management. Otherwise add a "
-                "filter that can skip data, such as a date range on timestamp.",
+                f"{label} '{name}' is stored as {_plain_type(physical_type)} but compared as "
+                f"{_plain_type(semantic_type)}, so every row is converted before the filter runs and the index on "
+                f"'{name}' cannot skip any data.",
+                f"If '{name}' does not really hold {_plain_type(semantic_type)}, correct its type in data management.",
                 None,
             )
         return (
             f"{label} '{name}' is compared against a value of another type, so every row has to be "
             f"converted and the index on '{name}' goes unused.",
-            f"Compare '{name}' against a {physical_type} value.",
+            f"Compare '{name}' against {_plain_type(physical_type)}.",
+            # The AI prompt keeps the engine's type name: its reader is a model rewriting HogQL, not
+            # someone looking for a setting in the UI.
             f"Rewrite this filter so '{name}' is compared against a {physical_type} value.",
         )
 
@@ -393,7 +430,7 @@ class _FilterPredicateCollector(TraversingVisitor):
         super().__init__()
         self.context = context
         self.predicates: list[PredicateIndexEligibility] = []
-        self._seen: set[tuple[int | None, int | None, str]] = set()
+        self._seen: set[tuple[int | None, int | None, str, ast.CompareOperationOp]] = set()
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         for filter_expr in (node.where, node.prewhere):
@@ -427,9 +464,10 @@ class _FilterPredicateCollector(TraversingVisitor):
         if plan is None:
             return
 
-        # A rewritten query can carry the same predicate twice with identical spans; the property
-        # name keeps distinct predicates that share a span (JSON-sourced nodes without locations).
-        key = (node.start, node.end, plan.access.property_name)
+        # A rewritten query can carry the same predicate twice with identical spans; the property name
+        # and operator keep distinct predicates apart when they share a span, which is every predicate
+        # in a JSON-sourced node, where there are no locations at all.
+        key = (node.start, node.end, plan.access.property_name, plan.operator)
         if key in self._seen:
             return
         self._seen.add(key)

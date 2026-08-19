@@ -3658,6 +3658,15 @@ export interface HogQLNoticeApi {
     start?: number | null
 }
 
+export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
+
+export const PredicateScopeApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Unknown: 'unknown',
+} as const
+
 export type PredicateIndexVerdictApi = (typeof PredicateIndexVerdictApi)[keyof typeof PredicateIndexVerdictApi]
 
 export const PredicateIndexVerdictApi = {
@@ -3673,12 +3682,12 @@ export interface PredicateIndexUsageApi {
     end?: number | null
     fix?: string | null
     message: string
+    /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Type the value is physically stored as. */
     physical_type: string
     property_name: string
-    /** `event`, `person`, `group` or `unknown`. */
-    scope: string
+    scope: PredicateScopeApi
     /** Type the property definition declares. */
     semantic_type: string
     /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */

@@ -211,6 +211,7 @@ from posthog.schema_enums import (
     Position as Position,
     PrecomputationMode as PrecomputationMode,
     PredicateIndexVerdict as PredicateIndexVerdict,
+    PredicateScope as PredicateScope,
     ProductIntentContext as ProductIntentContext,
     ProductItemCategory as ProductItemCategory,
     ProductKey as ProductKey,
@@ -6310,10 +6311,10 @@ class PredicateIndexUsage(BaseModel):
     end: int | None = None
     fix: str | None = None
     message: str
-    operator: str
+    operator: str = Field(..., description="HogQL comparison operator, e.g. `==`, `in`, `ilike`.")
     physical_type: str = Field(..., description="Type the value is physically stored as.")
     property_name: str
-    scope: str = Field(..., description="`event`, `person`, `group` or `unknown`.")
+    scope: PredicateScope
     semantic_type: str = Field(..., description="Type the property definition declares.")
     source_label: str = Field(
         ...,
@@ -30337,6 +30338,14 @@ class HogQLMetadata(BaseModel):
         ),
     )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
+    indexUsage: bool | None = Field(
+        default=None,
+        description=(
+            "Analyze how each property filter reads its data. Costs a second"
+            " type-resolution pass, so only editors that render the result should ask"
+            " for it."
+        ),
+    )
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     language: HogLanguage = Field(..., description="Language to validate")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
