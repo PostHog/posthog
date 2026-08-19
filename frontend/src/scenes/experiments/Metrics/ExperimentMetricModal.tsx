@@ -18,11 +18,16 @@ export function ExperimentMetricModal({
 }: {
     experiment: Experiment
     exposureCriteria: ExperimentExposureCriteria | undefined
-    onSave: (metric: ExperimentMetric, context: MetricContext) => void
+    onSave: (metric: ExperimentMetric, context: MetricContext) => void | Promise<void>
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
-    const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { isModalOpen, metric, context, isCreateMode, isEditMode, isSavingMetric } =
+        useValues(experimentMetricModalLogic)
+    const {
+        closeExperimentMetricModal,
+        setMetric: setModalMetric,
+        setIsSavingMetric,
+    } = useActions(experimentMetricModalLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
 
     if (!isModalOpen || !metric) {
@@ -40,6 +45,7 @@ export function ExperimentMetricModal({
                         <LemonButton
                             type="secondary"
                             status="danger"
+                            disabledReason={isSavingMetric ? 'Saving…' : undefined}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Delete this metric?',
@@ -65,13 +71,23 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             type="secondary"
+                            disabledReason={isSavingMetric ? 'Saving…' : undefined}
                             onClick={closeExperimentMetricModal}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => onSave(metric, context)}
+                            loading={isSavingMetric}
+                            disabledReason={isSavingMetric ? 'Saving…' : undefined}
+                            onClick={async () => {
+                                setIsSavingMetric(true)
+                                try {
+                                    await onSave(metric, context)
+                                } finally {
+                                    setIsSavingMetric(false)
+                                }
+                            }}
                             type="primary"
                             data-attr="save-experiment-metric"
                         >
