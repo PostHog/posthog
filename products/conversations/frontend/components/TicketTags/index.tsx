@@ -36,6 +36,7 @@ export function TicketTags({
             className={className}
             data-attr="ticket-tags"
             actionButtonSize="medium"
+            wrap
         />
     )
 
