@@ -839,7 +839,7 @@ class SetOperationColumnTypeMismatch:
             types = f"{', '.join(self.type_names[:-1])}, and {self.type_names[-1]}"
         message = (
             f"Cannot find a common type for column `{self.column_name}` between the branches of "
-            f"this UNION, of type {types}"
+            f"this set operation, of type {types}"
         )
         if self.cast_hint is None:
             return message

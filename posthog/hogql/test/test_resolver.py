@@ -573,13 +573,13 @@ class TestResolver(BaseTest):
         [
             (
                 "select 1 as token union all select 'abc' as token",
-                "Cannot find a common type for column `token` between the branches of this UNION, of "
+                "Cannot find a common type for column `token` between the branches of this set operation, of "
                 "type Integer and String. Cast the column in every branch, e.g. `toString(<expression>)`",
                 "'abc' as token",
             ),
             (
                 "select now() as ts union all select 1 as ts",
-                "Cannot find a common type for column `ts` between the branches of this UNION, of type "
+                "Cannot find a common type for column `ts` between the branches of this set operation, of type "
                 "DateTime and Integer. Cast the column in every branch, e.g. `toString(<expression>)`",
                 "1 as ts",
             ),
@@ -587,7 +587,7 @@ class TestResolver(BaseTest):
             # what is far more likely a mistake.
             (
                 "select [1, 2] as items union all select 'abc' as items",
-                "Cannot find a common type for column `items` between the branches of this UNION, of "
+                "Cannot find a common type for column `items` between the branches of this set operation, of "
                 "type Array and String",
                 "'abc' as items",
             ),
@@ -595,7 +595,7 @@ class TestResolver(BaseTest):
             # with the branch they wrote.
             (
                 "select 1 as x union all select 'abc' as x union all select [1] as x",
-                "Cannot find a common type for column `x` between the branches of this UNION, of type "
+                "Cannot find a common type for column `x` between the branches of this set operation, of type "
                 "Integer, String, and Array",
                 "'abc' as x",
             ),
