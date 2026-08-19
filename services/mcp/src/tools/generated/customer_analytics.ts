@@ -1246,7 +1246,7 @@ const UsageMetricsListSchema = GroupsTypesMetricsListParams.omit({ project_id: t
     .extend(GroupsTypesMetricsListQueryParams.shape)
     .extend({
         group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe(
-            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
+            "Required. Selects which group type's usage metrics the call returns. Pass your team's Customer Analytics account group type index, which is `0`. If you omit it, the call fails with `missing required parameter: group_type_index`."
         ),
     })
 

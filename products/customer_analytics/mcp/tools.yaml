@@ -994,15 +994,24 @@ tools:
         list: true
         title: List usage metrics
         description: >
-            List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer
-            Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns
-            each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass
-            `group_type_index: 0`.
+            List the usage metrics for a group type. `group_type_index` is required. If you omit it, the call fails with
+            `missing required parameter: group_type_index`. The value selects which group type's metrics the call
+            returns.
+
+            Customer Analytics stores its account usage metrics under the team's account group type index. That index
+            identifies the account group type. It is `0` for Customer Analytics accounts, the same value that
+            `usage-metrics-create` writes. Pass `group_type_index: 0` unless your team set a different account group type
+            index. Example: `call usage-metrics-list {"group_type_index": 0}`.
+
+            The result gives each metric's id, name, format, interval (days), display mode, math aggregation, and filter
+            definition. A metric renders on both group and person profile pages; the index selects which stored metrics
+            the call returns, it does not limit where a metric renders.
         param_overrides:
             group_type_index:
                 description: >
-                    Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
-                    the metric — usage metrics apply to both groups and persons regardless of this value.
+                    Required. Selects which group type's usage metrics the call returns. Pass your team's Customer
+                    Analytics account group type index, which is `0`. If you omit it, the call fails with `missing
+                    required parameter: group_type_index`.
     usage-metrics-partial-update:
         operation: groups_types_metrics_partial_update
         enabled: true

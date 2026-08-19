@@ -10189,7 +10189,7 @@
         }
     },
     "usage-metrics-list": {
-        "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
+        "description": "List the usage metrics for a group type. `group_type_index` is required. If you omit it, the call fails with `missing required parameter: group_type_index`. The value selects which group type's metrics the call returns.\nCustomer Analytics stores its account usage metrics under the team's account group type index. That index identifies the account group type. It is `0` for Customer Analytics accounts, the same value that `usage-metrics-create` writes. Pass `group_type_index: 0` unless your team set a different account group type index. Example: `call usage-metrics-list {\"group_type_index\": 0}`.\nThe result gives each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. A metric renders on both group and person profile pages; the index selects which stored metrics the call returns, it does not limit where a metric renders.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List usage metrics",
