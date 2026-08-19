@@ -511,15 +511,14 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
-# Graph API version the Instagram OAuth dialog, token exchange and refresh are pinned to. Kept in
-# step with the warehouse Instagram source's `default_version`, which calls the same Graph version.
-INSTAGRAM_GRAPH_API_VERSION = "v23.0"
-
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
-# it is linked to, so the grant needs the page permissions as well as the Instagram ones.
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones. Meta
+# replaced the legacy `instagram_*` permission names with `instagram_business_*`; the old names are
+# rejected at the OAuth dialog ("This app needs at least one supported permission").
 # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
 INSTAGRAM_OAUTH_SCOPE = (
-    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
+    "instagram_business_basic instagram_business_manage_insights instagram_business_manage_comments"
+    " pages_show_list pages_read_engagement"
 )
 
 
@@ -1077,7 +1076,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
-                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1241,9 +1240,9 @@ class OauthIntegration:
             # Meta app, but the two grants request different scopes so they stay separate kinds.
             # The token response carries no account identifier, so id/name come from `/me`.
             return OauthConfig(
-                authorize_url=f"https://www.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/dialog/oauth",
-                token_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/oauth/access_token",
-                token_info_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/me",
+                authorize_url=f"https://www.facebook.com/{InstagramIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/me",
                 token_info_config_fields=["id", "name"],
                 client_id=settings.INSTAGRAM_APP_CLIENT_ID,
                 client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
@@ -4192,7 +4191,6 @@ class MetaAdsIntegration(MetaGraphIntegration):
 
 class InstagramIntegration(MetaGraphIntegration):
     kind = "instagram"
-    api_version = INSTAGRAM_GRAPH_API_VERSION
 
 
 class TwilioIntegration:
