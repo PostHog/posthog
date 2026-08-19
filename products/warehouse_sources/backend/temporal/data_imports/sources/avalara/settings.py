@@ -24,7 +24,7 @@ def _modified_date_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class AvalaraEndpointConfig:
     name: str
     path: str  # Path under the environment base URL, e.g. "/api/v2/companies".

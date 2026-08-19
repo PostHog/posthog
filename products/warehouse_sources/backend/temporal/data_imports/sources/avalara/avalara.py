@@ -39,7 +39,7 @@ DATA_SELECTOR = "value"
 RECORDSET_COUNT_PATH = "@recordsetCount"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AvalaraResumeConfig:
     # $skip value for the next page. Only populated for the top-level Companies endpoint — the
     # fan-out children (Transactions, Nexus, Customers, ExemptionCertificates) have no resume hook
