@@ -977,9 +977,7 @@ class TestOrganizationSerializer(APIBaseTest):
         [
             (
                 "access_control",
-                lambda self: AccessControl.objects.create(
-                    team=self.team, access_level="member", resource="project", resource_id=str(self.team.id)
-                ),
+                lambda self: AccessControl.objects.create(team=self.team, access_level="member", resource="project"),
             ),
             (
                 "explicit_team_membership",
