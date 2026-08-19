@@ -360,7 +360,7 @@ function ManagedSchemaTable({
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
-    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
+    const { setSelectedSchemas, bulkEnable } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -550,16 +550,31 @@ function ManagedSchemaTable({
                                     checked={schema.should_sync}
                                     onChange={(active) => {
                                         if (active && !schema.sync_type) {
-                                            // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
-                                            router.actions.push(
-                                                urls.dataWarehouseSourceSchema(
-                                                    prefixedSourceId,
-                                                    schema.id,
-                                                    'configuration',
-                                                    'sync-method'
-                                                )
-                                            )
+                                            // No sync method saved yet — apply the default settings
+                                            // instead of sending the user off to configure one.
+                                            LemonDialog.open({
+                                                title: 'Enable this table?',
+                                                description:
+                                                    'No sync method is set up yet. Default settings will be applied: incremental sync where the table supports it, otherwise a full refresh. Syncing starts right after enabling. To enable many tables at once, select their rows and use the Enable action.',
+                                                primaryButton: {
+                                                    children: 'Enable',
+                                                    type: 'primary',
+                                                    onClick: () => bulkEnable([schema]),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Choose sync method',
+                                                    type: 'tertiary',
+                                                    onClick: () =>
+                                                        router.actions.push(
+                                                            urls.dataWarehouseSourceSchema(
+                                                                prefixedSourceId,
+                                                                schema.id,
+                                                                'configuration',
+                                                                'sync-method'
+                                                            )
+                                                        ),
+                                                },
+                                            })
                                             return
                                         }
                                         if (!active && schema.sync_type === 'cdc') {
