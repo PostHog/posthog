@@ -5,5 +5,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class FirebaseKeyFileConfig(config.Config):
+    project_id: str
+    private_key: str
+    private_key_id: str
+    client_email: str
+    token_uri: str
+
+
+@config.config
 class FirebaseSourceConfig(config.Config):
-    pass
+    key_file: FirebaseKeyFileConfig
+    database_id: str | None = None
+    realtime_database_url: str | None = None
+    realtime_database_paths: str | None = None
