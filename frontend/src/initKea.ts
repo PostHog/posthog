@@ -54,6 +54,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadAllCohorts', // App-boot fetch feeding pickers and breadcrumbs; the cohorts list scene surfaces its own retry state
+    'loadVariables', // App-boot fetch feeding variable pickers; hosts render their own state
 ]
 
 /*
@@ -186,7 +188,14 @@ export function initKea({
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
-                    if (errorMessage) {
+                    // During a backend outage almost every request fails at once. Each failure would
+                    // stack its own toast, so collapse the generic 500s into one toast. The shared
+                    // toastId lets react-toastify drop the duplicates.
+                    if (error.status === 500) {
+                        lemonToast.error('A server error occurred. Some data could not be loaded.', {
+                            toastId: 'lemon-error-server-error',
+                        })
+                    } else if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }

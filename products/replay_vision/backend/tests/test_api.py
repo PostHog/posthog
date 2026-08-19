@@ -1335,6 +1335,15 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp["content-type"], "text/event-stream")
         mock_stream.assert_called_once()
 
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    def test_progress_endpoint_returns_501_without_asgi(self) -> None:
+        # A WSGI worker can't consume the async progress generator. It must degrade to 501 (the caller
+        # falls back to its time-based animation) rather than raising an unhandled 500 into error tracking.
+        obs = self._create_observation(status=ObservationStatus.RUNNING)
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        self.assertEqual(resp.status_code, 501)
+
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
         self.assertEqual(resp.status_code, 404)

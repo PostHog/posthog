@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -99,9 +99,10 @@ function DashboardScene({
         accessDeniedToDashboard,
         error404,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
+    const { layoutZoom, shouldUseStreaming } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom, loadDashboard, loadDashboardStreaming } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -152,7 +153,14 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
+                <InsightErrorState
+                    title="There was an error loading this dashboard"
+                    onRetry={() =>
+                        shouldUseStreaming
+                            ? loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                            : loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    }
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (

@@ -86,7 +86,9 @@ export const customProductsLogic = kea<customProductsLogicType>([
             // Placeholder row: every consumer reads `product_path` only, so the fields the server
             // would fill in are never looked at and there is nothing to reconcile on success.
             const now = new Date().toISOString()
-            const withoutTool = values.customProducts.filter((item) => item.product_path !== productPath)
+            // Snapshot before the optimistic write so a failure can revert locally without a refetch.
+            const previousProducts = values.customProducts
+            const withoutTool = previousProducts.filter((item) => item.product_path !== productPath)
             actions.loadCustomProductsSuccess(
                 enabled
                     ? [
@@ -107,10 +109,15 @@ export const customProductsLogic = kea<customProductsLogicType>([
                 await api.userProductList.bulkUpdate([{ product_path: productPath, enabled }])
             } catch (error) {
                 console.error('Failed to save tool changes:', error)
-                lemonToast.error('Failed to save some changes. Try again?')
-                // Only refetch to undo the failed toggle. Refetching on success would race a
-                // toggle the user made while this call was in flight, reverting it on screen.
-                actions.loadCustomProducts()
+                // Revert to the pre-toggle state locally. A refetch would also fail while the
+                // backend is down, leaving the unsaved toggle on screen as if it had saved.
+                actions.loadCustomProductsSuccess(previousProducts)
+                lemonToast.error('Failed to save some changes.', {
+                    button: {
+                        label: 'Try again',
+                        action: () => actions.setToolEnabled(productPath, enabled),
+                    },
+                })
             }
         },
     })),

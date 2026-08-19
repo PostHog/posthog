@@ -68,7 +68,9 @@ describe('customProductsLogic', () => {
         expect(listCalls).toBe(0)
     })
 
-    it('refetches to revert the optimistic row when a save fails', async () => {
+    it('reverts the optimistic row locally when a save fails, without a refetch', async () => {
+        // A refetch would also fail while the backend is down, leaving the unsaved toggle on
+        // screen as if it had saved. The revert must be local so the toggle honestly snaps back.
         failBulkUpdate = true
         serverPaths = []
 
@@ -76,7 +78,7 @@ describe('customProductsLogic', () => {
             logic.actions.setToolEnabled('a', true)
         }).toFinishAllListeners()
 
-        expect(listCalls).toBe(1)
+        expect(listCalls).toBe(0)
         expect(logic.values.enabledToolPaths).toEqual(new Set())
     })
 })

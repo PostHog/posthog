@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http.response import HttpResponseBase
+from django.http.response import HttpResponse, HttpResponseBase
 
 import structlog
 import django_filters
@@ -1106,8 +1106,10 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
         can't read. The stream self-terminates once the observation reaches a terminal state.
         """
-        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
+        # The generator is `async def`, which WSGI can't consume. On a WSGI worker, return
+        # 501 instead of an unhandled 500: the caller already falls back to its time-based
+        # animation on any non-ok response, and error tracking stays clean.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("observation progress stream requires ASGI.")
+            return HttpResponse("Observation progress stream requires ASGI.", status=501)
         observation = self.get_object()
         return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")
