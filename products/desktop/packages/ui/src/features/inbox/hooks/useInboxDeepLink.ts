@@ -9,11 +9,11 @@ import { useEffect } from "react";
 /**
  * Hook that subscribes to inbox report deep link events (`<scheme>://inbox/{reportId}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
- * and opens the report canvas in the report space.
+ * and opens the report in the inbox view.
  *
  * The actual open – fetch by id, seed the detail cache, reset filters, and
- * navigate through the legacy compatibility route – lives in
- * {@link useOpenInboxReport}, shared with other in-app
+ * navigate to the right tab (Pulls if it has an implementation PR, otherwise
+ * Reports) – lives in {@link useOpenInboxReport}, shared with other in-app
  * surfaces that link to a report by id. On 404/403 (wrong team / deleted /
  * suppressed) it toasts and leaves the current view untouched.
  */

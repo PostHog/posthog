@@ -46,4 +46,20 @@ describe("useReportSpace", () => {
     rerender();
     expect(result.current.reportSpaceId).toBe("general-id");
   });
+
+  it("does not provision or expose the report space when disabled", () => {
+    channelsState.channels = [
+      {
+        id: "general-id",
+        name: "general",
+        channelType: "public",
+        starred: false,
+      },
+    ];
+
+    const { result } = renderHook(() => useReportSpace(false));
+
+    expect(createChannel).not.toHaveBeenCalled();
+    expect(result.current).toEqual({ reportSpaceId: null, isLoading: false });
+  });
 });

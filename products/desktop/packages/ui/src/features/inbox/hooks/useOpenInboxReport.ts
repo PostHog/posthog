@@ -1,9 +1,18 @@
+import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
+import { REPORT_CANVAS_INBOX_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
-import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
+import {
+  navigateToInboxDismissedDetail,
+  navigateToInboxPullRequestDetail,
+  navigateToInboxReportDetail,
+  navigateToChannelDashboard,
+} from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -24,7 +33,12 @@ const log = logger.scope("open-inbox-report");
 export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
-  const { reportSpaceId } = useReportSpace();
+  const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
+  const reportCanvasesEnabled = useFeatureFlag(
+    REPORT_CANVAS_INBOX_FLAG,
+    import.meta.env.DEV,
+  );
+  const { reportSpaceId } = useReportSpace(reportCanvasesEnabled);
 
   return useCallback(
     async (reportId: string) => {
@@ -32,7 +46,6 @@ export function useOpenInboxReport() {
         log.warn("Ignoring open-report request – not authenticated");
         return;
       }
-      if (!reportSpaceId) return;
 
       log.info(`Opening report: ${reportId}`);
 
@@ -49,20 +62,35 @@ export function useOpenInboxReport() {
           return;
         }
 
-        if (!report.canvas_session) {
-          toast.error("This report's canvas isn't ready yet");
+        if (reportCanvasesEnabled && reportSpaceId && report.canvas_session) {
+          navigateToChannelDashboard(
+            reportSpaceId,
+            report.canvas_session.canvas_id,
+          );
           return;
         }
-        navigateToChannelDashboard(
-          reportSpaceId,
-          report.canvas_session.canvas_id,
-        );
+
+        resetFilters();
+        seedInboxReportDetailCache(queryClient, report);
+        if (report.status === "suppressed") {
+          navigateToInboxDismissedDetail(report.id);
+        } else if (report.implementation_pr_url) {
+          navigateToInboxPullRequestDetail(report.id);
+        } else {
+          navigateToInboxReportDetail(report.id);
+        }
         log.info(`Successfully opened report: ${report.id}`);
       } catch (error) {
         log.error("Unexpected error opening report:", error);
         toast.error("Failed to open report");
       }
     },
-    [client, queryClient, reportSpaceId],
+    [
+      client,
+      queryClient,
+      reportCanvasesEnabled,
+      reportSpaceId,
+      resetFilters,
+    ],
   );
 }

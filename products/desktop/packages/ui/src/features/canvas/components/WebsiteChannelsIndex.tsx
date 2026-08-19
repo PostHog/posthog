@@ -1,5 +1,6 @@
 import { PlusIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
+import { REPORT_CANVAS_INBOX_FLAG } from "@posthog/shared";
 import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
 import {
   useActiveTabIsBlank,
@@ -9,6 +10,7 @@ import { CreateChannelModal } from "@posthog/ui/features/canvas/components/Creat
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { Flex, Text } from "@radix-ui/themes";
 import { Navigate, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
@@ -18,7 +20,13 @@ import { useState } from "react";
 export function WebsiteChannelsIndex() {
   const spacesLayout = useChannelsLayout();
   const { channels } = useChannels();
-  const { reportSpaceId, isLoading: isLoadingReportSpace } = useReportSpace();
+  const reportCanvasesEnabled = useFeatureFlag(
+    REPORT_CANVAS_INBOX_FLAG,
+    import.meta.env.DEV,
+  );
+  const { reportSpaceId, isLoading: isLoadingReportSpace } = useReportSpace(
+    reportCanvasesEnabled,
+  );
   const [modalOpen, setModalOpen] = useState(false);
   // A blank "+" tab parks at /website; RootLayout renders the placeholder for
   // it. Never redirect to the first channel while it's active.

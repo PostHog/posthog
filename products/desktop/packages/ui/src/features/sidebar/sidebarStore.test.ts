@@ -32,11 +32,11 @@ describe("sidebarStore navItemOverrides", () => {
   );
 
   it("overriding one item leaves the others at their defaults", () => {
-    useSidebarStore.getState().setNavItemVisible("activity", false);
+    useSidebarStore.getState().setNavItemVisible("inbox", false);
 
     const overrides = useSidebarStore.getState().navItemOverrides;
     for (const item of CUSTOMIZABLE_NAV_ITEMS) {
-      if (item.id === "activity") continue;
+      if (item.id === "inbox") continue;
       expect(isNavItemVisible(overrides, item.id)).toBe(item.defaultVisible);
     }
   });
@@ -86,7 +86,7 @@ describe("sidebarStore navItemOverrides", () => {
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().navItemOrder).toEqual(["loops"]);
+    expect(useSidebarStore.getState().navItemOrder).toEqual(["loops", "inbox"]);
     localStorage.removeItem("sidebar-storage");
   });
 
@@ -102,7 +102,7 @@ describe("sidebarStore navItemOverrides", () => {
     localStorage.removeItem("sidebar-storage");
   });
 
-  it("rehydration drops retired ids and non-boolean values", async () => {
+  it("rehydration drops unknown ids and non-boolean values", async () => {
     localStorage.setItem(
       "sidebar-storage",
       JSON.stringify({
@@ -119,7 +119,9 @@ describe("sidebarStore navItemOverrides", () => {
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().navItemOverrides).toEqual({});
+    expect(useSidebarStore.getState().navItemOverrides).toEqual({
+      inbox: true,
+    });
     localStorage.removeItem("sidebar-storage");
   });
 });

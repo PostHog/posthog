@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 
 export const DEFAULT_REPORT_SPACE_NAME = "general";
 
-export function useReportSpace(): {
+export function useReportSpace(enabled = true): {
   reportSpaceId: string | null;
   isLoading: boolean;
 } {
@@ -22,7 +22,13 @@ export function useReportSpace(): {
   );
 
   useEffect(() => {
-    if (isLoading || reportSpace || creationStarted.current || creationFailed)
+    if (
+      !enabled ||
+      isLoading ||
+      reportSpace ||
+      creationStarted.current ||
+      creationFailed
+    )
       return;
     creationStarted.current = true;
     void createChannel(DEFAULT_REPORT_SPACE_NAME, { star: true }).catch(
@@ -37,10 +43,10 @@ export function useReportSpace(): {
         });
       },
     );
-  }, [createChannel, creationFailed, isLoading, reportSpace]);
+  }, [createChannel, creationFailed, enabled, isLoading, reportSpace]);
 
   return {
-    reportSpaceId: reportSpace?.id ?? null,
-    isLoading: isLoading || (!reportSpace && !creationFailed),
+    reportSpaceId: enabled ? (reportSpace?.id ?? null) : null,
+    isLoading: enabled && (isLoading || (!reportSpace && !creationFailed)),
   };
 }
