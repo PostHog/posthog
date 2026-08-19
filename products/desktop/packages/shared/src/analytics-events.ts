@@ -58,6 +58,8 @@ export type CommandMenuAction =
   | "open-channel"
   | "open-command-center"
   | "save-feed"
+  | "complete-filter"
+  | "open-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"

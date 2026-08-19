@@ -1,27 +1,13 @@
 import {
-  ArchiveIcon,
-  AtIcon,
-  CheckCircleIcon,
-  CircleHalfIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  HashIcon,
-  PackageIcon,
-  PencilSimpleIcon,
-  UserCircleIcon,
-  XIcon,
-} from "@phosphor-icons/react";
-import {
   type FeedQuerySegment,
   lexFeedQuery,
-  TASK_RUN_STATUSES,
 } from "@posthog/core/tasks/feedQuery";
 import { cn, Kbd } from "@posthog/quill";
-import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  applyFeedQuerySuggestion,
+  FeedQueryMatchedLabel,
+  useFeedQuerySuggestions,
+} from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import {
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -32,190 +18,10 @@ import {
   useState,
 } from "react";
 
-/** One row of the autocomplete: what gets inserted, and why you'd pick it. */
-interface Suggestion {
-  /** Inserted into the query. A key suggestion ends with ":" and keeps the
-   * dropdown open for its values; a value suggestion completes the token. */
-  insert: string;
-  label: string;
-  hint?: string;
-  icon?: ReactNode;
-}
-
-/** What the open dropdown is offering, with the heading that says so. */
-interface SuggestionGroup {
-  heading: string;
-  items: Suggestion[];
-}
-
-function keyIcon(icon: ReactNode): ReactNode {
-  return (
-    <span className="flex size-4 items-center justify-center text-(--gray-9)">
-      {icon}
-    </span>
-  );
-}
-
-const KEY_SUGGESTIONS: Suggestion[] = [
-  {
-    insert: "created-by:",
-    label: "created-by:",
-    hint: "who started the task",
-    icon: keyIcon(<UserCircleIcon size={14} />),
-  },
-  {
-    insert: "space:",
-    label: "space:",
-    hint: "tasks filed to a space",
-    icon: keyIcon(<HashIcon size={14} />),
-  },
-  {
-    insert: "repo:",
-    label: "repo:",
-    hint: "repository the task targets",
-    icon: keyIcon(<PackageIcon size={14} />),
-  },
-  {
-    insert: "status:",
-    label: "status:",
-    hint: "latest run status",
-    icon: keyIcon(<CircleHalfIcon size={14} />),
-  },
-  {
-    insert: "is:",
-    label: "is:",
-    hint: "archived, running, done, failed",
-    icon: keyIcon(<ArchiveIcon size={14} />),
-  },
-  {
-    insert: "origin:",
-    label: "origin:",
-    hint: "product that created the task",
-    icon: keyIcon(<AtIcon size={14} />),
-  },
-  {
-    insert: "pr:",
-    label: "pr:",
-    hint: "any, none, open, draft, merged, closed",
-    icon: keyIcon(<GitPullRequestIcon size={14} />),
-  },
-  {
-    insert: "ci:",
-    label: "ci:",
-    hint: "failing, passing, pending",
-    icon: keyIcon(<CheckCircleIcon size={14} />),
-  },
-];
-
-const IS_VALUES = ["archived", "running", "done", "failed"];
-
-const PR_SUGGESTIONS: Suggestion[] = [
-  {
-    insert: "any",
-    label: "any",
-    hint: "has a pull request",
-    icon: keyIcon(<GitPullRequestIcon size={14} />),
-  },
-  {
-    insert: "none",
-    label: "none",
-    hint: "no pull request",
-    icon: keyIcon(<XIcon size={14} />),
-  },
-  {
-    insert: "open",
-    label: "open",
-    hint: "PR open for review",
-    icon: keyIcon(<GitPullRequestIcon size={14} />),
-  },
-  {
-    insert: "draft",
-    label: "draft",
-    hint: "PR still a draft",
-    icon: keyIcon(<PencilSimpleIcon size={14} />),
-  },
-  {
-    insert: "merged",
-    label: "merged",
-    hint: "PR merged",
-    icon: keyIcon(<GitMergeIcon size={14} />),
-  },
-  {
-    insert: "closed",
-    label: "closed",
-    hint: "PR closed without merging",
-    icon: keyIcon(<XIcon size={14} />),
-  },
-];
-
-/** Canonical first; the red/green spellings parse but aren't offered. */
-const CI_SUGGESTED_VALUES = ["failing", "passing", "pending"];
-
-const CI_DOT_TONE: Record<string, string> = {
-  failing: DOT_TONE_VAR.red,
-  passing: DOT_TONE_VAR.green,
-  pending: DOT_TONE_VAR.yellow,
-};
-
-const STATUS_DOT_TONE: Record<string, string> = {
-  failed: DOT_TONE_VAR.red,
-  in_progress: DOT_TONE_VAR.blue,
-  completed: DOT_TONE_VAR.green,
-  queued: DOT_TONE_VAR.yellow,
-  cancelled: DOT_TONE_VAR.gray,
-  not_started: DOT_TONE_VAR.gray,
-};
-
-function statusDot(status: string): ReactNode {
-  return (
-    <span className="flex size-4 items-center justify-center">
-      <span
-        className="size-2 rounded-full"
-        style={{
-          backgroundColor: STATUS_DOT_TONE[status] ?? DOT_TONE_VAR.gray,
-        }}
-      />
-    </span>
-  );
-}
-
-// The chunk under the caret: the run of non-space characters around it. Quoted
-// values with spaces come from suggestion insertion, which moves the caret past
-// them, so the editing chunk itself never needs quote awareness.
-function chunkAt(
-  value: string,
-  caret: number,
-): { start: number; end: number; text: string } {
-  let start = caret;
-  while (start > 0 && !/\s/.test(value[start - 1])) start--;
-  let end = caret;
-  while (end < value.length && !/\s/.test(value[end])) end++;
-  return { start, end, text: value.slice(start, end) };
-}
-
-function quoteIfNeeded(value: string): string {
-  return /\s/.test(value) ? `"${value}"` : value;
-}
-
-/** Bolds the typed prefix inside a suggestion's label. */
-function MatchedLabel({ label, typed }: { label: string; typed: string }) {
-  const matches =
-    typed !== "" && label.toLowerCase().startsWith(typed.toLowerCase());
-  if (!matches) return <span className="font-medium">{label}</span>;
-  return (
-    <span>
-      <span className="font-semibold text-foreground">
-        {label.slice(0, typed.length)}
-      </span>
-      <span className="font-medium">{label.slice(typed.length)}</span>
-    </span>
-  );
-}
-
 // The mirror and the input must lay glyphs out identically, so everything that
 // affects metrics lives in this one string: same font, size, tracking. Mono on
 // purpose — it reads as a query language and keeps the overlay exact.
-const EDITOR_TEXT_CLASS =
+export const EDITOR_TEXT_CLASS =
   "whitespace-pre font-mono text-[13px] leading-none tracking-normal";
 
 /**
@@ -302,6 +108,8 @@ function renderSegment(segment: FeedQuerySegment): ReactNode {
  * statuses) while editing a token — applied with ⏎ or Tab — and nothing at
  * all while typing free text, which is just a search term. The host dialog
  * must not clip overflow, or the popup gets cut at the dialog's edge.
+ * The completion logic itself is shared with the command palette
+ * (`useFeedQuerySuggestions`), so the two surfaces can't drift.
  */
 export function FeedQueryInput({
   id,
@@ -349,154 +157,7 @@ export function FeedQueryInput({
   };
   useLayoutEffect(syncScroll);
 
-  // Value providers for the data-backed keys.
-  const { members } = useOrgMembers();
-  const { channels } = useChannels();
-  const repositories = useMemo(
-    () => [...new Set(channels.flatMap((c) => c.repositories ?? []))].sort(),
-    [channels],
-  );
-
-  const chunk = chunkAt(value, caret);
-  const bare = chunk.text.replace(/^-/, "");
-  const colon = bare.indexOf(":");
-  const activeKey = colon === -1 ? null : bare.slice(0, colon).toLowerCase();
-  const activeValue =
-    colon === -1 ? "" : bare.slice(colon + 1).replace(/^not:/i, "");
-  const typed = activeKey === null ? bare : activeValue;
-
-  const group = useMemo<SuggestionGroup>(() => {
-    const startsWith = (candidate: string) =>
-      candidate.toLowerCase().startsWith(activeValue.toLowerCase());
-    switch (activeKey) {
-      case null: {
-        const prefix = bare.toLowerCase();
-        return {
-          heading: "Filters",
-          items: KEY_SUGGESTIONS.filter((s) => s.label.startsWith(prefix)),
-        };
-      }
-      case "created-by":
-      case "author":
-      case "by": {
-        const me: Suggestion[] = startsWith("@me")
-          ? [
-              {
-                insert: "@me",
-                label: "@me",
-                hint: "you",
-                icon: keyIcon(<UserCircleIcon size={14} />),
-              },
-            ]
-          : [];
-        const matches = members
-          .filter(
-            (member) =>
-              startsWith(userDisplayName(member)) || startsWith(member.email),
-          )
-          .slice(0, 8);
-        return {
-          heading: "Teammates",
-          items: [
-            ...me,
-            ...matches.map((member) => {
-              // Insert the first name where it names one person; fall back to
-              // the email's user part so "created-by:sam" can't mean two Sams.
-              const first = (member.first_name ?? "").toLowerCase();
-              const unique =
-                first !== "" &&
-                members.filter(
-                  (m) => (m.first_name ?? "").toLowerCase() === first,
-                ).length === 1;
-              return {
-                insert: unique ? first : member.email.split("@")[0],
-                label: userDisplayName(member),
-                hint: member.email,
-                icon: <UserAvatar user={member} size="xs" />,
-              };
-            }),
-          ],
-        };
-      }
-      case "space":
-      case "channel":
-        return {
-          heading: "Spaces",
-          items: channels
-            .filter((c) => startsWith(c.name))
-            .slice(0, 8)
-            .map((c) => ({
-              insert: c.name,
-              label: c.name,
-              icon: keyIcon(<HashIcon size={14} />),
-            })),
-        };
-      case "repo":
-      case "repository":
-        return {
-          heading: "Repositories",
-          items: repositories
-            .filter(startsWith)
-            .slice(0, 8)
-            .map((repo) => ({
-              insert: repo,
-              label: repo,
-              icon: keyIcon(<PackageIcon size={14} />),
-            })),
-        };
-      case "status":
-        return {
-          heading: "Run status",
-          items: TASK_RUN_STATUSES.filter(startsWith).map((status) => ({
-            insert: status,
-            label: status,
-            icon: statusDot(status),
-          })),
-        };
-      case "is":
-        return {
-          heading: "Task state",
-          items: IS_VALUES.filter(startsWith).map((v) => ({
-            insert: v,
-            label: v,
-            icon:
-              v === "archived"
-                ? keyIcon(<ArchiveIcon size={14} />)
-                : statusDot(
-                    v === "running"
-                      ? "in_progress"
-                      : v === "done"
-                        ? "completed"
-                        : "failed",
-                  ),
-          })),
-        };
-      case "pr":
-        return {
-          heading: "Pull request",
-          items: PR_SUGGESTIONS.filter((s) => startsWith(s.label)),
-        };
-      case "ci":
-        return {
-          heading: "CI checks",
-          items: CI_SUGGESTED_VALUES.filter(startsWith).map((v) => ({
-            insert: v,
-            label: v,
-            icon: (
-              <span className="flex size-4 items-center justify-center">
-                <span
-                  className="size-2 rounded-full"
-                  style={{ backgroundColor: CI_DOT_TONE[v] }}
-                />
-              </span>
-            ),
-          })),
-        };
-      default:
-        return { heading: "", items: [] };
-    }
-  }, [activeKey, activeValue, bare, members, channels, repositories]);
-
+  const { group, context } = useFeedQuerySuggestions(value, caret);
   const suggestions = group.items;
   // The dropdown only exists while it has something to offer: focused, with
   // suggestions for the chunk under the caret. Free text mid-word matches no
@@ -504,22 +165,15 @@ export function FeedQueryInput({
   const visible = open && suggestions.length > 0;
   const highlightedIndex = Math.min(highlighted, suggestions.length - 1);
 
-  const apply = (suggestion: Suggestion) => {
-    const negation = chunk.text.startsWith("-") ? "-" : "";
-    const isKey = activeKey === null;
-    const replacement = isKey
-      ? `${negation}${suggestion.insert}`
-      : `${negation}${activeKey}:${quoteIfNeeded(suggestion.insert)} `;
-    const next =
-      value.slice(0, chunk.start) + replacement + value.slice(chunk.end);
-    onChange(next);
-    const nextCaret = chunk.start + replacement.length;
-    setCaret(nextCaret);
-    pendingCaret.current = nextCaret;
+  const apply = (suggestion: (typeof suggestions)[number]) => {
+    const edit = applyFeedQuerySuggestion(value, context, suggestion);
+    onChange(edit.next);
+    setCaret(edit.caret);
+    pendingCaret.current = edit.caret;
     setHighlighted(0);
     // A key completion keeps the dropdown open for its values; a value
     // completion is done with the token.
-    setOpen(isKey);
+    setOpen(edit.completedKey);
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -632,7 +286,7 @@ export function FeedQueryInput({
           >
             {suggestions.map((suggestion, index) => (
               <button
-                key={`${activeKey ?? "key"}:${suggestion.label}`}
+                key={`${context.activeKey ?? "key"}:${suggestion.label}`}
                 type="button"
                 role="option"
                 aria-selected={index === highlightedIndex}
@@ -648,7 +302,10 @@ export function FeedQueryInput({
                 onClick={() => apply(suggestion)}
               >
                 {suggestion.icon}
-                <MatchedLabel label={suggestion.label} typed={typed} />
+                <FeedQueryMatchedLabel
+                  label={suggestion.label}
+                  typed={context.typed}
+                />
                 {suggestion.hint && (
                   <span className="min-w-0 flex-1 truncate text-right text-(--gray-9) text-xs">
                     {suggestion.hint}

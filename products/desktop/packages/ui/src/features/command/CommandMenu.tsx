@@ -22,6 +22,7 @@ import {
   AutocompleteLabel,
   AutocompleteList,
   AutocompleteStatus,
+  cn,
   Dialog,
   DialogContent,
   Kbd,
@@ -34,9 +35,15 @@ import {
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import {
+  EDITOR_TEXT_CLASS,
+  FeedQueryHighlight,
+} from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
+import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
@@ -99,7 +106,15 @@ import {
   ZoomInIcon,
   ZoomOutIcon,
 } from "@radix-ui/react-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface CommandMenuProps {
   open: boolean;
@@ -131,6 +146,97 @@ function TaskCommandIcon({ task }: { task: Task }) {
       prState={prState}
       hasDiff={hasDiff}
     />
+  );
+}
+
+/**
+ * The palette input's syntax-coloring layer: the same `FeedQueryHighlight`
+ * the feed editor draws, positioned over quill's inner input at runtime.
+ * quill's AutocompleteInput is an input group (search icon addon + input), so
+ * the overlay measures the real input box instead of assuming padding, then
+ * keeps horizontal scroll in lockstep so long queries don't shear.
+ */
+function PaletteQueryMirror({
+  query,
+  wrapRef,
+  visible,
+}: {
+  query: string;
+  wrapRef: React.RefObject<HTMLDivElement | null>;
+  visible: boolean;
+}) {
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    padLeft: number;
+    padRight: number;
+  } | null>(null);
+
+  // A passive effect, not a layout one: this component is a child of the
+  // wrapper div, and a child's layout effect fires before the parent's ref
+  // attaches — the wrapper would still read null. After paint, both exist.
+  useEffect(() => {
+    if (!visible) return;
+    const wrap = wrapRef.current;
+    const input = wrap?.querySelector("input");
+    if (!wrap || !input) return;
+    const measure = () => {
+      const w = wrap.getBoundingClientRect();
+      const r = input.getBoundingClientRect();
+      const style = getComputedStyle(input);
+      setBox({
+        left: r.left - w.left,
+        top: r.top - w.top,
+        width: r.width,
+        height: r.height,
+        padLeft: Number.parseFloat(style.paddingLeft),
+        padRight: Number.parseFloat(style.paddingRight),
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(input);
+    const sync = () => {
+      if (mirrorRef.current) mirrorRef.current.scrollLeft = input.scrollLeft;
+    };
+    input.addEventListener("scroll", sync);
+    return () => {
+      observer.disconnect();
+      input.removeEventListener("scroll", sync);
+    };
+  }, [visible, wrapRef]);
+
+  // Re-sync scroll after each render: a completion can rewrite the text and
+  // scroll the input without firing its scroll event first.
+  useLayoutEffect(() => {
+    const input = wrapRef.current?.querySelector("input");
+    if (input && mirrorRef.current)
+      mirrorRef.current.scrollLeft = input.scrollLeft;
+  });
+
+  if (!visible || !box) return null;
+  return (
+    <div
+      ref={mirrorRef}
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute z-10 flex items-center overflow-x-hidden",
+        EDITOR_TEXT_CLASS,
+      )}
+      style={{
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+        paddingLeft: box.padLeft,
+        paddingRight: box.padRight,
+      }}
+    >
+      <FeedQueryHighlight query={query} />
+    </div>
   );
 }
 
@@ -592,39 +698,112 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     },
     [onOpenChange],
   );
-  const feedQuerySections = useFeedQueryCommands({
+
+  // The caret drives which chunk of the query gets completions. Kept in
+  // state (not read ad hoc) so suggestion sections rebuild when it moves.
+  const [caret, setCaret] = useState(0);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const trackCaret = useCallback(() => {
+    const position =
+      inputWrapRef.current?.querySelector("input")?.selectionStart;
+    if (position != null) setCaret(position);
+  }, []);
+  // Where the caret belongs after a completion rewrites the query — applied
+  // after React commits the new value (same pattern as FeedQueryInput).
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (pendingCaret.current == null) return;
+    const input = inputWrapRef.current?.querySelector("input");
+    input?.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    input?.focus();
+    pendingCaret.current = null;
+  });
+  const onApplyFilter = useCallback((next: string, nextCaret: number) => {
+    setQuery(next);
+    setCaret(nextCaret);
+    pendingCaret.current = nextCaret;
+  }, []);
+
+  const feedQuery = useFeedQueryCommands({
     query,
+    caret,
     enabled: open && spacesLayout,
+    onApply: onApplyFilter,
     onSaveAsFeed,
   });
+  const { scope, hasFilterTokens, searchText } = feedQuery;
 
-  // Commands, channels, and tasks share a single filterable list.
-  const sections = useMemo(
-    () =>
-      prioritizeExactCommandMatches(
-        [
-          ...feedQuerySections,
-          ...searchSections,
-          ...commandSections,
-          ...channelSections,
-          ...taskSections,
-        ],
-        query,
-      ),
-    [
-      feedQuerySections,
-      searchSections,
-      commandSections,
-      channelSections,
-      taskSections,
-      query,
-    ],
+  // Saved feeds, listed under `type:feed`.
+  const feeds = useTaskFeedsStore((s) => s.feeds);
+  const feedSections = useMemo<CommandSection[]>(() => {
+    if (scope !== "feed") return [];
+    return [
+      {
+        label: "Feeds",
+        items: feeds.map((feed) => ({
+          id: `feed-open-${feed.id}`,
+          label: feed.name,
+          detail: feed.query,
+          detailPrefix: "",
+          keywords: `${query} ${feed.name} ${feed.query}`,
+          icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+          action: "open-feed" as CommandMenuAction,
+          onRun: () => {
+            closeSettingsDialog();
+            navigateToFeed(feed.id);
+          },
+        })),
+      },
+    ];
+  }, [scope, feeds, query, closeSettingsDialog]);
+
+  // Commands, channels, and tasks share a single filterable list. With the
+  // query language always on, what narrows them is the query's *free text*
+  // (`matchesCommandSearch` against the raw query would drop every label the
+  // moment a token appears), and a real filter token or `type:` scope decides
+  // which sections exist at all.
+  const sections = useMemo(() => {
+    const showCommands = !hasFilterTokens && (!scope || scope === "command");
+    const showChannels = !hasFilterTokens && (!scope || scope === "space");
+    const showPlainTasks = !hasFilterTokens && !scope;
+    const showRemoteSearch = !hasFilterTokens && !scope;
+    return prioritizeExactCommandMatches(
+      [
+        ...feedQuery.sections,
+        ...feedSections,
+        ...(showRemoteSearch ? searchSections : []),
+        ...(showCommands ? commandSections : []),
+        ...(showChannels ? channelSections : []),
+        ...(showPlainTasks ? taskSections : []),
+      ],
+      searchText,
+    );
+  }, [
+    feedQuery.sections,
+    feedSections,
+    searchSections,
+    commandSections,
+    channelSections,
+    taskSections,
+    hasFilterTokens,
+    scope,
+    searchText,
+  ]);
+
+  // Free text is what narrows rows; tokens narrow via their own sections.
+  const paletteFilter = useCallback(
+    (command: { label: string; keywords?: string }) =>
+      matchesCommandSearch(command, searchText),
+    [searchText],
   );
 
   const allCommands = useMemo(
     () => sections.flatMap((s) => s.items),
     [sections],
   );
+
+  // Which row the keyboard is on, so Tab can complete the highlighted filter.
+  const highlightedId = useRef<string | null>(null);
 
   const handleSelect = (id: string | null): void => {
     if (id === null) return;
@@ -635,8 +814,24 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       channel_id: cmd.channelId,
     });
     cmd.onRun();
+    // Completing a filter refines the query in place — the palette stays
+    // open, mid-thought.
+    if (cmd.keepOpen) return;
     onOpenChange(false);
     setQuery("");
+  };
+
+  // Tab completes the highlighted filter suggestion (or the first one when
+  // the highlight sits on a result), mirroring the feed editor.
+  const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Tab") return;
+    const highlighted = allCommands.find(
+      (c) => c.id === highlightedId.current && c.keepOpen,
+    );
+    const target = highlighted ?? allCommands.find((c) => c.keepOpen);
+    if (!target) return;
+    event.preventDefault();
+    target.onRun();
   };
 
   return (
@@ -653,23 +848,55 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             value={query}
             autoHighlight="always"
             keepHighlight
+            onItemHighlighted={(value) => {
+              highlightedId.current = typeof value === "string" ? value : null;
+            }}
             onValueChange={(val, eventDetails) => {
               if (eventDetails.reason !== "input-change") return;
               if (typeof val === "string") {
                 setQuery(val);
+                trackCaret();
               }
             }}
-            filter={matchesCommandSearch}
+            filter={paletteFilter}
           >
-            <AutocompleteInput
-              placeholder={
-                bluebirdEnabled
-                  ? `Search commands, ${spacesLayout ? "spaces" : "channels"}, and tasks…`
-                  : "Search commands and tasks…"
-              }
-              autoFocus
-              showClear
-            />
+            {/* The query is drawn twice: the input's own text is transparent
+                and a mirror underneath renders it with the feed editor's
+                inline token coloring. The wrapper measures where quill's
+                inner input actually sits (icon addon, padding) so the mirror
+                overlays it glyph-for-glyph; both carry PALETTE_QUERY_TEXT so
+                the metrics can't drift. */}
+            <div ref={inputWrapRef} className="relative">
+              <PaletteQueryMirror
+                query={query}
+                wrapRef={inputWrapRef}
+                visible={spacesLayout}
+              />
+              <AutocompleteInput
+                placeholder={
+                  spacesLayout
+                    ? "Search or filter — commands, spaces, tasks…"
+                    : bluebirdEnabled
+                      ? "Search commands, channels, and tasks…"
+                      : "Search commands and tasks…"
+                }
+                autoFocus
+                showClear
+                className={
+                  spacesLayout
+                    ? cn(
+                        "[&_input]:whitespace-pre [&_input]:font-mono [&_input]:text-[13px] [&_input]:tracking-normal",
+                        "[&_input]:text-transparent [&_input]:caret-(--gray-12) [&_input]:placeholder:text-(--gray-9)",
+                        "[&_input]:selection:bg-(--blue-a4) [&_input]:selection:text-transparent",
+                      )
+                    : undefined
+                }
+                onKeyDown={onInputKeyDown}
+                onKeyUp={trackCaret}
+                onClick={trackCaret}
+                onSelect={trackCaret}
+              />
+            </div>
             <AutocompleteStatus
               emptyContent={
                 <span>

@@ -22,6 +22,22 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [], isLoading: false }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
+  useOrgMembers: () => ({
+    members: [
+      {
+        id: 1,
+        uuid: "uuid-shy",
+        email: "shy@example.com",
+        first_name: "Shy",
+        last_name: "Alter",
+      },
+    ],
+    isLoading: false,
+    isError: false,
+    isComplete: true,
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
@@ -73,11 +89,55 @@ describe("CommandMenu feed queries", () => {
     );
 
     await user.type(
-      screen.getByPlaceholderText(/Search commands/),
-      "created-by:@me",
+      screen.getByPlaceholderText(/Search or filter/),
+      "created-by:@me ",
     );
     // The results are debounced; the save action must already be offered.
     expect(await screen.findByText("Save as feed…")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Fix billing address validation",
+        {},
+        { timeout: 2000 },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("completes a key then a value from the always-on suggestions", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+    const input =
+      screen.getByPlaceholderText<HTMLInputElement>(/Search or filter/);
+
+    // Typing a bare prefix offers the filter key alongside normal results…
+    await user.type(input, "cre");
+    await user.click(await screen.findByText("created-by:"));
+    expect(input.value).toBe("created-by:");
+
+    // …and completing the key swaps the suggestions to its values.
+    await user.click(await screen.findByText("@me"));
+    expect(input.value).toBe("created-by:@me ");
+  });
+
+  it("scopes sections with type:", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+    const input =
+      screen.getByPlaceholderText<HTMLInputElement>(/Search or filter/);
+
+    // Commands render by default…
+    expect(await screen.findByText("Actions")).toBeTruthy();
+    // …and a task scope drops them while keeping the task query running.
+    await user.type(input, "type:task billing ");
+    expect(screen.queryByText("Actions")).toBeNull();
     expect(
       await screen.findByText(
         "Fix billing address validation",

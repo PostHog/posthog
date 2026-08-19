@@ -10,7 +10,9 @@ import type { TaskRunStatus } from "@posthog/shared/domain-types";
  * - the same key repeated is OR (`created-by:a created-by:b` — either author),
  * - different keys are AND,
  * - `-key:value` negates, and `key:not:value` is accepted as an alias,
- * - double quotes carry spaces (`space:"desktop app"`).
+ * - double quotes carry spaces (`space:"desktop app"`),
+ * - person keys (`created-by:`, `commented-by:`, `mentions:`, `involves:`)
+ *   accept `@me` and teammate names/emails.
  *
  * Unknown keys deliberately fall through to free text rather than erroring —
  * a URL's `https:` or a stray `re:` in pasted text must not break the query.
@@ -20,6 +22,9 @@ import type { TaskRunStatus } from "@posthog/shared/domain-types";
 /** Canonical filter keys. Aliases (`author:`, `channel:`, …) map onto these. */
 export type FeedQueryKey =
   | "created-by"
+  | "commented-by"
+  | "mentions"
+  | "involves"
   | "space"
   | "repo"
   | "status"
@@ -33,6 +38,11 @@ const KEY_ALIASES: Record<string, FeedQueryKey> = {
   "created-by": "created-by",
   author: "created-by",
   by: "created-by",
+  "commented-by": "commented-by",
+  commenter: "commented-by",
+  mentions: "mentions",
+  mentioned: "mentions",
+  involves: "involves",
   space: "space",
   channel: "space",
   repo: "repo",
@@ -67,6 +77,9 @@ const IS_STATUS_SUGAR: Record<string, TaskRunStatus> = {
   failed: "failed",
 };
 
+/** Valid `is:` values beyond the status sugar. */
+const IS_FLAG_VALUES: ReadonlySet<string> = new Set(["archived", "pinned"]);
+
 export const PR_VALUES = [
   "any",
   "none",
@@ -94,6 +107,11 @@ export const CI_VALUES = [
   "pending",
   "none",
 ] as const;
+
+/** What `type:` can scope. Only the command palette acts on non-task kinds;
+ * a feed carries tasks, so its planner flags the rest as ignored. */
+export const TYPE_VALUES = ["task", "space", "command", "feed"] as const;
+export type TypeValue = (typeof TYPE_VALUES)[number];
 
 /** Friendlier spellings onto the backend's snapshot vocabulary
  * (`TaskRun.output.ci_status`, kept fresh by the CI follow-up loop). */
@@ -182,11 +200,11 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
       return;
     }
     case "is": {
-      if (value !== "archived" && !IS_STATUS_SUGAR[value]) {
+      if (!IS_FLAG_VALUES.has(value) && !IS_STATUS_SUGAR[value]) {
         issues.push({
           raw: token.raw,
           kind: "unknown-value",
-          message: `Unknown "is:" value "${token.value}". Expected one of: archived, running, done, failed`,
+          message: `Unknown "is:" value "${token.value}". Expected one of: archived, pinned, running, done, failed`,
         });
       }
       return;
@@ -212,11 +230,11 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
       return;
     }
     case "type": {
-      if (value !== "task") {
+      if (!TYPE_VALUES.includes(value as (typeof TYPE_VALUES)[number])) {
         issues.push({
           raw: token.raw,
           kind: "unknown-value",
-          message: `Feeds only carry tasks today, so "type:${token.value}" matches nothing`,
+          message: `Unknown "type:" value "${token.value}". Expected one of: ${TYPE_VALUES.join(", ")}`,
         });
       }
       return;
@@ -326,6 +344,12 @@ export interface FeedQueryServerParams {
   prState?: string;
   /** CI rollup on the latest run's pull request (passing/failing/pending/none). */
   ciStatus?: string;
+  /** Only tasks the requesting user has pinned. */
+  pinned?: boolean;
+  /** Tasks carrying a thread comment by this user id. */
+  commentedBy?: number;
+  /** Tasks whose thread mentions this user id. */
+  mentions?: number;
 }
 
 /** The structural slice of a task the client-side predicate reads. */
@@ -356,6 +380,17 @@ export interface FeedQueryPlan {
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
+}
+
+/** The result kind a query's `type:` token scopes to, or null for all. */
+export function feedQueryTypeScope(parsed: ParsedFeedQuery): TypeValue | null {
+  const token = parsed.tokens.find(
+    (t) =>
+      t.key === "type" &&
+      !t.negated &&
+      TYPE_VALUES.includes(normalize(t.value) as TypeValue),
+  );
+  return token ? (normalize(token.value) as TypeValue) : null;
 }
 
 const MAX_SUGGESTED_NAME_LENGTH = 80;
@@ -414,6 +449,16 @@ export function suggestFeedName(query: string): string {
   const archived = positives("is").some(
     (t) => normalize(t.value) === "archived",
   );
+  const pinned = positives("is").some((t) => normalize(t.value) === "pinned");
+
+  const personWord = (value: string) =>
+    value === "@me" || value === "me" ? "me" : capitalize(value);
+  const peoplePhrase = (key: FeedQueryKey, lead: string) => {
+    const names = [
+      ...new Set(positives(key).map((t) => personWord(normalize(t.value)))),
+    ];
+    return names.length > 0 ? `${lead} ${names.join(" or ")}` : "";
+  };
   const repos = positives("repo").map((t) => t.value);
   const spaces = positives("space").map((t) => t.value.replace(/^#/, ""));
   const prValue = positives("pr")
@@ -425,6 +470,7 @@ export function suggestFeedName(query: string): string {
 
   const head = [
     possessive,
+    pinned ? "pinned" : "",
     archived ? "archived" : "",
     statusWords.join(" or "),
     parsed.text,
@@ -441,6 +487,9 @@ export function suggestFeedName(query: string): string {
           ? `with ${/^[aeiou]/.test(prValue) ? "an" : "a"} ${prValue} PR`
           : "";
   const tail = [
+    peoplePhrase("involves", "involving"),
+    peoplePhrase("commented-by", "commented on by"),
+    peoplePhrase("mentions", "mentioning"),
     places.length > 0 ? `in ${places.join(" or ")}` : "",
     prPhrase,
     ciValue ? `with ${ciValue} CI` : "",
@@ -493,6 +542,21 @@ const MATCH_NONE = () => false;
  */
 const MAX_PLAN_REQUESTS = 8;
 
+/** One OR group's per-value request params, waiting to be multiplied into
+ * the request list. */
+interface PlanFanout {
+  params: Partial<FeedQueryServerParams>[];
+  /**
+   * A client predicate re-checks this group, so skipping the fan-out at the
+   * request cap only costs recall. Unverified groups (comments, mentions —
+   * data the task payload doesn't carry) have no predicate: they expand
+   * first, and get flagged rather than silently dropped when they can't.
+   */
+  verified: boolean;
+  /** A chunk from the group, for the issue when the fan-out is skipped. */
+  raw: string;
+}
+
 /**
  * Compile a parsed query into tasks-list requests plus a client predicate.
  *
@@ -509,11 +573,36 @@ export function planFeedQuery(
   const server: FeedQueryServerParams = {};
   // Each entry is one OR group's per-value request params; the cartesian
   // product with the base params becomes the request list.
-  const fanouts: Partial<FeedQueryServerParams>[][] = [];
+  const fanouts: PlanFanout[] = [];
   const predicates: ((task: FeedQueryTask) => boolean)[] = [];
   const issues: FeedQueryIssue[] = [...parsed.issues];
 
   if (parsed.text) server.search = parsed.text;
+
+  // Name resolution for every person-valued key (created-by, commented-by,
+  // mentions, involves), flagging spellings that name nobody.
+  const resolveMembers = (token: FeedQueryToken): FeedQueryMember[] => {
+    const value = normalize(token.value);
+    if (value === "@me" || value === "me") {
+      return context.me ? [context.me] : [];
+    }
+    const matched = context.members.filter((m) => memberMatches(m, value));
+    if (matched.length === 0) {
+      issues.push({
+        raw: token.raw,
+        kind: "unknown-value",
+        message: `No teammate matches "${token.value}"`,
+      });
+    }
+    return matched;
+  };
+  // Unique members across a group's positive tokens: two spellings of one
+  // person are one filter, not two requests.
+  const uniqueMembers = (tokens: FeedQueryToken[]): FeedQueryMember[] => [
+    ...new Map(
+      tokens.flatMap(resolveMembers).map((member) => [member.uuid, member]),
+    ).values(),
+  ];
 
   // Fold `is:` sugar and aliases into canonical groups first, so
   // `is:failed status:failed` lands in one OR group rather than two ANDed ones.
@@ -526,9 +615,9 @@ export function planFeedQuery(
       if (sugar) {
         key = "status";
         value = sugar;
-      } else if (normalize(token.value) === "archived") {
-        key = "archived";
-        value = "archived";
+      } else if (IS_FLAG_VALUES.has(normalize(token.value))) {
+        key = normalize(token.value);
+        value = key;
       } else {
         continue; // flagged by the parser already
       }
@@ -546,42 +635,21 @@ export function planFeedQuery(
 
   const createdBy = groups.get("created-by");
   if (createdBy) {
-    const resolve = (token: FeedQueryToken): FeedQueryMember[] => {
-      const value = normalize(token.value);
-      if (value === "@me" || value === "me") {
-        return context.me ? [context.me] : [];
-      }
-      const matched = context.members.filter((m) => memberMatches(m, value));
-      if (matched.length === 0) {
-        issues.push({
-          raw: token.raw,
-          kind: "unknown-value",
-          message: `No teammate matches "${token.value}"`,
-        });
-      }
-      return matched;
-    };
-    // Unique members across all positive tokens: two spellings of one person
-    // are one filter, not two requests.
-    const wantedMembers = new Map(
-      createdBy.positives
-        .flatMap(resolve)
-        .map((member) => [member.uuid, member]),
-    );
-    const wanted = new Set(wantedMembers.keys());
+    const wantedMembers = uniqueMembers(createdBy.positives);
+    const wanted = new Set(wantedMembers.map((member) => member.uuid));
     const excluded = new Set(
-      createdBy.negatives.flatMap(resolve).map((member) => member.uuid),
+      createdBy.negatives.flatMap(resolveMembers).map((member) => member.uuid),
     );
     if (createdBy.negatives.length === 0 && wanted.size === 1) {
-      server.createdBy = [...wantedMembers.values()][0].id;
+      server.createdBy = wantedMembers[0].id;
     } else {
       if (createdBy.positives.length > 0) {
         if (createdBy.negatives.length === 0 && wanted.size > 1) {
-          fanouts.push(
-            [...wantedMembers.values()].map((member) => ({
-              createdBy: member.id,
-            })),
-          );
+          fanouts.push({
+            params: wantedMembers.map((member) => ({ createdBy: member.id })),
+            verified: true,
+            raw: createdBy.positives[0].raw,
+          });
         }
         predicates.push(
           wanted.size === 0
@@ -594,6 +662,107 @@ export function planFeedQuery(
           (task) => !task.created_by || !excluded.has(task.created_by.uuid),
         );
       }
+    }
+  }
+
+  // Comments and mentions live on the thread, not the task payload, so these
+  // filters are server-only: no client predicate can re-check them, and a
+  // negation has nothing to read — it reports itself ignored instead.
+  const serverOnlyPeopleGroup = (
+    groupKey: "commented-by" | "mentions",
+    param: "commentedBy" | "mentions",
+  ) => {
+    const group = groups.get(groupKey);
+    if (!group) return;
+    for (const token of group.negatives) {
+      issues.push({
+        raw: token.raw,
+        kind: "unsupported",
+        message: `"-${groupKey}:" can't exclude yet, so it is ignored`,
+      });
+    }
+    if (group.positives.length === 0) return;
+    const members = uniqueMembers(group.positives);
+    if (members.length === 0) {
+      predicates.push(MATCH_NONE);
+    } else if (members.length === 1) {
+      server[param] = members[0].id;
+    } else {
+      fanouts.push({
+        params: members.map((member) => ({ [param]: member.id })),
+        verified: false,
+        raw: group.positives[0].raw,
+      });
+    }
+  };
+  serverOnlyPeopleGroup("commented-by", "commentedBy");
+  serverOnlyPeopleGroup("mentions", "mentions");
+
+  const involves = groups.get("involves");
+  if (involves) {
+    for (const token of involves.negatives) {
+      issues.push({
+        raw: token.raw,
+        kind: "unsupported",
+        message: `"-involves:" can't exclude yet, so it is ignored`,
+      });
+    }
+    if (involves.positives.length > 0) {
+      // `involves:x` is creator-OR-commenter, spelled as one request per leg.
+      // Alongside a created-by/commented-by filter the legs would overwrite
+      // that filter's params in the cartesian product, so the combination
+      // reports itself ignored rather than quietly widening the query.
+      if (groups.has("created-by") || groups.has("commented-by")) {
+        issues.push({
+          raw: involves.positives[0].raw,
+          kind: "unsupported",
+          message: `"involves:" can't combine with "created-by:" or "commented-by:" yet, so it is ignored`,
+        });
+      } else {
+        const members = uniqueMembers(involves.positives);
+        if (members.length === 0) {
+          predicates.push(MATCH_NONE);
+        } else {
+          fanouts.push({
+            params: members.flatMap((member) => [
+              { createdBy: member.id },
+              { commentedBy: member.id },
+            ]),
+            verified: false,
+            raw: involves.positives[0].raw,
+          });
+        }
+      }
+    }
+  }
+
+  const typeGroup = groups.get("type");
+  if (typeGroup) {
+    // `type:` scopes the command palette's result kinds. A feed's results are
+    // tasks by definition: `type:task` is a no-op and the rest say so.
+    for (const token of [...typeGroup.positives, ...typeGroup.negatives]) {
+      if (normalize(token.value) !== "task") {
+        issues.push({
+          raw: token.raw,
+          kind: "unsupported",
+          message: `Feeds only carry tasks, so "${token.raw}" is ignored here`,
+        });
+      }
+    }
+  }
+
+  const pinnedGroup = groups.get("pinned");
+  if (pinnedGroup) {
+    // Pins are per-user and not on the task payload, so like archived only
+    // the positive form changes the request — but unlike archived, excluding
+    // isn't the default, so the negation says it is ignored.
+    if (pinnedGroup.positives.length > 0) server.pinned = true;
+    for (const token of pinnedGroup.negatives) {
+      issues.push({
+        raw: token.raw,
+        kind: "unsupported",
+        message: `"-is:pinned" can't exclude yet, so it is ignored`,
+      });
     }
   }
 
@@ -622,7 +791,11 @@ export function planFeedQuery(
     } else {
       if (space.positives.length > 0) {
         if (space.negatives.length === 0 && wanted.size > 1) {
-          fanouts.push([...wanted].map((channel) => ({ channel })));
+          fanouts.push({
+            params: [...wanted].map((channel) => ({ channel })),
+            verified: true,
+            raw: space.positives[0].raw,
+          });
         }
         predicates.push(
           wanted.size === 0
@@ -647,7 +820,11 @@ export function planFeedQuery(
     } else {
       if (values.length > 0) {
         if (repo.negatives.length === 0 && values.length > 1) {
-          fanouts.push(values.map((repository) => ({ repository })));
+          fanouts.push({
+            params: values.map((repository) => ({ repository })),
+            verified: true,
+            raw: repo.positives[0].raw,
+          });
         }
         predicates.push((task) =>
           values.some((value) => matchesRepo(task, value)),
@@ -667,9 +844,13 @@ export function planFeedQuery(
     } else {
       if (values.size > 0) {
         if (status.negatives.length === 0 && values.size > 1) {
-          fanouts.push(
-            [...values].map((value) => ({ status: value as TaskRunStatus })),
-          );
+          fanouts.push({
+            params: [...values].map((value) => ({
+              status: value as TaskRunStatus,
+            })),
+            verified: true,
+            raw: status.positives[0].raw,
+          });
         }
         predicates.push(
           (task) => !!task.latest_run && values.has(task.latest_run.status),
@@ -692,7 +873,11 @@ export function planFeedQuery(
     } else {
       if (values.size > 0) {
         if (origin.negatives.length === 0 && values.size > 1) {
-          fanouts.push([...values].map((value) => ({ originProduct: value })));
+          fanouts.push({
+            params: [...values].map((value) => ({ originProduct: value })),
+            verified: true,
+            raw: origin.positives[0].raw,
+          });
         }
         predicates.push(
           (task) =>
@@ -766,7 +951,11 @@ export function planFeedQuery(
         states.length > 1 &&
         states.length === positives.length
       ) {
-        fanouts.push(states.map((prState) => ({ prState })));
+        fanouts.push({
+          params: states.map((prState) => ({ prState })),
+          verified: true,
+          raw: pr.positives[0].raw,
+        });
       }
       if (positives.length > 0) {
         const tests = positives.map(testFor);
@@ -800,7 +989,11 @@ export function planFeedQuery(
       server.ciStatus = positives[0];
     } else {
       if (negatives.length === 0 && positives.length > 1) {
-        fanouts.push(positives.map((ciStatus) => ({ ciStatus })));
+        fanouts.push({
+          params: positives.map((ciStatus) => ({ ciStatus })),
+          verified: true,
+          raw: ci.positives[0].raw,
+        });
       }
       if (positives.length > 0) {
         const wanted = new Set(positives);
@@ -825,13 +1018,27 @@ export function planFeedQuery(
       : (task: FeedQueryTask) => predicates.every((p) => p(task));
 
   // The cartesian product of the base request with each OR group's values.
-  // A group whose fan-out would blow the cap keeps its predicate and skips
-  // the fan-out — correct, just back to filtering the base request's page.
+  // Unverified groups expand first — nothing re-checks them client-side. A
+  // verified group that would blow the cap skips its fan-out silently (its
+  // predicate still filters the base page); an unverified one says so.
+  const ordered = [...fanouts].sort(
+    (a, b) => Number(a.verified) - Number(b.verified),
+  );
   let requests: FeedQueryServerParams[] = [server];
-  for (const fanout of fanouts) {
-    if (requests.length * fanout.length > MAX_PLAN_REQUESTS) continue;
+  for (const fanout of ordered) {
+    if (requests.length * fanout.params.length > MAX_PLAN_REQUESTS) {
+      if (!fanout.verified) {
+        issues.push({
+          raw: fanout.raw,
+          kind: "unsupported",
+          message:
+            "This query fans out into too many searches, so part of it is ignored",
+        });
+      }
+      continue;
+    }
     requests = requests.flatMap((request) =>
-      fanout.map((params) => ({ ...request, ...params })),
+      fanout.params.map((params) => ({ ...request, ...params })),
     );
   }
 
