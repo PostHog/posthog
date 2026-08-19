@@ -53,6 +53,7 @@ from posthog.permissions import AccessControlPermission, APIScopePermission, get
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -2123,7 +2124,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
             409: OpenApiResponse(description="A run for this scout is already in progress."),
             429: OpenApiResponse(
-                description="The project is over its Signals credits quota or daily scout run budget; try again later."
+                description="The project is over its Signals credits quota, its daily report limit, or its daily scout run budget; try again later."
             ),
         },
         summary="Run a scout now",
@@ -2132,8 +2133,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
             "The run executes asynchronously on the worker and inherits every guard the scheduled "
             "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
-            "if the project is over its Signals credits quota or daily run budget (429) or a run for "
-            "this scout is already in progress (409). A manual run counts against the same daily run "
+            "if the project is over its Signals credits quota, daily report limit, or daily run "
+            "budget (429) or a run for this scout is already in progress (409). A manual run counts "
+            "against the same daily run "
             "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
             "project's daily allowance. A manual run does not change the scout's schedule or "
             "`last_run_at`. A disabled scout can still be run this way (to test before enabling). "
@@ -2176,13 +2178,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # exceed the daily cap the scheduled path respects.
         _reject_if_manual_run_suppressed(team_id)
 
-        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
-        # re-checked authoritatively downstream (quota in the run activity, single-flight in the
-        # runner and at the Temporal server), but rejecting here avoids dispatching a workflow that
-        # would only be skipped, and turns the common cases into clean 429/409 responses.
-        api_token = Team.objects.only("api_token").get(pk=team_id).api_token
-        if is_team_signals_quota_limited(api_token):
+        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. All are
+        # re-checked authoritatively downstream (quota and daily report limit in the run activity,
+        # single-flight in the runner and at the Temporal server), but rejecting here avoids
+        # dispatching a workflow that would only be skipped, and turns the common cases into clean
+        # 429/409 responses.
+        team = Team.objects.get(pk=team_id)
+        if is_team_signals_quota_limited(team.api_token):
             raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
+        if daily_report_limit_gate(team).limited:
+            raise exceptions.Throttled(detail="This project reached its daily report limit. Try again tomorrow.")
         if _scout_run_in_flight(team_id, skill_name):
             raise Conflict()
 

@@ -87,6 +87,10 @@
                     "$ref": "#/definitions/HogQLExpression",
                     "description": "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance."
                 },
+                "includeIgnored": {
+                    "description": "Include ignored accounts. Ignored accounts are hidden by default.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "AccountsQuery",
                     "type": "string"
@@ -246,6 +250,7 @@
                 "created_at",
                 "updated_at",
                 "churned_at",
+                "ignored_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -556,6 +561,10 @@
                 },
                 "includeChurned": {
                     "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
+                },
+                "includeIgnored": {
+                    "description": "Include ignored accounts. Ignored accounts are hidden by default.",
                     "type": "boolean"
                 },
                 "kind": {
@@ -25695,7 +25704,8 @@
                 "WisprFlow",
                 "SamCart",
                 "IronSourceAds",
-                "MicrosoftExcel"
+                "MicrosoftExcel",
+                "Profound"
             ],
             "type": "string"
         },

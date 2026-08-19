@@ -1033,7 +1033,7 @@ tools:
         hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
-        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+        description: What's broken in CI right now, from engineering analytics (search/view subcommands)
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)

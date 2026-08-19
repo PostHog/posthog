@@ -430,9 +430,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     pruneSelection(selectableTaskIds);
   }, [selectableTaskIds, pruneSelection]);
 
-  // The open session counts as selected, the same way it does in the code
-  // sidebar — a bulk action is expected to include what you're looking at. Only
-  // a task-kind active row folds in; a canvas can't join a session selection.
+  // Bulk actions include the open session, but selection styling stays tied to
+  // explicit picks so selecting another row does not highlight the open row.
+  // Only a task-kind active row folds in; a canvas can't join a session batch.
   const activeTaskId = activeKey?.startsWith("task:")
     ? activeKey.slice("task:".length)
     : null;
@@ -548,7 +548,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         item={item}
         channelId={channelId}
         isActive={item.key === activeKey}
-        isSelected={item.kind === "task" && effectiveBulkIds.includes(item.id)}
+        isSelected={item.kind === "task" && selectedTaskIds.includes(item.id)}
         showPinBadge={showPinBadge}
         actions={actions}
         onClick={(e) => handleRowClick(item, e)}

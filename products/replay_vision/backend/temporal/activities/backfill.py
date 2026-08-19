@@ -226,6 +226,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         scanner_in_flight_rows=rows["scanner"],
         backfill_id=backfill.id,
         backfill_in_flight_rows=rows["backfill"],
+        scheduled=True,
     )
 
     # The cursor may step over an already-observed session, because nothing will ever need doing for
