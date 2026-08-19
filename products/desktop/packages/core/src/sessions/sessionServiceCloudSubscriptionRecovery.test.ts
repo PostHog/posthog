@@ -68,7 +68,9 @@ function createHarness() {
     unsubscribe: ReturnType<typeof vi.fn>;
   }> = [];
   const subscribe = vi.fn((_input: unknown, handlers: SubscriptionHandlers) => {
-    const unsubscribe = vi.fn();
+    // Model the worst-case transport, which completes the subscription
+    // synchronously when it is unsubscribed — no test may recover in a loop.
+    const unsubscribe = vi.fn(() => handlers.onComplete?.());
     subscriptions.push({ handlers, unsubscribe });
     return { unsubscribe };
   });
@@ -164,6 +166,27 @@ describe("SessionService cloud subscription recovery", () => {
       teamId: 2,
       resumeFromEntryCount: undefined,
     });
+  });
+
+  it("recovers after the subscription completes without an error", async () => {
+    const { service, subscriptions, watchMutate } = createHarness();
+    watchTask(service);
+    await flushMicrotasks();
+    expect(subscriptions).toHaveLength(1);
+    expect(watchMutate).toHaveBeenCalledTimes(1);
+
+    // Host transport teardown ends the subscription cleanly (no error).
+    subscriptions[0].handlers.onComplete?.();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(subscriptions).toHaveLength(2);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
+
+    // The recovery's own unsubscribe completes the old subscription; that
+    // must not schedule another recovery against the rebuilt one.
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(subscriptions).toHaveLength(2);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
   });
 
   it("keeps retrying with backoff while the watch call fails", async () => {

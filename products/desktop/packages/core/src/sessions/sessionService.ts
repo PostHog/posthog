@@ -6839,10 +6839,16 @@ export class SessionService {
         },
         onComplete: () => {
           if (!isCurrentSubscription()) return;
-          this.d.log.warn(
-            "Cloud task subscription ended without an error, updates stop until the task is reopened",
-            { taskId, runId },
-          );
+          // A completion that passes the guard is host transport teardown
+          // (a committed navigation sweeping the transport's operations, not
+          // the run finishing — our own teardown deletes the watcher before
+          // unsubscribing): recover just like an error, or updates stop until
+          // an app reload.
+          this.d.log.warn("Cloud task subscription ended without an error", {
+            taskId,
+            runId,
+          });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
         },
       },
     );
@@ -6895,8 +6901,11 @@ export class SessionService {
     watcher.subscriptionRecoveryAttempts += 1;
     watcher.subscriptionRecoveryInFlight = true;
     watcher.subscriptionRecoveryQueued = false;
-    watcher.subscription.unsubscribe();
+    // Bump the generation before unsubscribing: a transport that completes
+    // the old subscription synchronously on unsubscribe would otherwise pass
+    // the generation guard and queue a recovery against itself, forever.
     watcher.subscriptionGeneration += 1;
+    watcher.subscription.unsubscribe();
     watcher.subscription = this.attachCloudTaskSubscription(
       taskId,
       runId,
