@@ -192,6 +192,7 @@ class AccountTableField(str, Enum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
@@ -378,6 +379,7 @@ class AccountContextData:
     external_id: str | None
     created_at: datetime | None
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
@@ -391,7 +393,7 @@ class ExternalAccount:
     ``properties`` is carried as a plain dict set to exactly
     ``account.properties.model_dump(mode="json")`` — a validated pydantic
     pass-through, not a re-typed projection. ``id`` is the stringified UUID,
-    and ``churned_at`` carries the account lifecycle timestamp.
+    while ``churned_at`` and ``ignored_at`` carry lifecycle timestamps.
 
     ``custom_properties`` contains every team-defined custom property definition
     keyed by definition name, with the account's current scalar value (or ``None``
@@ -403,6 +405,7 @@ class ExternalAccount:
     external_id: str | None
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
@@ -431,6 +434,7 @@ class ExternalAccountListItem:
     external_id: str
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -528,6 +532,7 @@ class AccountView:
     notebooks: list[str] = field(default_factory=list)
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
