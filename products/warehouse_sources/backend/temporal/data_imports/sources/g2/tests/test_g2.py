@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 impo
     G2ResumeConfig,
     MissingProductIdError,
     _build_url,
+    _ensure_g2_url,
     _extract_error_detail,
     _flatten_item,
     g2_source,
@@ -92,6 +93,27 @@ class TestBuildUrl:
         assert url == "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
 
 
+class TestEnsureG2Url:
+    def test_g2_origin_is_returned_unchanged(self) -> None:
+        url = "https://data.g2.com/api/v2/products?page%5Bafter%5D=cursor-1"
+        assert _ensure_g2_url(url) == url
+
+    @parameterized.expand(
+        [
+            # A pagination link or poisoned resume state pointing anywhere but the G2 API
+            # origin would receive the bearer token — refuse it.
+            ("foreign_host", "https://evil.example.com/api/v2/products"),
+            ("http_downgrade", "http://data.g2.com/api/v2/products"),
+            ("userinfo_trick", "https://data.g2.com@evil.example.com/api/v2/products"),
+            ("host_suffix", "https://data.g2.com.evil.example.com/api/v2/products"),
+            ("path_prefix_escape", "https://data.g2.comevil/api/v2/products"),
+        ]
+    )
+    def test_non_g2_urls_are_refused(self, _name: str, url: str) -> None:
+        with pytest.raises(ValueError):
+            _ensure_g2_url(url)
+
+
 class TestExtractErrorDetail:
     def test_extracts_joined_titles(self) -> None:
         response = mock.MagicMock()
@@ -133,6 +155,19 @@ class TestGetRowsPagination:
 
         # No request for the first-page URL is wired, so resuming past it would raise KeyError.
         assert rows == [{"id": "p9"}]
+
+    def test_refuses_a_links_next_pointing_off_the_g2_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        first_url = "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
+        pages = {first_url: _page([_resource("p1")], next_url="https://evil.example.com/steal-token")}
+
+        with pytest.raises(ValueError):
+            _collect_rows(monkeypatch, pages)
+
+    def test_refuses_a_saved_resume_url_pointing_off_the_g2_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        poisoned_url = "https://evil.example.com/steal-token"
+
+        with pytest.raises(ValueError):
+            _collect_rows(monkeypatch, {}, manager=_FakeResumeManager(G2ResumeConfig(next_url=poisoned_url)))
 
     def test_reviews_path_is_formatted_with_product_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         url = "https://data.g2.com/api/v2/products/prod-123/reviews?page%5Bsize%5D=250"

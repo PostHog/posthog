@@ -68,6 +68,18 @@ def _build_url(base_url: str, params: dict[str, Any]) -> str:
     return f"{base_url}?{urlencode(params)}"
 
 
+def _ensure_g2_url(url: str) -> str:
+    """Pin a pagination/resume URL to the G2 API origin before it carries the bearer token.
+
+    `links.next` is response-controlled and resume URLs are replayed from persisted state, so
+    refuse anything outside the G2 API origin — the token must never be sent to a host we didn't
+    choose.
+    """
+    if not url.startswith(f"{G2_BASE_URL}/"):
+        raise ValueError(f"Refusing to follow non-G2 URL: {url}")
+    return url
+
+
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str]) -> dict[str, Any]:
     response = session.get(url, headers=headers, timeout=30)
     if not response.ok:
@@ -100,12 +112,14 @@ def get_rows(
 
     path = config.path.format(product_id=product_id) if config.requires_product_id else config.path
     headers = _headers(access_token)
-    session = make_tracked_session(redact_values=(access_token,))
+    # `allow_redirects=False`: defense-in-depth so a redirect can't carry the bearer token off
+    # the validated host, on top of the origin check in `_ensure_g2_url`.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        url = _ensure_g2_url(resume.next_url)
         logger.debug(f"G2: resuming {endpoint} from URL: {url}")
     else:
         url = _build_url(f"{G2_BASE_URL}/api/{api_version}{path}", {"page[size]": PAGE_SIZE})
@@ -114,6 +128,7 @@ def get_rows(
         data = _fetch_page(session, url, headers)
         items = data.get("data", [])
         next_url = data.get("links", {}).get("next")
+        next_url = _ensure_g2_url(next_url) if next_url else None
 
         for item in items:
             batcher.batch(_flatten_item(item))
