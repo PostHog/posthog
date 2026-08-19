@@ -609,6 +609,42 @@ def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
     run.save(update_fields=["output", "updated_at"])
 
 
+_BOT_AUTHOR_LABEL_MESSAGE = (
+    "stamphog does not review bot-authored pull requests, so the trigger label has been removed. "
+    "This change needs a human reviewer."
+)
+
+
+def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:
+    """Take the trigger label back off a bot-authored PR somebody labeled.
+
+    Without this the label sits there forever while every later delivery silently takes the
+    bot-author skip, so the PR looks reviewed and never is. Explained once on the paths where a
+    person just acted; a later synchronize only cleans up.
+
+    Best effort: a bot PR carrying a stray label is cosmetic next to the review path this runs
+    beside, so a GitHub failure is logged rather than retried.
+    """
+    pr_number = pr.get("number")
+    if pr_number is None:
+        return
+    try:
+        repo_config = _resolve_repo_config(installation_id, repo)
+        # LABEL mode only: elsewhere the trigger label carries no meaning, and taking back a label the
+        # repo does not act on would be a surprise rather than a cleanup.
+        if repo_config is None or not repo_config.enabled or repo_config.review_mode != ReviewMode.LABEL:
+            return
+        label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+        if repo_config.trigger_label not in label_names:
+            return
+        client = StamphogGitHubClient(repo_config.installation_id)
+        if action != "synchronize":
+            client.upsert_sticky_comment(repo, pr_number, _BOT_AUTHOR_LABEL_MESSAGE)
+        client.remove_pr_label(repo, pr_number, repo_config.trigger_label)
+    except Exception:
+        logger.warning("stamphog_pr_event_bot_label_cleanup_failed", repo=repo, pr_number=pr_number, exc_info=True)
+
+
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
     """Retract a standing stamphog approval when a head-changing event is skipped before the workflow.
 
@@ -1078,6 +1114,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
                 raise cast(Any, process_pull_request_event).retry(exc=e)
+        if skip_reason == "bot_author":
+            _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         if carve_out_error is not None:
             # The dismissal above already ran, so the stale-approval invariant holds however many
             # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears.
