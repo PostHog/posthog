@@ -297,7 +297,7 @@ export function InboxScene(): JSX.Element {
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
-                    name="Inbox"
+                    name="Self-driving"
                     // The description explains the active tab so new users can orient themselves.
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     // The redesigned welcome leads with its own full-size pitch, so a description

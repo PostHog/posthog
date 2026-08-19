@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
     },
     scenes: {
         Inbox: {
-            name: 'Inbox',
+            name: 'Self-driving',
             import: () => import('./frontend/inbox/InboxScene'),
             projectBased: true,
             description: 'Actionable reports automatically generated from user session analysis and other signals.',
