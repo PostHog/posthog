@@ -449,6 +449,7 @@ class TaskSerializer(DataclassSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "last_activity_at",
             "created_by",
             "ci_prompt",
             "channel",
@@ -1512,6 +1513,34 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
+    pr_state = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.PR_STATES),
+        help_text=(
+            "Filter tasks by the state of their most recent run's pull request, as last observed "
+            "from GitHub (webhooks plus the CI follow-up snapshot)."
+        ),
+    )
+    ci_status = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.CI_STATUSES),
+        help_text=(
+            "Filter tasks by the CI check rollup on their most recent run's pull request, as last "
+            "observed from GitHub. 'none' means the PR has no checks."
+        ),
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="With true, only tasks the requesting user has pinned.",
+    )
+    commented_by = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks carrying a thread comment written by this user ID.",
+    )
+    mentions = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks whose thread mentions this user ID.",
+    )
     internal = serializers.ChoiceField(
         required=False,
         choices=["true", "false", "all"],
@@ -1531,6 +1560,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    ordering = serializers.ChoiceField(
+        required=False,
+        choices=sorted(tasks_facade.TASK_LIST_ORDERINGS),
+        help_text=(
+            "Sort order. '-last_activity_at' is newest activity first, where activity means a thread "
+            "message or a run starting, streaming, or finishing. Defaults to '-created_at'."
+        ),
+    )
     all_team_tasks = serializers.BooleanField(
         required=False,
         default=False,
@@ -1862,6 +1899,17 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
+    target_scope = serializers.ChoiceField(
+        choices=["desktop_canvas"],
+        allow_null=True,
+        required=False,
+        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
+    )
+    target_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Identifier of the activity target. Present together with target_scope.",
+    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -1879,6 +1927,8 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
+            "target_scope",
+            "target_id",
             "is_unread",
         ]
 
@@ -1949,6 +1999,23 @@ class TaskArtifactSerializer(serializers.Serializer):
 
 class TaskArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated cloud compute cost attributed to this task in US dollars."
+    )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
 
 
 class TaskCommentsQuerySerializer(serializers.Serializer):
@@ -3300,6 +3367,8 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
+        max_length=tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS,
+        error_messages={"max_length": f"You can allow up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains."},
         help_text="Allowed domains for custom network access.",
     )
     include_default_domains = serializers.BooleanField(
@@ -3347,6 +3416,14 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                         f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
+
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        try:
+            return tasks_facade.normalize_sandbox_allowed_domains(value)
+        except ValueError as error:
+            raise serializers.ValidationError(
+                f"{error}. Enter domain names such as example.com or *.example.com without a scheme, path, or port."
+            ) from error
 
 
 class SandboxCustomImageSerializer(DataclassSerializer):

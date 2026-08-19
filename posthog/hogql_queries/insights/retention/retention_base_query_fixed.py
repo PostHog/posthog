@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
@@ -41,17 +42,19 @@ def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
     )
 
 
+@frozen
+class IntervalsFromBaseExprs:
+    intervals_from_base: ast.Expr
+    retention_value: ast.Expr | None
+
+
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def build_base_query(
         self,
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        has_data_warehouse_series = (
-            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
-        )
-
-        if has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
+        if self.has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
             return self.build_base_query_dwh(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
@@ -154,7 +157,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return self._build_single_scan_query(start_interval_index_filter, selected_breakdown_value)
 
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
-        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
+        intervals_exprs = self._get_intervals_from_base_exprs()
 
         start_event_query = self._build_dwh_retention_event_query(
             entity=self.start_event,
@@ -222,12 +225,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         select_fields.extend(
             [
                 self._start_interval_index_alias_expr(is_valid_start_interval),
-                ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+                ast.Alias(alias="intervals_from_base", expr=intervals_exprs.intervals_from_base),
             ]
         )
 
-        if retention_value_expr:
-            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+        if intervals_exprs.retention_value:
+            select_fields.append(ast.Alias(alias="retention_value", expr=intervals_exprs.retention_value))
 
         group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
         if has_breakdown_filter(self.query.breakdownFilter):
@@ -361,18 +364,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             )
 
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
-        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
+        intervals_exprs = self._get_intervals_from_base_exprs()
 
         select_fields.extend(
             [
                 ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps_expr),
                 self._start_interval_index_alias_expr(is_valid_start_interval),
-                ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+                ast.Alias(alias="intervals_from_base", expr=intervals_exprs.intervals_from_base),
             ]
         )
 
-        if retention_value_expr:
-            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+        if intervals_exprs.retention_value:
+            select_fields.append(ast.Alias(alias="retention_value", expr=intervals_exprs.retention_value))
 
         return ast.SelectQuery(
             select=select_fields,
@@ -435,6 +438,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return filters
 
         return_branch = self._first_time_role_branch(self.return_event, "return") or self.events_timestamp_filter()
+        # The OR below implies this flat name filter, but the planner's index analysis and
+        # PREWHERE staging work on top-level conjuncts. Without it, a property matcher inside
+        # the OR can force the fat properties column to be decompressed for every scanned row
+        # instead of only name-matching rows, multiplying bytes read. The legacy shape carries
+        # the same redundant conjunct.
+        name_filter = self.runner.event_name_filter([self.start_event, self.return_event])
+        if name_filter is not None:
+            filters.append(name_filter)
         filters.append(ast.Or(exprs=[start_branch, return_branch]))
         return filters
 
@@ -534,8 +545,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     ) -> ast.SelectQuery:
         entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
 
-        actor_column_name = self.entity_actor_id_column(entity)
-        actor_field = ast.Field(chain=[actor_column_name])
+        actor_field = self.coerce_actor_id_expr(self.entity_actor_id_expr(entity))
 
         timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
         assert timestamp_column_name
@@ -843,8 +853,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             )
             # interval must be same as first interval of in which start event happened
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
-        retention_value_expr: ast.Expr | None
-        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
+        intervals_exprs = self._get_intervals_from_base_exprs()
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
@@ -900,13 +909,13 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ),
                 ast.Alias(
                     alias="intervals_from_base",
-                    expr=intervals_from_base_expr,
+                    expr=intervals_exprs.intervals_from_base,
                 ),
             ]
         )
 
-        if retention_value_expr:
-            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+        if intervals_exprs.retention_value:
+            select_fields.append(ast.Alias(alias="retention_value", expr=intervals_exprs.retention_value))
 
         inner_query = ast.SelectQuery(
             select=select_fields,
@@ -1175,7 +1184,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return parse_expr("has(start_event_timestamps, date_range[start_interval_index + 1])")
 
-    def _get_intervals_from_base_exprs(self) -> tuple[ast.Expr, ast.Expr | None]:
+    def _get_intervals_from_base_exprs(self) -> IntervalsFromBaseExprs:
         is_first_interval_after_start_event = self._is_first_interval_after_start_event_expr()
         intervals_from_base_array_aggregator = "arrayJoin"
 
@@ -1275,15 +1284,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     },
                 )
 
-            return (
-                parse_expr("(arrayJoin({data})).1", {"data": combined_data}),
-                parse_expr("(arrayJoin({data})).2", {"data": combined_data}),
+            return IntervalsFromBaseExprs(
+                intervals_from_base=parse_expr("(arrayJoin({data})).1", {"data": combined_data}),
+                retention_value=parse_expr("(arrayJoin({data})).2", {"data": combined_data}),
             )
 
         if self.is_custom_bracket_retention:
             bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
-            return (
-                parse_expr(
+            return IntervalsFromBaseExprs(
+                intervals_from_base=parse_expr(
                     f"""
                     {intervals_from_base_array_aggregator}(
                         arrayDistinct(
@@ -1305,14 +1314,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         "bucket_logic": bucket_logic,
                     },
                 ),
-                None,
+                retention_value=None,
             )
 
-        return (
-            self._get_default_intervals_from_base_expr(
+        return IntervalsFromBaseExprs(
+            intervals_from_base=self._get_default_intervals_from_base_expr(
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             ),
-            None,
+            retention_value=None,
         )
 
     def _get_return_event_timestamps_expr(

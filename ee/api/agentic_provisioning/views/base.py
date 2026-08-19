@@ -67,8 +67,11 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
             )
 
     # Provisioning throttles keyed on something DRF has by the time it calls
-    # check_throttles (the partner on request.auth, a URL kwarg). Additive to
-    # DEFAULT_THROTTLE_CLASSES, which still guards these endpoints per IP.
+    # check_throttles (the partner on request.auth, a URL kwarg). These are the
+    # only limits that reliably apply here: DEFAULT_THROTTLE_CLASSES is a no-op
+    # unless the RATE_LIMIT_ENABLED instance setting is on, and even then it
+    # skips authenticated requests that carry no personal API key, which is
+    # every bearer-authenticated provisioning call.
     # Flows whose key only appears mid-handler (token exchange, account
     # request partner quota, wizard runs) call the throttling helpers instead.
     partner_throttle_classes: ClassVar[list[type[BaseThrottle]]] = []

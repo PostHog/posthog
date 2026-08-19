@@ -38,6 +38,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     revoke_application_sessions,
+    revoke_oauth_session,
 )
 from posthog.models.team.team import Team
 from posthog.scopes import get_oauth_scopes_supported
@@ -642,6 +643,7 @@ class TestOAuthAPI(APIBaseTest):
     def _create_private_key_jwt_app_and_grant(
         self,
         is_cimd_client: bool = True,
+        client_type: str = OAuthApplication.CLIENT_CONFIDENTIAL,
     ) -> tuple[OAuthApplication, OAuthGrant, rsa.RSAPrivateKey]:
         cimd_url = "https://partner.example.com/oauth/client-metadata"
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -649,7 +651,7 @@ class TestOAuthAPI(APIBaseTest):
             name="Private Key JWT CIMD Client",
             client_id="cimd-pkjwt-client-id",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            client_type=client_type,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             user=self.user,
@@ -834,6 +836,61 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_stored_jwks_completes_assertion_exchange(self):
+        # A public CIMD client (never partner-registered) can start signing at any time — a
+        # runtime change on the client's side PostHog doesn't control — and must be verified
+        # and accepted rather than rejected for presenting more proof than required.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            return_value=(jwks, None),
+        ):
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_forged_assertion_is_rejected(self):
+        # The menu-semantics widening must not weaken verification: a public client's forged
+        # signature still 401s instead of silently downgrading to the PKCE it could have used
+        # by presenting nothing at all.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        _, jwks = self._signed_assertion_and_jwks(app, private_key)
+        attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        forged_assertion, _attacker_jwks = self._signed_assertion_and_jwks(app, attacker_key)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            return_value=(jwks, None),
+        ):
+            response = self._post_assertion_exchange(app, grant, forged_assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_stored_jwks_still_completes_plain_pkce(self):
+        # A stored jwks_uri must not, by itself, force authentication: a public CIMD client
+        # presenting no credential at all still completes the ordinary PKCE exchange.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
@@ -1688,6 +1745,58 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_racing_user_session_revoke_is_rejected(self):
+        # Same race as the app-wide case, on the per-connection revoke behind the connected-apps
+        # UI and RFC 7009. revoke_oauth_session deletes the pair's refresh tokens, so a refresh
+        # that validated before it committed cannot mint a replacement pair. Marking them revoked
+        # was not enough: the 120s grace period keeps a revoked token valid through
+        # validate_refresh_token, and RefreshToken.revoke() then returns silently on the
+        # already-revoked row, so DOT went on to mint a fresh access and refresh token.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        with freeze_time("2026-01-01 00:00:05"):
+            revoke_oauth_session(refresh_token=refresh_token)
+
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_whose_token_is_deleted_while_waiting_for_the_lock_is_rejected(self):
+        # The reverse interleaving: the request passes validate_refresh_token in autocommit, then a
+        # revoke commits while it waits for the connection lock. Deleting the row from inside the
+        # lock call stands in for that commit, since the lock is where such a request waits. DOT
+        # re-reads the row with an unguarded .get(), which would surface as a 500.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        def delete_the_connection(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(pk=refresh_token.pk).delete()
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=delete_the_connection):
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     @freeze_time("2026-01-01 00:00:00")
     def test_refresh_succeeds_for_token_issued_after_revoke(self):

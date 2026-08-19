@@ -53,6 +53,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -60,9 +61,11 @@ from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
@@ -77,6 +80,10 @@ from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
+)
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
 )
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -172,9 +179,11 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
+    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -237,6 +246,9 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_activity_for_users",
+    "set_task_activity_target",
+    "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -399,6 +411,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_artifact_delivery",
+        "slack_chart_delivery",
         "slack_thread_url",
     }
 )
@@ -591,6 +605,7 @@ def _task_detail_to_dto(
         latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
         created_at=task.created_at,
         updated_at=task.updated_at,
+        last_activity_at=task.last_activity_at or task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
@@ -1297,13 +1312,17 @@ def create_task_without_run(
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    channel: Channel | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+    if channel is None:
+        channel = (
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+        )
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1315,6 +1334,86 @@ def create_task_without_run(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    return create_task_without_run(
+        team=Team.objects.get(id=team_id),
+        user_id=user_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        title=title,
+        description=description,
+        channel=channel,
+    )
+
+
+def create_shared_channel_task_without_run(
+    *,
+    team_id: int,
+    channel_id: str | UUID,
+    title: str,
+    description: str,
+    origin_product: "Task.OriginProduct",
+    state: dict[str, Any] | None = None,
+    signal_report_id: str | UUID | None = None,
+) -> UUID:
+    """Create a shared channel task without starting an agent run."""
+    channel = Channel.objects.filter(
+        id=channel_id,
+        team_id=team_id,
+        channel_type=Channel.ChannelType.PUBLIC,
+        deleted=False,
+    ).first()
+    if channel is None:
+        raise ValueError("Shared channel not found")
+    task = Task.objects.create(
+        team_id=team_id,
+        channel=channel,
+        title=title,
+        description=description,
+        origin_product=origin_product,
+        state=state or {},
+        signal_report_id=signal_report_id,
+    )
+    return task.id
+
+
+def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
+    """Project one task into each recipient's personal Activity feed."""
+    activity_at = django_timezone.now()
+    for user_id in set(user_ids):
+        TaskActivity.record(
+            team_id=team_id,
+            user_id=user_id,
+            task_id=task_id,
+            kind=kind,
+            activity_at=activity_at,
+        )
+
+
+def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
+    if scope != "desktop_canvas":
+        raise ValueError("Unsupported Activity target scope")
+    task = Task.objects.get(id=task_id, team_id=team_id)
+    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
+    task.save(update_fields=["state", "updated_at"])
+
+
+def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
+    Task.objects.filter(id=task_id, team_id=team_id).update(
+        title=title[:255],
+        description=description,
+        updated_at=django_timezone.now(),
+    )
 
 
 def create_run(
@@ -1482,7 +1581,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1582,6 +1681,12 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -1629,12 +1734,13 @@ def create_sandbox_environment(
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
+    normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
         name=name,
         network_access_level=network_access_level,
-        allowed_domains=allowed_domains,
+        allowed_domains=normalized_allowed_domains,
         include_default_domains=include_default_domains,
         repositories=repositories,
         environment_variables=environment_variables,
@@ -1655,6 +1761,8 @@ def update_sandbox_environment(
         _validate_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
+    if "allowed_domains" in fields:
+        fields["allowed_domains"] = normalize_sandbox_allowed_domains(fields["allowed_domains"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -4450,11 +4558,23 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
+#: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a
+#: page boundary can't drop or repeat a row when two tasks share a timestamp. A null
+#: `last_activity_at` (rows written outside the ORM) sorts first under `DESC`, which is where a row
+#: with no known activity belongs.
+TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
+    "-last_activity_at": ("-last_activity_at", "-id"),
+    "-created_at": ("-created_at", "-id"),
+}
+DEFAULT_TASK_LIST_ORDERING = "-created_at"
+
+
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
+    ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -4501,6 +4621,67 @@ def _list_tasks_queryset(
     if status_filter:
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
+
+    # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
+    # loop persist onto the latest run's output (same latest-run subquery shape
+    # as the status filter, so "the task's PR" means what the API's latest_run
+    # shows). KeyTextTransform, so the comparison is text = text.
+    pr_state = filters.get("pr_state")
+    if pr_state:
+        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
+            :1
+        ]
+        qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
+        if pr_state == "merged":
+            # Runs merged before pr_state existed only carry the older
+            # pr_merged flag; honor both spellings.
+            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+                "_pr_merged"
+            )[:1]
+            qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
+                Q(_latest_run_pr_state="merged") | Q(_latest_run_pr_merged="true")
+            )
+        else:
+            qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    ci_status = filters.get("ci_status")
+    if ci_status:
+        latest_run_ci_status = latest_run.annotate(_ci_status=KeyTextTransform("ci_status", "output")).values(
+            "_ci_status"
+        )[:1]
+        qs = qs.annotate(_latest_run_ci_status=Subquery(latest_run_ci_status)).filter(_latest_run_ci_status=ci_status)
+
+    # Pins are per-user, so "pinned" means the requesting user's pins — and
+    # without a user (service callers) nothing is pinned.
+    if str(filters.get("pinned")).lower() == "true":
+        if user_id is None:
+            qs = qs.none()
+        else:
+            qs = qs.filter(Exists(TaskPin.objects.filter(task=OuterRef("pk"), user_id=user_id)))
+
+    commented_by = filters.get("commented_by")
+    if commented_by:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessage.objects.for_team(team_id).filter(
+                    task=OuterRef("pk"),
+                    author_id=commented_by,
+                    author_kind=TaskThreadMessage.AuthorKind.HUMAN,
+                )
+            )
+        )
+
+    mentions = filters.get("mentions")
+    if mentions:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessageMention.objects.for_team(team_id)
+                .filter(task=OuterRef("pk"), mentioned_user_id=mentions)
+                # Same rule as list_mentions: legacy turn_complete rows are hidden
+                # from threads, so their indexed mentions must not match either.
+                .exclude(message__event="turn_complete")
+            )
+        )
 
     # `internal` controls default visibility, not access — task visibility (applied above) is the real
     # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
@@ -5450,7 +5631,6 @@ def warm_task_sandbox(
     extra_state: dict = {
         "branch": branch,
         "initial_permission_mode": initial_permission_mode,
-        "use_modal_network_allowlist": False,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -6902,6 +7082,22 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
+@frozen
+class _ActivityTarget:
+    scope: str | None
+    id: str | None
+
+
+def _activity_target(task: Task) -> _ActivityTarget:
+    target = (task.state or {}).get("activity_target")
+    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
+        return _ActivityTarget(scope=None, id=None)
+    target_id = target.get("id")
+    if not isinstance(target_id, str) or not target_id:
+        return _ActivityTarget(scope=None, id=None)
+    return _ActivityTarget(scope="desktop_canvas", id=target_id)
+
+
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -6961,6 +7157,8 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
+                target_scope=_activity_target(row.task).scope,
+                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows
@@ -7517,6 +7715,41 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             )
         )
     return "new_run"
+
+
+def request_canvas_change(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    prompt: str,
+    viewer_prompt: str,
+    acting_user_id: int | None,
+) -> str:
+    """Dispatch a creator's canvas request, or file a teammate's request for review."""
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id).first()
+        if task is None:
+            return "not_found"
+        if acting_user_id is None:
+            return "not_found"
+        is_creator = task.created_by_id == acting_user_id
+    if not is_creator:
+        # A teammate can reach this through a canvas they can see while the authoring
+        # task is deleted or filed in a space they can't — the thread message is then
+        # dropped, so surface the miss instead of reporting a delivery that didn't happen.
+        filed = create_thread_message(
+            task_id,
+            team_id,
+            acting_user_id,
+            content=f"Requested from the canvas:\n\n{viewer_prompt}",
+        )
+        return "reported" if filed is not None else "not_found"
+    outcome = request_canvas_fix(task_id, team_id, prompt=prompt, acting_user_id=acting_user_id)
+    # already_queued is a deduplicated repeat: the request that queued the run
+    # already wrote this entry, so writing another would double the record.
+    if outcome in {"signaled", "new_run"}:
+        create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
+    return outcome
 
 
 def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:

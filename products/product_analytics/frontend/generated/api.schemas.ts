@@ -4034,6 +4034,7 @@ export const IntegrationKindApi = {
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -7268,6 +7269,7 @@ export const AccountsTableAccountFieldApi = {
     ExternalId: 'external_id',
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -7484,6 +7486,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */

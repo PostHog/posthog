@@ -85,6 +85,14 @@ class ExportedAsset(models.Model):
         ExportFormat.JSONL,
     ]
 
+    # Formats rendered by the Temporal rasterizer (headless Chromium replaying the recording) rather
+    # than the browserless image/CSV path. Values are the ffmpeg output format each one renders to.
+    RASTERIZED_FORMATS: dict[str, str] = {
+        ExportFormat.MP4: "mp4",
+        ExportFormat.WEBM: "webm",
+        ExportFormat.GIF: "gif",
+    }
+
     # Relations
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
@@ -200,6 +208,12 @@ class ExportedAsset(models.Model):
         )
 
     @property
+    def is_rasterized_export(self) -> bool:
+        """Rendered by the rasterize-recording Temporal workflow, so it lives under that workflow's
+        timing envelope rather than the query/screenshot timeouts the other formats inherit."""
+        return self.export_format in self.RASTERIZED_FORMATS
+
+    @property
     def is_session_recording_export(self) -> bool:
         """Teammates may retrieve by id if they can view the linked session recording."""
         return bool((self.export_context or {}).get("session_recording_id"))
@@ -210,6 +224,9 @@ class ExportedAsset(models.Model):
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
+            # Scanner-driven renders (replay_vision) report through the same pipeline; without this
+            # flag their volume is indistinguishable from user exports in failure-rate comparisons.
+            "is_system": bool(self.is_system),
         }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):

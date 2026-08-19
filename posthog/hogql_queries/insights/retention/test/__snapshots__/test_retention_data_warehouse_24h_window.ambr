@@ -9,7 +9,7 @@
             floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), actors_with_t0.t_0), 24)) AS start_interval_index,
             arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(ifNull(greaterOrEquals(return_events.timestamp, actors_with_t0.t_0), 0), floor(divide(dateDiff('hour', actors_with_t0.t_0, return_events.timestamp), 24)), -1)))))) AS intervals_from_base
      FROM
-       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+       (SELECT toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS actor_id,
                if(and(greaterOrEquals(minIf(toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$signup')), toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(minIf(toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$signup')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), minIf(toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$signup')), NULL) AS t_0
         FROM events
         LEFT OUTER JOIN
@@ -23,7 +23,7 @@
         GROUP BY actor_id
         HAVING isNotNull(t_0)) AS actors_with_t0
      LEFT JOIN
-       (SELECT posthog_test_warehouse_renewals_ft.person_id AS actor_id,
+       (SELECT toString(posthog_test_warehouse_renewals_ft.person_id) AS actor_id,
                toTimeZone(posthog_test_warehouse_renewals_ft.occurred_at, 'UTC') AS timestamp
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window/posthog_test_warehouse_renewals_ft/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `occurred_at` DateTime64(3, \'UTC\')') AS posthog_test_warehouse_renewals_ft
         WHERE and(greaterOrEquals(posthog_test_warehouse_renewals_ft.occurred_at, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(posthog_test_warehouse_renewals_ft.occurred_at, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS return_events ON equals(actors_with_t0.actor_id, return_events.actor_id)
@@ -58,13 +58,13 @@
             floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), actors_with_t0.t_0), 24)) AS start_interval_index,
             arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(greaterOrEquals(return_events.timestamp, actors_with_t0.t_0), floor(divide(dateDiff('hour', actors_with_t0.t_0, return_events.timestamp), 24)), -1)))))) AS intervals_from_base
      FROM
-       (SELECT posthog_test_warehouse_activity.person_id AS actor_id,
+       (SELECT toString(posthog_test_warehouse_activity.person_id) AS actor_id,
                min(toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC')) AS t_0
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window/posthog_test_warehouse_activity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `occurred_at` DateTime64(3, \'UTC\'), `activity_type` String') AS posthog_test_warehouse_activity
         WHERE and(equals(posthog_test_warehouse_activity.activity_type, 'signed_up'), and(greaterOrEquals(posthog_test_warehouse_activity.occurred_at, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(posthog_test_warehouse_activity.occurred_at, toDateTime64('2025-01-06 00:00:00.000000', 6, 'UTC'))))
         GROUP BY actor_id) AS actors_with_t0
      LEFT JOIN
-       (SELECT posthog_test_warehouse_activity.person_id AS actor_id,
+       (SELECT toString(posthog_test_warehouse_activity.person_id) AS actor_id,
                toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC') AS timestamp
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window/posthog_test_warehouse_activity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `occurred_at` DateTime64(3, \'UTC\'), `activity_type` String') AS posthog_test_warehouse_activity
         WHERE and(equals(posthog_test_warehouse_activity.activity_type, 'renewed'), and(greaterOrEquals(posthog_test_warehouse_activity.occurred_at, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(posthog_test_warehouse_activity.occurred_at, toDateTime64('2025-01-06 00:00:00.000000', 6, 'UTC'))))) AS return_events ON equals(actors_with_t0.actor_id, return_events.actor_id)

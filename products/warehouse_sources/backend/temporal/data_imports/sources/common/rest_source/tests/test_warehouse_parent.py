@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import warehouse_parent
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
     WarehouseParentTableNotFoundError,
@@ -38,10 +39,12 @@ def _write_parent_table(tmp_path: Path) -> str:
 def _patched_reader(uri: str, version: int | None = None, **kwargs):
     ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version() if version is None else version)
     with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
-        return list(iter_parent_pages_from_warehouse(table=ref, parent_name="issues", **kwargs))
+        return list(
+            iter_parent_pages_from_warehouse(table=ref, parent_name="issues", schema_name="issue_tag_values", **kwargs)
+        )
 
 
-def _patched_resolve(uri: str, snapshot_timestamp=None):
+def _patched_resolve(uri: str, snapshot_timestamp=None, row_filter=None):
     parent_schema = SimpleNamespace(
         id="parent-id", normalized_s3_folder_name="issues", folder_path=lambda: "team_1_sentry_x"
     )
@@ -51,7 +54,7 @@ def _patched_resolve(uri: str, snapshot_timestamp=None):
         patch.object(warehouse_parent, "delta_storage_options", return_value={}),
         patch.object(warehouse_parent, "_snapshot_pin_as_of", return_value=snapshot_timestamp),
     ):
-        return resolve_parent_table_ref(1, "00000000-0000-0000-0000-000000000000", "issues")
+        return resolve_parent_table_ref(1, "00000000-0000-0000-0000-000000000000", "issues", row_filter=row_filter)
 
 
 def test_resolve_parent_table_ref_raises_when_parent_schema_missing() -> None:
@@ -106,6 +109,43 @@ def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
         "3": "2026-03-02",
     }
     assert all(set(row) == {"id", "lastSeen"} for row in rows)
+
+
+@pytest.mark.parametrize(
+    "ending,expected_rows,expected_outcome",
+    [("drained", 3, "completed"), ("closed", 1, "stopped"), ("raised", 1, "failed")],
+)
+def test_reader_logs_the_row_count_and_how_the_scan_ended(
+    tmp_path: Path, ending: str, expected_rows: int, expected_outcome: str
+) -> None:
+    # A resumable child checkpoints mid-fan-out and the pipeline closes the generator, so a
+    # count logged after the loop would be lost for exactly the runs worth measuring. Only a
+    # drained scan carries a full count, and a crash must not read as a clean early stop.
+    uri = _write_parent_table(tmp_path)
+    ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+    with (
+        patch.object(warehouse_parent, "delta_storage_options", return_value={}),
+        patch.object(warehouse_parent, "logger") as mock_logger,
+    ):
+        pages = warehouse_parent.iter_parent_pages_from_warehouse(
+            table=ref, parent_name="issues", columns=["id"], page_size=1, schema_name="issue_hashes"
+        )
+        if ending == "drained":
+            list(pages)
+        else:
+            next(pages)
+            if ending == "closed":
+                pages.close()
+            else:
+                with pytest.raises(RuntimeError):
+                    pages.throw(RuntimeError("consumer blew up"))
+
+    logged = mock_logger.info.call_args
+    assert logged.args[0] == "data_imports.fanout_parent_rows_streamed"
+    assert logged.kwargs["schema"] == "issue_hashes"
+    assert logged.kwargs["rows"] == expected_rows
+    assert logged.kwargs["outcome"] == expected_outcome
 
 
 def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
@@ -219,7 +259,11 @@ def test_reader_stays_on_the_pinned_version_when_the_parent_re_syncs(tmp_path: P
     )
 
     with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
-        pages = list(iter_parent_pages_from_warehouse(table=pinned, parent_name="issues", columns=["id"], page_size=10))
+        pages = list(
+            iter_parent_pages_from_warehouse(
+                table=pinned, parent_name="issues", columns=["id"], page_size=10, schema_name="issue_tag_values"
+            )
+        )
 
     assert sorted(row["id"] for page in pages for row in page) == ["1", "2", "3"]
 
@@ -246,3 +290,111 @@ def test_reader_streams_multiple_fragments(tmp_path: Path) -> None:
 
     rows = sorted(row["id"] for page in pages for row in page)
     assert rows == ["1", "2", "3"]
+
+
+def _write_parent_table_with_ages(tmp_path: Path, physical: str) -> str:
+    uri = str(tmp_path / "issues_aged")
+    now = datetime.now(UTC)
+    fresh = now - timedelta(days=5)
+    old = now - timedelta(days=200)
+    last_seen: pa.Array
+    if physical == "string":
+        last_seen = pa.array([fresh.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), old.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), None])
+    elif physical == "timestamp_tz":
+        last_seen = pa.array([fresh, old, None], type=pa.timestamp("us", tz="UTC"))
+    else:
+        last_seen = pa.array([fresh.replace(tzinfo=None), old.replace(tzinfo=None), None], type=pa.timestamp("us"))
+    table = pa.table({"id": ["fresh", "old", "no_signal"], "last_seen": last_seen})
+    deltalake.write_deltalake(uri, table)
+    return uri
+
+
+_LAST_SEEN_FLOOR = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90))
+
+
+@pytest.mark.parametrize("physical", ["string", "timestamp_tz", "timestamp_naive"])
+def test_row_filter_drops_old_rows_and_keeps_null_ones(tmp_path: Path, physical: str) -> None:
+    # The floor must adapt to the column's physical type: the Delta writer stores the API's
+    # ISO string either verbatim or parsed, and prod tables carry the parsed form while the
+    # test fixtures carry strings. NULL keeps the row, matching the tag-values cutoff.
+    uri = _write_parent_table_with_ages(tmp_path, physical)
+
+    pages = _patched_reader(uri, columns=["id"], page_size=10, row_filter=_LAST_SEEN_FLOOR)
+
+    assert {row["id"] for page in pages for row in page} == {"fresh", "no_signal"}
+
+
+def test_row_filter_streams_everything_when_absent(tmp_path: Path) -> None:
+    uri = _write_parent_table_with_ages(tmp_path, "string")
+
+    pages = _patched_reader(uri, columns=["id"], page_size=10)
+
+    assert {row["id"] for page in pages for row in page} == {"fresh", "old", "no_signal"}
+
+
+@pytest.mark.parametrize(
+    "bad_filter,match",
+    [
+        (ParentRowFilter(field="doesNotExist", not_older_than=timedelta(days=90)), "missing requested column"),
+        (ParentRowFilter(field="numComments", not_older_than=timedelta(days=90)), "can't be compared"),
+    ],
+)
+def test_resolve_rejects_unfilterable_tables_so_callers_fall_back(
+    tmp_path: Path, bad_filter: ParentRowFilter, match: str
+) -> None:
+    # The reader is a generator: an unvalidated filter would raise mid-pipeline, past the
+    # API fallback. Resolve must reject a missing column and a physical type with no
+    # defined time ordering while the fallback is still possible.
+    uri = str(tmp_path / "issues_unfilterable")
+    deltalake.write_deltalake(uri, pa.table({"id": ["1"], "num_comments": pa.array([3], type=pa.int64())}))
+
+    with pytest.raises(WarehouseParentTableNotFoundError, match=match):
+        _patched_resolve(uri, row_filter=bad_filter)
+
+
+def test_row_filter_tightens_to_an_absolute_floor(tmp_path: Path) -> None:
+    # The incremental caller passes its watermark so the scan stops reading issues it would
+    # only discard per row. The tighter of the two floors has to win, or an incremental run
+    # keeps paying for the whole snapshot.
+    uri = _write_parent_table_with_ages(tmp_path, "string")
+    watermark = datetime.now(UTC) - timedelta(days=2)
+
+    pages = _patched_reader(
+        uri,
+        columns=["id"],
+        page_size=10,
+        row_filter=ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90), not_before=watermark),
+    )
+
+    # "fresh" is 5 days old, so the watermark excludes it where the 90-day window would not.
+    assert {row["id"] for page in pages for row in page} == {"no_signal"}
+
+
+@parameterized.expand(
+    [
+        ("relative_only", timedelta(days=90), None, False, -90),
+        ("absolute_only", None, timedelta(days=2), False, -2),
+        ("absolute_is_tighter", timedelta(days=90), timedelta(days=2), False, -2),
+        ("relative_is_tighter", timedelta(days=1), timedelta(days=30), False, -1),
+        ("naive_absolute_is_read_as_utc", None, timedelta(days=2), True, -2),
+    ]
+)
+def test_parent_row_filter_floor_picks_the_tighter_bound(
+    _name, not_older_than, not_before_ago, naive, expected_days
+) -> None:
+    now = datetime.now(UTC)
+    not_before = None
+    if not_before_ago is not None:
+        not_before = now - not_before_ago
+        if naive:
+            not_before = not_before.replace(tzinfo=None)
+
+    floor = ParentRowFilter(field="lastSeen", not_older_than=not_older_than, not_before=not_before).floor(now)
+
+    assert floor == now + timedelta(days=expected_days)
+
+
+def test_parent_row_filter_rejects_a_filter_with_no_floor() -> None:
+    # Silently scanning everything is the failure this whole field exists to prevent.
+    with pytest.raises(ValueError, match="not_older_than"):
+        ParentRowFilter(field="lastSeen")
