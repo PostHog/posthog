@@ -96,19 +96,29 @@ describe("keyTurnRows", () => {
 });
 
 describe("flattenTurnRows", () => {
-  it("passes standalone rows through with ordinal keys for user messages", () => {
+  it("keys standalone rows by their content-derived ids", () => {
     const rows: TurnRow[] = [
       userMessage("u1"),
       { type: "git_action", id: "g1", actionType: "commit" as never },
       userMessage("u2"),
     ];
     const flat = flattenTurnRows(rows);
-    expect(flat.map((r) => r.key)).toEqual([
-      "user-turn-0",
-      "g1",
-      "user-turn-1",
-    ]);
+    expect(flat.map((r) => r.key)).toEqual(["u1", "g1", "u2"]);
     expect(flat.every((r) => !r.inTurn && !r.isTrailingInTurn)).toBe(true);
+  });
+
+  it("keeps a row's key unchanged when older rows are prepended", () => {
+    const tail: TurnRow[] = [
+      userMessage("u2"),
+      agentTurn("a", [sessionUpdate("a1")]),
+    ];
+    const before = flattenTurnRows(tail);
+    const after = flattenTurnRows([
+      userMessage("u1"),
+      agentTurn("b", [sessionUpdate("b1")]),
+      ...tail,
+    ]);
+    expect(after.slice(2).map((r) => r.key)).toEqual(before.map((r) => r.key));
   });
 
   it("flattens an agent turn to one row per item, flagging only the last as trailing", () => {
@@ -119,7 +129,7 @@ describe("flattenTurnRows", () => {
       userMessage("u1"),
       agentTurn("a", [a, b, c]),
     ]);
-    expect(flat.map((r) => r.key)).toEqual(["user-turn-0", "a", "b", "c"]);
+    expect(flat.map((r) => r.key)).toEqual(["u1", "a", "b", "c"]);
     expect(flat.map((r) => r.inTurn)).toEqual([false, true, true, true]);
     expect(flat.map((r) => r.isTrailingInTurn)).toEqual([
       false,

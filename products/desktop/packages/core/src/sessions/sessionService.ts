@@ -6546,6 +6546,8 @@ export class SessionService {
    * total, then the tail pages. Small logs come back whole (windowStart 0);
    * oversized ones come back as just the newest page - older pages load on
    * demand as the thread scrolls up. Returns null when the fetch fails.
+   * Trade-off: an oversized log pays for one discarded probe page so the
+   * common small log stays a single request.
    */
   private async fetchChainTranscriptWindow(
     client: SessionLogsClient,
@@ -6852,17 +6854,23 @@ export class SessionService {
     const windowStart = transcriptWindow?.windowStart ?? 0;
     // Resume-chain positions are leaf-relative (stamped from the leaf marker);
     // single-run positions are indexes into the run's own log, so a tail
-    // window offsets them by its absolute start.
-    let events = convertStoredEntriesToEvents(
-      rawEntries,
-      undefined,
-      isResumeRun || windowStart === 0
+    // window offsets them by its absolute start. A truncated resume window
+    // that lost its leaf marker has no usable anchor - stamping from the
+    // window start would mislabel every entry's position, so leave those
+    // unpositioned and let reconciliation fall back to content matching.
+    const positionOptions = isResumeRun
+      ? windowStart === 0 || resumeLeafEntryStartIndex !== undefined
         ? {
             taskRunId,
             startEntryIndex: 0,
             firstPositionedEntryIndex: resumeLeafEntryStartIndex,
           }
-        : { taskRunId, startEntryIndex: windowStart },
+        : undefined
+      : { taskRunId, startEntryIndex: windowStart };
+    let events = convertStoredEntriesToEvents(
+      rawEntries,
+      undefined,
+      positionOptions,
     );
     if (isResumeRun && session.events.length > 0) {
       const inheritedEvents = reconcileLiveEventsWithHydratedEvents(

@@ -215,6 +215,34 @@ describe("buildConversationItems", () => {
     ]);
   });
 
+  it("keeps item ids stable when older history is prepended", () => {
+    // The virtualized thread anchors the viewport on item ids across a
+    // prepend of older transcript pages, so an id must depend only on its
+    // own turn's events, never on how many items precede it.
+    const older: AcpMessage[] = [
+      userPromptMsg(1, 1, "first question"),
+      agentMessageMsg(2, "first reply"),
+      promptResponseMsg(3, 1),
+      userPromptMsg(4, 2, "second question"),
+      agentMessageMsg(5, "second reply"),
+      promptResponseMsg(6, 2),
+    ];
+    const tail: AcpMessage[] = [
+      userPromptMsg(10, 3, "later question"),
+      agentMessageMsg(11, "later reply"),
+      consoleMsg(12, "later tool output"),
+      promptResponseMsg(13, 3),
+    ];
+
+    const tailIds = buildConversationItems(tail, null).items.map((i) => i.id);
+    const fullIds = buildConversationItems([...older, ...tail], null).items.map(
+      (i) => i.id,
+    );
+
+    expect(tailIds.length).toBeGreaterThan(0);
+    expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
+  });
+
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:
     // true`. It must flip the existing status row, not append a second one.

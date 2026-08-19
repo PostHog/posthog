@@ -43,6 +43,7 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
+/** Roughly a viewport of estimated rows: far enough to prefetch mid-fling, near enough that a slow read to the top doesn't chain loads. */
 const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
@@ -346,10 +347,7 @@ export function VirtualThreadScrollBody({
     scrollEndThreshold: THREAD_AT_END_THRESHOLD,
     paddingStart: PADDING_START,
     paddingEnd: footerHeight,
-    // Keyed by item id, not row key: user-turn row keys are ordinals that
-    // shift when older history prepends, and the end-anchored virtualizer
-    // relies on key identity to hold the viewport still across that prepend.
-    getItemKey: (index) => flatRows[index]?.item.id ?? index,
+    getItemKey: (index) => flatRows[index]?.key ?? index,
   });
 
   // Re-armed by the props flipping back rather than by re-render, so one
@@ -371,7 +369,8 @@ export function VirtualThreadScrollBody({
   // A viewport parked at the very top produces no scroll events (Home or a
   // wheel-up at scrollTop 0 changes nothing), so arming alone must also
   // attempt a load: on mount at the top, and again after each page lands
-  // while the reader stays parked there.
+  // while the reader stays parked there. The delay lets the end-anchored
+  // initial layout settle so a fresh mount reads its real scrollTop, not 0.
   useEffect(() => {
     if (!hasOlderHistory || isLoadingOlderHistory) return;
     const id = window.setTimeout(maybeLoadOlderHistory, 250);
