@@ -9,6 +9,7 @@
 # The stages are used to:
 #
 # - node-base: shared Node.js base with pnpm already provisioned
+# - product-manifests: the products/* package.json files on their own, for the frontend install
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
@@ -41,17 +42,15 @@ ENV COREPACK_ENABLE_NETWORK=0
 #
 # ---------------------------------------------------------
 #
-# Just the `products/*` workspace manifests, with the sources left behind. pnpm resolves those
-# workspaces from their package.json alone, so putting the whole tree in front of the install makes
-# any product source edit reinstall every dependency. Most master commits touch that tree and
-# almost none touch a manifest, so the install layer is the one that has to see only manifests.
-# This stage re-runs on every product change; only its output feeds the cache key downstream.
+# pnpm resolves the products/* workspaces from their package.json alone, so the install layer must
+# see the manifests without the sources. Copying the whole tree in front of it instead ties every
+# product source edit to a full reinstall, and product sources change far more often than product
+# manifests. The depth here tracks the products/* glob in pnpm-workspace.yaml: a workspace nested
+# deeper would be dropped, and the install then fails on the lockfile importer it cannot find.
 FROM node-base AS product-manifests
 RUN --mount=type=bind,source=products,target=/src \
-    mkdir -p /manifests && cd /src && \
-    find . -mindepth 2 -maxdepth 2 -name package.json -print0 \
-    | tar --null --files-from=- -cf - \
-    | tar -xf - -C /manifests
+    cd /src && find . -mindepth 2 -maxdepth 2 -name package.json \
+    -exec install -D {} /manifests/{} \;
 
 
 #

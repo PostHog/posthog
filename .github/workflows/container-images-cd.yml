@@ -120,12 +120,12 @@ jobs:
               continue-on-error: true
               # A hung build has to end as a step failure, not a job timeout: the retry ladder below
               # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
-              # The bound has to sit above the slowest healthy build, not inside the distribution:
-              # a merge-queue batch starts a dozen of these at once and contention on the shared
-              # Depot builder stretches a normal build several times over. Timing out there cancels
-              # the build server-side and makes the retry re-pay it, turning slowness into a red
-              # master. A genuine hang still ends fast, because the Depot stream drops its keepalive
-              # well before this bound.
+              # The bound has to sit above the slowest healthy build rather than inside the spread:
+              # master pushes land in merge-queue batches that contend for the shared Depot builder,
+              # so a normal build stretches well past its solo time. Timing out cancels the build
+              # server-side and makes the retry re-pay it, so a bound set near the typical build
+              # turns contention into a failed deploy. A real hang still ends well before this,
+              # because the Depot stream drops its keepalive first.
               timeout-minutes: 35
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
