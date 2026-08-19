@@ -6215,6 +6215,23 @@ def normalize_channel_name(name: str) -> str:
     return re.sub(r"\s+", "-", name.strip().lower())[:128]
 
 
+PERSONAL_SPACE_NAMES = frozenset({Channel.PERSONAL_CHANNEL_NAME, Channel.PERSONAL_CHANNEL_LABEL})
+RESERVED_CHANNEL_NAMES = PERSONAL_SPACE_NAMES | {Channel.GENERAL_CHANNEL_NAME}
+
+
+def is_personal_space_name(name: str) -> bool:
+    """Reads as somebody's private space. Desktop decides the lock glyph and the label from
+    a bare name on surfaces that hold nothing else, so a shared space carrying one of these
+    would present itself as private."""
+    return normalize_channel_name(name) in PERSONAL_SPACE_NAMES
+
+
+def is_reserved_channel_name(name: str) -> bool:
+    """Reads as one of the system spaces. Renaming a space to the general name would also
+    make it permanently unrenameable, since the guards fall back to the name."""
+    return normalize_channel_name(name) in RESERVED_CHANNEL_NAMES
+
+
 def _set_channel_star(channel_id: UUID, team_id: int, user_id: int, *, starred: bool) -> None:
     if starred:
         ChannelStar.objects.get_or_create(channel_id=channel_id, user_id=user_id, defaults={"team_id": team_id})

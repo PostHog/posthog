@@ -137,7 +137,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Resolve or create a public channel",
         description=(
             "Returns the existing public channel with the (normalized) name, creating it if needed. "
-            "A channel created here is starred for the requester unless star is false."
+            "A channel created here is starred for the requester unless star is false. "
+            "The general name returns the team's general space; names that read as a private "
+            'space ("me", "personal") are rejected.'
         ),
     )
     def create(self, request, **kwargs):

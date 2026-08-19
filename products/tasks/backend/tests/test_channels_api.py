@@ -175,6 +175,20 @@ class ChannelsAPITestCase(TestCase):
             [created.json()["id"]],
         )
 
+    @parameterized.expand([("stored_name", "Me"), ("display_label", " personal ")])
+    def test_a_shared_space_cannot_claim_a_personal_space_name(self, _name, name):
+        # Desktop shows the personal space under the label "personal" and decides the lock
+        # glyph from a bare name, so a shared space under either name reads as private.
+        response = self.client.post(self._channels_url(), {"name": name})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([("personal_name", "me"), ("personal_label", "personal"), ("general", "General")])
+    def test_a_space_cannot_be_renamed_to_a_reserved_name(self, _name, name):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        response = self.client.patch(f"{self._channels_url()}{channel_id}/", {"name": name})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             ("rename", lambda client, url: client.patch(url, {"name": "not-general"})),
