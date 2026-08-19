@@ -656,6 +656,9 @@ tools:
             you're examining. A scanner can observe a given session only once — re-triggering it on a session that
             already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.
         requires_ai_consent: true
+    vision-scanners-self-driving-stats-retrieve:
+        operation: vision_scanners_self_driving_stats_retrieve
+        enabled: false
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
         enabled: false

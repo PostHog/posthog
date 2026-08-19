@@ -10,6 +10,10 @@ function task(environment?: TaskRunEnvironment): Task {
   } as Task;
 }
 
+function signalReportTask(): Task {
+  return { ...task(), origin_product: "signal_report" };
+}
+
 function workspace(mode: Workspace["mode"]): Workspace {
   return { mode } as Workspace;
 }
@@ -33,6 +37,12 @@ describe("isCloudTask", () => {
       task: task(),
       workspace: null,
       expected: false,
+    },
+    {
+      name: "Signals report before its run is visible",
+      task: signalReportTask(),
+      workspace: null,
+      expected: true,
     },
     {
       name: "cloud workspace row",
