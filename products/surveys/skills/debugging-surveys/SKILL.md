@@ -172,6 +172,8 @@ single-choice question contains free text, the mapping is wrong.
 
 2. **Disambiguate "none" vs "fewer."** Customers say "no responses" when they mean "fewer." Pull the `survey shown` vs `survey sent` counts before/after the suspected change (see [references/diagnostic-queries.md](references/diagnostic-queries.md)). If the _response rate_ (sent/shown) is stable, the problem is upstream eligibility (fewer people shown), not rendering or submission. This single check redirects most investigations correctly.
 
+2b. **For a data-quality ticket, disambiguate "incomplete" vs "complete but sparse."** Before anything else, check whether the blank cells are questions the respondent was never asked. Branching plus optional questions makes a complete response look abandoned, and this is the single most common reason a survey gets reported as broken when it isn't. See [How a response actually gets stored](#how-a-response-actually-gets-stored).
+
 3. **Platform parity check.** Confirm the `lib` and consult the parity table. Eliminate features the platform doesn't support before investigating them.
 
 4. **Pull the survey definition.** `GET /api/projects/<id>/surveys/<sid>/`. Inspect `conditions` (events, url, seenSurveyWaitPeriodInDays, repeatedActivation), `appearance.surveyPopupDelaySeconds`, `appearance.position`, `schedule`, `linked_flag`, `targeting_flag`, `internal_targeting_flag.filters`, `responses_limit`, `iteration_*`, `enable_partial_responses` — and then go **inside each question**: `id`, `type`, `scale`, `optional`, `skipSubmitButton`, `branching`. The per-question fields answer most "wrong data" tickets on their own and are easy to miss, since a shallow look at top-level keys doesn't surface them.
