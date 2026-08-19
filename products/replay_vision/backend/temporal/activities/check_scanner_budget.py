@@ -1,6 +1,6 @@
 from temporalio import activity
 
-from products.replay_vision.backend.models.replay_scanner import DeepSweepState, ReplayScanner, initial_watermark
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, initial_watermark
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -136,9 +136,10 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
             last_swept_at=watermark,
             last_seen_session_id="",
             # The deep pass walks from its own watermark up to the fast one, so leaving it behind would
-            # hand the first uncapped deep sweep exactly the window this reset skips. Replaced whole,
-            # because a cursor into the skipped window would resume partway through ground nobody swept.
-            deep_sweep_state=DeepSweepState(swept_through=watermark).as_json(),
+            # hand the first uncapped deep sweep exactly the window this reset skips. The cursor is
+            # cleared with it: it points partway into ground nobody swept.
+            deep_swept_through=watermark,
+            deep_seen_session_id="",
             limit_notified_period_start=period.start,
         )
     )
@@ -147,7 +148,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         ReplayScanner.objects.filter(pk=scanner.pk).update(
             last_swept_at=watermark,
             last_seen_session_id="",
-            deep_sweep_state=DeepSweepState(swept_through=watermark).as_json(),
+            deep_swept_through=watermark,
+            deep_seen_session_id="",
         )
     activity.logger.info(
         "Sweep skipped: scanner credit limit reached",

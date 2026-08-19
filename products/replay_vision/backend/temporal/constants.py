@@ -52,26 +52,25 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
 # waits, so tuning either one moves the same cost-against-latency tradeoff.
 DEEP_SWEEP_INTERVAL = dt.timedelta(hours=12)
-# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
-# share: it is catch-up work, and a tick that overruns retries both queries.
-DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+# ClickHouse budget for one deep query; the pass shares the sweep activity's ~200s timeout with the
+# fast query, so it only gets this when enough of the activity is left to spend it.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 120
 
 # Most ground one deep pass covers. The events scan pads ~50h around whatever window it is given, so
 # an unbounded window is both slow and unbounded in cost; a scanner further behind takes more passes
 # rather than one huge one. Sized against the longest interval below, not the floor: the padding
 # dominates a single pass, so widening the window is much cheaper than shortening the gap.
 DEEP_SWEEP_MAX_WINDOW = dt.timedelta(hours=54)
-# How much more ground a pass covers than the gap before it. At exactly 1.0 the pass only breaks even,
-# so any skipped or failed pass is ground it never regains; the margin is what lets it recover.
-_DEEP_CATCHUP_MARGIN = 1.5
-# Ceiling on the deep pass's cadence stretch, derived rather than chosen. A pass covering less ground
-# than the gap before it falls behind by the difference every time, until it is far enough back that
-# the recordings it reaches have aged out of retention and it does nothing at all. Keeping this and
-# the window as independent numbers is how they drifted into contradicting each other.
-DEEP_SWEEP_MAX_FACTOR = max(1, int(DEEP_SWEEP_MAX_WINDOW / (DEEP_SWEEP_INTERVAL * _DEEP_CATCHUP_MARGIN)))
+# Ceiling on the deep pass's cadence stretch. Must stay below DEEP_SWEEP_MAX_WINDOW / DEEP_SWEEP_INTERVAL
+# with margin: a pass covering less ground than the gap before it falls behind for good.
+DEEP_SWEEP_MAX_FACTOR = 3
 # The deep pass is priced on its average daily reads over this window, which has to outlast the
 # longest interval above or a stretched pass ages out of its own measurement and resets to the floor.
 DEEP_SPEND_WINDOW_DAYS = 8
+# Daily ClickHouse read budget for the deep pass alone; above it the pass stretches its interval.
+# Half the frequent sweep's budget: it is background catch-up, and giving each pass the full budget
+# would double the per-scanner ceiling this throttling exists to hold.
+DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).

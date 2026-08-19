@@ -11,6 +11,7 @@ from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_FACTOR,
     DEEP_SWEEP_MAX_WINDOW,
+    DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY,
     SWEEP_READ_BUDGET_BYTES_24H,
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
@@ -35,11 +36,6 @@ class TestDeepSweepCadenceInvariant:
         longest_gap = DEEP_SWEEP_INTERVAL * DEEP_SWEEP_MAX_FACTOR
         assert DEEP_SWEEP_MAX_WINDOW > longest_gap
 
-    def test_spend_is_priced_over_a_window_outlasting_the_longest_gap(self) -> None:
-        # Otherwise a stretched pass ages out of its own measurement, reads as zero spend, and drops
-        # straight back to the floor, which is the cadence it was stretched away from.
-        assert dt.timedelta(days=DEEP_SPEND_WINDOW_DAYS) > DEEP_SWEEP_INTERVAL * DEEP_SWEEP_MAX_FACTOR
-
 
 class TestThrottleMath:
     @parameterized.expand(
@@ -61,11 +57,12 @@ class TestThrottleMath:
 
     @parameterized.expand(
         [
-            ("under_budget", SWEEP_READ_BUDGET_BYTES_24H // 2, 1),
-            # Capped lower than the frequent sweep's ceiling, and deliberately: the deep pass cannot be
+            ("under_budget", DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY // 2, 1),
+            ("just_over_budget", DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY + 1, 2),
+            # Capped lower than the frequent sweep's ceiling, deliberately: the deep pass cannot be
             # stretched past the ground one pass covers without falling behind for good.
-            ("over_budget_hits_the_deep_cap", SWEEP_READ_BUDGET_BYTES_24H * 10, DEEP_SWEEP_MAX_FACTOR),
-            ("far_over_budget_stays_capped", SWEEP_READ_BUDGET_BYTES_24H * 500, DEEP_SWEEP_MAX_FACTOR),
+            ("over_budget_hits_the_deep_cap", DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY * 10, DEEP_SWEEP_MAX_FACTOR),
+            ("far_over_budget_stays_capped", DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY * 500, DEEP_SWEEP_MAX_FACTOR),
         ]
     )
     def test_deep_sweep_throttle_factor(self, _name: str, spend: int, expected: int) -> None:

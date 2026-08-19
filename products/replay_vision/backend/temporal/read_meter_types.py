@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
     DEEP_SWEEP_MAX_FACTOR,
+    DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY,
     SWEEP_READ_BUDGET_BYTES_24H,
     SWEEP_THROTTLE_MAX_FACTOR,
 )
@@ -75,7 +76,9 @@ def _spend_since(by_hour: dict[str, int] | None, cutoff: dt.datetime) -> int:
 
 def sweep_throttle_factor(spend_bytes: int, override: int | None) -> int:
     """Cadence-stretch multiplier: 1 means sweep normally, N means sweep every N schedule intervals."""
-    return _throttle_factor(spend_bytes, override, SWEEP_THROTTLE_MAX_FACTOR)
+    if override is not None:
+        return max(1, min(override, SWEEP_THROTTLE_MAX_FACTOR))
+    return _throttle_factor(spend_bytes, SWEEP_READ_BUDGET_BYTES_24H, SWEEP_THROTTLE_MAX_FACTOR)
 
 
 def deep_sweep_throttle_factor(spend_bytes_per_day: int) -> int:
@@ -84,13 +87,11 @@ def deep_sweep_throttle_factor(spend_bytes_per_day: int) -> int:
     Takes no override: the one on the scanner steers the frequent sweep, and a single knob that moved
     both would undo the independence this split exists for.
     """
-    return _throttle_factor(spend_bytes_per_day, None, DEEP_SWEEP_MAX_FACTOR)
+    return _throttle_factor(spend_bytes_per_day, DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY, DEEP_SWEEP_MAX_FACTOR)
 
 
-def _throttle_factor(spend_bytes: int, override: int | None, max_factor: int) -> int:
-    if override is not None:
-        return max(1, min(override, max_factor))
+def _throttle_factor(spend_bytes: int, budget_bytes: int, max_factor: int) -> int:
     # Rounds up, so any spend past the budget stretches. Rounding to nearest would leave a scanner
     # between one and one and a half budgets running at full rate despite being over.
-    factor = -(-spend_bytes // SWEEP_READ_BUDGET_BYTES_24H)
+    factor = -(-spend_bytes // budget_bytes)
     return max(1, min(factor, max_factor))

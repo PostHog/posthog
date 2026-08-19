@@ -9,10 +9,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import RecordingsQuery
 
+from posthog.dataclasses import frozen
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, DeepSweepState, ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
@@ -31,7 +32,7 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
+from products.replay_vision.backend.temporal.metrics import record_deep_sweep_failure, record_sweep_outcome
 from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -43,6 +44,14 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
 )
+
+
+@frozen
+class _DeepProgress:
+    """How far the deep pass got; the two fields are one keyset, moved together or not at all."""
+
+    swept_through: dt.datetime
+    seen_session_id: str = ""
 
 
 def _seconds_left(started_at: float) -> float:
@@ -117,13 +126,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
     # also covers the case where the fast batch used the budget on its own.
     deep_candidates: list[CandidateSession] = []
-    deep_progress: DeepSweepState | None = None
+    deep_progress: _DeepProgress | None = None
     deep_limit = limit - len(candidates)
-    if scanner.deep_sweep_state is None:
+    if scanner.deep_swept_through is None:
         # Seed the deep clock at the fast watermark; everything before this deploy was swept
         # full-width. This happens whatever the headroom, because the fast watermark advances on every
         # tick: seeding only once headroom frees up would leave the range in between with no deep pass.
-        deep_progress = DeepSweepState(swept_through=scanner.last_swept_at, seen_session_id="")
+        deep_progress = _DeepProgress(swept_through=scanner.last_swept_at)
     elif deep_limit > 0:
         try:
             deep_candidates, deep_progress = _deep_sweep(
@@ -136,8 +145,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         except Exception:
             # Best-effort catch-up must never fail the tick: the fast pass has already found and
             # filtered its candidates, and losing them to a retry costs their reads again.
-            activity.logger.warning("replay_vision.deep_sweep_failed", extra={"scanner_id": str(scanner.id)})
-            record_sweep_outcome("deep_sweep_failed")
+            activity.logger.exception("replay_vision.deep_sweep_failed", extra={"scanner_id": str(scanner.id)})
+            record_deep_sweep_failure()
 
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates else "no_candidates",
@@ -157,8 +166,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
 
 
-# Ceiling on the ids inlined into the deep query. Past it the exclusion is incomplete and a few
-# already-observed sessions get re-dispatched, which the unique constraint then drops.
+# Ceiling on the ids inlined into the deep query; past it the walk re-fetches observed sessions,
+# which the post-query filter below then drops.
 _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
 
 
@@ -168,20 +177,15 @@ def _throttled(scanner: ReplayScanner) -> bool:
     The factor stretches the effective cadence: factor N means one executed sweep per N schedule
     intervals. Distance is measured watermark-to-settle-horizon, so a saturated keyset walk (watermark
     lagging behind the horizon) is never throttled harder while it drains its backlog.
-
-    Metered on this pass's own queries, so backfill and catch-up reads cannot stretch it.
     """
     now = dt.datetime.now(dt.UTC)
+    # `is None`, not truthiness: only a column the meter has never written falls back to the pre-split
+    # total bucket, which keeps throttled scanners throttled across the deploy.
+    fast_buckets = (
+        scanner.sweep_read_bytes_by_hour if scanner.fast_read_bytes_by_hour is None else scanner.fast_read_bytes_by_hour
+    )
     factor = sweep_throttle_factor(
-        # `is None`, not truthiness: an empty dict means every bucket aged out, which is real
-        # information. Only a column the meter has never written falls back to the pre-split total,
-        # which is what keeps throttled scanners throttled across the deploy.
-        sweep_spend_bytes_24h(
-            scanner.sweep_read_bytes_by_hour
-            if scanner.fast_read_bytes_by_hour is None
-            else scanner.fast_read_bytes_by_hour,
-            now,
-        ),
+        sweep_spend_bytes_24h(fast_buckets, now),
         scanner.sweep_throttle_factor_override,
     )
     if factor <= 1:
@@ -189,17 +193,21 @@ def _throttled(scanner: ReplayScanner) -> bool:
     return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
-def _deep_execution_budget(factor: int, seconds_remaining: float) -> int:
+# Kept back for the activity's own wrap-up (exclusion filtering, result serialization).
+_ACTIVITY_RESERVE_SECONDS = 60
+# Below this a deep query over a padded events window has no realistic chance of finishing.
+_MIN_DEEP_EXECUTION_SECONDS = 60
+
+
+def _deep_execution_budget(seconds_remaining: float) -> int:
     """ClickHouse budget for one deep query, or 0 when too little of the activity is left to try.
 
-    A stretched pass scans proportionally more, so a fixed budget would time it out at exactly the
-    scanners the stretch exists for. Bounded by what the activity has left, and zero rather than a
-    sliver: a doomed query still costs a cadence stamp, and at a stretched factor that is a week.
+    Zero rather than a sliver, because a doomed query still costs a cadence stamp.
     """
-    affordable = int(seconds_remaining) - DEEP_SWEEP_MAX_EXECUTION_SECONDS
-    if affordable < DEEP_SWEEP_MAX_EXECUTION_SECONDS:
+    affordable = int(seconds_remaining) - _ACTIVITY_RESERVE_SECONDS
+    if affordable < _MIN_DEEP_EXECUTION_SECONDS:
         return 0
-    return min(DEEP_SWEEP_MAX_EXECUTION_SECONDS * factor, affordable)
+    return min(DEEP_SWEEP_MAX_EXECUTION_SECONDS, affordable)
 
 
 def _deep_sweep(
@@ -209,7 +217,7 @@ def _deep_sweep(
     limit: int,
     *,
     seconds_remaining: float,
-) -> tuple[list[CandidateSession], DeepSweepState | None]:
+) -> tuple[list[CandidateSession], _DeepProgress | None]:
     """Catch-up pass behind the fast watermark with the full events lookback.
 
     The fast sweep's narrow events window can miss a session whose only matching event happened hours
@@ -217,46 +225,35 @@ def _deep_sweep(
     `DEEP_SWEEP_INTERVAL`, excluding sessions the scanner already observed. Bounded above by
     `last_swept_at` so it never overlaps the fast keyset's territory.
     """
-    deep = scanner.deep_sweep
-    if deep.swept_through is None:
-        # Stored but unreadable. Skipping loses one cycle; seeding would jump the watermark to the
-        # fast one and abandon everything behind it.
-        activity.logger.warning("replay_vision.deep_sweep_state_unreadable", extra={"scanner_id": str(scanner.id)})
-        record_sweep_outcome("deep_sweep_state_unreadable")
-        return [], None
-    swept_through = deep.swept_through
+    assert scanner.deep_swept_through is not None  # seeded by the caller before the first pass runs
+    swept_through = scanner.deep_swept_through
     now = timezone.now()
     if swept_through >= scanner.last_swept_at:
         return [], None
-    # Stretching widens the next window, so the saving is sublinear: the fixed events padding gets
-    # amortized over more window rather than paid per pass.
-    factor = deep_sweep_throttle_factor(deep_spend_bytes_per_day(scanner.deep_read_bytes_by_hour, now))
-    interval = DEEP_SWEEP_INTERVAL * factor
-    # Cadence runs off the last attempt, not the progress watermark. The watermark deliberately stays
-    # put when a pass is cut short, and gating on it would make every such pass clear the gate again
-    # on the next tick with headroom, which is the throttle this whole pass is supposed to obey.
-    last_attempt = deep.attempted_at or swept_through
-    if now - last_attempt < interval:
+    # Falls back to the pre-split total bucket until the meter first writes the deep one post-deploy.
+    deep_buckets = scanner.deep_read_bytes_by_hour
+    if deep_buckets is None:
+        deep_buckets = scanner.sweep_read_bytes_by_hour
+    factor = deep_sweep_throttle_factor(deep_spend_bytes_per_day(deep_buckets, now))
+    # Cadence runs off the last attempt, not the progress watermark: the watermark deliberately stays
+    # put when a pass is cut short, and gating on it would let every such pass re-run on the next tick.
+    last_attempt = scanner.deep_attempted_at or swept_through
+    if now - last_attempt < DEEP_SWEEP_INTERVAL * factor:
         return [], None
 
     # Only the fast pass's events window can cost it candidates, so with nothing matching on events
-    # this pass would re-find what the fast pass already dispatched. Advancing rather than parking the
-    # watermark keeps the window this pass would open bounded if the query later gains an event filter.
-    # The range behind the watermark has to have been swept under the current query though: an edit
-    # that drops the last event filter leaves stragglers back there that only this pass ever revisits.
-    # `updated_at` is safe to read as "query may have changed" because watermarks advance through
-    # queryset updates, which do not touch it.
-    # Both wall-clock: when the scanner was last edited against when this pass last ran. Comparing an
-    # edit time against `swept_through` instead compares it to a position in swept time, which for a
-    # lagging scanner is always in the past, so the cursor would be dropped on every pass.
-    settled_since_last_edit = deep.attempted_at is not None and scanner.updated_at <= deep.attempted_at
-    resume_from_cursor = settled_since_last_edit and bool(deep.seen_session_id)
+    # this pass would only re-find what the fast pass already dispatched — advance and skip the query.
+    # `updated_at` is compared against the attempt stamp (both wall-clock) and is safe to read as
+    # "query may have changed" because watermarks advance through queryset updates, which skip it.
+    settled_since_last_edit = scanner.deep_attempted_at is not None and scanner.updated_at <= scanner.deep_attempted_at
     if settled_since_last_edit and not fast_query.matches_on_events():
-        return [], DeepSweepState(swept_through=scanner.last_swept_at, seen_session_id="")
+        return [], _DeepProgress(swept_through=scanner.last_swept_at)
+    # An edit invalidates the cursor: it points partway into a window the new filters have never walked.
+    resume_from_cursor = settled_since_last_edit and bool(scanner.deep_seen_session_id)
 
     window_end = min(scanner.last_swept_at, swept_through + DEEP_SWEEP_MAX_WINDOW)
 
-    budget = _deep_execution_budget(factor, seconds_remaining)
+    budget = _deep_execution_budget(seconds_remaining)
     if budget == 0:
         return [], None
 
@@ -277,10 +274,8 @@ def _deep_sweep(
         window_start=swept_through,
         window_end=window_end,
         ascending=True,
-        # Dropped when the scanner was edited since the last pass: a cursor from the old filters
-        # points partway into a window the new ones have never walked.
         cursor_end_time=swept_through if resume_from_cursor else None,
-        cursor_session_id=deep.seen_session_id if resume_from_cursor else None,
+        cursor_session_id=scanner.deep_seen_session_id if resume_from_cursor else None,
         query_type=DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
@@ -292,14 +287,25 @@ def _deep_sweep(
     )
     # Stamped before the query, so a pass that times out still counts against the cadence. Queryset
     # update rather than save(): `updated_at` means "the scanner was edited", which the skip above reads.
-    ReplayScanner.objects.filter(pk=scanner.id).update(
-        deep_sweep_state=DeepSweepState.patch(attempted_at=now.isoformat())
-    )
+    ReplayScanner.objects.filter(pk=scanner.id).update(deep_attempted_at=now)
     deep_candidates = deep_query.run()
 
     if len(deep_candidates) == limit:
         # Filled up, so resume from the last row rather than re-walking. Oldest-first means everything
         # below it is covered, which is what lets the watermark move at all here.
         last = deep_candidates[-1]
-        return deep_candidates, DeepSweepState(swept_through=last.session_end, seen_session_id=last.session_id)
-    return deep_candidates, DeepSweepState(swept_through=window_end, seen_session_id="")
+        progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
+    else:
+        progress = _DeepProgress(swept_through=window_end)
+    if len(observed_session_ids) == _DEEP_SWEEP_MAX_EXCLUSIONS and deep_candidates:
+        # The in-query exclusion was truncated, so already-observed sessions can come back; drop them
+        # here rather than letting duplicate dispatches burn the shared headroom.
+        already_observed = set(
+            ReplayObservation.objects.filter(
+                team_id=scanner.team_id,
+                scanner_id=scanner.id,
+                session_id__in=[c.session_id for c in deep_candidates],
+            ).values_list("session_id", flat=True)
+        )
+        deep_candidates = [c for c in deep_candidates if c.session_id not in already_observed]
+    return deep_candidates, progress
