@@ -184,7 +184,10 @@ jobs:
                       # Only the stable aggregate lines: this summary is public, and case payloads
                       # (session-derived content) must never leave the runner even if the harness's
                       # console output grows. CASE lines stay out too: their names carry observation ids.
-                      grep -E '^(SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:)' \
+                      # The indented PostHog line links the /ai-evals experiment the harness published
+                      # this run's scores to. It is safe to publish: the URL carries the project id and
+                      # a per-run random experiment UUID, nothing case-derived.
+                      grep -E '^(SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:| +PostHog: )' \
                           /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
                       echo '```'
                   } | tee -a "$GITHUB_STEP_SUMMARY"
