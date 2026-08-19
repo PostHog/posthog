@@ -48,7 +48,11 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
-from products.signals.backend.temporal.report_canvas import ReportCanvasWorkflowInput, SignalReportCanvasWorkflow
+from products.signals.backend.temporal.report_canvas import (
+    ReportCanvasWorkflowInput,
+    SignalReportCanvasWorkflow,
+    report_canvases_enabled_activity,
+)
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
@@ -234,6 +238,15 @@ class SignalReportSummaryWorkflow:
         if not workflow.patched("signals-report-canvases"):
             return
         try:
+            if workflow.patched("signals-report-canvases-parent-gate"):
+                enabled = await workflow.execute_activity(
+                    report_canvases_enabled_activity,
+                    inputs.team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if not enabled:
+                    return
             await workflow.start_child_workflow(
                 SignalReportCanvasWorkflow.run,
                 ReportCanvasWorkflowInput(team_id=inputs.team_id, report_id=inputs.report_id),
