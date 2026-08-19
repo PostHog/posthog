@@ -66,6 +66,7 @@ import { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import { ScoutLinkService } from "@posthog/core/links/scout-link";
 import { TaskLinkService } from "@posthog/core/links/task-link";
+import { usageLinkModule } from "@posthog/core/links/usage-link.module";
 import {
   LLM_GATEWAY_HOST,
   LLM_GATEWAY_SERVICE,
@@ -543,6 +544,7 @@ container.load(mcpAppsModule);
 container.bind(MAIN_MCP_APPS_SERVICE).toService(MCP_APPS_SERVICE);
 container.load(foldersModule);
 container.load(integrationsModule);
+container.load(usageLinkModule);
 container.load(gitPrModule);
 container.bind(GIT_DIFF_SOURCE).toDynamicValue((ctx) => {
   const wsClient = () => ctx.get<HostGitWorkspaceClient>(GIT_WORKSPACE_CLIENT);

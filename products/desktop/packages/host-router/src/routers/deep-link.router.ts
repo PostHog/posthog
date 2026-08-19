@@ -23,6 +23,7 @@ import {
   OPEN_TARGET_LINK_SERVICE,
   SCOUT_LINK_SERVICE,
   TASK_LINK_SERVICE,
+  USAGE_LINK_SERVICE,
 } from "@posthog/core/links/identifiers";
 import {
   InboxLinkEvent,
@@ -53,6 +54,11 @@ import {
   TaskLinkEvent,
   type TaskLinkService,
 } from "@posthog/core/links/task-link";
+import {
+  UsageLinkEvent,
+  type UsageLinkPayload,
+  type UsageLinkService,
+} from "@posthog/core/links/usage-link";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import {
   DEEP_LINK_SERVICE,
@@ -243,6 +249,25 @@ export const deepLinkRouter = router({
     ({ ctx }): LoopLinkPayload | null => {
       return ctx.container
         .get<LoopLinkService>(LOOP_LINK_SERVICE)
+        .consumePendingDeepLink();
+    },
+  ),
+
+  onOpenUsage: publicProcedure.subscription(async function* (opts) {
+    const service =
+      opts.ctx.container.get<UsageLinkService>(USAGE_LINK_SERVICE);
+    const iterable = service.toIterable(UsageLinkEvent.OpenUsage, {
+      signal: opts.signal,
+    });
+    for await (const data of iterable) {
+      yield data;
+    }
+  }),
+
+  getPendingUsageLink: publicProcedure.query(
+    ({ ctx }): UsageLinkPayload | null => {
+      return ctx.container
+        .get<UsageLinkService>(USAGE_LINK_SERVICE)
         .consumePendingDeepLink();
     },
   ),

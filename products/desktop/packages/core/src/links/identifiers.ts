@@ -25,3 +25,4 @@ export const CHANNEL_LINK_SERVICE = Symbol.for(
   "posthog.core.channelLinkService",
 );
 export const LOOP_LINK_SERVICE = Symbol.for("posthog.core.loopLinkService");
+export const USAGE_LINK_SERVICE = Symbol.for("posthog.core.usageLinkService");

@@ -59,6 +59,7 @@ import type {
   OPEN_TARGET_LINK_SERVICE,
   SCOUT_LINK_SERVICE,
   TASK_LINK_SERVICE,
+  USAGE_LINK_SERVICE,
 } from "@posthog/core/links/identifiers";
 import type { InboxLinkService } from "@posthog/core/links/inbox-link";
 import type { LoopLinkService } from "@posthog/core/links/loop-link";
@@ -66,6 +67,7 @@ import type { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import type { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import type { ScoutLinkService } from "@posthog/core/links/scout-link";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
+import type { UsageLinkService } from "@posthog/core/links/usage-link";
 import type {
   LLM_GATEWAY_HOST,
   LlmGatewayHost,
@@ -478,6 +480,7 @@ export interface MainBindings {
   [CANVAS_LINK_SERVICE]: CanvasLinkService;
   [CHANNEL_LINK_SERVICE]: ChannelLinkService;
   [LOOP_LINK_SERVICE]: LoopLinkService;
+  [USAGE_LINK_SERVICE]: UsageLinkService;
 
   // Watcher registry
   [MAIN_WATCHER_REGISTRY_SERVICE]: WatcherRegistryService;

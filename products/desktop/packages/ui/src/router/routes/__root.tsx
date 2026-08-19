@@ -45,6 +45,7 @@ import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepL
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
+import { useUsageDeepLink } from "@posthog/ui/features/settings/hooks/useUsageDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
   beginSidebarPeek,
@@ -231,6 +232,7 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
+  useUsageDeepLink();
   useShareLinkInterceptor();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();

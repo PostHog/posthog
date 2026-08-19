@@ -10,7 +10,7 @@ PostHog registers custom URL schemes so the desktop app can be opened with conte
 | Development | `posthog-code-dev://` |
 | Legacy (production only) | `twig://`, `array://` |
 
-All schemes route through the same dispatcher. The host portion of the URL selects the handler (`task`, `inbox`, `scout`, `loop`, `approval`, `canvas`, `channel`, `new`, `plan`, `issue`, `callback`, `integration`, `slack-integration`, `mcp-oauth-complete`).
+All schemes route through the same dispatcher. The host portion of the URL selects the handler (`task`, `inbox`, `scout`, `loop`, `approval`, `canvas`, `channel`, `new`, `plan`, `issue`, `usage`, `callback`, `integration`, `slack-integration`, `mcp-oauth-complete`).
 
 If the app is not running, the OS launches it and the link is queued until the renderer is ready. If the app is minimised, it is restored and focused before the link is handled.
 
@@ -75,6 +75,20 @@ posthog-code://issue?url=https%3A%2F%2Fgithub.com%2Fposthog%2Fposthog%2Fissues%2
 ```
 
 The link is rejected if `url` is missing, is not a `github.com` URL, or does not match `/<owner>/<repo>/issues/<number>`. If the issue cannot be fetched, a toast is shown and no navigation happens.
+
+### `posthog-code://usage[/<category>]`
+
+Open the Plan & usage settings page, or another settings page. With no path
+segment it opens Plan & usage; a category segment opens that settings page.
+
+| Segment | Required | Description |
+|---|---|---|
+| `<category>` | No | Settings category slug (e.g. `plan-usage`, `agents`, `github`). Defaults to `plan-usage` when omitted. Unknown categories are ignored. |
+
+```
+posthog-code://usage
+posthog-code://usage/agents
+```
 
 ### `posthog-code://task/<taskId>[/run/<taskRunId>]`
 
@@ -259,6 +273,7 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |
 | `new`, `plan`, `issue` | [packages/core/src/links/new-task-link.ts](../packages/core/src/links/new-task-link.ts) |
+| `usage` | [packages/core/src/links/usage-link.ts](../packages/core/src/links/usage-link.ts) |
 | `callback` | [packages/core/src/oauth/oauth.ts](../packages/core/src/oauth/oauth.ts) |
 | `integration` | [packages/core/src/integrations/github.ts](../packages/core/src/integrations/github.ts) |
 | `slack-integration` | [packages/core/src/integrations/slack.ts](../packages/core/src/integrations/slack.ts) |
