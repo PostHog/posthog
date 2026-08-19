@@ -59,6 +59,11 @@ class TestDagsterTestSelection(unittest.TestCase):
             "pytest.ini",
             "pyproject.toml",
             ".github/workflows/ci-dagster.yml",
+            ".github/clickhouse-versions.json",
+            "tools/dagster_test_selection.py",
+            "tools/test_dagster_test_selection.py",
+            "docker-compose.dev.yml",
+            "docker/postgres-init-scripts/init.sql",
             "posthog/conftest.py",
             "conftest.py",
             "posthog/test/base.py",
@@ -108,6 +113,39 @@ class TestDagsterTestSelection(unittest.TestCase):
     def test_tree_fallback_stays_within_the_changed_tree(self) -> None:
         selection = self._select(["products/web_analytics/dags/tests/conftest.py"])
         self.assertEqual(selection.tests, ["products/web_analytics/dags/tests/test_cache_warming.py"])
+
+    def test_shared_conftest_changes_select_trees_whose_conftest_imports_it(self) -> None:
+        self._write(
+            "products/web_analytics/dags/tests/conftest.py",
+            "from posthog.dags.tests.conftest import cluster  # noqa: F401\n",
+        )
+        selection = self._select(["posthog/dags/tests/conftest.py"])
+        self.assertIn("products/web_analytics/dags/tests/test_cache_warming.py", selection.tests)
+
+    def test_fixture_modules_used_by_another_trees_conftest_select_that_tree(self) -> None:
+        self._write("posthog/dags/tests/fixtures.py")
+        self._write(
+            "products/web_analytics/dags/tests/conftest.py",
+            "from posthog.dags.tests.fixtures import thing  # noqa: F401\n",
+        )
+        selection = self._select(
+            ["posthog/dags/tests/fixtures.py"],
+            snob={"posthog/dags/tests/fixtures.py": ["posthog/dags/tests/test_deletes.py"]},
+        )
+        self.assertIn("products/web_analytics/dags/tests/test_cache_warming.py", selection.tests)
+        self.assertIn("posthog/dags/tests/test_deletes.py", selection.tests)
+
+    def test_dynamic_import_tests_run_for_any_change_in_their_tree(self) -> None:
+        self._write(
+            "posthog/dags/tests/test_loggers.py",
+            "import importlib\n\ndef test_locations():\n    importlib.import_module('posthog.dags.locations.x')\n",
+        )
+        selection = self._select(
+            ["posthog/dags/deletes.py"],
+            snob={"posthog/dags/deletes.py": ["posthog/dags/tests/test_deletes.py"]},
+        )
+        self.assertIn("posthog/dags/tests/test_loggers.py", selection.tests)
+        self.assertNotIn("posthog/dags/tests/test_backups.py", selection.tests)
 
     def test_a_deleted_dags_tree_forces_full_mode(self) -> None:
         selection = self._select(["products/removed_product/dags/some_dag.py"])

@@ -173,6 +173,10 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        # The test selector guards itself: selector changes run the
+                        # suite (full mode), which executes its unit tests first
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
                         - .github/clickhouse-versions.json
                         # Composite action used to install sqlx-cli
                         - '.github/actions/setup-sqlx-cli/**'
@@ -209,6 +213,8 @@ jobs:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
                         - .github/workflows/ci-dagster.yml
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

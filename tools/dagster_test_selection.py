@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import os
 import re
+import ast
 import sys
 import json
 import math
@@ -44,9 +45,17 @@ DURATIONS_PATH = REPO_ROOT / ".test_durations"
 DAGS_TREE_GLOBS = ("posthog/dags", "products/*/dags")
 DAGS_TREE_PATTERN = re.compile(r"^(posthog/dags|products/[^/]+/dags)/")
 
-# Changes to these force a full run: they alter how every dagster test executes.
+# Changes to these force a full run: they alter how every dagster test executes
+# (config, dependencies, the CI environment, or this selector itself).
 FULL_RUN_PATTERNS = (
     ".github/workflows/ci-dagster.yml",
+    ".github/clickhouse-versions.json",
+    "tools/dagster_test_selection.py",
+    "tools/test_dagster_test_selection.py",
+    "docker-compose",
+    "docker/postgres-init-scripts/",
+    "bin/wait-for-docker",
+    "bin/ci-wait-for-docker",
     "pytest.ini",
     "pyproject.toml",
     "uv.lock",
@@ -132,6 +141,63 @@ def normalize_repo_path(path: str) -> str:
     return str(PurePosixPath(path))
 
 
+def _module_name(path: str) -> str:
+    return path.removesuffix(".py").replace("/", ".")
+
+
+def _imported_modules(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text())
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+    return modules
+
+
+def conftest_dependent_trees(changed_py_files: list[str], trees: list[str]) -> set[str]:
+    """Trees whose conftest imports one of the changed modules. Fixtures flow
+    through conftests without appearing in any test file's import graph, so
+    snob cannot see this reach — e.g. a product conftest importing shared
+    fixtures from posthog/dags/tests."""
+    changed_modules = {_module_name(path) for path in changed_py_files}
+    if not changed_modules:
+        return set()
+    dependent: set[str] = set()
+    for tree in trees:
+        for conftest in (REPO_ROOT / tree).rglob("conftest.py"):
+            imports = _imported_modules(conftest)
+            if imports & changed_modules or any(
+                imported.startswith(module + ".") for imported in imports for module in changed_modules
+            ):
+                dependent.add(tree)
+                break
+    return dependent
+
+
+_DYNAMIC_IMPORT_PATTERN = re.compile(r"importlib|__import__")
+
+
+def dynamic_import_tests(changed_trees: set[str], universe: set[str]) -> set[str]:
+    """Test files that load modules dynamically (importlib) see changes the
+    static import graph cannot attribute to them, so they run whenever any
+    Python file in their tree changes."""
+    selected: set[str] = set()
+    for test in universe:
+        if tree_of(test) not in changed_trees:
+            continue
+        try:
+            if _DYNAMIC_IMPORT_PATTERN.search((REPO_ROOT / test).read_text()):
+                selected.add(test)
+        except OSError:
+            continue
+    return selected
+
+
 def snob_tests(changed_py_files: list[str]) -> set[str]:
     if not changed_py_files:
         return set()
@@ -194,6 +260,8 @@ def select_tests(
     selected: set[str] = set()
     fallback_trees: set[str] = set()
     outside_py: list[str] = []
+    in_tree_py: list[str] = []
+    changed_trees: set[str] = set()
 
     for path in changed_files:
         tree = tree_of(path)
@@ -203,10 +271,16 @@ def select_tests(
             continue
         if path.endswith(".md"):
             continue
-        name = PurePosixPath(path).name
-        if not path.endswith(".py") or name == "conftest.py":
-            # Snapshots, SQL, YAML, and conftest fixtures reach tests without
-            # imports — run everything in the tree.
+        if not path.endswith(".py"):
+            # Snapshots, SQL, and YAML reach tests without imports — run
+            # everything in the tree.
+            fallback_trees.add(tree)
+            changed_trees.add(tree)
+            continue
+        in_tree_py.append(path)
+        changed_trees.add(tree)
+        if PurePosixPath(path).name == "conftest.py":
+            # Conftest fixtures reach every test in the tree without imports.
             fallback_trees.add(tree)
             continue
         if _is_test_file(path):
@@ -221,6 +295,8 @@ def select_tests(
             fallback_trees.add(tree)
 
     selected |= snob_fn(outside_py) & universe
+    fallback_trees |= conftest_dependent_trees(in_tree_py, trees)
+    selected |= dynamic_import_tests(changed_trees, universe)
     for tree in fallback_trees:
         selected |= {test for test in universe if test.startswith(tree + "/")}
     selected = {test for test in selected if (REPO_ROOT / test).is_file()}
