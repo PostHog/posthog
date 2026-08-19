@@ -33,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _SESSION_TRACES_SQL,
+    _TRACE_FRAGMENT_MARKER,
     _UUID_RE,
     _ch_ts,
     _execute_ch_query_with_retry,
@@ -346,7 +347,7 @@ class TestTraceDetailTools(SimpleTestCase):
     def test_sample_accepts_evaluated_opaque_trace_ids_and_bounds_each_rendering(
         self, mock_fetch: MagicMock, mock_execute_hogql: MagicMock
     ) -> None:
-        mock_fetch.return_value = MagicMock(text_repr="x" * 5_000, event_count=4)
+        mock_fetch.return_value = MagicMock(text_repr="x" * 5_000, event_count=4, was_sampled=False)
         trace_id = " customer/trace:alpha 42 "
         mock_execute_hogql.return_value = [[trace_id, True, "matched", True, None]]
         state = self._state()
@@ -364,6 +365,22 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertEqual(mock_fetch.call_args.kwargs["window_end"], "2099-01-01T00:00:00+00:00")
         mock_execute_hogql.assert_called_once()
 
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
+    def test_sampled_trace_is_flagged_as_a_fragment(
+        self, mock_fetch: MagicMock, mock_execute_hogql: MagicMock
+    ) -> None:
+        # Sampling drops lines, so a reader must be told the trace is incomplete.
+        mock_fetch.return_value = MagicMock(text_repr="rendered trace", event_count=4, was_sampled=True)
+        trace_id = "customer/trace:alpha"
+        mock_execute_hogql.return_value = [[trace_id, True, "matched", True, None]]
+        state = self._state()
+        _sample_eval_results_fn(state=state)
+
+        result = json.loads(_sample_trace_details_fn(state=state, trace_ids=[trace_id]))
+
+        self.assertTrue(result[0]["text"].endswith(_TRACE_FRAGMENT_MARKER))
+
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.logger")
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
     def test_sample_continues_after_one_trace_fails(self, mock_fetch: MagicMock, _mock_logger: MagicMock) -> None:
@@ -371,7 +388,7 @@ class TestTraceDetailTools(SimpleTestCase):
         state["trace_id_allowlist"] = ["failing-trace", "healthy-trace"]
         mock_fetch.side_effect = [
             RuntimeError("trace query exceeded backend limits"),
-            MagicMock(text_repr="healthy trace", event_count=2),
+            MagicMock(text_repr="healthy trace", event_count=2, was_sampled=False),
         ]
 
         result = json.loads(_sample_trace_details_fn(state=state, trace_ids=["failing-trace", "healthy-trace"]))

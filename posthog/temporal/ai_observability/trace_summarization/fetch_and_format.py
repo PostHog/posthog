@@ -87,13 +87,13 @@ def _fetch_and_format_trace(
         "max_length": max_length,
     }
 
-    text_repr, _ = format_trace_text_repr(
+    text_repr, was_sampled = format_trace_text_repr(
         trace=trace_dict,
         hierarchy=hierarchy,
         options=options,
     )
 
-    return FetchResult(text_repr=text_repr, event_count=len(hierarchy))
+    return FetchResult(text_repr=text_repr, event_count=len(hierarchy), was_sampled=was_sampled)
 
 
 def _fetch_and_format_generation(

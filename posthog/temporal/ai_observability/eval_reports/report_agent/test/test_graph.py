@@ -51,6 +51,13 @@ class TestSystemPromptFormat(SimpleTestCase):
         formatted = self._build_prompt(guidance="Focus on cost regressions")
         self.assertIn("Focus on cost regressions", formatted)
 
+    def test_continuity_rule_states_the_prior_run_lookup_as_required(self):
+        # Guards the fix that made the prior-report lookup mandatory: a report
+        # written without it can only describe its period in isolation.
+        formatted = self._build_prompt()
+        self.assertIn("list_recent_report_runs()", formatted)
+        self.assertIn("required", formatted)
+
     def test_sentiment_prompt_explains_semantics_without_pass_rate_framing(self):
         formatted = self._build_prompt(output_type="sentiment")
 

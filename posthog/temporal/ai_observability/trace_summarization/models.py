@@ -142,6 +142,7 @@ class FetchResult:
 
     text_repr: str | None  # None if oversized (event_count still set)
     event_count: int
+    was_sampled: bool = False  # True when max_length dropped lines from text_repr
 
 
 @dataclass

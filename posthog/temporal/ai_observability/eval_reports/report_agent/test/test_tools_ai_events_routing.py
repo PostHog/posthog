@@ -8,6 +8,7 @@ other query sites in `tools.py` deliberately stay on `events` directly via
 rationale).
 """
 
+import json
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -36,6 +37,7 @@ def _state(team_id: int) -> dict:
     return {
         "team_id": team_id,
         "evaluation_id": "eval-1",
+        "evaluation_name": "Consults the previous report run",
         "period_start": "2026-04-27T00:00:00+00:00",
         "period_end": "2026-04-28T00:00:00+00:00",
         "previous_period_start": "2026-04-26T00:00:00+00:00",
@@ -154,6 +156,53 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         placeholders = kwargs["placeholders"]
         assert "trace_id" in placeholders
         assert placeholders["trace_id"].value == "trace-1"
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
+    def test_eval_rows_query_scopes_to_this_report_evaluation(self, _mock_lookup, mock_events, mock_resolver):
+        """A generation can be scored by several evaluations. The eval-rows lookup
+        must bind this report's own $ai_evaluation_id, or the report can quote
+        another evaluation's reasoning as its own. It also names the evaluation."""
+        from datetime import datetime
+
+        mock_resolver.return_value = _resolver_response(
+            [
+                [
+                    _VALID_GEN_ID,
+                    "gpt-4o",
+                    "openai",
+                    "hi",
+                    "hello",
+                    1,
+                    1,
+                    0.0,
+                    0.1,
+                    "trace-1",
+                    "",
+                    datetime(2026, 4, 27),
+                    False,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ]
+            ]
+        )
+        mock_events.return_value = MagicMock(
+            results=[["eval-1", "boolean", "true", None, None, "because reasons", "true"]]
+        )
+
+        result = json.loads(_get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID))
+
+        # The eval query carries the evaluation_id placeholder, so a dropped bind fails here.
+        from posthog.hogql.placeholders import find_placeholders
+
+        eval_query = mock_events.call_args.kwargs["query"]
+        assert ["evaluation_id"] in find_placeholders(eval_query).placeholder_fields
+        assert result["eval_results"][0]["evaluation_name"] == "Consults the previous report run"
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={})

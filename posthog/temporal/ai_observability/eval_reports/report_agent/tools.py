@@ -77,6 +77,7 @@ _MAX_OPAQUE_ID_LENGTH = 255
 _MAX_TRACE_SAMPLE_IDS = 10
 _MAX_TRACE_SAMPLE_CHARS = 3_000
 _MAX_TRACE_DETAIL_CHARS = 12_000
+_TRACE_FRAGMENT_MARKER = "\n\n... (trace sampled to fit the size limit. This is a fragment, not the full trace.)"
 
 
 def _target_id_key(state: dict) -> str:
@@ -781,6 +782,8 @@ def get_generation_detail(
         generation_id: The generation event UUID to look up
     """
     team_id = state["team_id"]
+    evaluation_id = state["evaluation_id"]
+    evaluation_name = state["evaluation_name"]
 
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
@@ -792,6 +795,7 @@ def get_generation_detail(
     window = _widened_ts_window(state)
     shared_placeholders = {
         "generation_id": ast.Constant(value=generation_id),
+        "evaluation_id": ast.Constant(value=evaluation_id),
         "ts_start": ast.Constant(value=window.ts_start),
         "ts_end": ast.Constant(value=window.ts_end),
     }
@@ -854,7 +858,10 @@ def get_generation_detail(
 
     row = gen_rows[0]
 
-    # Also fetch eval results for this generation
+    # Fetch eval results for this generation from this report's own evaluation.
+    # Every neighbouring query binds $ai_evaluation_id; without it a generation
+    # scored by several evaluations returns each one's reasoning, so the report
+    # can quote another evaluation's reasoning as its own.
     eval_rows = _execute_hogql(
         team_id,
         """
@@ -868,6 +875,7 @@ def get_generation_detail(
             properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE event = '$ai_evaluation'
+            AND properties.$ai_evaluation_id = {evaluation_id}
             AND properties.$ai_target_event_id = {generation_id}
             AND timestamp >= {ts_start}
             AND timestamp < {ts_end}
@@ -887,6 +895,7 @@ def get_generation_detail(
         raw_result = er[3] if output_type == "sentiment" else er[2]
         entry = {
             "evaluation_id": str(er[0]) if er[0] else "",
+            "evaluation_name": evaluation_name,
             "output_type": output_type,
             "outcome": _outcome_for_result(output_type, raw_result, er[6]),
             "reasoning": er[5] or "",
@@ -1054,10 +1063,15 @@ def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
             "event_count": result.event_count,
             "error": "Trace is too large to inspect",
         }
+    text = result.text_repr[:max_length]
+    if result.was_sampled:
+        # Sampling drops whole lines, so a cited tool call can fall out. Flag the
+        # fragment so a reader does not read a partial trace as the whole trace.
+        text += _TRACE_FRAGMENT_MARKER
     return {
         "trace_id": normalized_trace_id,
         "event_count": result.event_count,
-        "text": result.text_repr[:max_length],
+        "text": text,
     }
 
 
