@@ -24,7 +24,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.git import extract_explicit_repo
+from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -929,8 +929,22 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
-    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
+    """Repo named by Slack message text, as a typed org/repo token or as a GitHub link."""
+    cleaned = _strip_bot_mentions(text)
+    return extract_explicit_repo(cleaned, all_repos) or extract_linked_repo(cleaned, all_repos)
+
+
+def _extract_explicit_repo_from_thread(thread_messages: list[dict[str, str]], all_repos: list[str]) -> str | None:
+    """Repo named by the thread around a mention, newest message first.
+
+    People paste the link into the thread and mention the bot in a later reply that carries no
+    link of its own. Reading only the mention hands those asks to the discovery agent, which
+    answers them from this same thread text. Newest first because the link under discussion is
+    the one most recently posted.
+    """
+    return extract_repo_from_scopes(
+        [_strip_bot_mentions(message.get("text", "")) for message in reversed(thread_messages)], all_repos
+    )
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
