@@ -12,7 +12,10 @@ CPUACCT_USAGE_PATH = Path("/sys/fs/cgroup/cpuacct/cpuacct.usage")
 def read_cpu_usage_usec() -> int:
     if CPU_STAT_PATH.exists():
         for line in CPU_STAT_PATH.read_text().splitlines():
-            key, value = line.split()
+            parts = line.split()
+            if len(parts) != 2:
+                continue
+            key, value = parts
             if key == "usage_usec":
                 return int(value)
     if CPUACCT_USAGE_PATH.exists():
