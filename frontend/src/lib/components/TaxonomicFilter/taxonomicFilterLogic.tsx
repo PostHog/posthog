@@ -668,12 +668,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
-        // Only fetch the action list when this filter can actually surface the Actions group.
-        // An absent taxonomicGroupTypes prop means every group is available, Actions included.
         logic: [
-            !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
-                ? actionsModel
-                : actionsModel({ skipLoad: true }),
+            actionsModel({
+                skipLoad:
+                    !!props.taxonomicGroupTypes &&
+                    !props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
+            }),
         ],
     })),
     actions(() => ({
