@@ -1,3 +1,4 @@
+import { FileTextIcon } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
   AlertDialog,
@@ -192,6 +193,23 @@ export function ChannelItemRow({
   const rowIcon = (
     <TaskStatusDot dot={deleting ? DELETING_DOT : taskDot(status ?? {})} />
   );
+
+  if (item.kind === "report") {
+    return (
+      <SidebarItem
+        depth={0}
+        icon={<FileTextIcon size={14} role="img" aria-label="Report" />}
+        label={<span>{item.title}</span>}
+        isActive={isActive}
+        onClick={() => actions.open(item)}
+        endContent={
+          <span className={TIMESTAMP_CLASS}>
+            {formatRelativeTimeShort(item.ts)}
+          </span>
+        }
+      />
+    );
+  }
   // A canvas gets the same menu with the items it actually has: pin, and delete
   // instead of archive. Filing and command-centre cells are task-shaped, and the
   // menu drops them rather than showing them dead.

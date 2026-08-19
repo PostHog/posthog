@@ -243,6 +243,20 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
   });
 
+  it("renders a report as a session row", () => {
+    renderRow(
+      item({
+        key: "report:report-1",
+        kind: "report",
+        id: "report-1",
+        title: "Signup friction",
+      }),
+    );
+
+    expect(screen.getByText("Signup friction")).not.toBeNull();
+    expect(screen.getByRole("img", { name: "Report" })).not.toBeNull();
+  });
+
   it("marks a pinned row with the pin badge, alongside its status badges", () => {
     mocks.status = { workspaceMode: "cloud", prState: "merged" };
 
