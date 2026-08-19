@@ -26,6 +26,7 @@ def _pr(**overrides: object) -> PRData:
         "mergeable_state": "clean",
         "author": "alice",
         "labels": [],
+        "base_ref": "master",
         "base_sha": "a",
         "head_sha": "h",
         "files": [],
@@ -184,6 +185,53 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert {c["body"] for c in shown} == kept_ids
     assert all(c["body"] != dropped_id for c in shown)
     assert line == omission
+
+
+def test_explore_root_defaults_to_repo_root() -> None:
+    repo = Path("/repo")
+    assert Reviewer(repo).explore_root == repo
+    other = Path("/tmp/wt")
+    assert Reviewer(repo, explore_root=other).explore_root == other
+
+
+def test_copy_diff_into_explore_root_cannot_follow_pr_symlink(tmp_path: Path) -> None:
+    source_diff = tmp_path / "source.patch"
+    source_diff.write_text("diff --git a/file b/file\n")
+    explore_root = tmp_path / "explore"
+    explore_root.mkdir()
+    outside_target = tmp_path / "outside"
+    outside_target.write_text("unchanged")
+    (explore_root / ".pr-review-diff.patch").symlink_to(outside_target)
+
+    copied_diff = Reviewer(tmp_path, explore_root=explore_root)._copy_diff_into_explore_root(source_diff)
+
+    assert copied_diff.parent == explore_root
+    assert copied_diff.name != ".pr-review-diff.patch"
+    assert copied_diff.read_text() == source_diff.read_text()
+    assert outside_target.read_text() == "unchanged"
+
+
+@pytest.mark.parametrize(
+    "base_ref, default_branch, expect_stack_note",
+    [
+        ("master", "master", False),
+        ("query-validations", "master", True),
+        # Stacked-ness keys off the repo's own trunk, not a hardcoded "master".
+        ("main", "main", False),
+        ("master", "main", True),
+    ],
+)
+def test_prompt_stack_note(base_ref: str, default_branch: str, expect_stack_note: bool) -> None:
+    # A stacked PR (base != the repo's default branch) gets a note telling the
+    # agent that parent-PR symbols resolve in the tree and aren't missing.
+    prompt = _prompt(_pr(base_ref=base_ref, default_branch=default_branch))
+
+    assert ("Stacked PR" in prompt) is expect_stack_note
+    if expect_stack_note:
+        assert f"targets a non-default branch, not `{default_branch}`" in prompt
+        # The author-chosen base branch name must not land in the trusted block.
+        trusted, _, _ = prompt.rpartition("--- BEGIN UNTRUSTED CONTENT ---")
+        assert base_ref not in trusted
 
 
 def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
