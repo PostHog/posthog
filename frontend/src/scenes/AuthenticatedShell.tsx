@@ -2,6 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -27,6 +28,11 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
+    // Mounted here, not per scene, so an export outlives the scene that started it. The shell
+    // persists across scene changes, so the async create loop, resumed polling, and the completion
+    // toast's Download button never hit an unmounted logic. Authenticated-only, so unauthenticated
+    // and OAuth pages do not load the export dependency graph.
+    useMountedLogic(exportsLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
