@@ -120,7 +120,7 @@ class TestScoutSlackDelivery(BaseTest):
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == delivery_id
-        assert "thread_ts" not in call
+        assert call["thread_ts"] is None
         section = call["blocks"][2]["text"]["text"]
         assert "*Checkout*" in section
         assert "<!channel>" not in section
@@ -239,11 +239,12 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         first_call = fake_client.chat_postMessage.call_args_list[0].kwargs
-        assert "thread_ts" not in first_call
+        assert first_call["thread_ts"] is None
         report.refresh_from_db()
+        # Stored under the resolved channel id, not the raw configured string.
         assert report.slack_message == {
             "integration_id": integration.id,
-            "channel": channel,
+            "channel_id": "CSCOUTS",
             "ts": "1785418710.000700",
         }
 
@@ -258,7 +259,8 @@ class TestScoutSlackDelivery(BaseTest):
                 str(emission.scout_run_id),
                 "0198f2a1-4c31-7a52-9f1e-3c5d6e7f8a9d",
                 integration.id,
-                channel,
+                # A rename of the display half must still thread: same channel id, new display name.
+                "CSCOUTS|#renamed-findings",
                 True,
                 "Re-validated on the next run",
             )
@@ -268,6 +270,65 @@ class TestScoutSlackDelivery(BaseTest):
         # First-write-wins: the edit reply's ts must not overwrite the recorded parent.
         report.refresh_from_db()
         assert report.slack_message["ts"] == "1785418710.000700"
+
+    def test_edit_anchors_thread_when_no_prior_delivery(self) -> None:
+        # A report with no stored message (delivered before this column existed, or first surfaced by
+        # an edit) must anchor on its first edit's top-level post, so the next edit threads under it
+        # instead of adding another top-level message.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed for many users",
+        )
+        assert report.slack_message is None
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000900"}
+        channel = "CSCOUTS|#scout-findings"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "0198f2a1-4c31-7a52-9f1e-3c5d6e7f8a9e",
+                integration.id,
+                channel,
+                True,
+                "First note after the column shipped",
+            )
+
+        first_edit = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert first_edit["thread_ts"] is None
+        report.refresh_from_db()
+        assert report.slack_message == {
+            "integration_id": integration.id,
+            "channel_id": "CSCOUTS",
+            "ts": "1785418710.000900",
+        }
+
+        fake_client.reset_mock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.001000"}
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "0198f2a1-4c31-7a52-9f1e-3c5d6e7f8a9f",
+                integration.id,
+                channel,
+                True,
+                "Second note",
+            )
+
+        second_edit = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert second_edit["thread_ts"] == "1785418710.000900"
 
     def test_enqueue_omits_edit_kwargs_when_unset(self) -> None:
         # A worker still running the previous task signature rejects an unknown kwarg, so a first
