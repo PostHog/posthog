@@ -25,6 +25,22 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
+                (
+                    "account_link",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="evidence",
+                        to="customer_analytics.featurerequestaccountlink",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
                 ("summary", models.TextField(blank=True, default="")),
                 ("customer_quote", models.TextField(blank=True, default="")),
                 (
@@ -81,24 +97,6 @@ class Migration(migrations.Migration):
                     field=models.DateTimeField(auto_now=True, blank=True, null=True),
                 ),
             ],
-        ),
-        migrations.AddField(
-            model_name="featurerequestevidence",
-            name="account_link",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="evidence",
-                to="customer_analytics.featurerequestaccountlink",
-            ),
-        ),
-        migrations.AddField(
-            model_name="featurerequestevidence",
-            name="team",
-            field=models.ForeignKey(
-                db_constraint=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                to="posthog.team",
-            ),
         ),
         migrations.AddIndex(
             model_name="featurerequestevidence",
