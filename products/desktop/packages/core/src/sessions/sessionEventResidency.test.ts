@@ -140,6 +140,16 @@ describe("session transcript residency", () => {
     expect(events()).toHaveLength(1);
   });
 
+  it("never backgrounds an active cloud run reported disconnected mid-run", () => {
+    const service = makeService();
+    seedSession({ status: "disconnected", cloudStatus: "in_progress" });
+
+    background(service);
+    overflowBackgroundLru(service);
+
+    expect(events(RUN)).toHaveLength(1);
+  });
+
   it("keeps the previous completed cloud transcript warm", () => {
     const service = makeService();
     seedSession({ status: "connected", cloudStatus: "completed" });

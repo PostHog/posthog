@@ -2922,10 +2922,13 @@ export class SessionService {
     session: AgentSession | undefined,
   ): session is AgentSession {
     if (!session || session.isPromptPending) return false;
-    return (
-      session.status === "disconnected" ||
-      (!!session.isCloud && isTerminalStatus(session.cloudStatus))
-    );
+    // A cloud run's `status` can read "disconnected" while the run is still
+    // alive (cloud handoff and SSE-retry both write it), so a cloud transcript
+    // is only safe to release once its `cloudStatus` is terminal, mirroring
+    // isSessionIdle. Local runs still key off `status`.
+    return session.isCloud
+      ? isTerminalStatus(session.cloudStatus)
+      : session.status === "disconnected";
   }
 
   private armEventEvictionTimer(taskRunId: string): void {
