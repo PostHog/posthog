@@ -158,6 +158,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 loadConfigs: async () => {
                     try {
                         const params = props.scope ? { scope: props.scope } : {}
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.customerProfileConfigs.list(params)
                         return response.results
                     } catch (error) {
@@ -167,6 +168,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 },
                 createConfig: async ({ config }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const newConfig = await api.customerProfileConfigs.create(config)
                         lemonToast.success('Customer profile config created successfully')
                         return [...values.configs, newConfig]
@@ -177,6 +179,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 },
                 updateConfig: async ({ id, config }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const updatedConfig = await api.customerProfileConfigs.update(id, config)
                         lemonToast.success('Customer profile config updated successfully')
                         return values.configs.map((c) => (c.id === id ? updatedConfig : c))
@@ -187,6 +190,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 },
                 deleteConfig: async ({ id }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.customerProfileConfigs.delete(id)
                         lemonToast.success('Customer profile config deleted successfully')
                         return values.configs.filter((c) => c.id !== id)

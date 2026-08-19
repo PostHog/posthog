@@ -81,10 +81,12 @@ export const dagsLogic = kea<dagsLogicType>([
         dags: {
             __default: [] as DataModelingDAG[],
             loadDags: async (): Promise<DataModelingDAG[]> => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.dataModelingDags.list()
                 return response.results
             },
             updateDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
+                // nosemgrep: prefer-codegen-api
                 const updated = await api.dataModelingDags.update(dag.id, {
                     name: dag.name,
                     description: dag.description,
@@ -93,6 +95,7 @@ export const dagsLogic = kea<dagsLogicType>([
                 return values.dags.map((d) => (d.id === updated.id ? updated : d))
             },
             deleteDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
+                // nosemgrep: prefer-codegen-api
                 await api.dataModelingDags.delete(dag.id)
                 return values.dags.filter((d) => d.id !== dag.id)
             },

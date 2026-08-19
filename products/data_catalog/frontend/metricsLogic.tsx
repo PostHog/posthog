@@ -61,6 +61,7 @@ export interface MetricFromInsightRequest {
 }
 
 function projectId(): string {
+    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 
@@ -231,6 +232,7 @@ export const metricsLogic = kea<metricsLogicType>([
                 // Search server-side so insights beyond the first page are still selectable.
                 loadSavedInsights: async (_, breakpoint) => {
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.insights.list({
                         saved: true,
                         basic: true,

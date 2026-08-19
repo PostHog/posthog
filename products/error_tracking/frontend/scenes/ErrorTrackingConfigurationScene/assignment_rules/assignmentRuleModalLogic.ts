@@ -214,8 +214,10 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                     } else {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.updateRule(ErrorTrackingRuleType.Assignment, rule)
                     }
                     return true
@@ -227,6 +229,7 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.deleteRule(ErrorTrackingRuleType.Assignment, rule.id)
                     return true
                 },

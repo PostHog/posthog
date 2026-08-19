@@ -528,12 +528,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 bulkDeleteFlags: async ({ ids, allMatching }: { ids: number[]; allMatching: boolean }) => {
                     if (allMatching) {
                         const { limit, offset, ...filters } = values.paramsFromFilters
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
                             { filters }
                         )
                         return response as BulkDeleteResult
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
                         { ids }
@@ -643,6 +645,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 if (params.flagKeys?.length) {
                     keys = Array.from(new Set(params.flagKeys))
                 } else if (params.flagIds?.length) {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.featureFlags.bulkKeys(params.flagIds)
                     keys = Array.from(new Set(Object.values(response.keys)))
                     skippedFlagCount = params.flagIds.length - Object.keys(response.keys).length
@@ -673,6 +676,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             // rate limiting without improving perceived progress.
             for (const [index, key] of keys.entries()) {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.organizationFeatureFlags.copy(values.currentOrganization?.id, {
                         feature_flag_key: key,
                         from_project: sourceProjectId,

@@ -529,11 +529,13 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             }) => {
                 try {
                     const result = template_id
+                        // nosemgrep: prefer-codegen-api
                         ? await api.mcpServerInstallations.installTemplate({
                               template_id,
                               api_key: api_key || undefined,
                               scope,
                           })
+                        // nosemgrep: prefer-codegen-api
                         : await api.mcpServerInstallations.installCustom({
                               name,
                               url,
@@ -569,6 +571,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerTemplateApi[],
             {
                 loadServers: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.mcpServers.list()
                     return response.results as MCPServerTemplateApi[]
                 },
@@ -578,10 +581,12 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerInstallationApi[],
             {
                 loadInstallations: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.mcpServerInstallations.list()
                     return response.results as MCPServerInstallationApi[]
                 },
                 updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+                    // nosemgrep: prefer-codegen-api
                     const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallationApi
                     lemonToast.success('Server updated')
                     return values.installations.map((i: MCPServerInstallationApi) =>
@@ -589,6 +594,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     )
                 },
                 uninstallServer: async (installationId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.mcpServerInstallations.delete(installationId)
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
@@ -598,23 +604,27 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 // must drop out of the requester's list entirely.
                 shareInstallation: async ({ id }: { id: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.mcpServerInstallations.share(id)
                         lemonToast.success('Server shared with the project')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to share server')
                         throw e
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.mcpServerInstallations.list()
                     return response.results as MCPServerInstallationApi[]
                 },
                 unshareInstallation: async ({ id }: { id: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.mcpServerInstallations.unshare(id)
                         lemonToast.success('Server is now personal')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to unshare server')
                         throw e
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.mcpServerInstallations.list()
                     return response.results as MCPServerInstallationApi[]
                 },
@@ -624,6 +634,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {} as Record<string, MCPServerInstallationToolApi[]>,
             {
                 loadInstallationTools: async ({ installationId }) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.mcpServerInstallations.listTools(installationId)
                     return {
                         ...values.installationTools,
@@ -632,6 +643,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 },
                 refreshInstallationTools: async ({ installationId }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.mcpServerInstallations.refreshTools(installationId)
                         lemonToast.success('Tools refreshed')
                         return {
@@ -724,6 +736,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     listeners(({ actions, values }) => ({
         toggleServerEnabled: async ({ id, enabled }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.mcpServerInstallations.update(id, { is_enabled: enabled })
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to update server')
@@ -736,6 +749,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         },
         installTemplate: async ({ templateId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const result = await api.mcpServerInstallations.installTemplate({ template_id: templateId })
                 if (result?.redirect_url) {
                     window.location.href = result.redirect_url
@@ -750,6 +764,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         setToolApprovalState: async ({ installationId, toolName, approvalState }) => {
             // Optimistic update already applied in the reducer. Reload from server on failure.
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.mcpServerInstallations.updateToolApproval(installationId, toolName, approvalState)
                 const installation = values.installations.find((candidate) => candidate.id === installationId)
                 if (installation?.scope === 'shared') {
@@ -777,6 +792,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             try {
                 await Promise.all(
                     tools.map((tool) =>
+                        // nosemgrep: prefer-codegen-api
                         api.mcpServerInstallations.updateToolApproval(installationId, tool.tool_name, approvalState)
                     )
                 )

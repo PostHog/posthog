@@ -232,6 +232,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
                         return values.scoreDefinitionOptions
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
                         archived: false,
                         order_by: 'name',

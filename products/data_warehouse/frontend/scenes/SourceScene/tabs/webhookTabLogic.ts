@@ -223,6 +223,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             null as WebhookInfo | null,
             {
                 loadWebhookInfo: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.externalDataSources.getWebhookInfo(props.id)
                 },
             },
@@ -391,6 +392,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         createWebhook: async () => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const result = await api.externalDataSources.createWebhook(props.id)
                 actions.setCreateWebhookResult(result)
                 if (result.success) {
@@ -427,6 +429,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSources.updateWebhookInputs(props.id, payload)
                 lemonToast.success('Webhook inputs saved')
                 // Clear typed plaintext immediately so the form doesn't keep the rotated
@@ -440,6 +443,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         deleteWebhook: async () => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const result = await api.externalDataSources.deleteWebhook(props.id)
                 if (result.success) {
                     lemonToast.success(

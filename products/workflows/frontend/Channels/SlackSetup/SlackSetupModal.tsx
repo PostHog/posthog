@@ -31,6 +31,7 @@ export const SlackSetupModal = (props: SlackSetupModalLogicProps): JSX.Element =
             <div className="max-w-[400px]">
                 {slackAvailable ? (
                     <Link
+                        // nosemgrep: prefer-codegen-api
                         to={api.integrations.authorizeUrl({ kind: 'slack' })}
                         onClick={() => props.onComplete()}
                         disableClientSideRouting

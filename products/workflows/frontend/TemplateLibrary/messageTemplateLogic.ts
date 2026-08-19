@@ -345,12 +345,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
+                // nosemgrep: prefer-codegen-api
                 return await api.messaging.getTemplate(props.id)
             },
             saveTemplate: (template) => {
                 if (template.id === 'new') {
+                    // nosemgrep: prefer-codegen-api
                     return api.messaging.createTemplate(template)
                 }
+                // nosemgrep: prefer-codegen-api
                 return api.messaging.updateTemplate(template.id, template)
             },
         },
@@ -359,6 +362,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (!props.messageId) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 return await api.hogFunctions.get(props.messageId)
             },
         },
@@ -413,6 +417,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             const template = values.template
             try {
+                // nosemgrep: prefer-codegen-api
                 const duplicatedTemplate = await api.messaging.createTemplate({
                     name: `${template.name} (copy)`,
                     description: template.description,

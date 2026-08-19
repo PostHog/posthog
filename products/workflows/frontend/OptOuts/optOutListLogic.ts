@@ -446,6 +446,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 __default: null as null,
                 exportCsv: async (): Promise<null> => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const blob = await api.messaging.exportOptOutsCsv(props.category?.key)
                         downloadFile(new File([blob], `opt-outs-${props.category?.key ?? 'all-marketing'}.csv`))
                     } catch {
@@ -485,6 +486,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     for (let start = 0; start < parsed.entries.length; start += BULK_OPT_OUT_CHUNK_SIZE) {
                         const chunk = parsed.entries.slice(start, start + BULK_OPT_OUT_CHUNK_SIZE)
                         try {
+                            // nosemgrep: prefer-codegen-api
                             const chunkResult = await api.messaging.bulkAddOptOuts(
                                 chunk.map(({ identifier, category_key }) => ({ identifier, category_key })),
                                 props.category?.key

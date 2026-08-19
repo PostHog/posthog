@@ -449,6 +449,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.setEditSchemaIsLoading(true)
 
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
                 actions.refreshDatabaseSchema()
 
@@ -477,6 +478,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.toggleEditSchemaMode(false)
         },
         deleteDataWarehouseTable: async ({ tableId }) => {
+            // nosemgrep: prefer-codegen-api
             await api.dataWarehouseTables.delete(tableId)
             actions.selectRow(null)
             lemonToast.success('Table successfully deleted')

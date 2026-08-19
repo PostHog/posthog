@@ -323,6 +323,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.endpoint.get(name)
                 },
             },
@@ -334,6 +335,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     const materializationStatus = await api.endpoint.getMaterializationStatus(name, version)
 
                     // Update the endpoint object with the new materialization status (only for current version)
@@ -359,6 +361,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.endpoint.listVersions(name)
                     return response.results
                 },
@@ -382,6 +385,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (request.name) {
                         request.name = slugify(request.name)
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.endpoint.create(request)
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
@@ -428,6 +432,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             updateEndpoint: async ({ name, request, options }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.endpoint.update(name, request, options?.version)
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
@@ -479,6 +484,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 await breakpoint(250)
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const saved = await api.endpoint.update(endpoint.name, { tags } as Partial<EndpointRequest>)
                     breakpoint()
 
@@ -494,6 +500,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             deleteEndpoint: async ({ name }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.endpoint.delete(name)
                     actions.deleteEndpointSuccess(name)
                 } catch (error) {

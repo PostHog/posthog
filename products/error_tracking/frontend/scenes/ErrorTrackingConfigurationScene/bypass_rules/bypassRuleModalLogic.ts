@@ -121,8 +121,10 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.createRule(ErrorTrackingRuleType.Bypass, rule)
                     } else {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.updateRule(ErrorTrackingRuleType.Bypass, rule)
                     }
                     return true
@@ -134,6 +136,7 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.deleteRule(ErrorTrackingRuleType.Bypass, rule.id)
                     return true
                 },

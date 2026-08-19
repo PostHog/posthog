@@ -263,6 +263,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     try {
                         // The projects route treats the path param as a team id (environments transition),
                         // so pass the current team id to keep per-environment scoping.
+                        // nosemgrep: prefer-codegen-api
                         return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 403) {
@@ -280,6 +281,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                 loadDirectConnectionOptions: async (): Promise<DirectConnectionSourceOptionApi[]> => {
                     try {
                         return await externalDataSourcesDirectConnectionOptionsList(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentTeamId())
                         )
                     } catch {

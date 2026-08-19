@@ -227,9 +227,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         node: {
             __default: null as DataModelingNode | null,
             loadNode: async () => {
+                // nosemgrep: prefer-codegen-api
                 return await api.dataModelingNodes.get(props.id)
             },
             updateNodeDescription: async ({ description }) => {
+                // nosemgrep: prefer-codegen-api
                 const updated = await api.dataModelingNodes.update(props.id, { description })
                 return updated
             },
@@ -241,6 +243,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
             },
         },
@@ -251,6 +254,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!savedQuery) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
                     savedQuery.id,
                     10,
@@ -265,6 +269,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 const { nodes, edges } = await api.dataModelingNodes.lineage({ nodeId: node.id })
                 return { nodes, edges, currentNodeId: node.id }
             },

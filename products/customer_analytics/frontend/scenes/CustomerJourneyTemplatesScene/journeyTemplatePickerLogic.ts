@@ -121,6 +121,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
             __default: [] as QueryBasedInsightModel[],
             loadFunnels: async (_, breakpoint) => {
                 await breakpoint(300)
+                // nosemgrep: prefer-codegen-api
                 const response = await api.insights.list({
                     saved: true,
                     insight: InsightType.FUNNELS,

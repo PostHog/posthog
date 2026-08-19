@@ -96,6 +96,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
             [] as FileSystemEntry[],
             {
                 loadRecents: async () => {
+                    // nosemgrep: prefer-codegen-api
                     if (!ApiConfig.hasCurrentTeamId()) {
                         return []
                     }
@@ -103,6 +104,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     try {
                         const response = await withTimeout(
                             (signal) =>
+                                // nosemgrep: prefer-codegen-api
                                 api.fileSystem.list({
                                     orderBy: '-last_viewed_at',
                                     notType: 'folder',
@@ -131,12 +133,14 @@ export const recentItemsModel = kea<recentItemsModelType>([
             {} as Record<string, string>,
             {
                 loadSceneLogViews: async () => {
+                    // nosemgrep: prefer-codegen-api
                     if (!ApiConfig.hasCurrentTeamId()) {
                         return {}
                     }
 
                     try {
                         const results = await withTimeout(
+                            // nosemgrep: prefer-codegen-api
                             (signal) => api.fileSystemLogView.list({ type: 'scene', signal }),
                             LOADER_TIMEOUT_MS,
                             'loadSceneLogViews timed out'
@@ -224,6 +228,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
     })),
 
     afterMount(({ actions }) => {
+        // nosemgrep: prefer-codegen-api
         if (!ApiConfig.hasCurrentTeamId()) {
             return
         }

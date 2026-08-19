@@ -73,6 +73,7 @@ export const promptExperimentsLogic = kea<promptExperimentsLogicType>([
             [] as ExperimentBasicApi[],
             {
                 loadExperiments: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await experimentsList(String(ApiConfig.getCurrentTeamId()), {
                         prompt_name: props.promptName,
                         order: '-created_at',

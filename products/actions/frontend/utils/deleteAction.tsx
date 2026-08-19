@@ -21,6 +21,7 @@ export async function deleteActionWithWarning(action: ActionType, callback: (und
 
     const performDelete = async (): Promise<void> => {
         await deleteWithUndo({
+            // nosemgrep: prefer-codegen-api
             endpoint: api.actions.determineDeleteEndpoint(),
             object: action,
             callback,

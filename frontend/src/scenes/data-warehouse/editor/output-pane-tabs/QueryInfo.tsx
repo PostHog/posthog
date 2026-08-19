@@ -44,6 +44,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
             return
         }
         try {
+            // nosemgrep: prefer-codegen-api
             const savedQuery = await api.dataWarehouseSavedQueries.get(node.saved_query_id)
             if (savedQuery?.query?.query) {
                 editView(savedQuery.query.query, savedQuery)

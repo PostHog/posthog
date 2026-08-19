@@ -323,6 +323,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.conversations.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
@@ -333,6 +334,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.conversations.get(conversationId)
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers

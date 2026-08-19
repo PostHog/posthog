@@ -140,6 +140,7 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         return paginateMembers(cache.euMembers, values.page)
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.organizationMembers.listForOrg(props.externalId, {
                             limit: PAGE_SIZE,
                             offset: (values.page - 1) * PAGE_SIZE,

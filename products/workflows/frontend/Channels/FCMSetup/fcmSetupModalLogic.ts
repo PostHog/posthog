@@ -168,6 +168,7 @@ export const fcmSetupModalLogic = kea<fcmSetupModalLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const integration = await api.integrations.create({
                         kind: 'firebase',
                         config: {

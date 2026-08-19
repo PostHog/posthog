@@ -24,6 +24,7 @@ import type {
 } from '../generated/api.schemas'
 
 function getCurrentProjectId(): string {
+    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

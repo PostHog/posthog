@@ -201,6 +201,7 @@ async function resolveFingerprintsForIssues(
     if (toFetch.length > 0) {
         const responses = await Promise.all(
             toFetch.map((id) =>
+                // nosemgrep: prefer-codegen-api
                 api.errorTracking.fingerprints
                     .list(id)
                     .then((rows: ErrorTrackingFingerprint[]) => [id, rows.map((r) => r.fingerprint)] as const)

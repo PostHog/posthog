@@ -27,8 +27,37 @@ rules:
           # so fall back to a regex. Bounds the type args by `(` rather than `>` so
           # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
           - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\('
+          # Any high-level namespace is covered. Keeping a blocklist here would let a
+          # newly named client bypass the ratchet by construction.
+          - pattern: api.$NAMESPACE.$METHOD(...)
+          - pattern: api.$NAMESPACE.$SUBNAMESPACE.$METHOD(...)
+          # Match raw verbs even when the default `lib/api` import is renamed.
+          - patterns:
+                - pattern-inside: |
+                      import $API from 'lib/api'
+                      ...
+                - pattern-either:
+                      - pattern: $API.get(...)
+                      - pattern: $API.post(...)
+                      - pattern: $API.put(...)
+                      - pattern: $API.patch(...)
+                      - pattern: $API.delete(...)
+                      - pattern: $API.create(...)
+                      - pattern: $API.update(...)
+                      - pattern: $API.$NAMESPACE.$METHOD(...)
+                      - pattern: $API.$NAMESPACE.$SUBNAMESPACE.$METHOD(...)
+          # These are alternate ways to rebuild the generated transport layer.
+          - pattern: new ApiRequest(...)
+          - pattern: apiMutator(...)
+          - pattern-regex: >-
+                \bfetch\s*\(\s*[`'"]\/?api\/
       paths:
           include:
               - '/products/*/frontend/'
+              - '/frontend/src/'
           exclude:
               - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.stories.tsx'
+              - '**/__mocks__/**'

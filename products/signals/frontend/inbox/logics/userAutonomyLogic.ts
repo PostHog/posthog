@@ -78,6 +78,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             null as SignalUserAutonomyConfig | null,
             {
                 loadAutonomyConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.signalUserAutonomy.get()
                 },
             },
@@ -111,6 +112,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
         setAutostartPriority: async ({ priority }) => {
             let success = true
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.signalUserAutonomy.update({ autostart_priority: priority })
             } catch (error: any) {
                 success = false
@@ -139,6 +141,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             }
             let success = true
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.signalUserAutonomy.update(body)
             } catch (error: any) {
                 success = false

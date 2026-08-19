@@ -40,6 +40,7 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
             {
                 load: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSources.wizard()
                     } catch (e: any) {
                         if (e.status === 403) {

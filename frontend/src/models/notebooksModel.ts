@@ -220,6 +220,7 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                    // nosemgrep: prefer-codegen-api
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),

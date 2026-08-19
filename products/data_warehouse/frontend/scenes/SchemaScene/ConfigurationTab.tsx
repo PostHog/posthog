@@ -391,6 +391,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         const applyUpdate = async (): Promise<void> => {
             setSaving(true)
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.update(schema.id, {
                     should_sync: true,
                     sync_type: syncType,
@@ -554,6 +555,7 @@ function ApiVersionSection({
     const persist = async (resyncAfter: boolean): Promise<void> => {
         setSaving(true)
         try {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSchemas.update(schema.id, { api_version: draftVersion })
             if (resyncAfter) {
                 resyncSchema(schema)
@@ -710,6 +712,7 @@ function ColumnsAndRowFiltersSection({
         if (resyncAfter) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
+            // nosemgrep: prefer-codegen-api
             void api.externalDataSchemas
                 .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
                 .then(() => {
@@ -882,6 +885,7 @@ function ScheduleSection({
     const handleSave = async (): Promise<void> => {
         setSaving(true)
         try {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSources.bulkUpdateSchemas(sourceId, [
                 {
                     id: schema.id,

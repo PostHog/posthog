@@ -442,11 +442,13 @@ export const proxyLogic = kea<proxyLogicType>([
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                 actions.setMaxProxyRecords(response.max_proxy_records)
                 return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records`, {
                     domain,
                 })
@@ -455,6 +457,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
+                // nosemgrep: prefer-codegen-api
                 void api.delete(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}`)
                 const newRecords = [...values.proxyRecords].map((r) => ({
                     ...r,
@@ -463,6 +466,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 return newRecords
             },
             retryRecord: async (id: ProxyRecord['id']) => {
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}/retry`)
                 lemonToast.success('Retry initiated')
                 return values.proxyRecords.map((r) => ({
@@ -519,6 +523,7 @@ export const proxyLogic = kea<proxyLogicType>([
         },
         diagnose: async ({ id }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const report = (await api.create(
                     `api/organizations/${values.currentOrganizationId}/proxy_records/${id}/diagnose`
                 )) as DiagnosticReport

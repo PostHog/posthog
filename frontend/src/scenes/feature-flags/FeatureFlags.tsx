@@ -632,6 +632,7 @@ export function OverviewTab({
                                             setMatchingFlagIdsLoading(true)
                                             try {
                                                 const { limit, offset, ...filters } = paramsFromFilters
+                                                // nosemgrep: prefer-codegen-api
                                                 const response = (await api.get(
                                                     `api/projects/${currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
                                                 )) as { ids: number[]; total: number }

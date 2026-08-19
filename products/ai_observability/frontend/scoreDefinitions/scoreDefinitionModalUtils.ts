@@ -66,6 +66,7 @@ function suggestKey(value: string): string {
 }
 
 export function getCurrentProjectId(): string {
+    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

@@ -164,6 +164,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     if (!props.contextKey) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.list({
                         teamId: teamLogic.values.currentTeamId || undefined,
                         context_key: props.contextKey,
@@ -228,12 +229,14 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             if (props.contextKey) {
                 try {
                     if (values.savedColumnConfiguration?.id) {
+                        // nosemgrep: prefer-codegen-api
                         await api.columnConfigurations.update({
                             teamId: teamLogic.values.currentTeamId || undefined,
                             id: values.savedColumnConfiguration.id,
                             data: { columns: values.columns },
                         })
                     } else {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.columnConfigurations.create({
                             teamId: teamLogic.values.currentTeamId || undefined,
                             data: {
@@ -269,6 +272,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                 }
             } else if (props.context?.type === 'event_definition' && props.context.eventDefinitionId) {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.eventDefinitions.update({
                         eventDefinitionId: props.context.eventDefinitionId,
                         eventDefinitionData: {

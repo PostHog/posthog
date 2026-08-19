@@ -481,6 +481,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             [] as DataModelingDAG[],
             {
                 loadDags: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.dataModelingDags.list()
                     return response.results
                 },
@@ -491,6 +492,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingNodes: async () => {
                     const dagId = values.selectedDagId ?? undefined
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.dataModelingNodes.list(dagId)
                     return response.results
                 },
@@ -501,6 +503,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingEdges: async () => {
                     const dagId = values.selectedDagId ?? undefined
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.dataModelingEdges.list(dagId)
                     return response.results
                 },
@@ -1096,6 +1099,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setRunningNodeIds(new Set([...values.runningNodeIds, ...optimisticIds]))
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.dataModelingNodes.run(nodeId, direction)
                 actions.runNodeSuccess(nodeId, direction, response.node_ids)
                 actions.startPollingRunningJobs()
@@ -1105,6 +1109,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         materializeNode: async ({ nodeId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataModelingNodes.materialize(nodeId)
                 actions.materializeNodeSuccess(nodeId)
                 actions.startPollingRunningJobs()
@@ -1115,6 +1120,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         pollRunningJobs: async () => {
             actions.loadRecentJobs()
             try {
+                // nosemgrep: prefer-codegen-api
                 const running = await api.dataModelingJobs.listRunning()
                 actions.pollRunningJobsSuccess(running)
             } catch {
@@ -1145,6 +1151,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         loadRecentJobs: async () => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const recent = await api.dataModelingJobs.listRecent()
                 actions.loadRecentJobsSuccess(recent)
             } catch {

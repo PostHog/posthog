@@ -269,6 +269,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
                     const { filters } = values
 
+                    // nosemgrep: prefer-codegen-api
                     return aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
                         search: filters.search || undefined,
                         kind: filters.kind || undefined,

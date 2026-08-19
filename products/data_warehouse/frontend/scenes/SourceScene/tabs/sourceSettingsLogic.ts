@@ -711,6 +711,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 loadSource: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSources.get(values.sourceId)
                     } catch (error: any) {
                         // Source soft-deleted. Bounce to the list and swallow
@@ -733,11 +734,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     try {
                         let result: ExternalDataJob[]
                         if (values.jobs.length === 0) {
+                            // nosemgrep: prefer-codegen-api
                             result = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
                         } else {
                             // Re-fetch recent jobs without an `after` filter to get updated statuses.
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
+                            // nosemgrep: prefer-codegen-api
                             const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
 
                             // Merge fresh jobs with existing jobs, preferring the fresh data
@@ -769,6 +772,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
+                        // nosemgrep: prefer-codegen-api
                         const oldJobs = await api.externalDataSources.jobs(
                             values.sourceId,
                             lastJobCreatedAt,
@@ -793,6 +797,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 // Opens a connection to the customer DB, so it's on-demand (never polled).
                 loadCdcStatus: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.externalDataSources.cdc_status(values.sourceId)
                 },
             },
@@ -1144,6 +1149,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const batchSchemaUpdates = Object.values(pendingSchemaUpdates)
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(
                             values.sourceId,
                             batchSchemaUpdates.map(({ schema, changedFields }) =>
@@ -1320,6 +1326,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         deleted = 0,
                         auto_enabled = 0,
                         total_tables_seen = 0,
+                    // nosemgrep: prefer-codegen-api
                     } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
@@ -1391,6 +1398,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             syncNow: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSources.reload(values.sourceId)
                     actions.loadSource()
                     actions.loadJobs()
@@ -1412,6 +1420,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSchemas.reload(schema.id)
 
                     posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
@@ -1433,6 +1442,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSchemas.resync(schema.id)
 
                     posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
@@ -1446,6 +1456,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             cancelSchema: async ({ schema }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSchemas.cancel(schema.id)
 
                     actions.loadSource()
@@ -1473,6 +1484,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSchemas.delete_data(schema.id)
 
                     posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
@@ -1502,6 +1514,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(values.sourceId, payloads)
                     const nextSource = applySchemasToSource(values.source, updatedSchemas)
                     if (nextSource) {
@@ -1554,6 +1567,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.warning('None of the selected schemas are enabled with a sync method')
                     return
                 }
+                // nosemgrep: prefer-codegen-api
                 const failed = await runBulkSchemaAction(eligible, (id) => api.externalDataSchemas.reload(id))
                 actions.loadSource()
                 actions.loadJobs()
@@ -1570,6 +1584,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 )
             },
             bulkResync: async ({ schemas }) => {
+                // nosemgrep: prefer-codegen-api
                 const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.resync(id))
                 actions.loadSource()
                 actions.loadJobs()
@@ -1580,6 +1595,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 reportBulkResult('Resyncing', schemas.length, failed, 0)
             },
             bulkDeleteData: async ({ schemas }) => {
+                // nosemgrep: prefer-codegen-api
                 const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.delete_data(id))
                 actions.loadSource()
                 posthog.capture('schemas bulk data deleted', {

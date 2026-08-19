@@ -36,10 +36,33 @@ const i2 = await api.get<PaginatedResponse<Foo>>(`api/foo`)
 // ruleid: prefer-codegen-api
 const i3 = await api.get<CountedPaginatedResponse<ChangeRequest>>(`api/foo`)
 
-// ok: prefer-codegen-api
+// ruleid: prefer-codegen-api
+const i4 = await api.brandNewNamespace.list()
+
+// ruleid: prefer-codegen-api
+const i5 = await api.conversations.queue.list()
+
+import backend from 'lib/api'
+
+// ruleid: prefer-codegen-api
+const i6 = await backend.get(`api/foo`)
+
+// ruleid: prefer-codegen-api
+const i7 = await backend.brandNewNamespace.list()
+
+// ruleid: prefer-codegen-api
+const i8 = new ApiRequest().surveys().get()
+
+// ruleid: prefer-codegen-api
+const i9 = await apiMutator(`/api/projects/${projectId}/foo/`, { method: 'GET' })
+
+// ruleid: prefer-codegen-api
+const i10 = await fetch(`/api/projects/${projectId}/foo/`)
+
+// ruleid: prefer-codegen-api
 const j = await api.integrations.authorizeUrl()
 
-// ok: prefer-codegen-api
+// ruleid: prefer-codegen-api
 const k = await api.dashboards.list()
 
 // ok: prefer-codegen-api

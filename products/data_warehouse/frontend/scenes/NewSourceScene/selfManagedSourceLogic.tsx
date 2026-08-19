@@ -251,16 +251,19 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         table: {
             loadTable: async () => {
                 if (props.id && props.id !== 'new') {
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataWarehouseTables.get(props.id)
                 }
                 return { ...NEW_WAREHOUSE_TABLE }
             },
             createTable: async (tablePayload) => {
+                // nosemgrep: prefer-codegen-api
                 return await api.dataWarehouseTables.create({
                     ...tablePayload,
                 })
             },
             updateTable: async (tablePayload) => {
+                // nosemgrep: prefer-codegen-api
                 return await api.dataWarehouseTables.update(props.id, tablePayload)
             },
         },

@@ -125,6 +125,7 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
+            // nosemgrep: prefer-codegen-api
             to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
             onClick={() =>
                 reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')

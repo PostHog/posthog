@@ -87,6 +87,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         nodes: {
             __default: [] as DataModelingNode[],
             loadNodes: async () => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.dataModelingNodes.list()
                 return response.results
             },

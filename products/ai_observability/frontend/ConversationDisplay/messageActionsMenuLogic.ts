@@ -202,6 +202,7 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
                     if (!values.dataProcessingAccepted) {
                         throw new Error('AI data processing must be approved to translate')
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.aiObservability.translate({
                         text: values.textToTranslate,
                         targetLanguage: values.targetLanguage,

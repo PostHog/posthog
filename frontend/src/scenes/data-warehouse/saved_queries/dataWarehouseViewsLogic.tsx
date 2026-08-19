@@ -354,6 +354,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const savedQueries = await api.dataWarehouseSavedQueries.list()
                     return savedQueries.results
                 },
@@ -364,6 +365,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         dag_id?: string
                     }
                 ) => {
+                    // nosemgrep: prefer-codegen-api
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
@@ -373,6 +375,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.dataWarehouseSavedQueries.delete(viewId)
                     } catch (error: any) {
                         // A view that's already gone is the outcome the user asked for, so treat a
@@ -395,6 +398,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         soft_update?: boolean
                     }
                 ) => {
+                    // nosemgrep: prefer-codegen-api
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
@@ -409,9 +413,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQueryFolder[],
             {
                 loadDataWarehouseSavedQueryFolders: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataWarehouseSavedQueryFolders.list()
                 },
                 createDataWarehouseSavedQueryFolder: async (name: string) => {
+                    // nosemgrep: prefer-codegen-api
                     const folder = await api.dataWarehouseSavedQueryFolders.create({ name })
                     lemonToast.success('Folder created')
                     return [...values.dataWarehouseSavedQueryFolders, folder].sort((a, b) =>
@@ -419,12 +425,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     )
                 },
                 updateDataWarehouseSavedQueryFolder: async ({ id, name }: { id: string; name: string }) => {
+                    // nosemgrep: prefer-codegen-api
                     const updatedFolder = await api.dataWarehouseSavedQueryFolders.update(id, { name })
                     return values.dataWarehouseSavedQueryFolders
                         .map((folder) => (folder.id === id ? updatedFolder : folder))
                         .sort((a, b) => a.name.localeCompare(b.name))
                 },
                 deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.dataWarehouseSavedQueryFolders.delete(folderId)
                     return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
                 },
@@ -532,6 +540,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataWarehouseSavedQueries.run(viewId, fullRefresh)
                 lemonToast.success(fullRefresh ? 'Rebuild started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
@@ -542,6 +551,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataWarehouseSavedQueries.cancel(viewId)
                 lemonToast.success('Materialization cancelled')
                 actions.loadDataWarehouseSavedQueries()
@@ -555,6 +565,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 // Persist the config first so the materialization run picks it up. Same shape as the
                 // save-as-view flow, which creates the view with the config before materializing.
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.dataWarehouseSavedQueries.update(viewId, { incremental })
                 } catch (error: any) {
                     // The server names the construct blocking incremental — surface it over a generic failure.
@@ -563,6 +574,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 }
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await warehouseSavedQueriesMaterializeCreate(String(ApiConfig.getCurrentTeamId()), viewId, {
                     sync_frequency: requestedFrequency,
                 })
@@ -582,6 +594,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         revertMaterialization: async ({ viewId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
                 // No longer materializing — drop it so the spinner stops and we don't wait for a

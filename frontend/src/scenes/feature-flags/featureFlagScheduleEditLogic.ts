@@ -456,6 +456,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.featureFlags.updateScheduledChange(editingSchedule.team_id, editingSchedule.id, patch)
                 lemonToast.success('Schedule updated')
                 actions.saveEditSuccess()
