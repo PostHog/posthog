@@ -235,8 +235,8 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             },
         ],
     })),
-    listeners(({ props, values, cache }) => ({
-        loadSavedInsightsSuccess: ({ savedInsights }) => {
+    listeners(({ props, values, cache }) => {
+        const preloadSavedInsights = (savedInsights: QueryBasedInsightModel[]): void => {
             for (const insight of savedInsights) {
                 if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
                     continue
@@ -251,26 +251,35 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                             dataNodeCollectionId: queryKey,
                             variablesOverride: values.variableOverridesByShortId[insight.short_id] ?? null,
                         }).mount(),
-                    `preload-${dataVisualizationKey}`,
+                    `preload-${insight.short_id}`,
                     { pauseOnPageHidden: false }
                 )
             }
-        },
-        toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
-            posthog.capture(AccountsEvents.UsageSeriesToggled, {
-                kind: props.kind,
-                is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
-                series_count: seriesCount,
-            })
-        },
-        setAllSeriesHidden: ({ seriesKeys, hidden }) => {
-            posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
-                kind: props.kind,
-                is_hidden: hidden,
-                series_count: seriesKeys.length,
-            })
-        },
-    })),
+        }
+
+        return {
+            loadSavedInsightsSuccess: ({ savedInsights }) => {
+                preloadSavedInsights(savedInsights)
+            },
+            setDateRange: () => {
+                preloadSavedInsights(values.savedInsights ?? [])
+            },
+            toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
+                posthog.capture(AccountsEvents.UsageSeriesToggled, {
+                    kind: props.kind,
+                    is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
+                    series_count: seriesCount,
+                })
+            },
+            setAllSeriesHidden: ({ seriesKeys, hidden }) => {
+                posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
+                    kind: props.kind,
+                    is_hidden: hidden,
+                    series_count: seriesKeys.length,
+                })
+            },
+        }
+    }),
     loaders(({ props }) => ({
         savedInsights: [
             null as QueryBasedInsightModel[] | null,

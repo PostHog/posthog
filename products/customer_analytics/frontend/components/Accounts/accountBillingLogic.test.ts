@@ -4,11 +4,17 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { QueryBasedInsightModel } from '~/types'
 
-import { AccountBillingKind, accountBillingLogic, BILLING_INSIGHT_SHORT_IDS } from './accountBillingLogic'
+import {
+    AccountBillingKind,
+    accountBillingLogic,
+    BILLING_INSIGHT_SHORT_IDS,
+    getBillingDataVisualizationKey,
+} from './accountBillingLogic'
 
 const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
@@ -113,6 +119,27 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        it('replaces stale preloads when the date range changes', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialPreloads = (logic.values.savedInsights ?? []).map((insight) => {
+                const queryKey = logic.values.queryKeyFor(insight.short_id)
+                return dataVisualizationLogic({
+                    key: getBillingDataVisualizationKey(queryKey),
+                    query: insight.query as DataVisualizationNode,
+                    dataNodeCollectionId: queryKey,
+                    variablesOverride: logic.values.variableOverridesByShortId[insight.short_id] ?? null,
+                })
+            })
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length * 2)
+            expect(initialPreloads.every((preload) => !preload.isMounted())).toBe(true)
         })
 
         it('keeps hidden series keyed per insight, so hiding on one of the two spend charts sharing this logic does not hide on the other, and resets them on date change', () => {
