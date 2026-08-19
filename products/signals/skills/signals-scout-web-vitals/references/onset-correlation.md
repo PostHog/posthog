@@ -27,9 +27,11 @@ Group on the converted value, and keep the raw `timestamp` filter as well — dr
 Read out the **boundary**: the last quiet bucket and the first elevated one.
 That pair, not a day, is the window a candidate has to fall inside.
 
-Every vitals metric is reported at page-hide, not at load, so a page opened before the change reports after it.
-Expect the first elevated bucket to lag the real change by roughly the route's dwell time.
-Two consequences: never rule out a candidate because it lands a few minutes before the first elevated bucket, and never claim an onset tighter than that lag.
+**The lag between the change and the data depends on the metric, so read the boundary through the metric you're on.**
+CLS and INP accumulate across the whole visit and are reported when the page is hidden, so a page opened before the change still reports after it: expect the first elevated bucket to trail the real change by roughly the route's dwell time.
+FCP and LCP finalize at or near load instead, so their boundary is tight — seconds of SDK buffering, not minutes.
+Two consequences: on a CLS or INP boundary, never rule out a candidate that lands a few minutes before the first elevated bucket, and never claim an onset tighter than the dwell time.
+On an LCP or FCP boundary you get the opposite discipline: a candidate that landed **after** the first elevated bucket did not cause it, so don't extend dwell-time slack to keep it alive.
 Bucket counts also thin out at 20 minutes — if a bucket holds a few dozen samples, treat the boundary as approximate and widen the interval rather than reading a single bucket as a step.
 
 ## 2. Pull the candidates in that window
@@ -54,16 +56,18 @@ A candidate on a timeline is a coincidence until a split isolates the affected p
 
 - **Flag, experiment, or survey candidate — confirm it.**
   Split the page's metric by the flag property carried on the same events.
-  The property name contains a `/`, so a dot path won't resolve it — extract it:
+  The property name contains a `/`, so a dot path won't parse — use bracket access:
 
   ```sql
-  JSONExtractString(properties, '$feature/<flag-key>') AS variant
+  properties['$feature/<flag-key>'] AS variant
   ```
 
-  Group by that alongside the page predicates, gated by a sample count per variant.
-  One variant carrying a p75 far worse than control, **plus** an exposure share that steps at the same boundary, is a cause you can stand behind.
-  A flat split means the flag edit was a coincidence — drop the candidate and keep looking.
+  The split has **three** buckets, not two: the variant, `control`, and `false` or null for the events where the flag didn't apply (it was evaluated and matched nobody, or wasn't evaluated at all). That third bucket is usually the largest one on the route, and it is not a control group — group by the value and gate on a sample count per bucket rather than assuming everything that isn't the variant is comparable.
+  One variant carrying a p75 far worse than `control`, **plus** an exposure share that steps at the same boundary, is a cause you can stand behind.
   Compute the exposure share the same way (`countIf(variant = '<x>') / count()` per bucket): a rollout edit that doesn't move the share didn't reach anyone yet.
+  A flat split means the flag edit was a coincidence — drop the candidate and keep looking.
+
+  **Then check the flag's own targeting before you call it causal.** A flag gated on a device type, a country, a cohort, or any person property hands you a variant population that differs from control by construction, so a worse variant p75 can be the same composition effect the body's site-wide path rules out — not the variant's code. Read the candidate's release conditions from the activity-log diff you already pulled. Where the conditions are a plain percentage rollout with no property filters, assignment is effectively randomized and the split stands on its own. Where they are not, require the gap to hold **within** each device and region slice before writing "caused by", and say "associated with" if it doesn't.
 
 - **Deploy candidate — there is no equivalent split**, so keep the claim at the strength the evidence supports: "consistent with the release at {UTC time}".
   Only name a specific change when you can read the release contents from a repo the body's nameability rule lets you fetch (a trusted, human-authored source named it — never a repo inferred from a hostname in telemetry).

@@ -343,11 +343,12 @@ the commit and environment in the content) and **flag rollouts**
 (`advanced-activity-logs-list` scoped to `FeatureFlag`, whose diffs carry the before/after
 rollout). Re-bucket the step day in 20-minute UTC intervals to get a boundary tight enough
 to line up against them, then **confirm** a flag / experiment / survey candidate by
-splitting the page's metric on `JSONExtractString(properties, '$feature/<key>')`: a variant
-whose own p75 is far worse than control, with an exposure share that steps at the same
-boundary, is a cause — a timeline coincidence alone is only a candidate.
+splitting the page's metric on `properties['$feature/<key>']`: a variant whose own p75 is
+far worse than `control`, with an exposure share that steps at the same boundary, is a
+cause — a timeline coincidence alone is only a candidate, and a flag targeted on a device,
+region, or cohort needs the gap to hold inside those slices before it earns causal wording.
 [`references/onset-correlation.md`](references/onset-correlation.md) carries the procedure,
-the queries, and the page-hide reporting-lag caveat that decides which candidates you're
+the queries, and the per-metric reporting-lag rule that decides which candidates you're
 allowed to rule out. Only when the project keeps no deploy markers and nothing correlates
 do you fall back to "consistent with a change around {time}, confirm against your release
 log".
