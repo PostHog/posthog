@@ -699,6 +699,37 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
     })
 
+    it('a create that finds an existing person leaves its id readable for updates', async () => {
+        // The found branch pays a leader read to get current state. That
+        // state satisfies the update read class, so the id it resolves must
+        // be recorded as such — otherwise the next update fetch re-resolves
+        // and re-reads the leader for state this call already holds.
+        repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
+        repository.fetchPersonById.mockResolvedValue({ ...person, properties: { plan: 'fresh' } } as never)
+        const bound = store.forBatch(0)
+
+        await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            {},
+            {},
+            {},
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        repository.resolvePersonsByDistinctIds.mockClear()
+        repository.fetchPersonById.mockClear()
+
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+
+        expect(fetched?.properties).toEqual({ plan: 'fresh' })
+        expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
+        expect(repository.fetchPersonById).not.toHaveBeenCalled()
+    })
+
     it.each([
         ['not_found', new NoRowsUpdatedError('gone')],
         ['size_violation', new PersonhogPropertiesSizeError('too big', 1, '7')],

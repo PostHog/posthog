@@ -413,6 +413,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         )
         const { created } = createResult
         let { person } = createResult
+        // Whether this person's state came through the leader, which is what
+        // the update read class requires. Creation is leader-durable; the
+        // found branch earns it by paying the leader read below. Carried to
+        // the resolution record rather than granted before it, because
+        // recording an edge starts it at the checking grade and would drop a
+        // grant made beforehand.
+        let leaderBacked = created
         if (!created) {
             // The found branch answers identity's document, which the leader
             // leads by writer apply lag. This document becomes the baseline
@@ -423,9 +430,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // identity document; the caller's own retry loop re-resolves.
             const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
             person = leaderDoc ?? person
-            if (leaderDoc) {
-                this.memo.markUpdateGrade(`${teamId}:${primaryDistinctId.distinctId}`)
-            }
+            leaderBacked = leaderDoc != null
         }
         if (this.memo.generation !== issuedAt) {
             // A merge rewrote the memo while this call was in flight; the
@@ -434,18 +439,20 @@ export class PersonhogPersonsStore implements PersonsStore {
             return { success: true, person: this.memo.snapshot(person), messages: [], created }
         }
         const personKey = `${teamId}:${person.id}`
-        this.memo.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
+        this.memo.recordResolution(
+            batchId,
+            `${teamId}:${primaryDistinctId.distinctId}`,
+            personKey,
+            leaderBacked ? 'update' : 'checking'
+        )
         if (created) {
             // Extras are mapped on the creation branch only: an extra that
             // already resolves elsewhere keeps its mapping, so memoizing it
-            // here would invent an edge the service never made.
+            // here would invent an edge the service never made. Creation is
+            // leader-durable, so every id it mapped serves the update class.
             for (const extra of extraDistinctIds ?? []) {
-                this.memo.recordResolution(batchId, `${teamId}:${extra.distinctId}`, personKey)
-                this.memo.markUpdateGrade(`${teamId}:${extra.distinctId}`)
+                this.memo.recordResolution(batchId, `${teamId}:${extra.distinctId}`, personKey, 'update')
             }
-            // Creation is leader-durable, so every id it mapped serves the
-            // update read class.
-            this.memo.markUpdateGrade(`${teamId}:${primaryDistinctId.distinctId}`)
         }
         // A projection behind a lane carries this batch's own writes and
         // must not roll back to service state (the found branch can race a
