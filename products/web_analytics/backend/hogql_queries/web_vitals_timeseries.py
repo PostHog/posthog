@@ -31,8 +31,9 @@ class WebVitalsQueryRunner(TrendsQueryRunner):
         self.vitals_query = vitals_query
         source = vitals_query.source
         if not isinstance(source, TrendsQuery):
-            # The Web Vitals tab only builds TrendsQuery sources; dispatch
-            # treats the raise as "no runner" and the legacy unwrap handles it.
+            # Dispatch only routes TrendsQuery-sourced wrappers here (non-Trends
+            # sources fall through to the legacy source unwrap), so this guards
+            # against direct/invalid construction, not the dispatch path.
             raise ValueError(f"WebVitalsQueryRunner requires a TrendsQuery source, got {type(source).__name__}")
         super().__init__(query=source, **kwargs)
 

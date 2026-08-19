@@ -910,12 +910,14 @@ def get_query_runner(
             is_vitals_precompute_enabled_for_team,
         )
 
-        # Only the canonical line-graph tab shape can be served from — or
-        # faithfully fall back through — this runner (a plain TrendsQueryRunner
-        # subclass). Other displays (total-value, cumulative, calendar heatmap,
-        # box plot, slope graph) must reach the TrendsQuery source's own
-        # dispatch below, which routes several of them to dedicated runners, so
-        # let those unwrap to the source rather than take this branch.
+        # This runner is a plain TrendsQueryRunner subclass, so it can only
+        # handle the canonical line-graph tab shape over a TrendsQuery source.
+        # A non-Trends source, or any other display (total-value, cumulative,
+        # calendar heatmap, box plot, slope graph), must reach the source's own
+        # dispatch below — several map to dedicated runners — so let those fall
+        # through and unwrap to the source rather than take this branch.
+        # Routing a non-Trends source here would raise in the constructor, and
+        # `get_query_runner_or_none` re-raises that instead of unwrapping.
         source = get_from_dict_or_attr(query, "source")
         source_is_trends = source is not None and get_from_dict_or_attr(source, "kind") == "TrendsQuery"
         source_trends_filter = get_from_dict_or_attr(source, "trendsFilter") if source_is_trends else None
@@ -924,9 +926,9 @@ def get_query_runner(
 
         # Flag-gated at dispatch: with the rollout flag off this kind has no
         # runner branch, so `process_query_model` unwraps to the source
-        # TrendsQuery exactly as before the runner existed. Local flag
-        # evaluation only — no network I/O here.
-        if is_canonical_display and is_vitals_precompute_enabled_for_team(team):
+        # exactly as before the runner existed. Local flag evaluation only — no
+        # network I/O here.
+        if source_is_trends and is_canonical_display and is_vitals_precompute_enabled_for_team(team):
             from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
 
             return WebVitalsQueryRunner(

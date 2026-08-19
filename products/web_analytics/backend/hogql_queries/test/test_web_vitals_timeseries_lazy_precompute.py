@@ -19,6 +19,8 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     PropertyOperator,
+    RetentionFilter,
+    RetentionQuery,
     TrendsFilter,
     TrendsQuery,
     WebVitalsQuery,
@@ -226,6 +228,20 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query = _vitals_query(
             source_overrides={"trendsFilter": TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP)}
         ).model_dump(mode="json")
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            runner = get_query_runner_or_none(query, self.team)
+        assert runner is None
+
+    def test_dispatch_skips_runner_for_non_trends_source(self) -> None:
+        # A schema-valid non-Trends source must fall through to the legacy source
+        # unwrap, not raise in the runner constructor (which would surface as an
+        # internal error rather than running the query).
+        query = WebVitalsQuery(source=RetentionQuery(retentionFilter=RetentionFilter()), properties=[]).model_dump(
+            mode="json"
+        )
         with patch(
             "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
             return_value=True,
