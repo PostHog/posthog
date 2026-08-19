@@ -5,6 +5,8 @@ import {
   countRemovedTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByAccess,
+  isLikelyMutatingToolName,
   sortToolsForDisplay,
 } from "./toolDerivation";
 
@@ -48,6 +50,30 @@ describe("sortToolsForDisplay", () => {
       tool("mango"),
     ]);
     expect(out.map((t) => t.tool_name)).toEqual(["mango", "zebra", "apple"]);
+  });
+});
+
+describe("groupToolsByAccess", () => {
+  it("separates likely mutating tools from read tools", () => {
+    const tools = [
+      tool("get_project"),
+      tool("create_project"),
+      tool("delete_project"),
+      tool("search_events"),
+    ];
+
+    expect(groupToolsByAccess(tools)).toEqual({
+      readTools: [tools[0], tools[3]],
+      writeTools: [tools[1], tools[2]],
+    });
+  });
+
+  it.each([
+    ["list_projects", false],
+    ["create_project", true],
+    ["send_message", true],
+  ] as const)("recognizes %s as mutating: %s", (name, expected) => {
+    expect(isLikelyMutatingToolName(name)).toBe(expected);
   });
 });
 
