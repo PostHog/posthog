@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import psycopg
@@ -63,7 +63,7 @@ class PgCDCConnectionParams:
     port: int
     database: str
     user: str
-    password: str
+    password: str = field(repr=False)
     require_ssl: bool = False
     slot_name: str = ""
     publication_name: str = ""
