@@ -183,6 +183,10 @@ class TestTransformations:
                 3,
             ),
             ("boolean_flag_no_variants", {"groups": []}, "variant_count", 0),
+            # A non-dict group (e.g. a legacy row where enforcement was off) must be skipped, not
+            # crash the whole table sync on group.get(...). See _iter_flag_filter_properties.
+            ("malformed_group_flag_dependency", {"groups": [None]}, "has_flag_dependency", 0),
+            ("malformed_group_cohort_filters", {"groups": [None]}, "has_cohort_filters", 0),
         ]
     )
     def test_transform_feature_flag_projection(self, _name, filters, projection_column, expected):

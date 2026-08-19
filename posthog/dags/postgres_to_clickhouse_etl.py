@@ -90,6 +90,8 @@ def _has_flag_dependency(filters: dict[str, Any]) -> int:
     # A dependency is a property with type "flag" inside filters.groups; there is no top-level
     # flag_dependencies key (see _extract_direct_dependency_ids in products/feature_flags).
     for group in filters.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
         if any(isinstance(p, dict) and p.get("type") == "flag" for p in group.get("properties") or []):
             return 1
     return 0
@@ -97,6 +99,8 @@ def _has_flag_dependency(filters: dict[str, Any]) -> int:
 
 def _has_cohort_filters(filters: dict[str, Any]) -> int:
     for group in filters.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
         if any(isinstance(p, dict) and p.get("type") == "cohort" for p in group.get("properties") or []):
             return 1
     return 0
