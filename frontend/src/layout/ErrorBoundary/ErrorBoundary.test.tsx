@@ -1,0 +1,74 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { Provider } from 'kea'
+import { Component, type ReactNode } from 'react'
+
+import { initKeaTests } from '~/test/init'
+
+import { ErrorBoundary } from './ErrorBoundary'
+
+class ParentBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+    override state: { error: Error | null } = { error: null }
+
+    static getDerivedStateFromError(error: Error): { error: Error } {
+        return { error }
+    }
+
+    override render(): ReactNode {
+        if (this.state.error) {
+            return <div>parent caught: {this.state.error.message}</div>
+        }
+        return this.props.children
+    }
+}
+
+function Throw({ error }: { error: Error }): JSX.Element {
+    throw error
+}
+
+describe('ErrorBoundary', () => {
+    let consoleErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        initKeaTests()
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+        cleanup()
+    })
+
+    it('rethrows a chunk-load error so an outer boundary can recover it', () => {
+        const chunkError = new TypeError('error loading dynamically imported module: /static/WebVitals.js')
+
+        render(
+            <Provider>
+                <ParentBoundary>
+                    <ErrorBoundary>
+                        <Throw error={chunkError} />
+                    </ErrorBoundary>
+                </ParentBoundary>
+            </Provider>
+        )
+
+        expect(screen.getByText(/parent caught/)).toBeInTheDocument()
+        expect(screen.queryByText('An error has occurred')).not.toBeInTheDocument()
+    })
+
+    it('renders the error panel for a regular error', () => {
+        render(
+            <Provider>
+                <ParentBoundary>
+                    <ErrorBoundary>
+                        <Throw error={new Error('regular render failure')} />
+                    </ErrorBoundary>
+                </ParentBoundary>
+            </Provider>
+        )
+
+        expect(screen.getByText('An error has occurred')).toBeInTheDocument()
+        expect(screen.queryByText(/parent caught/)).not.toBeInTheDocument()
+    })
+})

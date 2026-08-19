@@ -23,7 +23,7 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
  * `await factory()` normalizes the factory: a synchronous return value or a synchronous throw is
  * handled just like a resolved/rejected promise.
  */
-export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs = 300): Promise<Awaited<T>> {
+export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs = 500): Promise<Awaited<T>> {
     try {
         return await factory()
     } catch (error) {

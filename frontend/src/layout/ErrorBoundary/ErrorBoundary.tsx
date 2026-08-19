@@ -10,6 +10,7 @@ import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Suppor
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { teamLogic } from 'scenes/teamLogic'
 
 const DOM_MUTATION_PATTERNS = [
@@ -44,6 +45,12 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
             additionalProperties={additionalProperties}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
+                // A failed dynamic import() (stale chunk after a deploy, or a dropped connection) is
+                // recoverable: rethrow it so the outer ChunkLoadErrorBoundary reloads the page once,
+                // instead of showing the unrecoverable "An error has occurred" panel.
+                if (isChunkLoadError(rawError)) {
+                    throw rawError
+                }
                 const normalizedError =
                     rawError instanceof Error
                         ? rawError
