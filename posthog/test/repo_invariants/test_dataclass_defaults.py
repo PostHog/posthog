@@ -6,15 +6,15 @@ deliberate. Existing bare @dataclass uses are grandfathered in the baseline.
 
 Regenerate the baseline (only to ratchet DOWN or after moving code):
 
-    python posthog/test/test_dataclass_defaults.py
+    python posthog/test/repo_invariants/test_dataclass_defaults.py
 """
 
 import ast
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parents[2]
+REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "dataclass_frozen_baseline.txt"
-SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common")
+SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 
 
@@ -92,7 +92,7 @@ def test_no_new_undeclared_dataclasses() -> None:
         "New @dataclass without an explicit frozen= choice. Prefer @frozen from "
         "posthog.dataclasses (frozen, kw_only, slots by default; every flag overridable), "
         "or pass frozen= explicitly if mutability is intentional. If you only moved "
-        "existing code, regenerate the baseline: python posthog/test/test_dataclass_defaults.py\n"
+        "existing code, regenerate the baseline: python posthog/test/repo_invariants/test_dataclass_defaults.py\n"
         + "\n".join(regressions)
     )
 
