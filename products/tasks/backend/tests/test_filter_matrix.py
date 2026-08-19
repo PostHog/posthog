@@ -15,12 +15,6 @@ from products.tasks.backend.models import Channel, Task, TaskPin, TaskRun, TaskT
 
 
 class TestTaskListFilterMatrix(TestCase):
-    """The task list's filters against one seeded task matrix, each with the
-    exact wire params the desktop feed query language sends. Every filter is
-    exercised alone and in the combinations the query language produces, and
-    every assertion is an exact id set — a filter that silently stops
-    filtering (the bug class this guards) fails loudly here."""
-
     organization: ClassVar[Organization]
     team: ClassVar[Team]
     me: ClassVar[User]
@@ -38,7 +32,15 @@ class TestTaskListFilterMatrix(TestCase):
         for user in (cls.me, cls.peter, cls.adam):
             cls.organization.members.add(user)
 
-        channel = Channel.objects.unscoped().create(team=cls.team, name="mobile", created_by=cls.me)
+        # Public, so the tasks are team-visible. A personal channel would hide
+        # everyone else's tasks from the requester before any filter runs.
+        def public_channel(name: str) -> Channel:
+            return Channel.objects.unscoped().create(
+                team=cls.team, name=name, channel_type=Channel.ChannelType.PUBLIC, created_by=cls.me
+            )
+
+        shared = public_channel("engineering")
+        channel = public_channel("mobile")
 
         def task(
             key: str,
@@ -60,7 +62,7 @@ class TestTaskListFilterMatrix(TestCase):
                 origin_product=origin,
                 repository=repository,
                 archived=archived,
-                channel=channel if in_channel else None,
+                channel=channel if in_channel else shared,
             )
             if run_status is not None:
                 TaskRun.objects.create(task=t, team=cls.team, status=run_status, output=output)
@@ -81,7 +83,6 @@ class TestTaskListFilterMatrix(TestCase):
                 )
 
         cls.tasks = {
-            # Peter's, mentions me, failed run with an open PR and red CI.
             "peter_mention_me": task(
                 "peter_mention_me",
                 created_by=cls.peter,
@@ -93,7 +94,6 @@ class TestTaskListFilterMatrix(TestCase):
                     "ci_status": "failing",
                 },
             ),
-            # Peter's, no thread at all, merged PR (modern pr_state).
             "peter_plain": task(
                 "peter_plain",
                 created_by=cls.peter,
@@ -101,8 +101,6 @@ class TestTaskListFilterMatrix(TestCase):
                 run_status=TaskRun.Status.COMPLETED,
                 output={"pr_url": "https://github.com/posthog/posthog/pull/2", "pr_state": "merged"},
             ),
-            # Peter's from Slack, mentions me — origin must split this from
-            # peter_mention_me.
             "peter_slack_mention_me": task(
                 "peter_slack_mention_me",
                 created_by=cls.peter,
@@ -110,14 +108,12 @@ class TestTaskListFilterMatrix(TestCase):
                 origin=Task.OriginProduct.SLACK,
                 run_status=TaskRun.Status.IN_PROGRESS,
             ),
-            # Adam's, mentions Peter (not me).
             "adam_mention_peter": task(
                 "adam_mention_peter",
                 created_by=cls.adam,
                 title="Push notification opt-in",
                 run_status=TaskRun.Status.IN_PROGRESS,
             ),
-            # Mine, Peter commented (no mention), green CI.
             "mine_peter_commented": task(
                 "mine_peter_commented",
                 created_by=cls.me,
@@ -129,9 +125,7 @@ class TestTaskListFilterMatrix(TestCase):
                     "ci_status": "passing",
                 },
             ),
-            # Mine, archived.
             "mine_archived": task("mine_archived", created_by=cls.me, title="Old spike", archived=True),
-            # A scout's, queued, in the channel, other repo.
             "scout_in_channel": task(
                 "scout_in_channel",
                 created_by=cls.adam,
@@ -141,24 +135,21 @@ class TestTaskListFilterMatrix(TestCase):
                 in_channel=True,
                 run_status=TaskRun.Status.QUEUED,
             ),
-            # Peter's, I commented; Peter pinned it (not me).
             "peter_i_commented": task(
                 "peter_i_commented",
                 created_by=cls.peter,
                 title="Remove artifacts tab",
                 run_status=TaskRun.Status.COMPLETED,
-                # Legacy merged run: pr_merged flag only, no pr_state.
+                # Legacy merge: pr_merged flag, no pr_state.
                 output={"pr_url": "https://github.com/posthog/posthog/pull/4", "pr_merged": True},
             ),
-            # Adam's, pinned by me.
             "adam_pinned_by_me": task(
                 "adam_pinned_by_me",
                 created_by=cls.adam,
                 title="Growth funnel dashboard",
                 run_status=TaskRun.Status.CANCELLED,
             ),
-            # Peter's, a legacy turn_complete agent row mentioning me — the
-            # mentions filter must not count it.
+            # Mentions me from a turn_complete row, which must not count.
             "peter_legacy_mention": task(
                 "peter_legacy_mention",
                 created_by=cls.peter,
@@ -190,13 +181,8 @@ class TestTaskListFilterMatrix(TestCase):
         return {str(self.tasks[key].id) for key in keys}
 
     def all_except(self, *keys: str) -> set[str]:
-        # The unarchived default universe.
         universe = {str(t.id) for k, t in self.tasks.items() if k != "mine_archived"}
         return universe - self._ids(*keys)
-
-    # ------------------------------------------------------------------
-    # single filters
-    # ------------------------------------------------------------------
 
     def test_created_by(self):
         assert self._list(created_by=self.peter.id) == self._ids(
@@ -204,8 +190,6 @@ class TestTaskListFilterMatrix(TestCase):
         )
 
     def test_mentions_counts_only_real_thread_mentions(self):
-        # peter_legacy_mention's turn_complete row and the mention of Peter on
-        # Adam's task must both stay out.
         assert self._list(mentions=self.me.id) == self._ids("peter_mention_me", "peter_slack_mention_me")
         assert self._list(mentions=self.peter.id) == self._ids("adam_mention_peter")
 
@@ -259,14 +243,8 @@ class TestTaskListFilterMatrix(TestCase):
     def test_search(self):
         assert self._list(search="billing") == self._ids("peter_mention_me", "peter_plain")
 
-    # ------------------------------------------------------------------
-    # the combinations the query language produces
-    # ------------------------------------------------------------------
-
     def test_mentions_me_by_peter_user_created(self):
-        """`mentions:@me origin:user_created created-by:peter` — the exact
-        query that surfaced unfiltered results on a backend without these
-        params."""
+        # The feed query `mentions:@me origin:user_created created-by:peter`.
         assert self._list(mentions=self.me.id, created_by=self.peter.id, origin_product="user_created") == self._ids(
             "peter_mention_me"
         )
