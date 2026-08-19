@@ -372,6 +372,25 @@ describe('dataQualityChecksLogic', () => {
         expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
     })
 
+    it('reloads the run history after completion when it was opened while empty', async () => {
+        // History opened with no prior runs leaves suiteRuns empty, so length is a wrong proxy for
+        // "opened". A finished run must still refresh the list rather than stay on "No runs yet".
+        ;(warehouseSavedQueriesChecksRunCreate as jest.Mock).mockResolvedValue(
+            buildSuiteRun({ status: 'completed', checks_passed: 1 })
+        )
+        await mountLogic()
+
+        // The user expands the run history while it is still empty.
+        logic.actions.loadSuiteRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockClear()
+
+        logic.actions.runCheck('check-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledTimes(1)
+    })
+
     it('says nothing ran when run all matches no enabled check', async () => {
         ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'empty' }))
         await mountLogic()
