@@ -8,6 +8,12 @@ let taskResultsComplete = true;
 // The palette pulls half the app in; everything irrelevant to the feed-query
 // mode is stubbed to its empty state.
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: "user-1" } }),
+}));
 vi.mock("@posthog/di/container", () => ({ resolveService: () => ({}) }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => false,
@@ -155,6 +161,7 @@ describe("CommandMenu feed queries", () => {
         {
           id: "feed-1",
           projectId: 1,
+          ownerId: "user-1",
           name: "My failing tasks",
           query: "created-by:@me status:failed",
           createdAt: "2026-08-01T00:00:00Z",
@@ -162,6 +169,7 @@ describe("CommandMenu feed queries", () => {
         {
           id: "feed-2",
           projectId: 2,
+          ownerId: "user-1",
           name: "My failing tasks elsewhere",
           query: "created-by:@me status:failed",
           createdAt: "2026-08-01T00:00:00Z",

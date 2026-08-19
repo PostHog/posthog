@@ -13,7 +13,9 @@ import {
   Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { unfinishedFilterKeys } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import {
@@ -49,6 +51,9 @@ export function TaskFeedModal({
   const addFeed = useTaskFeedsStore((s) => s.addFeed);
   const updateFeed = useTaskFeedsStore((s) => s.updateFeed);
   const projectId = useAuthStateValue((s) => s.currentProjectId);
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const ownerId = currentUser?.uuid ?? null;
   const seedQuery = feed?.query ?? initialQuery ?? "";
   const [name, setName] = useState(
     feed?.name ?? (seedQuery ? suggestFeedName(seedQuery) : ""),
@@ -74,7 +79,7 @@ export function TaskFeedModal({
   const canSubmit =
     trimmedName !== "" &&
     trimmedQuery !== "" &&
-    (feed !== undefined || projectId !== null);
+    (feed !== undefined || (projectId !== null && ownerId !== null));
 
   const { debounced: previewQuery, isPending } = useDebouncedValue(
     open ? trimmedQuery : "",
@@ -100,11 +105,12 @@ export function TaskFeedModal({
         query_length: trimmedQuery.length,
       });
     } else {
-      if (projectId === null) return;
+      if (projectId === null || ownerId === null) return;
       const created = addFeed({
         name: trimmedName,
         query: trimmedQuery,
         projectId,
+        ownerId,
       });
       track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
         action_type: "create",

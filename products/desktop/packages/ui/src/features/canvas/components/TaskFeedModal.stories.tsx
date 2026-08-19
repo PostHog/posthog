@@ -3,6 +3,7 @@ import {
   ANONYMOUS_AUTH_STATE,
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
+import { authKeys } from "@posthog/ui/features/auth/useCurrentUser";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -13,6 +14,7 @@ import { TaskFeedModal } from "./TaskFeedModal";
 const FEED: TaskFeed = {
   id: "feed-1",
   projectId: 1,
+  ownerId: "user-1",
   name: "Billing work",
   query: "billing -status:failed pr:any",
   createdAt: "2026-07-01T08:00:00Z",
@@ -57,6 +59,8 @@ const meta: Meta<typeof TaskFeedModal> = {
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => {
+      const queryClient = useQueryClient();
+      queryClient.setQueryData(authKeys.currentUser(null), { uuid: "user-1" });
       useAuthStore.setState({
         authState: {
           ...ANONYMOUS_AUTH_STATE,

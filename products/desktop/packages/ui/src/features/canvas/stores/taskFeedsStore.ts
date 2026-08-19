@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 export interface TaskFeed {
   id: string;
   projectId: number;
+  ownerId: string;
   name: string;
   query: string;
   createdAt: string;
@@ -16,6 +17,7 @@ interface TaskFeedsState {
     name: string;
     query: string;
     projectId: number;
+    ownerId: string;
   }) => TaskFeed;
   updateFeed: (id: string, patch: { name?: string; query?: string }) => void;
   removeFeed: (id: string) => void;
@@ -26,10 +28,11 @@ export const useTaskFeedsStore = create<TaskFeedsState>()(
   persist(
     (set) => ({
       feeds: [],
-      addFeed: ({ name, query, projectId }) => {
+      addFeed: ({ name, query, projectId, ownerId }) => {
         const feed: TaskFeed = {
           id: crypto.randomUUID(),
           projectId,
+          ownerId,
           name: name.trim(),
           query: query.trim(),
           createdAt: new Date().toISOString(),

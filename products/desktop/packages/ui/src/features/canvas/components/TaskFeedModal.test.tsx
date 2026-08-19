@@ -8,6 +8,12 @@ let taskQueryError: Error | null = null;
 let taskQueryErrorMessage: string | null = null;
 const refetch = vi.fn();
 
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: "user-1" } }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useFeedQueryPlan: () => ({ plan: undefined }),
   useTaskFeedResults: () => ({

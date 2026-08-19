@@ -7,9 +7,12 @@ describe("taskFeedsStore", () => {
   });
 
   it("stores a new feed with trimmed name and query", () => {
-    const feed = useTaskFeedsStore
-      .getState()
-      .addFeed({ name: "  Billing work  ", query: " billing ", projectId: 1 });
+    const feed = useTaskFeedsStore.getState().addFeed({
+      name: "  Billing work  ",
+      query: " billing ",
+      projectId: 1,
+      ownerId: "user-1",
+    });
 
     expect(feed.name).toBe("Billing work");
     expect(feed.query).toBe("billing");
@@ -17,9 +20,12 @@ describe("taskFeedsStore", () => {
   });
 
   it("updates only the fields the patch names", () => {
-    const feed = useTaskFeedsStore
-      .getState()
-      .addFeed({ name: "Billing work", query: "billing", projectId: 1 });
+    const feed = useTaskFeedsStore.getState().addFeed({
+      name: "Billing work",
+      query: "billing",
+      projectId: 1,
+      ownerId: "user-1",
+    });
 
     useTaskFeedsStore.getState().updateFeed(feed.id, { query: " invoices " });
 
@@ -30,12 +36,18 @@ describe("taskFeedsStore", () => {
   });
 
   it("removes only the named feed", () => {
-    const keep = useTaskFeedsStore
-      .getState()
-      .addFeed({ name: "Keep", query: "keep", projectId: 1 });
-    const drop = useTaskFeedsStore
-      .getState()
-      .addFeed({ name: "Drop", query: "drop", projectId: 1 });
+    const keep = useTaskFeedsStore.getState().addFeed({
+      name: "Keep",
+      query: "keep",
+      projectId: 1,
+      ownerId: "user-1",
+    });
+    const drop = useTaskFeedsStore.getState().addFeed({
+      name: "Drop",
+      query: "drop",
+      projectId: 1,
+      ownerId: "user-1",
+    });
 
     useTaskFeedsStore.getState().removeFeed(drop.id);
 
