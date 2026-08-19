@@ -133,6 +133,12 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
+  Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
+  So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.
+- **After the title they are controls, not an avatar stack.** The header is one line about one session, sitting beside a live copy-link button, so what it can act on it draws as quill icon buttons: the pin toggles (always shown, filled when pinned), and a badge carrying a `url` opens it.
+  Badges with nothing to go to — `Local`, a plain origin — stay marks with a tooltip, sized to the button box so the row doesn't step as badges come and go.
+  The PR badge is dropped here: `TaskActionsMenu` sits at the end of the same row and already draws the PR in its lifecycle colour with its actions behind it.
 - **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
   `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
   A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
