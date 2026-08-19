@@ -106,6 +106,11 @@ def propertyware_source(
             "base_url": BASE_URL,
             "headers": {"Accept": "application/json"},
             "auth": PropertywareAuth(client_id=client_id, client_secret=client_secret, system_id=system_id),
+            # Credentials travel in custom headers, not `Authorization` — `requests` won't strip
+            # those on a cross-origin redirect, so pin every sync request to the Propertyware host
+            # and refuse to follow a 3xx (mirrors the same guard on the validation probe below).
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             {

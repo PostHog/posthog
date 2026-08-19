@@ -131,6 +131,18 @@ class TestPagination:
         manager.save_state.assert_called_once_with(PropertywareResumeConfig(offset=PAGE_SIZE))
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sync_requests_pin_host_and_refuse_redirects(self, MockSession) -> None:
+        # Credentials ride in custom headers, not `Authorization` — `requests` won't strip those
+        # on a cross-origin redirect, so every sync request (not just the validation probe) must
+        # refuse to follow one and stay pinned to the Propertyware host.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        _rows(_source(_make_manager()))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_single_short_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([{"id": 1}, {"id": 2}])])
