@@ -18,7 +18,12 @@ import {
 const OFFSCREEN = -10_000;
 
 export interface PinDrag<T> {
-  item: T;
+  /**
+   * Everything the drop applies to, grabbed item first. Non-empty by
+   * construction: the grabbed item is prepended rather than looked up, so a
+   * selection the list can't fully resolve still drops what was grabbed.
+   */
+  items: [T, ...T[]];
   /** Where the drag started, which decides whether a drop pins or unpins. */
   sourcePinned: boolean;
   overPinned: boolean;
@@ -35,7 +40,7 @@ export interface PinDragApi<T> {
     onDrop: (event: DragEvent) => void;
   };
   onItemDragStart: (item: T, event: DragEvent) => void;
-  onItemDragEnd: () => void;
+  onItemDragEnd: (event: DragEvent) => void;
   previewX: MotionValue<number>;
   previewY: MotionValue<number>;
 }
@@ -57,9 +62,15 @@ export interface PinDragApi<T> {
 export function usePinDrag<T>({
   isPinned,
   togglePin,
+  getDragSiblings,
 }: {
   isPinned: (item: T) => boolean;
   togglePin: (item: T) => void;
+  /**
+   * The items dragged alongside the grabbed one, excluding it. Absent, or
+   * returning nothing, keeps the drag single-item.
+   */
+  getDragSiblings?: (item: T) => T[];
 }): PinDragApi<T> {
   const [drag, setDrag] = useState<PinDrag<T> | null>(null);
   // Native drag handlers need the live drag synchronously; a render behind is a
@@ -81,6 +92,19 @@ export function usePinDrag<T>({
     previewX.set(OFFSCREEN);
     previewY.set(OFFSCREEN);
   }, [previewX, previewY, write]);
+
+  // Toggling every dragged item would unpin the ones already pinned, so a drop
+  // states what it wants and skips whatever is already there.
+  const applyDrop = useCallback(
+    (drag: PinDrag<T>) => {
+      const action = getPinDropAction(drag.sourcePinned, drag.overPinned);
+      if (action === null) return;
+      for (const item of drag.items) {
+        if (isPinned(item) !== action) togglePin(item);
+      }
+    },
+    [isPinned, togglePin],
+  );
 
   const overPinnedAt = useCallback(
     (x: number, y: number) =>
@@ -110,11 +134,9 @@ export function usePinDrag<T>({
     };
     // Capture, so a drop target that stops propagation can't freeze the card.
     window.addEventListener("dragover", followPointer, true);
-    window.addEventListener("dragend", endStrandedDrag, true);
     window.addEventListener("mouseup", endStrandedDrag, true);
     return () => {
       window.removeEventListener("dragover", followPointer, true);
-      window.removeEventListener("dragend", endStrandedDrag, true);
       window.removeEventListener("mouseup", endStrandedDrag, true);
       // The store outlives the hook. Unmounting mid-drag would strand the flag
       // true, and every hover card in the sidebar reads it.
@@ -140,13 +162,13 @@ export function usePinDrag<T>({
       previewX.set(rect.left);
       previewY.set(rect.top);
       write({
-        item,
+        items: [item, ...(getDragSiblings?.(item) ?? [])],
         sourcePinned: isPinned(item),
         overPinned: overPinnedAt(event.clientX, event.clientY),
         previewWidth: rect.width,
       });
     },
-    [isPinned, overPinnedAt, previewX, previewY, write],
+    [getDragSiblings, isPinned, overPinnedAt, previewX, previewY, write],
   );
 
   const onListDragOver = useCallback((event: DragEvent) => {
@@ -161,12 +183,25 @@ export function usePinDrag<T>({
       const current = dragRef.current;
       if (!current) return;
       event.preventDefault();
-      if (getPinDropAction(current.sourcePinned, current.overPinned) !== null) {
-        togglePin(current.item);
-      }
+      applyDrop(current);
       clear();
     },
-    [clear, togglePin],
+    [applyDrop, clear],
+  );
+
+  // Releasing anywhere the list doesn't cover still has to do what the preview
+  // card promised. `dropEffect` is what separates that from a drop another
+  // target took: a Command Center tile resolves to `copy`, and that drop is the
+  // tile's, so it must not also unpin what it just filed. A drop the list took
+  // has already cleared, so this finds nothing to do.
+  const onItemDragEnd = useCallback(
+    (event: DragEvent) => {
+      const current = dragRef.current;
+      if (!current) return;
+      if (event.dataTransfer.dropEffect === "none") applyDrop(current);
+      clear();
+    },
+    [applyDrop, clear],
   );
 
   return {
@@ -174,9 +209,7 @@ export function usePinDrag<T>({
     pinnedZoneRef,
     listProps: { onDragOver: onListDragOver, onDrop: onListDrop },
     onItemDragStart,
-    // Reached by a cancelled drag, and by a drop the list didn't take (a
-    // Command Center tile). A drop the list took has already cleared.
-    onItemDragEnd: clear,
+    onItemDragEnd,
     previewX,
     previewY,
   };

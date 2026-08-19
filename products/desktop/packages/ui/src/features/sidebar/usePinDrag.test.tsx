@@ -49,4 +49,71 @@ describe("usePinDrag", () => {
 
     expect(isDragging()).toBe(false);
   });
+
+  // Toggling every dragged row would unpin the ones already in the run, so a
+  // batch drop has to state what it wants rather than flip each row.
+  it("pins every dragged row that is not pinned yet, and only those", () => {
+    const togglePin = vi.fn();
+    const rows: Row[] = [
+      { id: "a", pinned: false },
+      { id: "b", pinned: true },
+      { id: "c", pinned: false },
+    ];
+    const { result } = renderHook(() =>
+      usePinDrag<Row>({
+        isPinned: (row) => row.pinned,
+        togglePin,
+        getDragSiblings: () => rows.slice(1),
+      }),
+    );
+
+    act(() => {
+      result.current.pinnedZoneRef.current = {
+        getBoundingClientRect: () => ({
+          left: 0,
+          top: 0,
+          right: 300,
+          bottom: 300,
+        }),
+      } as unknown as HTMLDivElement;
+      result.current.onItemDragStart(rows[0] as Row, dragStartEvent());
+    });
+
+    act(() => {
+      result.current.listProps.onDrop({
+        preventDefault: vi.fn(),
+      } as unknown as React.DragEvent);
+    });
+
+    expect(togglePin.mock.calls.map(([row]) => row.id)).toEqual(["a", "c"]);
+  });
+
+  // The card promises "Remove from pinned" the moment the pointer leaves the
+  // run, wherever it goes. Only the list used to take the drop, so releasing
+  // over the main pane showed the promise and did nothing.
+  it.each([
+    { dropEffect: "none", unpinned: true, where: "over nothing" },
+    { dropEffect: "copy", unpinned: false, where: "on another drop target" },
+  ])("released $where, unpins=$unpinned", ({ dropEffect, unpinned }) => {
+    const togglePin = vi.fn();
+    const { result } = renderHook(() =>
+      usePinDrag<Row>({ isPinned: (row) => row.pinned, togglePin }),
+    );
+
+    act(() => {
+      result.current.onItemDragStart(
+        { id: "a", pinned: true },
+        dragStartEvent(),
+      );
+    });
+
+    act(() => {
+      result.current.onItemDragEnd({
+        dataTransfer: { dropEffect },
+      } as unknown as React.DragEvent);
+    });
+
+    expect(togglePin).toHaveBeenCalledTimes(unpinned ? 1 : 0);
+    expect(isDragging()).toBe(false);
+  });
 });

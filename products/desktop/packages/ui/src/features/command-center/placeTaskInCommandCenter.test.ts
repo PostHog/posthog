@@ -18,7 +18,11 @@ describe("placeTasksInCommandCenterCell", () => {
   });
 
   it("places the grabbed task in the drop target and the rest in available cells", () => {
-    placeTasksInCommandCenterCell(["dragged", "selected-2", "selected-3"], 0);
+    placeTasksInCommandCenterCell(
+      ["dragged", "selected-2", "selected-3"],
+      0,
+      null,
+    );
 
     expect(useCommandCenterStore.getState().cells).toEqual([
       "dragged",

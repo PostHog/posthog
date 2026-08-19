@@ -58,13 +58,14 @@ export function placeTasksInCommandCenter(
 export function placeTasksInCommandCenterCell(
   taskIds: string[],
   cellIndex: number,
+  liveTaskIds: ReadonlySet<string> | null,
 ): void {
   const [firstTaskId, ...remainingTaskIds] = taskIds;
   if (!firstTaskId) return;
 
   useCommandCenterStore.getState().assignTask(cellIndex, firstTaskId);
   if (remainingTaskIds.length > 0) {
-    placeTasksInCommandCenter(remainingTaskIds, null);
+    placeTasksInCommandCenter(remainingTaskIds, liveTaskIds);
   }
 }
 
@@ -72,6 +73,7 @@ export function expandTasksInCommandCenterInto(
   direction: ExpandDirection,
   slot: number,
   taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
 ): void {
   const [firstTaskId, ...remainingTaskIds] = taskIds;
   if (!firstTaskId) return;
@@ -85,6 +87,6 @@ export function expandTasksInCommandCenterInto(
     .getState()
     .assignTask(getExpansionCellIndex(expanded, direction, slot), firstTaskId);
   if (remainingTaskIds.length > 0) {
-    placeTasksInCommandCenter(remainingTaskIds, null);
+    placeTasksInCommandCenter(remainingTaskIds, liveTaskIds);
   }
 }

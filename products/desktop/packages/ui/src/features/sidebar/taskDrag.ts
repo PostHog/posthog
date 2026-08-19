@@ -16,6 +16,34 @@ export function taskIdsForDrag(
   ]);
 }
 
+/**
+ * The other sessions a drag on `grabbedId` carries: the rest of the selection
+ * when the grabbed row belongs to one, and nothing when it doesn't. Resolved
+ * against the list that is showing, so an id the list can't place is dropped
+ * rather than travelling as a hole.
+ */
+export function taskDragSiblings<T>(
+  grabbedId: string,
+  candidates: readonly T[],
+  idOf: (item: T) => string | null,
+): T[] {
+  const siblingIds = taskIdsForDrag(
+    grabbedId,
+    useTaskSelectionStore.getState().selectedTaskIds,
+  ).filter((id) => id !== grabbedId);
+  if (siblingIds.length === 0) return [];
+
+  const byId = new Map<string, T>();
+  for (const candidate of candidates) {
+    const id = idOf(candidate);
+    if (id !== null) byId.set(id, candidate);
+  }
+  return siblingIds.flatMap((id) => {
+    const found = byId.get(id);
+    return found ? [found] : [];
+  });
+}
+
 export function writeTaskDragData(
   dataTransfer: Pick<DataTransfer, "setData">,
   draggedTaskId: string,

@@ -1,6 +1,5 @@
 import { findGroupFolder } from "@posthog/core/sidebar/groupTasks";
 import {
-  computeEffectiveBulkIds,
   computeOrderedVisibleTaskIds,
   computePriorTaskIds,
   formatArchiveResult,
@@ -22,6 +21,7 @@ import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/Sto
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
 import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
@@ -43,7 +43,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveRunningTaskDialog } from "./ArchiveRunningTaskDialog";
 import { MarqueeOverlay } from "./MarqueeOverlay";
-import { SidebarBulkActionFooter } from "./SidebarBulkActionFooter";
+import { SidebarBulkActionBar } from "./SidebarBulkActionBar";
 import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
@@ -172,15 +172,13 @@ function SidebarMenuComponent() {
     pruneSelection(allSidebarTaskIds);
   }, [allSidebarTaskIds, pruneSelection]);
 
-  // Bulk actions include the routed task, but selection styling stays tied to
-  // explicit picks so selecting another row does not highlight the open row.
+  // A bulk action acts on exactly the rows that are highlighted. The routed
+  // task used to be folded in as well, which told you "2 selected" after one
+  // cmd-click and archived a session you never picked.
   const activeTaskId = sidebarData.activeTaskId;
-  const effectiveBulkIds = useMemo(
-    () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
-    [activeTaskId, selectedTaskIds],
-  );
 
-  const bulkActions = useSidebarBulkActions(effectiveBulkIds, allSidebarTasks);
+  const bulkActions = useSidebarBulkActions(selectedTaskIds, allSidebarTasks);
+  const bulkArchiveConfirm = useBulkArchiveConfirm(bulkActions);
 
   const handleTaskClick = (taskId: string, e: React.MouseEvent) => {
     // Ignore clicks on a row that's mid-archive.
@@ -303,8 +301,8 @@ function SidebarMenuComponent() {
 
     // Bulk menu when 2+ tasks are in the effective selection (active + cmd/shift-clicked)
     // and the right-clicked task is one of them. Otherwise clear and fall through.
-    if (effectiveBulkIds.length > 1) {
-      if (effectiveBulkIds.includes(taskId)) {
+    if (selectedTaskIds.length > 1) {
+      if (selectedTaskIds.includes(taskId)) {
         handleBulkContextMenu(e);
         return;
       }
@@ -505,10 +503,12 @@ function SidebarMenuComponent() {
       {/* A sticky footer rather than an overlay: the list shrinks instead of
           having its bottom rows — where a shift-click range usually ends —
           covered up. */}
-      <SidebarBulkActionFooter
+      <SidebarBulkActionBar
         actions={bulkActions}
         onClearSelection={clearSelection}
+        onArchive={bulkArchiveConfirm.requestArchive}
       />
+      {bulkArchiveConfirm.dialog}
 
       <ArchiveRunningTaskDialog
         open={archiveConfirm !== null}
