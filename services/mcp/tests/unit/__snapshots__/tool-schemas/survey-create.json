@@ -94,6 +94,7 @@
                             "type": "string"
                         },
                         "widgetSelector": {
+                            "description": "CSS selector for the custom feedback button. The survey opens when a matching element is clicked. Used when widgetType is 'selector'.",
                             "type": "string"
                         },
                         "widgetType": {
@@ -164,6 +165,7 @@
                             "type": "number"
                         },
                         "selector": {
+                            "description": "CSS selector that gates when the survey can show. The survey shows only while a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, use the custom feedback button (appearance.widgetSelector) instead.",
                             "type": "string"
                         },
                         "url": {
