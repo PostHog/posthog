@@ -212,6 +212,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         journeys: {
             __default: [] as CustomerJourneyApi[],
             loadJourneys: async (): Promise<CustomerJourneyApi[]> => {
+                // nosemgrep: prefer-codegen-api
                 const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
@@ -224,11 +225,13 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 name: string
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
+                // nosemgrep: prefer-codegen-api
                 await customerJourneysCreate(String(ApiConfig.getCurrentProjectId()), {
                     insight: insightId,
                     name,
                     description,
                 })
+                // nosemgrep: prefer-codegen-api
                 const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
@@ -241,14 +244,17 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 name: string
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
+                // nosemgrep: prefer-codegen-api
                 await customerJourneysPartialUpdate(String(ApiConfig.getCurrentProjectId()), journeyId, {
                     name,
                     description,
                 })
+                // nosemgrep: prefer-codegen-api
                 const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
             deleteJourney: async (journeyId: string): Promise<CustomerJourneyApi[]> => {
+                // nosemgrep: prefer-codegen-api
                 await customerJourneysDestroy(String(ApiConfig.getCurrentProjectId()), journeyId)
                 return values.journeys.filter((j) => j.id !== journeyId)
             },

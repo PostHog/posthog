@@ -152,6 +152,7 @@ export const draftsLogic = kea<draftsLogicType>([
             {} as PaginatedResponse<DataWarehouseSavedQueryDraft>,
             {
                 loadDrafts: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const drafts = await warehouseSavedQueryDraftsList(String(ApiConfig.getCurrentProjectId()))
 
                     return drafts as unknown as PaginatedResponse<DataWarehouseSavedQueryDraft>
@@ -197,6 +198,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         saveAsDraft: async ({ query, viewId, tab }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const draft = await warehouseSavedQueryDraftsCreate(String(ApiConfig.getCurrentProjectId()), {
                     query,
                     saved_query_id: viewId,
@@ -219,6 +221,7 @@ export const draftsLogic = kea<draftsLogicType>([
         updateDraft: async ({ draft }) => {
             try {
                 const updatedDraft = await warehouseSavedQueryDraftsPartialUpdate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     draft.id,
                     draft
@@ -237,6 +240,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         deleteDraft: async ({ draftId, viewName }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await warehouseSavedQueryDraftsDestroy(String(ApiConfig.getCurrentProjectId()), draftId)
                 lemonToast.success('Draft deleted')
 
@@ -252,6 +256,7 @@ export const draftsLogic = kea<draftsLogicType>([
             }
         },
         renameDraft: async ({ draftId, name }) => {
+            // nosemgrep: prefer-codegen-api
             await warehouseSavedQueryDraftsPartialUpdate(String(ApiConfig.getCurrentProjectId()), draftId, { name })
             actions.setDrafts(values.drafts.map((d) => (d.id === draftId ? { ...d, name } : d)))
         },
@@ -259,6 +264,7 @@ export const draftsLogic = kea<draftsLogicType>([
             if (draftId) {
                 try {
                     const updatedDraft = await warehouseSavedQueryDraftsPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         draftId,
                         {
@@ -278,6 +284,7 @@ export const draftsLogic = kea<draftsLogicType>([
                 }
             } else {
                 const existingDrafts = (await warehouseSavedQueryDraftsList(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId())
                 )) as unknown as PaginatedResponse<DataWarehouseSavedQueryDraft>
                 const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)

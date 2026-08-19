@@ -166,6 +166,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                     try {
                         const params = props.scope ? { scope: props.scope } : {}
                         const response = await customerProfileConfigsList(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             params as Parameters<typeof customerProfileConfigsList>[1]
                         )
@@ -178,6 +179,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 createConfig: async ({ config }) => {
                     try {
                         const newConfig = await customerProfileConfigsCreate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             config as Parameters<typeof customerProfileConfigsCreate>[1]
                         )
@@ -191,6 +193,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 updateConfig: async ({ id, config }) => {
                     try {
                         const updatedConfig = await customerProfileConfigsPartialUpdate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             id,
                             config as Parameters<typeof customerProfileConfigsPartialUpdate>[2]
@@ -206,6 +209,7 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                 },
                 deleteConfig: async ({ id }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await customerProfileConfigsDestroy(String(ApiConfig.getCurrentProjectId()), id)
                         lemonToast.success('Customer profile config deleted successfully')
                         return values.configs.filter((c) => c.id !== id)

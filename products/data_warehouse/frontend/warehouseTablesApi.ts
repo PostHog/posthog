@@ -16,6 +16,7 @@ import {
 } from './generated/api'
 import type { WarehouseTablesListParams } from './generated/api.schemas'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 type TableListParams = WarehouseTablesListParams & { include_columns?: boolean }

@@ -10,6 +10,7 @@ import {
     warehouseSavedQueriesRunHistoryRetrieve,
 } from './generated/api'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export const savedQueryApi = {

@@ -46,6 +46,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
         }
         try {
             const savedQuery = await warehouseSavedQueriesRetrieve(
+                // nosemgrep: prefer-codegen-api
                 String(ApiConfig.getCurrentProjectId()),
                 node.saved_query_id
             )
