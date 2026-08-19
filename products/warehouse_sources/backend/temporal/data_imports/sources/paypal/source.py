@@ -54,8 +54,9 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
             "401 Client Error: Unauthorized for url: https://api-m.sandbox.paypal.com/v1/oauth2/token": "PayPal rejected your app credentials. Check the client ID and secret, and that they belong to the sandbox environment.",
             "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/oauth2/token": "PayPal could not issue a token for your app. Check the client ID and secret, and that they belong to the live environment.",
             "400 Client Error: Bad Request for url: https://api-m.sandbox.paypal.com/v1/oauth2/token": "PayPal could not issue a token for your app. Check the client ID and secret, and that they belong to the sandbox environment.",
-            "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/reporting/transactions": "PayPal rejected this transaction query as too large. This account's transaction volume exceeds what a single reporting window can return, so the transactions table cannot sync. Contact PostHog support to narrow the sync window.",
-            "400 Client Error: Bad Request for url: https://api-m.sandbox.paypal.com/v1/reporting/transactions": "PayPal rejected this transaction query as too large. This account's transaction volume exceeds what a single reporting window can return, so the transactions table cannot sync. Contact PostHog support to narrow the sync window.",
+            # Keyed on PayPal's error name, not the URL: only a too-large result set is permanent.
+            # Other 400s on the same endpoint (bad date, page past the end) stay reportable.
+            "PayPal error: RESULTSET_TOO_LARGE": "PayPal rejected this transaction query as too large. This account's transaction volume exceeds what a single reporting window can return, so the transactions table cannot sync. Contact PostHog support to narrow the sync window.",
             "403 Client Error: Forbidden for url": "Your PayPal app is not allowed to call this API. In the PayPal developer dashboard, enable the features this source needs (Transaction Search, Invoicing, Subscriptions, Disputes) on the app.",
         }
 

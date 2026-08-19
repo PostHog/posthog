@@ -24,9 +24,10 @@ PaginationMode = Literal["date_window", "page_number", "page_token", "single"]
 TRANSACTION_WINDOW_DAYS = 7
 # PayPal retains three years of searchable transaction history.
 TRANSACTION_HISTORY_DAYS = 3 * 365
-# The disputes list rejects a `start_time` older than 180 days with a non-retryable 400, so an
-# incremental watermark is clamped to this floor before it becomes the filter.
-DISPUTE_HISTORY_DAYS = 180
+# The disputes list rejects an `update_time_after` older than 180 days with a non-retryable 400.
+# One day of margin under that limit absorbs sub-second timestamp truncation and the request
+# round trip, which would otherwise let a clamped value land just outside PayPal's moving cutoff.
+DISPUTE_HISTORY_DAYS = 179
 # The transactions cursor `transaction_initiation_date` is stamped once and never moves, and
 # PayPal has no update-time filter for transaction search. A transaction restated after creation
 # (an eCheck clearing, a reversal, a denial) would otherwise freeze at its first-seen status, so

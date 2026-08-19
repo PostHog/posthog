@@ -5,6 +5,8 @@ from typing import Any, Optional, cast
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.paypal import (
     VALIDATE_TIMEOUT_SECONDS,
@@ -18,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.pay
     _format_reporting_datetime,
     _has_more_pages,
     _next_page_token,
+    _raise_with_paypal_error_name,
     _to_datetime,
     _transaction_start,
     check_endpoint_permissions,
@@ -123,6 +126,31 @@ class TestPayPalTransport:
         assert _format_reporting_datetime(value) == "2024-05-01T06:30:15-0000"
         assert _format_dispute_datetime(value) == "2024-05-01T06:30:15.000Z"
 
+    def test_paypal_error_name_is_folded_into_the_raised_exception(self) -> None:
+        # The error name is what distinguishes a too-large result set from other 400s, so it must
+        # reach the exception message the non-retryable-error map is matched against.
+        response = mock.MagicMock()
+        response.json.return_value = {"name": "RESULTSET_TOO_LARGE", "message": "Result set too large"}
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error: Bad Request for url: https://x", response=response
+        )
+
+        with pytest.raises(requests.HTTPError) as exc:
+            _raise_with_paypal_error_name(response)
+
+        assert "PayPal error: RESULTSET_TOO_LARGE" in str(exc.value)
+
+    def test_raise_without_a_paypal_error_name_reraises_unchanged(self) -> None:
+        response = mock.MagicMock()
+        response.json.return_value = {}
+        original = requests.HTTPError("400 Client Error: Bad Request for url: https://x", response=response)
+        response.raise_for_status.side_effect = original
+
+        with pytest.raises(requests.HTTPError) as exc:
+            _raise_with_paypal_error_name(response)
+
+        assert exc.value is original
+
     @pytest.mark.parametrize(
         "links, expected",
         [
@@ -194,11 +222,13 @@ class TestPayPalTransport:
     def test_dispute_start_is_none_for_a_full_refresh(self) -> None:
         assert _dispute_start(None, _NOW) is None
 
-    def test_dispute_start_uses_the_watermark_when_within_180_days(self) -> None:
+    def test_dispute_start_uses_the_watermark_when_within_the_retention_floor(self) -> None:
         assert _dispute_start("2024-05-01T06:30:00Z", _NOW) == datetime(2024, 5, 1, 6, 30, tzinfo=UTC)
 
-    def test_dispute_start_clamps_a_watermark_older_than_180_days(self) -> None:
+    def test_dispute_start_clamps_a_watermark_older_than_the_retention_floor(self) -> None:
+        # Clamped to a floor kept a day inside PayPal's 180-day limit as a safety margin.
         assert _dispute_start("2023-01-01T00:00:00Z", _NOW) == _NOW - timedelta(days=DISPUTE_HISTORY_DAYS)
+        assert DISPUTE_HISTORY_DAYS < 180
 
     @pytest.mark.parametrize(
         "items, total_pages, page, page_size, expected",
@@ -300,6 +330,19 @@ class TestEndpointPermissions:
         check_endpoint_permissions("live", "cid", "secret", ["disputes"])
 
         assert mock_session.return_value.post.call_args.kwargs["timeout"] == VALIDATE_TIMEOUT_SECONDS
+
+    @mock.patch(f"{_MODULE}.time.monotonic", side_effect=[0.0, 1000.0, 1000.0])
+    def test_exhausting_the_time_budget_leaves_remaining_endpoints_unprobed(
+        self, _mock_monotonic: mock.MagicMock, mock_session: mock.MagicMock
+    ) -> None:
+        # Past the interactive budget, the probe must stop rather than run the request into the
+        # 120s gateway timeout; unprobed endpoints report reachable.
+        mock_session.return_value.post.return_value = _token_response()
+
+        result = check_endpoint_permissions("live", "cid", "secret", ["transactions", "disputes"])
+
+        assert result == {"transactions": None, "disputes": None}
+        mock_session.return_value.get.assert_not_called()
 
 
 @mock.patch(f"{_MODULE}._now", return_value=_NOW)

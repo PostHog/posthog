@@ -79,9 +79,9 @@ class TestPayPalSource:
             "401 Client Error: Unauthorized for url: https://api-m.paypal.com/v1/oauth2/token",
             "400 Client Error: Bad Request for url: https://api-m.sandbox.paypal.com/v1/oauth2/token",
             "403 Client Error: Forbidden for url: https://api-m.paypal.com/v1/reporting/transactions",
-            # A too-large transaction window returns 400 and never succeeds on retry, so it must
-            # surface as an actionable error instead of looping through Temporal retries forever.
-            "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/reporting/transactions",
+            # A too-large result set never succeeds on retry, so it must surface as an actionable
+            # error. It is keyed on PayPal's error name, not the URL, so other 400s are unaffected.
+            "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/reporting/transactions (PayPal error: RESULTSET_TOO_LARGE)",
         ],
     )
     def test_permanent_auth_failures_are_non_retryable(self, observed_error: str) -> None:
@@ -93,6 +93,9 @@ class TestPayPalSource:
             "429 Client Error: Too Many Requests for url: https://api-m.paypal.com/v1/reporting/transactions",
             "500 Server Error for url: https://api-m.paypal.com/v2/invoicing/invoices",
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            # A non-too-large 400 on the transactions endpoint must stay reportable, not be
+            # mislabeled as a volume problem and silently disable the table.
+            "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/reporting/transactions (PayPal error: INVALID_REQUEST)",
         ],
     )
     def test_transient_and_unrelated_errors_stay_retryable(self, observed_error: str) -> None:

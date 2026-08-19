@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -25,6 +26,11 @@ TOKEN_PATH = "/v1/oauth2/token"
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 15
 MAX_RETRY_ATTEMPTS = 5
+# The permission probe runs inside an interactive DRF request behind a 120s gateway, so it uses
+# short per-request timeouts and stops once it has spent this wall-clock budget, marking any
+# unprobed endpoint reachable rather than risking the gateway timeout.
+PERMISSION_PROBE_TIMEOUT_SECONDS = 10
+PERMISSION_CHECK_BUDGET_SECONDS = 60
 
 # Bound method handed to the per-pagination-mode walkers: (path, query params) -> decoded body.
 RequestFn = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -214,6 +220,25 @@ def validate_credentials(environment: str, client_id: str, client_secret: str) -
     return False, f"PayPal returned an unexpected status ({response.status_code}) while authenticating."
 
 
+def _raise_with_paypal_error_name(response: requests.Response) -> None:
+    """Raise for a non-ok status, folding PayPal's machine-readable error name into the message.
+
+    PayPal returns 400 for several distinct causes (a too-large result set, a bad date, a page past
+    the end), and only the response body's `name` tells them apart. Keying the non-retryable-error
+    map on that name — rather than the bare URL — stops one 400 cause being reported as another.
+    """
+    try:
+        error_name = (response.json() or {}).get("name")
+    except ValueError:
+        error_name = None
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        if error_name:
+            raise requests.HTTPError(f"{e} (PayPal error: {error_name})", response=response) from e
+        raise
+
+
 def _probe_params(config: PayPalEndpointConfig, now: datetime) -> dict[str, Any]:
     """Smallest valid request per endpoint, used only to observe a 200/403 for the permission probe."""
     if config.pagination == "date_window":
@@ -246,6 +271,7 @@ def check_endpoint_permissions(
         return dict.fromkeys(endpoints)
 
     session = _get_session(client_secret)
+    deadline = time.monotonic() + PERMISSION_CHECK_BUDGET_SECONDS
     try:
         # Interactive path bound by the gateway budget, so mint with the short validation timeout.
         token = _mint_token(session, base_url, client_id, client_secret, timeout=VALIDATE_TIMEOUT_SECONDS)
@@ -256,7 +282,9 @@ def check_endpoint_permissions(
     results: dict[str, str | None] = {}
     for name in endpoints:
         config = PAYPAL_ENDPOINTS.get(name)
-        if config is None or config.required_feature is None:
+        if config is None or config.required_feature is None or time.monotonic() >= deadline:
+            # Out of interactive budget (or nothing to probe) — treat as reachable so the check
+            # never runs the schema picker or setup request into the gateway timeout.
             results[name] = None
             continue
         try:
@@ -264,7 +292,7 @@ def check_endpoint_permissions(
                 f"{base_url}{config.path}",
                 params=_probe_params(config, now),
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=VALIDATE_TIMEOUT_SECONDS,
+                timeout=PERMISSION_PROBE_TIMEOUT_SECONDS,
             )
         except Exception:
             results[name] = None
@@ -322,7 +350,7 @@ def get_rows(
 
         if not response.ok:
             logger.error(f"PayPal API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
+            _raise_with_paypal_error_name(response)
 
         body = response.json()
         return body if isinstance(body, dict) else {}
