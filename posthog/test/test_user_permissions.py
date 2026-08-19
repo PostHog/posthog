@@ -79,6 +79,19 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
     def test_team_ids_visible_for_user(self):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
+    def test_project_ids_visible_for_user_no_per_team_query_fanout(self):
+        # Extra teams so a deferred project_id would surface as one refresh_from_db per team
+        for _ in range(3):
+            Team.objects.create(organization=self.organization)
+
+        permissions = self.permissions()
+        # Warm the visible-teams cache first
+        permissions.teams_visible_for_user
+
+        # Reading project_id must not trigger a follow-up query per team
+        with self.assertNumQueries(0):
+            permissions.project_ids_visible_for_user
+
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
         from ee.models.rbac.access_control import AccessControl
 

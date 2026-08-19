@@ -66,7 +66,7 @@ class UserPermissions:
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
-            "pk", "organization_id"
+            "pk", "organization_id", "project_id"
         )
         return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
