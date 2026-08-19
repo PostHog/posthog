@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
 from sshtunnel import SSHTunnelForwarder
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 
 # Substrings that mark a private-key parse failure as a wrong/missing passphrase rather than a
@@ -87,7 +89,7 @@ class SSHTunnelConfig(config.Config):
     require_tls: SSHTunnelRequireTlsConfig = config.value(default_factory=SSHTunnelRequireTlsConfig)
 
 
-@dataclasses.dataclass
+@frozen
 class SSHTunnel:
     enabled: bool
 
@@ -95,9 +97,9 @@ class SSHTunnel:
     port: int | str
     auth_type: Literal["password", "keypair"]
     username: str | None
-    password: str | None
-    private_key: str | None
-    passphrase: str | None
+    password: str | None = dataclasses.field(repr=False)
+    private_key: str | None = dataclasses.field(repr=False)
+    passphrase: str | None = dataclasses.field(repr=False)
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
