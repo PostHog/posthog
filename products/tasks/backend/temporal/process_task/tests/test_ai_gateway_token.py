@@ -182,6 +182,18 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
+    def test_skill_qualified_allowlist_still_mints(self, mint_settings):
+        """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
+        gate that only honors plain product entries would silently no-op every batch."""
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals_scout:web-analytics"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout:web-analytics")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
+
     def test_mint_failure_omits_token(self, mint_settings):
         with patch(
             "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
