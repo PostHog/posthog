@@ -11,6 +11,7 @@ import {
     LemonModal,
     LemonSearchableSelect,
     LemonSelect,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -91,6 +92,28 @@ function ReadOnlyWarehouseTable({
     )
 }
 
+// The group type an existing group property attaches to. Create-only on the backend, so it's shown as
+// text — but it still has to be shown, since it's part of what the property is.
+function ReadOnlyGroupType({ label, loading }: { label: string | null; loading: boolean }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Group type</LemonLabel>
+            {loading ? (
+                <LemonSkeleton className="h-4 w-24" />
+            ) : label ? (
+                <span>{label}</span>
+            ) : (
+                <span className="text-secondary">
+                    This group type isn't available. It may have been removed from the project.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                You can't change the group type after the property is created.
+            </span>
+        </div>
+    )
+}
+
 // An existing source's column mappings. Create-only on the backend, so they're listed rather than
 // edited: what a property reads is the thing you open the modal to check.
 function ReadOnlyColumnMappings({
@@ -147,7 +170,7 @@ function PersonSourceEditor(): JSX.Element {
     } = useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
         useActions(customPropertyDefinitionsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { groupTypes, groupTypesLoading } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
@@ -177,6 +200,8 @@ function PersonSourceEditor(): JSX.Element {
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
     }))
+    const selectedGroupTypeLabel =
+        groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
 
     // Only block on missing tables while creating a source — an existing source still needs its
     // key column and enabled switch editable even if its table was later deleted or filtered out.
@@ -191,19 +216,28 @@ function PersonSourceEditor(): JSX.Element {
 
     return (
         <>
-            {isGroup && !hasExistingSource && (
-                <LemonField name="groupTypeIndex" label="Group type" help="Which group type this property attaches to.">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            value={value}
-                            onChange={onChange}
-                            options={groupTypeOptions}
-                            placeholder="Select a group type"
-                            fullWidth
-                        />
-                    )}
-                </LemonField>
-            )}
+            {/* group_type_index is create-only on the backend, so on edit it's read-only text rather
+                than a picker whose value would be dropped. */}
+            {isGroup &&
+                (editingDefinition ? (
+                    <ReadOnlyGroupType label={selectedGroupTypeLabel} loading={groupTypesLoading} />
+                ) : (
+                    <LemonField
+                        name="groupTypeIndex"
+                        label="Group type"
+                        help="Which group type this property attaches to."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSelect
+                                value={value}
+                                onChange={onChange}
+                                options={groupTypeOptions}
+                                placeholder="Select a group type"
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
+                ))}
             {hasExistingSource ? (
                 <ReadOnlyWarehouseTable
                     entityPlural={entityPlural}

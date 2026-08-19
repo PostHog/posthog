@@ -32,7 +32,9 @@ from typing import Any, cast
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
@@ -52,6 +54,29 @@ logger = logging.getLogger(__name__)
 # Retry the whole review once on a hard failure; the re-run resumes (reuses persisted
 # chunk/perspective/verdict rows for the same head) rather than redoing the work.
 _PARENT_RETRY = RetryPolicy(maximum_attempts=2)
+
+
+def workflow_running(workflow_id: str) -> bool:
+    """Whether `workflow_id` has a live execution — the busy-guard's probe (CONTEXT.md — "Busy-guard").
+
+    Temporal's same-id joining dedups review-vs-review and resolve-vs-resolve on its own, but the
+    review and resolution workflows carry different ids, so the cross-stage "is this PR's cycle
+    busy?" check is this explicit describe. Fail-open on probe errors other than not-found: a
+    trigger must not 500 over a flaky describe, and a real Temporal outage still surfaces on the
+    start call itself.
+    """
+    try:
+        client = sync_connect()
+        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        logger.warning("Busy-guard describe failed for %s: %s", workflow_id, e)
+        return False
+    except Exception:
+        logger.exception("Busy-guard describe failed for %s", workflow_id)
+        return False
+    return description.status == WorkflowExecutionStatus.RUNNING
 
 
 def _build_inputs(

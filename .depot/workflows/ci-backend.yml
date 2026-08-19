@@ -383,11 +383,27 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Generated from frontend/src/queries/schema.json (see the `schema`
+                        # filter below). Excluding them here routes schema-only PRs into
+                        # turbo-discover's schema-impact narrowing instead of the
+                        # all-products legacy path. This cannot skip Django: the
+                        # schemaChanged branch hard-sets run_legacy=true. It also cannot
+                        # hide a hand-edit to the generated files — ci-python.yml
+                        # regenerates schema.py and fails on any diff, and both files stay
+                        # in the `schema` (and `backend`) filters so turbo-discover still
+                        # takes the schema path for them.
+                        - '!posthog/schema.py'
+                        - '!posthog/schema_enums.py'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
                         - frontend/src/queries/schema.json
+                        # The generated outputs are excluded from `legacy` above; listing
+                        # them here keeps run_legacy=true (full Django) for any schema
+                        # change, including a stray hand-edit to a generated file.
+                        - posthog/schema.py
+                        - posthog/schema_enums.py
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -1164,8 +1180,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1189,6 +1204,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml

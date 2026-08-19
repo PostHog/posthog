@@ -12,6 +12,7 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -31,6 +32,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
+    _is_desktop_workspace_warm_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
     _resolve_modal_vm_sandbox,
@@ -78,6 +80,46 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     )
 
     assert context.is_snapshot_resume is expected
+
+
+@pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
+def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_value,
+    ) as feature_enabled_mock:
+        assert (
+            _is_desktop_workspace_warm_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+            )
+            is expected
+        )
+
+    feature_enabled_mock.assert_called_once_with(
+        DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def test_desktop_workspace_warm_flag_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert (
+            _is_desktop_workspace_warm_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+            )
+            is False
+        )
 
 
 @pytest.mark.requires_secrets

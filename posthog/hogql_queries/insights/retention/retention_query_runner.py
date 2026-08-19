@@ -247,6 +247,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return "person_id"
 
     @cached_property
+    def has_data_warehouse_series(self) -> bool:
+        return self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+
+    def coerce_actor_id_expr(self, actor_id_expr: ast.Expr) -> ast.Expr:
+        # A query's arms resolve actor_id against different sources, which give it different ClickHouse
+        # types — a person_id UUID on the events side, whatever the configured target yields on the
+        # warehouse side. The UNION ALL, the 24-hour-window JOIN, and the actors-modal events JOIN each
+        # need one common type, so coerce to string the way funnels does for its own aggregation_target.
+        # Events-only series keep their UUID keys.
+        if not self.has_data_warehouse_series:
+            return actor_id_expr
+        return ast.Call(name="toString", args=[actor_id_expr])
+
+    @cached_property
     def global_event_filters(self) -> list[ast.Expr]:
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
@@ -1015,7 +1029,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         "actor_subquery": actor_subquery,
                         "join_condition": ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                            left=self.coerce_actor_id_expr(
+                                ast.Field(chain=["events", self.aggregation_target_events_column])
+                            ),
                             right=ast.Field(chain=["actors", "actor_id"]),
                         ),
                         "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(

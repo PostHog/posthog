@@ -24,6 +24,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
+    RepositoryCloneError,
     SandboxNetworkPolicyError,
     TaskNotFoundError,
 )
@@ -175,7 +176,8 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
     internal PostHog checkout that uses that image, after its final branch is in place.
     """
     if (
-        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        not ctx.desktop_workspace_warm_enabled
+        or ctx.custom_image_name != DEV_STACK_IMAGE_NAME
         or repository.casefold() != "posthog/posthog"
         or sandbox.config.image_fallback
     ):
@@ -892,8 +894,20 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     branch=None,
                 )
 
-        if clone_result.exit_code != 0:
-            raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
+            if clone_result.exit_code != 0:
+                error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
+                raise RepositoryCloneError(
+                    f"Git clone failed with exit code {clone_result.exit_code}",
+                    {
+                        "repository": input.repository,
+                        "sandbox_id": input.sandbox_id,
+                        "exit_code": clone_result.exit_code,
+                        "stderr": clone_result.stderr[:500],
+                        "stdout": clone_result.stdout[:500],
+                        "error": clone_result.error,
+                    },
+                    cause=RuntimeError(error_output[:200]),
+                )
 
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run

@@ -197,7 +197,7 @@ def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_nam
     return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
 
 
-def _get_aws_storage_options() -> dict[str, str]:
+def get_aws_storage_options() -> dict[str, str]:
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
@@ -815,7 +815,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
-    storage_options = _get_aws_storage_options()
+    storage_options = get_aws_storage_options()
     plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.

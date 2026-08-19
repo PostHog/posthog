@@ -34,6 +34,8 @@ from django.core.cache import cache
 from django.http import HttpRequest
 
 import structlog
+from django_redis.exceptions import ConnectionInterrupted
+from redis.exceptions import RedisError
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
@@ -78,11 +80,22 @@ def _fixed_window_count(cache_key: str, window_seconds: int) -> int:
     try:
         cache.add(cache_key, 0, timeout=window_seconds)
         return cache.incr(cache_key)
-    except (ValueError, ConnectionError, TimeoutError) as e:
+    except ValueError as e:
+        # incr raises ValueError when the key expired between add and incr.
         logger.warning("provisioning_rate_limit_cache_error", cache_key=cache_key, error=str(e))
-        # cache.add preserves any counter a concurrent request already initialized,
-        # so a transient cache error doesn't reset the window for a caller at the limit.
-        cache.add(cache_key, 1, timeout=window_seconds)
+        try:
+            # cache.add preserves any counter a concurrent request already initialized,
+            # so a transient cache error doesn't reset the window for a caller at the limit.
+            cache.add(cache_key, 1, timeout=window_seconds)
+        except (RedisError, ConnectionInterrupted):
+            pass
+        return 1
+    except (RedisError, ConnectionInterrupted) as e:
+        # Redis is unreachable (its errors subclass RedisError/Exception, not the
+        # builtin ConnectionError/TimeoutError). Fail open without touching the
+        # cache again: a second cache call would raise the same way and turn every
+        # provisioning request into a 500 for as long as Redis is down.
+        logger.warning("provisioning_rate_limit_cache_error", cache_key=cache_key, error=str(e))
         return 1
 
 

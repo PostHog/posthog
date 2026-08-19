@@ -444,7 +444,6 @@ export function captureSignalSourceSteeringChanged(params: {
     sourceProduct: string
     sourceType: string
     steeringLength: number
-    defaultNotActionable: boolean
     success: boolean
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_STEERING_CHANGED, {
@@ -452,7 +451,6 @@ export function captureSignalSourceSteeringChanged(params: {
         source_type: params.sourceType,
         steering_length: params.steeringLength,
         has_steering: params.steeringLength > 0,
-        default_not_actionable: params.defaultNotActionable,
         success: params.success,
     })
 }

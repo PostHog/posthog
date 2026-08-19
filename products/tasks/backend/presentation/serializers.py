@@ -5,12 +5,10 @@ import logging
 import binascii
 from datetime import datetime, timedelta
 from typing import Any, cast
-from zoneinfo import available_timezones
 
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
-from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
@@ -33,7 +31,6 @@ from products.tasks.backend.facade.contracts import (
     SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
-    TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
@@ -449,6 +446,7 @@ class TaskSerializer(DataclassSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "last_activity_at",
             "created_by",
             "ci_prompt",
             "channel",
@@ -1512,6 +1510,34 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
+    pr_state = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.PR_STATES),
+        help_text=(
+            "Filter tasks by the state of their most recent run's pull request, as last observed "
+            "from GitHub (webhooks plus the CI follow-up snapshot)."
+        ),
+    )
+    ci_status = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.CI_STATUSES),
+        help_text=(
+            "Filter tasks by the CI check rollup on their most recent run's pull request, as last "
+            "observed from GitHub. 'none' means the PR has no checks."
+        ),
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="With true, only tasks the requesting user has pinned.",
+    )
+    commented_by = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks carrying a thread comment written by this user ID.",
+    )
+    mentions = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks whose thread mentions this user ID.",
+    )
     internal = serializers.ChoiceField(
         required=False,
         choices=["true", "false", "all"],
@@ -1531,6 +1557,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    ordering = serializers.ChoiceField(
+        required=False,
+        choices=sorted(tasks_facade.TASK_LIST_ORDERINGS),
+        help_text=(
+            "Sort order. '-last_activity_at' is newest activity first, where activity means a thread "
+            "message or a run starting, streaming, or finishing. Defaults to '-created_at'."
+        ),
+    )
     all_team_tasks = serializers.BooleanField(
         required=False,
         default=False,
@@ -1862,6 +1896,17 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
+    target_scope = serializers.ChoiceField(
+        choices=["desktop_canvas"],
+        allow_null=True,
+        required=False,
+        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
+    )
+    target_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Identifier of the activity target. Present together with target_scope.",
+    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -1879,6 +1924,8 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
+            "target_scope",
+            "target_id",
             "is_unread",
         ]
 
@@ -1949,6 +1996,23 @@ class TaskArtifactSerializer(serializers.Serializer):
 
 class TaskArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated cloud compute cost attributed to this task in US dollars."
+    )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
 
 
 class TaskCommentsQuerySerializer(serializers.Serializer):
@@ -3145,94 +3209,6 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Zero-based offset into the filtered log entries",
     )
-
-
-class TaskAutomationSerializer(DataclassSerializer):
-    """Detail/create/update/run response for a task automation."""
-
-    class Meta:
-        dataclass = TaskAutomationDTO
-        fields = [
-            "id",
-            "name",
-            "prompt",
-            "repository",
-            "github_integration",
-            "cron_expression",
-            "timezone",
-            "template_id",
-            "enabled",
-            "last_run_at",
-            "last_run_status",
-            "last_task_id",
-            "last_task_run_id",
-            "last_error",
-            "created_at",
-            "updated_at",
-        ]
-
-
-class TaskAutomationWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task automation."""
-
-    name = serializers.CharField(max_length=255, help_text="Display name (stored as the backing task's title).")
-    prompt = serializers.CharField(help_text="The automation prompt (stored as the backing task's description).")
-    repository = serializers.CharField(
-        max_length=255, help_text="Target repository in the format organization/repository."
-    )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
-        required=False,
-        allow_null=True,
-        help_text="GitHub integration to run as. Defaults to the team's GitHub integration when omitted.",
-    )
-    cron_expression = serializers.CharField(
-        max_length=100, help_text="Standard 5-field cron expression (minute hour day month weekday)."
-    )
-    timezone = serializers.CharField(
-        max_length=128, required=False, default="UTC", help_text="IANA timezone the schedule runs in."
-    )
-    template_id = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional template identifier this automation was created from.",
-    )
-    enabled = serializers.BooleanField(
-        required=False, default=True, help_text="Whether the schedule is active; paused when false."
-    )
-
-    def validate_github_integration(self, value):
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
-    def validate_repository(self, value: str) -> str:
-        normalized = value.strip().lower()
-        parts = normalized.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-        return normalized
-
-    def validate_cron_expression(self, value: str) -> str:
-        normalized = value.strip()
-        parts = normalized.split()
-        if len(parts) != 5:
-            raise serializers.ValidationError(
-                "Only standard 5-field cron expressions are supported "
-                "(minute hour day month weekday). Example: '0 9 * * 1-5'."
-            )
-        if not croniter.is_valid(normalized):
-            raise serializers.ValidationError(
-                "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
-            )
-        return normalized
-
-    def validate_timezone(self, value: str) -> str:
-        if value not in available_timezones():
-            raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
-        return value
 
 
 class SandboxEnvironmentSerializer(DataclassSerializer):

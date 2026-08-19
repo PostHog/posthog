@@ -1992,7 +1992,10 @@ def _build_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    # A stored watermark of "" (e.g. a stale/corrupted sync_type_config value) must not become a
+    # literal `''` in the WHERE clause — Postgres rejects casting it against a numeric/date/etc.
+    # column with "invalid input syntax", so treat it the same as no watermark at all.
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
@@ -2119,7 +2122,7 @@ def _build_count_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))

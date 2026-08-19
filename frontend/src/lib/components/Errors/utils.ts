@@ -46,6 +46,9 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
             return 'flutter'
         case 'posthog-elixir':
             return 'elixir'
+        // posthog-server is the current java server SDK identifier; posthog-java is the
+        // tombstoned legacy SDK, kept so already-ingested events still resolve.
+        case 'posthog-server':
         case 'posthog-java':
         case 'analytics-java':
             return 'java'
@@ -125,6 +128,20 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         ingestionErrors,
         appNamespace,
         appVersion,
+    }
+}
+
+export function getExceptionTypeAndValue(properties: ErrorEventProperties): {
+    type?: string
+    value?: string
+} {
+    const [exception] = Array.isArray(properties.$exception_list) ? properties.$exception_list : []
+    const type = properties.$exception_types?.[0] || properties.$exception_type || exception?.type
+    const value = properties.$exception_values?.[0] || properties.$exception_message || exception?.value
+
+    return {
+        type: type ? stringify(type) : undefined,
+        value: value ? stringify(value) : undefined,
     }
 }
 

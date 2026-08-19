@@ -1,4 +1,6 @@
-from datetime import datetime
+import json
+from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,6 +36,25 @@ class TestBuildBundles:
         assert pps.build_bundles(rows, "distinct_id", {"plan": "plan_tier", "seats": "seat_count"}) == [
             ("a", {"plan_tier": "pro"})
         ]
+
+    def test_coerces_non_json_scalars_so_the_produce_can_serialize(self):
+        # A timestamp column arrives as a datetime and a numeric column as a Decimal; the Kafka
+        # producer serializes intents with plain json.dumps, so these must be coerced or it crashes.
+        rows = [
+            {
+                "distinct_id": "a",
+                "signed_up": datetime(2026, 1, 2, 3, 4, 5),
+                "born": date(2026, 1, 2),
+                "ltv": Decimal("9.99"),
+            }
+        ]
+        bundles = pps.build_bundles(
+            rows, "distinct_id", {"signed_up": "signed_up_at", "born": "born_on", "ltv": "lifetime_value"}
+        )
+        assert bundles == [
+            ("a", {"signed_up_at": "2026-01-02T03:04:05", "born_on": "2026-01-02", "lifetime_value": 9.99})
+        ]
+        json.dumps(bundles[0][1])  # the produced bundle round-trips without a default handler
 
 
 class TestBundleHash:

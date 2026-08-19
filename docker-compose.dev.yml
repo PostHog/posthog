@@ -786,14 +786,16 @@ services:
             - '14268:14268' # jaeger.thrift
             - '14250:14250' # model.proto
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
-        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+            service: dynamodb
+        profiles: [dynamodb]
+        container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
-            - '127.0.0.1:4566:4566' # LocalStack Gateway
-            - '127.0.0.1:4510-4559:4510-4559' # external services port range
+            # Not 8000 (the Django dev server) and not 18000, which the eval harness binds for its
+            # live server, where sharing the port fails `hogli evals` on Linux with the stack up.
+            - '127.0.0.1:18010:8000'
 
     seaweedfs:
         extends:
