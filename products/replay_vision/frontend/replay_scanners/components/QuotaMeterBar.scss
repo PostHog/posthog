@@ -33,6 +33,30 @@
     }
 }
 
+// The slice of the bar past the spend limit, once the meter rescales to the whole total. A static
+// dark hatch (distinct from the animated white projection stripes) marks it as beyond the limit, so a
+// full-looking bar can't be mistaken for "at capacity".
+.QuotaMeterBar__overLimit {
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+        135deg,
+        rgb(0 0 0 / 28%) 0,
+        rgb(0 0 0 / 28%) 2px,
+        transparent 2px,
+        transparent 6px
+    );
+
+    [theme='dark'] & {
+        background-image: repeating-linear-gradient(
+            135deg,
+            rgb(0 0 0 / 45%) 0,
+            rgb(0 0 0 / 45%) 2px,
+            transparent 2px,
+            transparent 6px
+        );
+    }
+}
+
 // Free credits are still spend, so they stay in the same neutral family as the billed segment,
 // just lighter. Keeping the bar monochrome leaves green/amber/red to mean status, nothing else.
 .QuotaMeterBar__free {

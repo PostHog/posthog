@@ -137,6 +137,16 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
 }
 
 /**
+ * A credit amount as a share of the spend limit, with a label for the usage table.
+ * The label never rounds a real spend down to `0`: any positive share under 1% reads as `< 1`.
+ */
+export function spendLimitShare(credits: number, creditLimit: number): { pct: number; label: string } {
+    const pct = creditLimit > 0 ? (credits / creditLimit) * 100 : 0
+    const label = pct > 0 && pct < 1 ? '< 1' : String(Math.round(pct))
+    return { pct, label }
+}
+
+/**
  * Disabled-reason / tooltip for scan triggers based on the monthly credit limit.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
  */

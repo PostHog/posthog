@@ -49,6 +49,9 @@ export const createGaugeItems = (
     } = {}
 ): BillingGaugeItemType[] => {
     const freeTier = calculateFreeTier(product)
+    // The billing service can omit usage for a product; a zero here would read as a confident "0 used"
+    // next to a tier table showing the real figure, so mark it unavailable instead.
+    const currentUsageUnavailable = product.current_usage == null
 
     return [
         // Billing limit (only for main products, excl. product variants setup)
@@ -71,8 +74,8 @@ export const createGaugeItems = (
               }
             : undefined,
 
-        // Projected usage
-        product.projected_usage && product.projected_usage > (product.current_usage || 0)
+        // Projected usage (only when current usage is known, so we don't project off a missing figure)
+        !currentUsageUnavailable && product.projected_usage && product.projected_usage > (product.current_usage || 0)
             ? {
                   type: BillingGaugeItemKind.ProjectedUsage,
                   text: 'Projected',
@@ -85,6 +88,7 @@ export const createGaugeItems = (
             type: BillingGaugeItemKind.CurrentUsage,
             text: 'Current',
             value: product.current_usage || 0,
+            unavailable: currentUsageUnavailable,
         },
     ].filter(Boolean) as BillingGaugeItemType[]
 }

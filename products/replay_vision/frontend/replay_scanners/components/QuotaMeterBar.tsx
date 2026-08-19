@@ -97,7 +97,7 @@ export function QuotaMeterBar({
             <div className="relative">
                 <div
                     className={clsx(
-                        'flex overflow-hidden bg-fill-tertiary',
+                        'relative flex overflow-hidden bg-fill-tertiary',
                         size === 'small' ? 'h-1.5 rounded-full' : 'h-3 rounded'
                     )}
                     role="meter"
@@ -125,6 +125,14 @@ export function QuotaMeterBar({
                             style={{ width: `${widths[index + 2]}%` }}
                         />
                     ))}
+                    {/* Past the limit the bar's width is the whole total, not the limit; hatch the excess so a
+                        rescaled bar can't read as simply full. */}
+                    {overshoots && (
+                        <div
+                            className="QuotaMeterBar__overLimit absolute inset-y-0 right-0 transition-[left] duration-500 ease-out"
+                            style={{ left: `${limitMarkerPct}%` }}
+                        />
+                    )}
                 </div>
                 <div
                     className={clsx(

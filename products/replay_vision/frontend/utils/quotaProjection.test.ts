@@ -1,5 +1,23 @@
-import { daysUntilCapReached, exhaustionForecast, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
+import {
+    daysUntilCapReached,
+    exhaustionForecast,
+    hasBillableSpend,
+    projectQuota,
+    quotaUx,
+    spendLimitShare,
+} from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
+
+describe('spendLimitShare', () => {
+    it.each([
+        ['a scanner far under the limit reads as a small share, not full', 338, 7_500, 4.506666666666667, '5'],
+        ['any positive spend under one percent never rounds down to zero', 10, 7_500, 0.13333333333333333, '< 1'],
+        ['exact zero spend has no share', 0, 7_500, 0, '0'],
+        ['a zero limit is treated as no denominator', 500, 0, 0, '0'],
+    ])('%s', (_name, credits, creditLimit, pct, label) => {
+        expect(spendLimitShare(credits, creditLimit)).toEqual({ pct, label })
+    })
+})
 
 describe('hasBillableSpend', () => {
     it.each([

@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -16,7 +15,7 @@ import { VisionDocsLink } from '../../components/DocsLink'
 import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
-import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { exhaustionForecast, hasCreditLimit, projectQuota, spendLimitShare } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName, modelNamingVariant } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
@@ -86,7 +85,6 @@ export function VisionUsageTab(): JSX.Element {
         (s: ReplayScanner) => s.credits_this_month > 0 || (s.enabled && (s.estimated_monthly_credits ?? 0) > 0)
     )
     const hiddenCount = usageScanners.length - rows.length
-    const totalCredits = rows.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
     // A $0 limit really blocks scanning, but as a bar denominator it deliberately counts as "no limit".
     const creditLimit = hasCap && quota.credit_limit > 0 ? quota.credit_limit : null
 
@@ -191,8 +189,7 @@ export function VisionUsageTab(): JSX.Element {
                         </span>
                     )
                 }
-                const limitPct = (estimatedCredits / creditLimit) * 100
-                const limitPctLabel = limitPct > 0 && limitPct < 1 ? '< 1' : String(Math.round(limitPct))
+                const { pct: limitPct, label: limitPctLabel } = spendLimitShare(estimatedCredits, creditLimit)
                 return (
                     <div className="flex flex-col gap-1">
                         <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
@@ -215,16 +212,29 @@ export function VisionUsageTab(): JSX.Element {
             key: 'credits_this_month',
             width: '30%',
             className: 'pl-6',
-            tooltip: 'How much of the total spend this period came from this scanner.',
+            tooltip: 'How much of the spend limit this scanner has used this period.',
             render: (_, scanner) => {
-                const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
+                if (creditLimit === null) {
+                    return (
+                        <span className="text-sm tabular-nums">
+                            {formatCreditsMaybeUsd(scanner.credits_this_month, showUsd)}
+                        </span>
+                    )
+                }
+                const { pct: limitPct, label: limitPctLabel } = spendLimitShare(scanner.credits_this_month, creditLimit)
                 return (
                     <div className="flex flex-col gap-1">
                         <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
                             {formatCreditsMaybeUsd(scanner.credits_this_month, showUsd)}
-                            <span className="text-muted">{sharePct}%</span>
+                            <span className="text-muted">{limitPctLabel}% of spend limit</span>
                         </span>
-                        <LemonProgress percent={sharePct} />
+                        <QuotaMeterBar
+                            size="small"
+                            usedPct={limitPct}
+                            projected={[]}
+                            valueNow={limitPct}
+                            label={`Spent ${limitPctLabel}% of the monthly spend limit`}
+                        />
                     </div>
                 )
             },

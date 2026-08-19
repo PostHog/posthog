@@ -28,12 +28,21 @@ const BillingGaugeItem = ({
     isTop,
     product,
 }: BillingGaugeItemProps): JSX.Element => {
-    const width = `${(item.value / maxValue) * 100}%`
+    // An unavailable value has no known position, so pin it to the start rather than to a misleading zero.
+    const width = item.unavailable ? '0%' : `${(item.value / maxValue) * 100}%`
 
     const formatValue = product ? createProductValueFormatter(product) : (v: number | null) => v?.toLocaleString() ?? ''
     const formattedValue = formatValue(item.value)
-    const tooltipValue =
-        product && hasDisplayFormatting(product) ? formatDisplayUsage(item.value, product) : item.value.toLocaleString()
+    const displayValue = item.unavailable
+        ? 'Unavailable'
+        : item.prefix
+          ? `${item.prefix}${formattedValue}`
+          : formattedValue
+    const tooltipValue = item.unavailable
+        ? 'Usage is not available right now. See the tier breakdown below for the billed amount.'
+        : product && hasDisplayFormatting(product)
+          ? formatDisplayUsage(item.value, product)
+          : item.value.toLocaleString()
 
     return (
         <div
@@ -48,14 +57,17 @@ const BillingGaugeItem = ({
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
             <div className="absolute right-0 w-px h-full bg-surface-primary" />
-            <Tooltip title={item.prefix ? `${item.prefix}${tooltipValue}` : tooltipValue} placement="right">
+            <Tooltip
+                title={item.prefix && !item.unavailable ? `${item.prefix}${tooltipValue}` : tooltipValue}
+                placement="right"
+            >
                 <div
                     className={clsx('BillingGaugeItem__info', {
                         'BillingGaugeItem__info--bottom': !isTop,
                     })}
                 >
                     <b>{item.text}</b>
-                    <div>{item.prefix ? `${item.prefix}${formattedValue}` : formattedValue}</div>
+                    <div className={item.unavailable ? 'text-muted' : undefined}>{displayValue}</div>
                 </div>
             </Tooltip>
         </div>

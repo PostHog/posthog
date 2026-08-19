@@ -10,6 +10,8 @@ export type BillingGaugeItemType = {
     text: string | JSX.Element
     prefix?: string
     value: number
+    /** The value is not known (the billing service returned no usage), so show it as unavailable, not zero. */
+    unavailable?: boolean
 }
 
 export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'alerts'
