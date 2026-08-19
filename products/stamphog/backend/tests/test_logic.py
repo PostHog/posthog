@@ -114,6 +114,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             check_runs=[],
             pr_reactions=[],
             author_pr_numbers=[],
+            author_team_slugs=[],
             base_sha="base",
             head_sha="head",
             repo="owner/repo",

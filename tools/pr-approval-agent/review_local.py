@@ -54,7 +54,7 @@ from familiarity import (
     _read_diff,
     _select_considered_files,
 )
-from gates import POLICY
+from gates import POLICY, assign_tier
 from github import (
     TRUSTED_REACTOR_BOTS,
     PRData,
@@ -64,7 +64,9 @@ from github import (
     _prompt_worthy_author,
     _reaction_emoji,
     is_bot_author,
+    pr_provenance,
 )
+from migration_risk import migration_check_pending
 from policy import FamiliarityPolicy
 from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
@@ -218,23 +220,53 @@ def _build_pr_data(context: dict) -> PRData:
     )
 
 
-def _ownership_summary(ownership: dict) -> str:
-    """Mirror _summarize_ownership's emptiness rule: individual owners count as ownership context
-    even with zero teams, or the prompt would claim "no owned paths" while hiding the handles the
-    reviewer should route escalations to."""
-    owners = [*ownership.get("teams", []), *ownership.get("individuals", [])]
-    if owners:
-        return f"touches {', '.join(owners)}"
-    return "no owned paths touched"
+def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
+    """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
+
+    The Action resolves membership with one `gh` call per owning team. The sandbox has no token, so
+    the server hands over every team the author belongs to and the intersection happens here.
+
+    Setting `author_on_owning_team` matters beyond the summary text: the reviewer prompt reads that
+    key with a default of True, so leaving it unset tells the reviewer the author owns the code no
+    matter who opened the PR. An unresolvable lookup arrives as an empty set and lands on "not on any
+    owning team", which is the same direction the Action fails in and the safe one for a bot that
+    approves.
+    """
+    cl = pipeline.classification
+    ownership = cl.get("ownership", {})
+    individuals = ownership.get("individuals", [])
+    teams = ownership.get("teams", [])
+    if ownership.get("team_count", 0) == 0 and not individuals:
+        cl["ownership_summary"] = "no owned paths touched"
+        return
+
+    author = pipeline.pr.author
+    author_teams = [team for team in teams if team.split("/")[-1] in author_team_slugs]
+
+    parts = []
+    if teams:
+        parts.append(f"touches {', '.join(teams)}")
+    if individuals:
+        # Individuals never enter the membership check, because the author simply
+        # is or isn't one of them.
+        suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
+        parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
+    if author_teams:
+        parts.append(f"author {author} is on {', '.join(author_teams)}")
+    elif teams:
+        parts.append(f"author {author} is not on any owning team")
+    if ownership.get("cross_team"):
+        parts.append("cross-team change")
+
+    cl["ownership_summary"] = "; ".join(parts)
+    cl["author_on_owning_team"] = bool(author_teams)
 
 
-def _run_gates_offline(pipeline: Pipeline) -> None:
+def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
     """Run the four deterministic gate checks — the same ones _run_gates runs.
 
-    Mirrors Pipeline._run_gates minus its `_summarize_ownership` call, which
-    shells out to `gh` for author-team membership. Membership is advisory
-    reviewer context (never a gate), so it is simply omitted here; the ownership
-    teams themselves are still resolved locally from the checkout.
+    Mirrors Pipeline._run_gates, with _summarize_ownership's `gh` membership lookup replaced by the
+    server-injected team set (see _apply_ownership_summary).
     """
     gates = [
         ("prerequisites", pipeline._check_prerequisites),
@@ -246,7 +278,7 @@ def _run_gates_offline(pipeline: Pipeline) -> None:
         passed, message = check()
         pipeline.gate_results.append(GateResult(name, passed, message))
 
-    pipeline.classification["ownership_summary"] = _ownership_summary(pipeline.classification.get("ownership", {}))
+    _apply_ownership_summary(pipeline, author_team_slugs)
 
 
 def _familiarity_offline(
@@ -318,6 +350,38 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
         print(f"warning: familiarity computation failed ({exc}); continuing without the signal")
 
 
+def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
+    """True when the sole thing standing between this PR and a review is the unfinished analyzer.
+
+    `Pipeline._only_pending_migration_check` cannot answer this: it disqualifies on any failing gate
+    other than the deny-list, and a migrations deny always drags the tier gate down to T2-never with
+    it, so that method returns False for every migration PR it exists to catch.
+
+    The tier is re-derived with the migrations deny removed instead of special-casing the gate, so a
+    PR that would be T2 on its own merits (breadth, size, another deny) stays refused rather than
+    waiting for a check that will not change the outcome.
+    """
+    pr = pipeline.pr
+    cl = pipeline.classification
+    if cl.get("deny_categories") != ["migrations"]:
+        return False
+    if not migration_check_pending(pr.check_runs, pr.file_paths):
+        return False
+    if any(not gate.passed and gate.gate not in ("deny-list", "tier") for gate in pipeline.gate_results):
+        return False
+    tier_without_migrations = assign_tier(
+        deny_categories=[],
+        allow_listed_only=bool(cl.get("allow_listed_only")),
+        is_test_only=bool(cl.get("is_test_only")),
+        has_new_files=pr.has_new_files,
+        lines_total=pr.lines_total,
+        files_changed=len(pr.files),
+        breadth=cl.get("breadth", ""),
+        commit_type=cl.get("commit_type"),
+    )
+    return tier_without_migrations != "T2-never"
+
+
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
@@ -328,6 +392,10 @@ def run(context: dict) -> dict:
         0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")), head_checkout=True
     )
     pipeline.pr = _build_pr_data(context)
+    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token and
+    # runs here exactly as it does in the Action. Without it the agent-authorship evidence and the
+    # stamphog_review_completed provenance properties are null for every hosted review.
+    pipeline.provenance = pr_provenance(pipeline.pr.base_sha, pipeline.pr.head_sha, REPO_ROOT)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
@@ -335,8 +403,28 @@ def run(context: dict) -> dict:
 
     try:
         pipeline._classify()
-        _run_gates_offline(pipeline)
+        _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
         gate_verdict = pipeline._gate_verdict()
+
+        # A `Migration risk` check that has not reported yet is a race with CI, not a judgment on the
+        # PR: the deny-list only matched because the engine could not tell a safe migration from a
+        # risky one. WAIT rather than REFUSE because the hosted runtime routes every refusal to a
+        # ReviewHog handoff and strips the trigger label, which would escalate a transient check to a
+        # second review agent and make the author re-request the review it displaced.
+        if _blocked_only_by_pending_migration_check(pipeline):
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    "The `Migration risk` check has not finished for this commit, so stamphog cannot "
+                    "tell a safe migration from a risky one yet. The review runs again on the next "
+                    "push, or you can re-request it once the check reports."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            pipeline._capture_review_completed(gate_verdict, "PENDING-MIGRATION-CHECK")
+            return pipeline.to_dict()
 
         # Mirror the Action's in-flight reviewer-bot handling, minus the wait: there is no token in
         # the sandbox to poll with, and the SERVER already waited out the race (workflow bot-wait

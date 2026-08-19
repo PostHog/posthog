@@ -14,6 +14,7 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+from github import CommitProvenance  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 
@@ -64,15 +65,119 @@ def test_commented_reviews_are_dropped_offline(monkeypatch) -> None:
     assert assurance["head_approvals"] == ["dave"]
 
 
-def test_ownership_summary_preserves_individual_owners() -> None:
-    # Individuals-only ownership (team_count == 0) used to collapse to "no owned paths touched",
-    # hiding the owner handles from the reviewer prompt — the LLM would approve instead of routing
-    # to the named owner. Mirrors _summarize_ownership's emptiness rule.
-    assert review_local._ownership_summary({"teams": [], "individuals": ["@a-handle"]}) == "touches @a-handle"
-    assert review_local._ownership_summary({"teams": ["org/devex"], "individuals": ["@a-handle"]}) == (
-        "touches org/devex, @a-handle"
+def _ownership_pipeline(ownership: dict, author: str = "alice") -> Pipeline:
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = MagicMock(author=author)
+    pipeline.classification = {"ownership": ownership}
+    return pipeline
+
+
+@pytest.mark.parametrize(
+    "ownership,author_team_slugs,expected_summary,expected_on_team",
+    [
+        # Individuals-only ownership (team_count == 0) must not collapse to "no owned paths touched",
+        # which would hide the owner handles the reviewer should route escalations to.
+        ({"team_count": 0, "teams": [], "individuals": ["@a-handle"]}, set(), "individually owned by @a-handle", False),
+        (
+            {"team_count": 0, "teams": [], "individuals": ["@alice"]},
+            set(),
+            "individually owned by @alice (author alice is one of them)",
+            False,
+        ),
+        ({"team_count": 0, "teams": [], "individuals": []}, set(), "no owned paths touched", None),
+        (
+            {"team_count": 1, "teams": ["org/devex"], "individuals": []},
+            set(),
+            "touches org/devex; author alice is not on any owning team",
+            False,
+        ),
+        (
+            {"team_count": 1, "teams": ["org/devex"], "individuals": []},
+            {"devex"},
+            "touches org/devex; author alice is on org/devex",
+            True,
+        ),
+        (
+            {"team_count": 2, "teams": ["org/a", "org/b"], "individuals": [], "cross_team": True},
+            {"a"},
+            "touches org/a, org/b; author alice is on org/a; cross-team change",
+            True,
+        ),
+    ],
+)
+def test_ownership_summary_reflects_author_team_membership(
+    ownership: dict, author_team_slugs: set, expected_summary: str, expected_on_team: bool | None
+) -> None:
+    # author_on_owning_team drives the reviewer prompt's "NOTE: Author is NOT on the owning team",
+    # which reads the key with a default of True. Leaving it unset told the reviewer that every
+    # author owned the code they touched, so the note never fired on a hosted review.
+    pipeline = _ownership_pipeline(ownership)
+
+    review_local._apply_ownership_summary(pipeline, author_team_slugs)
+
+    assert pipeline.classification["ownership_summary"] == expected_summary
+    assert pipeline.classification.get("author_on_owning_team") is expected_on_team
+
+
+def _run_context(files: list[dict], check_runs: list[dict] | None = None) -> dict:
+    return {
+        "repo": "PostHog/posthog",
+        "head_sha": "h" * 40,
+        "base_sha": "b" * 40,
+        "pr": {
+            "number": 1,
+            "title": "feat(x): add a column",
+            "state": "OPEN",
+            "mergeable_state": "clean",
+            "user": {"login": "alice", "type": "User"},
+        },
+        "files": files,
+        "check_runs": check_runs or [],
+    }
+
+
+def _api_file(filename: str, status: str = "added") -> dict:
+    return {"filename": filename, "additions": 10, "deletions": 0, "status": status, "patch": "@@"}
+
+
+def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
+    # A migration PR whose "Migration risk" check hasn't reported yet only trips the deny-list
+    # because the engine can't tell a safe migration from a risky one. Returning REFUSED there sends
+    # the hosted runtime down its refusal path: a ReviewHog handoff plus a trigger-label strip, for
+    # what is a race with CI. WAIT keeps the label and re-runs on the next push.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+    context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == "WAIT"
+    assert "Migration risk" in result["reviewer"]["reasoning"]
+
+
+def test_offline_run_carries_commit_provenance(monkeypatch) -> None:
+    # pr_provenance reads commit trailers from the checkout with no token, so the sandbox can compute
+    # it. Not wiring it left provenance null on every hosted review, which drops agent-authorship
+    # from the evidence bundle and from the stamphog_review_completed properties.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(
+        review_local,
+        "pr_provenance",
+        lambda *a, **k: CommitProvenance(
+            commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",)
+        ),
     )
-    assert review_local._ownership_summary({"teams": [], "individuals": []}) == "no owned paths touched"
+    context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+
+    result = review_local.run(context)
+
+    assert result["provenance"] == {
+        "agent_authored": True,
+        "commit_count": 3,
+        "agent_commit_count": 2,
+        "generated_by": ["claude"],
+        "task_ids": ["t-1"],
+    }
 
 
 def _thread_context(review_threads: list[dict]) -> dict:
