@@ -84,7 +84,7 @@ jobs:
               env:
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-              run: .github/scripts/poll-vercel-deployment.sh "${{ steps.trigger-build.outputs.deployment_id }}"
+              run: bash .github/scripts/poll-vercel-deployment.sh "${{ steps.trigger-build.outputs.deployment_id }}"
 
             - name: Post docs preview to CI report
               if: github.event_name == 'pull_request'
