@@ -1,8 +1,11 @@
 name: Rust CI
 on:
     workflow_dispatch:
-    push:
-        branches: [master, main]
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
     pull_request:
 
 concurrency:
@@ -42,7 +45,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |

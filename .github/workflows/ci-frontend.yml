@@ -11,9 +11,11 @@ on:
         # commit CI had already covered. A label here takes effect from the next
         # push, or from ready_for_review.
         types: [opened, synchronize, reopened, ready_for_review]
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -74,7 +76,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -174,18 +176,18 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
-    # Skipped on ready PRs and master pushes; the jest job falls back
+    # Skipped on ready PRs and master runs; the jest job falls back
     # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
     # full run is the merge gate. The run-ci-frontend label forces the full
     # matrix on a draft. When selection can't be trusted on a draft (config
@@ -711,7 +713,7 @@ jobs:
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on ready
-        # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
+        # PRs and master runs, and a skipped need would otherwise cascade a skip here.
         # !cancelled() rather than always() so a superseded run's shards stop promptly.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
@@ -723,7 +725,7 @@ jobs:
             # On draft PRs, select-jest-tests may narrow this to two EE jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
-            # trusted. On ready PRs and master pushes it's skipped, so
+            # trusted. On ready PRs and master runs it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 

@@ -11,9 +11,11 @@ on:
         # had already covered. A label here takes effect from the next push, or from
         # ready_for_review.
         types: [opened, synchronize, reopened, ready_for_review]
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -51,7 +53,7 @@ jobs:
             # diff the filter reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
-                    github.event_name == 'push'
+                    github.event_name == 'schedule'
                     || (steps.filter.outputs.frontend == 'true'
                         && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
@@ -84,7 +86,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -150,11 +152,11 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
@@ -163,7 +165,7 @@ jobs:
             # On PRs, only run chromium shards — no story opts into webkit snapshots
             # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
             # minutes without producing snapshot diffs. WebKit render-error coverage is
-            # preserved on master pushes.
+            # preserved on scheduled master runs.
             - name: Build matrix
               id: matrix
               run: |
@@ -299,7 +301,7 @@ jobs:
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
         # A status function is required because select-stories is skipped on forced-full
-        # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
+        # PRs and master runs, and GitHub would otherwise cascade that skip to this job.
         # !cancelled() rather than always() so a superseded run stops here instead of
         # creating a Visual Review run that its cancelled matrix will never complete.
         if: |
@@ -307,7 +309,7 @@ jobs:
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
-            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'schedule')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
@@ -363,13 +365,13 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
-                  # PRs are gating ("review"); master pushes are tracking-only ("observe") since
+                  # PRs are gating ("review"); master runs are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
                   # trunk-merge/** is observe for the same reason: the queue's PR is ephemeral, so a
                   # diff there has no reviewer and no approval path. Master baseline drift would
                   # otherwise block every PR behind it on a diff none of their authors can resolve.
                   # The run is still created, so merge-time drift stays visible in Visual Review.
-                  VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
+                  VR_PURPOSE: ${{ (github.event_name == 'schedule' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
                   # Selective storybook runs only render a subset of stories. Without --partial,
                   # VR would flag every untouched baseline identifier as removed.
                   VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
@@ -393,7 +395,7 @@ jobs:
         runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         # A status function is required because select-stories is skipped on forced-full
-        # PRs and master pushes. !cancelled() rather than always() so a superseded run's
+        # PRs and master runs. !cancelled() rather than always() so a superseded run's
         # browser shards stop promptly instead of running the full 30-minute matrix.
         if: >-
             !cancelled()
@@ -410,7 +412,7 @@ jobs:
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
             # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
-            # while master pushes run chromium + webkit.
+            # while master runs run chromium + webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -802,7 +804,7 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
-                  VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
+                  VR_OBSERVE: ${{ github.event_name == 'schedule' || needs.changes.outputs.merge_queue == 'true' }}
               run: |
                   args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
                   if [ "$VR_OBSERVE" = 'true' ]; then
@@ -1104,14 +1106,14 @@ jobs:
         name: Upload test results to Trunk
         # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
         # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
-        # only (master push), so the secret token never runs in a PR-controlled context; the
+        # only (scheduled master runs), so the secret token never runs in a PR-controlled context; the
         # uploader is a pinned external action, not a local one.
         needs: [visual-regression]
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
         # Avoid spinning a runner when visual-regression was skipped, while still
-        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        # uploading failed-test results (the flake signal Trunk needs) on master runs.
         # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
         # this job skips, so no results upload.
         if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'

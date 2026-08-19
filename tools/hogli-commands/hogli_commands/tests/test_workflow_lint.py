@@ -1034,6 +1034,9 @@ class TestCacheWriteGateCheck:
             ("github.ref_name == 'master'", True),
             # AND only narrows — still pinned to master
             ("github.ref == 'refs/heads/master' && github.event_name == 'push'", True),
+            # schedule only ever runs on the default branch
+            ("github.event_name == 'schedule'", True),
+            ("github.event_name == 'schedule' && steps.key.outputs.key != ''", True),
             # both OR alternatives pin to a default branch
             ("github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'", True),
             # the nit: negation runs on branches, not master

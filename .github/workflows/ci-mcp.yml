@@ -1,8 +1,11 @@
 name: MCP CI
 
 on:
-    push:
-        branches: [master]
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
         # the full PostHog backend and trigger on any non-pytest Python change) run
@@ -20,7 +23,7 @@ permissions:
     pull-requests: read
 
 env:
-    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on its scheduled master runs.
     SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
@@ -53,7 +56,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |

@@ -79,11 +79,13 @@ concurrency:
   Where latest-wins is genuinely right (a cache warmer), say so with `# hogli-lint: allow-master-cancel -- <reason>`.
 - Use `github.ref` as the fallback, never `github.run_id` — `run_id` is unique per run, so it silently gives every push its own group and dedup is lost.
 - Publish-on-push workflows must not let two master pushes race `:latest` / a deploy dispatch.
-  Key the push arm per-SHA (see `ci-backend.yml`):
+  Key the push arm per-SHA:
 
   ```yaml
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
   ```
+
+  (`ci-backend.yml` uses the same shape with `'schedule'` in the push arm's place: the CI suites run on master via an hourly schedule rather than on push, and consecutive scheduled runs must not cancel each other.)
 
 ## Required-check gates
 

@@ -1,7 +1,9 @@
 on:
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
     pull_request:
 
 name: Security
@@ -16,7 +18,7 @@ env:
 jobs:
     # Job to decide which path-scoped semgrep scans need to run.
     # See .github/actions/paths-filter/README.md for filter semantics
-    # Pushes and PRs above GitHub's 3000-file API limit run every scan.
+    # Scheduled master runs and PRs above GitHub's 3000-file API limit run every scan.
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -55,7 +57,7 @@ jobs:
                   permission-pull-requests: read
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' && steps.oversized.outputs.force_all != 'true'
+              if: github.event_name != 'schedule' && steps.oversized.outputs.force_all != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |

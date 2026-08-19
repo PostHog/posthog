@@ -98,9 +98,11 @@ name: '[optional, does not block merge] Backend CI'
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of this variable.
 on:
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run, mirroring canonical. Shadow failures do
+        # not alert: ci-alerts-devex.yml matches the canonical workflow names,
+        # and this shadow's statuses are non-blocking by design.
+        - cron: '17 * * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -116,9 +118,9 @@ on:
         # or from ready_for_review. Mirrors canonical.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
-    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    # PRs: one active run per branch, cancel stale. Scheduled master runs: per-SHA
+    # so consecutive hourly runs never cancel each other (check-migrations always completes).
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -245,7 +247,7 @@ jobs:
               continue-on-error: true
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   list-files: 'escape'
                   filters: |
@@ -489,8 +491,8 @@ jobs:
     # Runs on depot for turbo remote cache access (cache status drives Django gating)
     turbo-discover:
         needs: changes
-        # Not on master push: master only primes the schema cache; this cascades the matrices off.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        # Not on the scheduled master run: it only primes the schema cache; this cascades the matrices off.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'schedule'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -1004,7 +1006,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'schedule'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -1195,7 +1197,7 @@ jobs:
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
               # that "Run migrations up to master" would build from scratch.
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               id: master-schema-key
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
@@ -1213,7 +1215,7 @@ jobs:
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Restore master schema dump from cache
-              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              if: github.event_name != 'schedule' && steps.master-schema-key.outputs.key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1233,7 +1235,7 @@ jobs:
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
               # of a full migration run.
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
@@ -1287,7 +1289,7 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
             - name: Dump migrated schema
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               run: |
                   set -e
                   set -o pipefail
@@ -1299,7 +1301,7 @@ jobs:
                   gunzip -t schema.sql.gz
             - name: Save schema to Actions cache for PR shards
               # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1307,7 +1309,7 @@ jobs:
             - name: Compute migration-set schema key
               # Must match the merge-base computation in turbo-discover and the
               # master restore key above (inputs, hash, and key prefix).
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               id: mig-schema-key
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
@@ -1326,14 +1328,14 @@ jobs:
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Save schema to Actions cache (migration-set key)
-              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
+              if: github.event_name == 'schedule' && steps.mig-schema-key.outputs.key != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.mig-schema-key.outputs.key }}
             - name: Check migrations
-              # Skip migration safety check on master push (no migration_files from path filter)
-              if: github.event_name != 'push'
+              # Skip migration safety check on the scheduled master run (no migration_files from path filter)
+              if: github.event_name != 'schedule'
               env:
                   MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
@@ -2117,7 +2119,7 @@ jobs:
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'schedule'
         runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         outputs:

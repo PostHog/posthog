@@ -4,9 +4,11 @@
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 on:
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -30,9 +32,9 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
-    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    # PRs: one active run per branch, cancel stale. Scheduled master runs: per-SHA
+    # so consecutive hourly runs never cancel each other (check-migrations always completes).
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -127,7 +129,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -1487,7 +1489,7 @@ jobs:
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
               # that "Run migrations up to master" would build from scratch.
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               id: master-schema-key
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
@@ -1506,7 +1508,7 @@ jobs:
                   fi
 
             - name: Restore master schema dump from cache
-              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              if: github.event_name != 'schedule' && steps.master-schema-key.outputs.key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1525,7 +1527,7 @@ jobs:
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
               # of a full migration run.
-              if: github.event_name != 'push'
+              if: github.event_name != 'schedule'
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
@@ -1879,7 +1881,7 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Dump migrated schema
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               run: |
                   set -e
                   set -o pipefail
@@ -1891,7 +1893,7 @@ jobs:
                   gunzip -t schema.sql.gz
 
             - name: Upload migrated schema artifact
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
@@ -1902,7 +1904,7 @@ jobs:
 
             - name: Save schema to Actions cache for PR shards
               # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1911,7 +1913,7 @@ jobs:
             - name: Compute migration-set schema key
               # Must match the merge-base computation in turbo-discover and the
               # master restore key above (inputs, hash, and key prefix).
-              if: github.event_name == 'push'
+              if: github.event_name == 'schedule'
               id: mig-schema-key
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
@@ -1931,15 +1933,15 @@ jobs:
                   fi
 
             - name: Save schema to Actions cache (migration-set key)
-              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
+              if: github.event_name == 'schedule' && steps.mig-schema-key.outputs.key != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.mig-schema-key.outputs.key }}
 
             - name: Check migrations
-              # Skip migration safety check on master push (no migration_files from path filter)
-              if: github.event_name != 'push'
+              # Skip migration safety check on the scheduled master run (no migration_files from path filter)
+              if: github.event_name != 'schedule'
               env:
                   MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
@@ -2043,7 +2045,7 @@ jobs:
         # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
         # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
         # Mirror the dump there so fork PRs prime instead of migrating from scratch.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'schedule' && github.ref == 'refs/heads/master'
         name: Mirror schema cache to GitHub cache
         runs-on: ubuntu-latest
         timeout-minutes: 5

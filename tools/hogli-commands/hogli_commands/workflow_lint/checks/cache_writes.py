@@ -18,9 +18,10 @@ A write is FINE when any of these hold:
      dispatch on a branch is an explicit choice, not the silent PR/push pollution
      this rule guards against;
   2. the step ``if:`` gates it to the default branch — ``github.ref ==
-     'refs/heads/<default>'``, ``ref_name == '<default>'``, or (only when the
-     workflow's own ``push:`` trigger is default-branch-only) ``event_name ==
-     'push'``;
+     'refs/heads/<default>'``, ``ref_name == '<default>'``, ``event_name ==
+     'schedule'`` (schedule only ever runs on the default branch), or (only
+     when the workflow's own ``push:`` trigger is default-branch-only)
+     ``event_name == 'push'``;
   3. the cache key embeds a per-PR/branch/run id (e.g.
      ``github.event.pull_request.number``) — it's deliberately unique, not a
      shared cache that fragmented.
@@ -128,6 +129,9 @@ def _write_kind(step: dict) -> str | None:
 
 def _clause_pins_to_default(clause: str, push_is_default_only: bool) -> bool:
     if any(marker in clause for marker in GATE_MARKERS):
+        return True
+    # schedule runs only ever check out the default branch
+    if "event_name=='schedule'" in clause:
         return True
     # `event_name == 'push'` only pins to the default branch when push can't fire on a branch
     return push_is_default_only and "event_name=='push'" in clause

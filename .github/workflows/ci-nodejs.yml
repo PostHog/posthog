@@ -1,9 +1,11 @@
 name: Node.js CI
 on:
     pull_request:
-    push:
-        branches:
-            - master
+    schedule:
+        # Hourly full-suite master run. The Trunk merge queue runs the full suite
+        # before every merge, so master pushes no longer trigger CI; failed
+        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        - cron: '17 * * * *'
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -49,7 +51,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'schedule' # Run all tests on the scheduled master run
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -88,14 +90,14 @@ jobs:
                         - '.github/actions/rust-compute-affected/**'
 
             - name: Install rust for affected-crate detection
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
             - name: Compute affected Rust crates
               id: rust-affected
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
@@ -111,7 +113,7 @@ jobs:
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
               run: |
-                  if [ "${{ github.event_name }}" = "push" ]; then
+                  if [ "${{ github.event_name }}" = "schedule" ]; then
                     echo "nodejs=true" >> "$GITHUB_OUTPUT"
                     exit 0
                   fi

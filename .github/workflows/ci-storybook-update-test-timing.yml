@@ -66,11 +66,11 @@ jobs:
                       run_json=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id")
                       if ! jq -e '
                           .conclusion == "success" and
-                          .event == "push" and
+                          .event == "schedule" and
                           .head_branch == "master" and
                           .path == ".github/workflows/ci-storybook.yml"
                       ' <<< "$run_json" >/dev/null; then
-                          echo "Run $run_id is not a successful master push of ci-storybook.yml" >&2
+                          echo "Run $run_id is not a successful scheduled master run of ci-storybook.yml" >&2
                           return 1
                       fi
 
