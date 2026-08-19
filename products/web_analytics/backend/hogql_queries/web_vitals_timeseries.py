@@ -3,6 +3,7 @@ from typing import Any
 from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQuery, TrendsQueryResponse, WebVitalsQuery
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.schema_helpers import to_dict
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
@@ -43,6 +44,14 @@ class WebVitalsQueryRunner(TrendsQueryRunner):
         payload["web_vitals_timeseries_precompute"] = is_vitals_precompute_enabled_for_team(
             self.team
         ) and is_precompute_enabled_for_team(self.team)
+        # `super()` serializes only the inner TrendsQuery, but the precompute
+        # read builds its jobs from the wrapper's own filters (see
+        # `_build_inner_path_breakdown_query`). Fold those into the key — using
+        # the base payload's normalization — so two wrappers that share a source
+        # but differ in outer filters can't collide.
+        wrapper = to_dict(self.vitals_query)
+        payload["web_vitals_wrapper_properties"] = wrapper.get("properties")
+        payload["web_vitals_wrapper_do_path_cleaning"] = wrapper.get("doPathCleaning")
         return payload
 
     def _calculate(self) -> TrendsQueryResponse:

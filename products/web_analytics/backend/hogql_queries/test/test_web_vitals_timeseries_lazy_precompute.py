@@ -15,8 +15,10 @@ from posthog.schema import (
     ChartDisplayType,
     CompareFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
     IntervalType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
     WebVitalsQuery,
@@ -237,3 +239,19 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert runner.get_cache_payload()["web_vitals_timeseries_precompute"] is False
         with self._enable():
             assert runner.get_cache_payload()["web_vitals_timeseries_precompute"] is True
+
+    def test_cache_payload_varies_with_wrapper_filters(self) -> None:
+        # The precompute read builds its jobs from the wrapper's own properties,
+        # so two wrappers sharing a source but differing in outer filters must
+        # not share a cache entry.
+        base = WebVitalsQueryRunner(team=self.team, query=_vitals_query())
+        filtered = WebVitalsQueryRunner(
+            team=self.team,
+            query=_vitals_query(
+                properties=[EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT)]
+            ),
+        )
+        assert (
+            base.get_cache_payload()["web_vitals_wrapper_properties"]
+            != filtered.get_cache_payload()["web_vitals_wrapper_properties"]
+        )
