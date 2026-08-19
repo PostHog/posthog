@@ -6,7 +6,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -42,7 +42,6 @@ from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
@@ -50,6 +49,8 @@ from posthog.cache_utils import cache_for
 from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.egress.slack.observability import record_slack_api_response
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -511,15 +512,14 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
-# Graph API version the Instagram OAuth dialog, token exchange and refresh are pinned to. Kept in
-# step with the warehouse Instagram source's `default_version`, which calls the same Graph version.
-INSTAGRAM_GRAPH_API_VERSION = "v23.0"
-
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
-# it is linked to, so the grant needs the page permissions as well as the Instagram ones.
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones. Meta
+# replaced the legacy `instagram_*` permission names with `instagram_business_*`; the old names are
+# rejected at the OAuth dialog ("This app needs at least one supported permission").
 # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
 INSTAGRAM_OAUTH_SCOPE = (
-    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
+    "instagram_business_basic instagram_business_manage_insights instagram_business_manage_comments"
+    " pages_show_list pages_read_engagement"
 )
 
 
@@ -640,6 +640,7 @@ class Integration(models.Model):
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
+        indexes = [models.Index(fields=["kind", "integration_id"], name="posthog_integration_kind_ext")]
 
     @property
     def display_name(self) -> str:
@@ -728,12 +729,12 @@ def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | N
     return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
-@dataclass
+@frozen
 class OauthConfig:
     authorize_url: str
     token_url: str
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
     scope: str
     id_path: str
     name_path: str
@@ -742,7 +743,7 @@ class OauthConfig:
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
     client_id_fallback: str | None = None
-    client_secret_fallback: str | None = None
+    client_secret_fallback: str | None = field(default=None, repr=False)
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -907,8 +908,11 @@ class OauthIntegration:
         config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
-            config.client_secret_fallback = fallback["client_secret"]
-            config.client_id_fallback = fallback.get("client_id") or config.client_id
+            config = replace(
+                config,
+                client_secret_fallback=fallback["client_secret"],
+                client_id_fallback=fallback.get("client_id") or config.client_id,
+            )
         return config
 
     @classmethod
@@ -1077,7 +1081,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
-                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1241,9 +1245,9 @@ class OauthIntegration:
             # Meta app, but the two grants request different scopes so they stay separate kinds.
             # The token response carries no account identifier, so id/name come from `/me`.
             return OauthConfig(
-                authorize_url=f"https://www.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/dialog/oauth",
-                token_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/oauth/access_token",
-                token_info_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/me",
+                authorize_url=f"https://www.facebook.com/{InstagramIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/me",
                 token_info_config_fields=["id", "name"],
                 client_id=settings.INSTAGRAM_APP_CLIENT_ID,
                 client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
@@ -1533,6 +1537,16 @@ class OauthIntegration:
                 # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
                 # into resending client_secret + authorization code to another origin.
                 allow_redirects=False,
+            )
+
+        if kind == "slack":
+            record_slack_api_response(
+                res,
+                source="oauth",
+                workspace_id=None,
+                app_id="posthog",
+                method="POST",
+                endpoint="oauth.v2.access",
             )
 
         try:
@@ -2159,14 +2173,25 @@ class SlackIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        return WebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+        )
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,
         # so a top-level import would put aiohttp on the django.setup() path
-        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+        from posthog.egress.slack.async_client import SlackAsyncWebClient  # noqa: PLC0415
 
-        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+        return SlackAsyncWebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+            session=session,
+        )
 
     def granted_scopes(self) -> frozenset[str]:
         """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
@@ -2950,7 +2975,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -2965,7 +2990,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -3428,8 +3453,8 @@ class GitHubUserAuthorization:
 
     gh_id: int
     gh_login: str
-    access_token: str
-    refresh_token: str | None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
 
@@ -3440,7 +3465,7 @@ class GitHubInstallationAccess:
 
     installation_id: str
     installation_info: dict[str, Any]
-    access_token: str
+    access_token: str = field(repr=False)
     token_expires_at: str  # ISO datetime returned by GitHub, e.g. "2024-01-01T14:00:00Z"
     repository_selection: str
 
@@ -4192,7 +4217,6 @@ class MetaAdsIntegration(MetaGraphIntegration):
 
 class InstagramIntegration(MetaGraphIntegration):
     kind = "instagram"
-    api_version = INSTAGRAM_GRAPH_API_VERSION
 
 
 class TwilioIntegration:

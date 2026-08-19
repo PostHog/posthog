@@ -7,6 +7,7 @@ and reach a verdict on whether a PR is safe to auto-approve.
 
 import os
 import json
+import shutil
 import asyncio
 import textwrap
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, write_pr_diff
+from github import PRData, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
@@ -301,8 +302,12 @@ def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str,
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
-    def __init__(self, repo_root: Path, *, verbose: bool = False):
+    def __init__(self, repo_root: Path, *, explore_root: Path | None = None, verbose: bool = False):
         self.repo_root = repo_root
+        # Where the agent's Read/Grep/Glob look. For stacked PRs this is a
+        # worktree at the PR head so imports from not-yet-merged parent PRs
+        # resolve (see review_pr._pr_head_worktree). Falls back to repo_root.
+        self.explore_root = explore_root or repo_root
         self.verbose = verbose
 
     def review(self, pr: PRData, classification: dict, gate_context: dict, diff_path: Path | None = None) -> dict:
@@ -313,12 +318,30 @@ class Reviewer:
         """
         return asyncio.run(self._review(pr, classification, gate_context, diff_path))
 
+    def _copy_diff_into_explore_root(self, diff_path: Path) -> Path:
+        """Copy the diff to a runner-created path the agent can read (see new_diff_file)."""
+        copied_diff_path = new_diff_file(self.explore_root)
+        try:
+            shutil.copyfile(diff_path, copied_diff_path)
+        except OSError:
+            copied_diff_path.unlink(missing_ok=True)
+            raise
+        return copied_diff_path
+
     async def _review(
         self, pr: PRData, classification: dict, gate_context: dict, diff_path: Path | None = None
     ) -> dict:
         owns_diff = diff_path is None
         if diff_path is None:
             diff_path = self._write_diff_file(pr)
+        original_diff = diff_path
+        copied_diff_path: Path | None = None
+        if self.explore_root != self.repo_root:
+            # The agent's file access is scoped to cwd (explore_root); a diff
+            # sitting in the master checkout would need an out-of-cwd read the
+            # dontAsk permission mode never grants.
+            copied_diff_path = self._copy_diff_into_explore_root(diff_path)
+            diff_path = copied_diff_path
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
         # Gate denials and trivial PRs don't need deep exploration —
@@ -329,7 +352,27 @@ class Reviewer:
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
-            cwd=str(self.repo_root),
+            cwd=str(self.explore_root),
+            # SECURITY: explore_root holds PR-authored content (a worktree at
+            # the PR head for stacked PRs in the Action; the whole checkout in
+            # the hosted sandbox, which clones the head for every review). With
+            # the default (None) the SDK
+            # loads filesystem settings from cwd like the CLI does — including
+            # .claude/settings.json hooks (arbitrary command execution) and
+            # CLAUDE.md (injected as instructions). A PR could ship either.
+            # [] is SDK isolation mode: no filesystem settings, no hooks, no
+            # CLAUDE.md autoload. The agent can still Read those files, but as
+            # untrusted content under the anti-injection notice, never as
+            # configuration. This is the guardrail that makes pointing cwd at
+            # PR-controlled files safe.
+            setting_sources=[],
+            # setting_sources=[] covers settings.json but not .mcp.json, which
+            # has its own discovery. The CLI's project-trust gate already
+            # refuses an unapproved .mcp.json in headless mode, but pin it:
+            # strict config + empty server map ignore any .mcp.json the PR
+            # ships in the head tree, regardless of CLI defaults.
+            mcp_servers={},
+            strict_mcp_config=True,
             max_turns=5 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
@@ -410,34 +453,39 @@ class Reviewer:
             active_query = query
 
         structured_output = None
-        async for message in active_query(prompt=prompt, options=options, **posthog_kwargs):
-            if self.verbose:
-                print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
-            if isinstance(message, ResultMessage):
-                if message.subtype == "error_max_structured_output_retries":
-                    raise RuntimeError("Agent could not produce valid structured output after retries")
-                if getattr(message, "is_error", False):
-                    # An API-level failure (auth, rate limit, overload, quota) surfaces
-                    # here with subtype "success" and the real HTTP status in
-                    # api_error_status. Raise with that detail now — otherwise the CLI
-                    # process exits right after this message and the SDK's read loop
-                    # replaces it with the generic, status-less "Claude Code returned
-                    # an error result: success" once the exception reaches us anyway.
-                    # getattr guards older SDK builds that lack these attributes.
-                    api_status = getattr(message, "api_error_status", None)
-                    status = f" (HTTP {api_status})" if api_status else ""
-                    raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
-                if message.structured_output:
-                    structured_output = message.structured_output
-                    # Stamp the LLM verdict onto the trace properties
-                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
-            elif isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock) and self.verbose:
-                        self._log_tool_call(block)
-
-        if owns_diff:
-            diff_path.unlink(missing_ok=True)
+        try:
+            async for message in active_query(prompt=prompt, options=options, **posthog_kwargs):
+                if self.verbose:
+                    print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
+                if isinstance(message, ResultMessage):
+                    if message.subtype == "error_max_structured_output_retries":
+                        raise RuntimeError("Agent could not produce valid structured output after retries")
+                    if getattr(message, "is_error", False):
+                        # An API-level failure (auth, rate limit, overload, quota) surfaces
+                        # here with subtype "success" and the real HTTP status in
+                        # api_error_status. Raise with that detail now — otherwise the CLI
+                        # process exits right after this message and the SDK's read loop
+                        # replaces it with the generic, status-less "Claude Code returned
+                        # an error result: success" once the exception reaches us anyway.
+                        # getattr guards older SDK builds that lack these attributes.
+                        api_status = getattr(message, "api_error_status", None)
+                        status = f" (HTTP {api_status})" if api_status else ""
+                        raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
+                    if message.structured_output:
+                        structured_output = message.structured_output
+                        # Stamp the LLM verdict onto the trace properties
+                        props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
+                elif isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolUseBlock) and self.verbose:
+                            self._log_tool_call(block)
+        finally:
+            # Runs on every exit path (API error, cancellation): PR-authored diff copies must not
+            # linger on the runner.
+            if copied_diff_path is not None:
+                copied_diff_path.unlink(missing_ok=True)
+            if owns_diff:
+                original_diff.unlink(missing_ok=True)
 
         if structured_output is None:
             raise RuntimeError("Reviewer agent returned no structured output")
@@ -461,8 +509,7 @@ class Reviewer:
 
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        diff_path = self.repo_root / ".pr-review-diff.patch"
-        return write_pr_diff(pr.base_sha, pr.head_sha, diff_path, self.repo_root)
+        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
@@ -549,6 +596,18 @@ class Reviewer:
                 f"\nDependency manifests changed without a lockfile: {', '.join(dep_manifests)} — "
                 "no third-party code can be added, but check the manifest hunks and REFUSE if "
                 "scripts or lifecycle hooks changed."
+            )
+
+        # For a stacked PR the working tree is the PR head, so parent-PR symbols
+        # resolve in Read/Grep/Glob though absent from the diff; tell the agent.
+        # The base branch name is author-chosen, so it stays out of this trusted
+        # block; the stacked fact alone is what the agent needs.
+        if pr.stacked:
+            constraint += (
+                f"\nStacked PR: this targets a non-default branch, not `{pr.default_branch}`. The working tree "
+                "reflects the codebase as it will look after the whole stack lands, so symbols defined in "
+                "parent PRs resolve via Read/Grep/Glob even though they're absent from the diff below. Review "
+                "only the diff's changes; do not flag imports or references that resolve in the tree as missing."
             )
 
         file_list = "\n".join(

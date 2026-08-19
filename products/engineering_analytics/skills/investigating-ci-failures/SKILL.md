@@ -121,6 +121,7 @@ threshold aren't recorded, so there is no honest denominator.
 | Question                               | Use                                                                    |
 | -------------------------------------- | ---------------------------------------------------------------------- |
 | "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)    |
+| Same, but from a terminal              | `hogli ci:insights` — these endpoints, scoped to the checkout's repo   |
 | "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
 | "Who broke master / when did X start?" | The two views, workflow above                                          |
 | "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |

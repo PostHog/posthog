@@ -703,6 +703,7 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
+    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -847,6 +848,14 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.report_canvas.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]
@@ -929,6 +938,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the AI task action's endpoint creates tasks through
+    # products.tasks.backend.facade.workflow_tasks.
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -1294,6 +1306,7 @@ path = "products.data_quality"
 depends_on = [
     "posthog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"

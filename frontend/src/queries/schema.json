@@ -87,6 +87,10 @@
                     "$ref": "#/definitions/HogQLExpression",
                     "description": "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance."
                 },
+                "includeIgnored": {
+                    "description": "Include ignored accounts. Ignored accounts are hidden by default.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "AccountsQuery",
                     "type": "string"
@@ -246,6 +250,7 @@
                 "created_at",
                 "updated_at",
                 "churned_at",
+                "ignored_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -556,6 +561,10 @@
                 },
                 "includeChurned": {
                     "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
+                },
+                "includeIgnored": {
+                    "description": "Include ignored accounts. Ignored accounts are hidden by default.",
                     "type": "boolean"
                 },
                 "kind": {
@@ -20652,6 +20661,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -25690,7 +25702,9 @@
                 "DeelFlows",
                 "Hootsuite",
                 "WisprFlow",
-                "SamCart"
+                "SamCart",
+                "IronSourceAds",
+                "MicrosoftExcel"
             ],
             "type": "string"
         },
@@ -35405,6 +35419,13 @@
                     "$ref": "#/definitions/RecordingOrderDirection",
                     "default": "DESC",
                     "description": "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here"
+                },
+                "session_ids": {
+                    "description": "Pin the result to specific recordings by their session id, e.g. the ones just summarized. `$session_id` is not a session property, so it cannot be filtered on in `filter_group`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["duration", "filter_group"],

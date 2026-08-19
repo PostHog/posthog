@@ -373,7 +373,7 @@ describe("buildSessionOptions", () => {
 
     it.each([
       {
-        name: "omits the team_id header when POSTHOG_PROJECT_ID is unset",
+        name: "omits the project-scope header when POSTHOG_PROJECT_ID is unset",
         projectId: undefined,
         existingHeaders: undefined,
         bedrockGatewayVariant: undefined,
@@ -394,7 +394,7 @@ describe("buildSessionOptions", () => {
         ].join("\n"),
       },
       {
-        name: "preserves pre-existing custom headers ahead of the team_id header",
+        name: "preserves pre-existing custom headers ahead of the project-scope header",
         projectId: "42",
         existingHeaders: "x-posthog-property-task_id: task-abc",
         bedrockGatewayVariant: undefined,

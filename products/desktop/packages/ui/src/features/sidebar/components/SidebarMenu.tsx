@@ -172,8 +172,8 @@ function SidebarMenuComponent() {
     pruneSelection(allSidebarTaskIds);
   }, [allSidebarTaskIds, pruneSelection]);
 
-  // The active (routed) task is implicitly part of any bulk selection — the
-  // user expects to see and act on it together with cmd/shift-clicked tasks.
+  // Bulk actions include the routed task, but selection styling stays tied to
+  // explicit picks so selecting another row does not highlight the open row.
   const activeTaskId = sidebarData.activeTaskId;
   const effectiveBulkIds = useMemo(
     () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
@@ -470,7 +470,9 @@ function SidebarMenuComponent() {
     >
       <MarqueeOverlay rect={marquee} />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <Flex direction="column" className="gap-px px-2 pb-2">
+        {/* Full height, so the space under the last row still belongs to the
+            list. That space is where an unpin drag is released. */}
+        <Flex direction="column" className="min-h-full gap-px px-2 pb-2">
           {sidebarData.isLoading ? (
             <SidebarItem
               depth={0}
@@ -485,7 +487,7 @@ function SidebarMenuComponent() {
               groupedTasks={sidebarData.groupedTasks}
               activeTaskId={sidebarData.activeTaskId}
               editingTaskId={editingTaskId}
-              selectedTaskIds={effectiveBulkIds}
+              selectedTaskIds={selectedTaskIds}
               onTaskClick={handleTaskClick}
               onTaskDoubleClick={handleTaskDoubleClick}
               onTaskContextMenu={handleTaskContextMenu}
