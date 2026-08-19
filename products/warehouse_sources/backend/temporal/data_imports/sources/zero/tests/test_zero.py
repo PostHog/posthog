@@ -118,7 +118,7 @@ class TestGetResource:
             "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="createdAt"
         )
         params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
-        assert params["where"]["cursor_path"] == "createdAt"
+        assert params["where"]["cursor_path"] == "createdAt"  # ty: ignore[invalid-key]
         assert json.loads(params["orderBy"]) == {"createdAt": "asc"}
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
@@ -127,11 +127,11 @@ class TestGetResource:
             "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="not_a_real_field"
         )
         params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
-        assert params["where"]["cursor_path"] == "updatedAt"
+        assert params["where"]["cursor_path"] == "updatedAt"  # ty: ignore[invalid-key]
 
     def test_incremental_convert_omits_workspace_for_users(self) -> None:
         resource = get_resource("Users", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="updatedAt")
-        convert = resource["endpoint"]["params"]["where"]["convert"]  # type: ignore[index,typeddict-item]
+        convert = resource["endpoint"]["params"]["where"]["convert"]  # type: ignore[index,typeddict-item]  # ty: ignore[invalid-key]
         assert json.loads(convert(None)) == {}
 
     def test_workspaces_endpoint_never_goes_incremental(self) -> None:
