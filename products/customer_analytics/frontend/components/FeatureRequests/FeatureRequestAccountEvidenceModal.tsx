@@ -4,6 +4,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonModal,
     LemonSelect,
@@ -27,9 +28,14 @@ const EVIDENCE_SOURCE_OPTIONS: { value: EvidenceSourceEnumApi; label: string }[]
     { value: 'other', label: 'Other' },
 ]
 
-export function FeatureRequestEvidenceModal(): JSX.Element {
+export function FeatureRequestAccountEvidenceModal(): JSX.Element {
     const {
         evidenceModalOpen,
+        addingAccount,
+        addAccountId,
+        addAccountOptions,
+        accountsLoading,
+        accountsError,
         editingEvidenceId,
         evidenceSummary,
         evidenceQuote,
@@ -42,6 +48,9 @@ export function FeatureRequestEvidenceModal(): JSX.Element {
     } = useValues(featureRequestsLogic)
     const {
         closeEvidence,
+        setAddAccountId,
+        setAccountSearch,
+        loadAccounts,
         setEvidenceSummary,
         setEvidenceQuote,
         setEvidenceSource,
@@ -55,11 +64,11 @@ export function FeatureRequestEvidenceModal(): JSX.Element {
         <LemonModal
             isOpen={evidenceModalOpen}
             onClose={closeEvidence}
-            title={editingEvidenceId ? 'Edit evidence' : 'Add evidence'}
+            title={addingAccount ? 'Add account and evidence' : editingEvidenceId ? 'Edit evidence' : 'Add evidence'}
             width={560}
             footer={
                 <>
-                    {editingEvidenceId && (
+                    {editingEvidenceId && !addingAccount && (
                         <LemonButton
                             type="secondary"
                             status="danger"
@@ -90,15 +99,38 @@ export function FeatureRequestEvidenceModal(): JSX.Element {
                         onClick={saveEvidence}
                         loading={savingEvidence}
                         disabledReason={evidenceSaveDisabledReason}
-                        data-attr="save-feature-request-evidence"
+                        data-attr={addingAccount ? 'save-feature-request-account' : 'save-feature-request-evidence'}
                     >
-                        Save evidence
+                        {addingAccount ? 'Add account' : 'Save evidence'}
                     </LemonButton>
                 </>
             }
         >
             <div className="flex flex-col gap-4">
+                {accountsError && addingAccount && (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadAccounts('') }}>
+                        {accountsError}
+                    </LemonBanner>
+                )}
                 {evidenceError && <LemonBanner type="error">{evidenceError}</LemonBanner>}
+                {addingAccount && (
+                    <>
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel>Account</LemonLabel>
+                            <LemonInputSelect
+                                mode="single"
+                                value={addAccountId ? [addAccountId] : []}
+                                onChange={(values) => setAddAccountId(values[0] ?? null)}
+                                onInputChange={setAccountSearch}
+                                options={addAccountOptions}
+                                placeholder="Search for an account"
+                                loading={accountsLoading}
+                                fullWidth
+                            />
+                        </div>
+                        <div className="font-medium">Evidence (optional)</div>
+                    </>
+                )}
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Summary</LemonLabel>
                     <LemonTextArea

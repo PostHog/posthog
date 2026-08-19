@@ -610,11 +610,7 @@ class FeatureRequestUpdateSerializer(serializers.Serializer):
     )
 
 
-class FeatureRequestEvidenceWriteSerializer(serializers.Serializer):
-    expected_version = serializers.IntegerField(
-        min_value=1,
-        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
-    )
+class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
     summary = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -645,6 +641,26 @@ class FeatureRequestEvidenceWriteSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="Date the account made the request, or null when unknown.",
+    )
+
+
+class FeatureRequestEvidenceWriteSerializer(FeatureRequestEvidencePayloadSerializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+
+
+class FeatureRequestAddAccountSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    account_id = serializers.UUIDField(help_text="Accessible account to link to this feature request.")
+    evidence = FeatureRequestEvidencePayloadSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional first evidence item to create for the account in the same change.",
     )
 
 

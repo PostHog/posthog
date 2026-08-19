@@ -76,6 +76,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    FeatureRequestAddAccountSerializer,
     FeatureRequestCreateSerializer,
     FeatureRequestEvidenceCreateSerializer,
     FeatureRequestEvidenceDeleteSerializer,
@@ -411,6 +412,44 @@ class FeatureRequestViewSet(
     @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestAddAccountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        evidence_data = data.get("evidence")
+        evidence = (
+            contracts.FeatureRequestEvidenceInput(
+                summary=evidence_data["summary"],
+                customer_quote=evidence_data["customer_quote"],
+                evidence_source=evidence_data["evidence_source"],
+                source_url=evidence_data["source_url"],
+                requested_on=evidence_data["requested_on"],
+            )
+            if evidence_data is not None
+            else None
+        )
+        try:
+            feature_request = api.add_feature_request_account(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.AddFeatureRequestAccountInput(
+                    expected_version=data["expected_version"],
+                    account_id=data["account_id"],
+                    evidence=evidence,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True)

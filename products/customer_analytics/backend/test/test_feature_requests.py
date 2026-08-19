@@ -465,6 +465,36 @@ class TestFeatureRequestsAPI(APIBaseTest):
             FeatureRequestEvidence.objects.for_team(self.team.id).filter(account_link=other_link).count(), 1
         )
 
+    def test_add_account_can_create_its_first_evidence_in_the_same_change(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+
+        response = self.client.post(
+            f"{self.requests_url}{created['id']}/add_account/",
+            {
+                "expected_version": created["version"],
+                "account_id": str(other_account.id),
+                "evidence": {
+                    "summary": "Globex needs a weekly export.",
+                    "customer_quote": "We need this before our Monday review.",
+                    "evidence_source": "meeting",
+                    "source_url": "https://example.com/meeting/1",
+                    "requested_on": date.today().isoformat(),
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["version"], created["version"] + 1)
+        links_by_account = {link["account"]["id"]: link for link in response.json()["account_links"]}
+        self.assertEqual(
+            links_by_account[str(other_account.id)]["evidence"][0]["summary"],
+            "Globex needs a weekly export.",
+        )
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
+        self.assertEqual([change["field"] for change in history[0]["changes"]], ["accounts", "evidence"])
+
     def test_evidence_updates_and_deletes_with_request_version_checks(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         account_link_id = created["account_links"][0]["id"]

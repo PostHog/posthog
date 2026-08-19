@@ -1,9 +1,10 @@
 import { useActions } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
+import { IconBuilding, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import type {
     EvidenceSourceEnumApi,
@@ -38,6 +39,13 @@ export function FeatureRequestEvidenceItem({
             <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
+                        <Link
+                            to={urls.customerAnalyticsAccount(accountLink.account.id)}
+                            className="flex items-center gap-1 font-medium"
+                        >
+                            <IconBuilding className="size-3.5" />
+                            {accountLink.account.name}
+                        </Link>
                         <span>{EVIDENCE_SOURCE_LABELS[evidence.evidence_source]}</span>
                         {evidence.requested_on && <span>{evidence.requested_on}</span>}
                         {evidence.source_url && (

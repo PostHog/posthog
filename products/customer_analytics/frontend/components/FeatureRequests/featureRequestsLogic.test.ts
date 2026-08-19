@@ -334,6 +334,103 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.savingEvidence).toBe(false)
     })
 
+    it('adds an account and its first evidence in one request', async () => {
+        const otherAccount: AccountApi = {
+            ...account,
+            id: 'account-2',
+            name: 'Globex',
+        }
+        const updatedRequest: FeatureRequestApi = {
+            ...createdRequest,
+            version: 2,
+            account_links: [
+                ...createdRequest.account_links,
+                {
+                    id: 'account-link-2',
+                    account: { id: otherAccount.id, name: otherAccount.name },
+                    evidence: [
+                        {
+                            id: 'evidence-2',
+                            summary: 'Globex needs a weekly export.',
+                            customer_quote: '',
+                            evidence_source: 'meeting',
+                            source_url: '',
+                            requested_on: null,
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-03T00:00:00Z',
+                            updated_at: '2026-01-03T00:00:00Z',
+                        },
+                    ],
+                    created_at: '2026-01-03T00:00:00Z',
+                    updated_at: '2026-01-03T00:00:00Z',
+                },
+            ],
+        }
+        const addAccountSpy = jest
+            .spyOn(generatedApi, 'featureRequestsAddAccountCreate')
+            .mockResolvedValue(updatedRequest)
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+        logic.actions.loadAccountsSuccess([account, otherAccount])
+        logic.actions.openAddAccount()
+        logic.actions.setAddAccountId(otherAccount.id)
+        logic.actions.setEvidenceSummary('Globex needs a weekly export.')
+        logic.actions.setEvidenceSource('meeting')
+        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
+
+        await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
+
+        expect(addAccountSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), createdRequest.id, {
+            expected_version: 1,
+            account_id: otherAccount.id,
+            evidence: {
+                summary: 'Globex needs a weekly export.',
+                customer_quote: '',
+                evidence_source: 'meeting',
+                source_url: '',
+                requested_on: null,
+            },
+        })
+        expect(logic.values.activeRequest).toEqual(updatedRequest)
+        expect(logic.values.evidenceModalOpen).toBe(false)
+    })
+
+    it('shows the five latest evidence items before expanding the full list', () => {
+        const requestWithEvidence: FeatureRequestApi = {
+            ...createdRequest,
+            account_links: [
+                {
+                    ...createdRequest.account_links[0],
+                    evidence: Array.from({ length: 6 }, (_, index) => ({
+                        id: `evidence-${index + 1}`,
+                        summary: `Evidence ${index + 1}`,
+                        customer_quote: '',
+                        evidence_source: 'conversation' as const,
+                        source_url: '',
+                        requested_on: null,
+                        created_by: 1,
+                        updated_by: 1,
+                        created_at: `2026-01-0${index + 1}T00:00:00Z`,
+                        updated_at: `2026-01-0${index + 1}T00:00:00Z`,
+                    })),
+                },
+            ],
+        }
+
+        logic.actions.loadActiveRequestSuccess(requestWithEvidence)
+
+        expect(logic.values.visibleActiveRequestEvidence.map(({ evidence }) => evidence.id)).toEqual([
+            'evidence-6',
+            'evidence-5',
+            'evidence-4',
+            'evidence-3',
+            'evidence-2',
+        ])
+
+        logic.actions.setRequestEvidenceShowingAll(true)
+        expect(logic.values.visibleActiveRequestEvidence).toHaveLength(6)
+    })
+
     it('opens the account evidence form from an account page link', () => {
         router.actions.push(urls.customerAnalyticsFeatureRequests(createdRequest.id), {
             evidence_account: createdRequest.account.id,

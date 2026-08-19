@@ -37591,6 +37591,45 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface FeatureRequestEvidencePayload {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /** Channel where this evidence was recorded.
+       *
+       * * `conversation` - Customer conversation
+       * * `slack` - Slack
+       * * `zendesk` - Zendesk
+       * * `email` - Email
+       * * `meeting` - Meeting
+       * * `buildbetter` - BuildBetter
+       * * `other` - Other */
+      evidence_source: EvidenceSourceEnum;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+    }
+
+    export interface FeatureRequestAddAccount {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Accessible account to link to this feature request. */
+      account_id: string;
+      /** Optional first evidence item to create for the account in the same change. */
+      evidence?: FeatureRequestEvidencePayload | null;
+    }
+
     export interface FeatureRequestCreate {
       /**
          * Required customer-facing request title.
@@ -37608,11 +37647,6 @@ export namespace Schemas {
     }
 
     export interface FeatureRequestEvidenceCreate {
-      /**
-         * Request version loaded by the editor. Stale versions return 409 Conflict.
-         * @minimum 1
-         */
-      expected_version: number;
       /** Internal summary of this account's request evidence. */
       summary?: string;
       /** Customer quote kept with this evidence item. */
@@ -37637,6 +37671,11 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
       /** Active account link that owns this evidence. */
       account_link_id: string;
     }
@@ -37652,11 +37691,6 @@ export namespace Schemas {
     }
 
     export interface FeatureRequestEvidenceUpdate {
-      /**
-         * Request version loaded by the editor. Stale versions return 409 Conflict.
-         * @minimum 1
-         */
-      expected_version: number;
       /** Internal summary of this account's request evidence. */
       summary?: string;
       /** Customer quote kept with this evidence item. */
@@ -37681,6 +37715,11 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
       /** Evidence item to replace. */
       evidence_id: string;
     }

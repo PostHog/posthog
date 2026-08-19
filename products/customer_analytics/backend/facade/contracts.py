@@ -681,6 +681,22 @@ class UpdateFeatureRequestInput:
 
 
 @dataclass(frozen=True)
+class FeatureRequestEvidenceInput:
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+
+
+@dataclass(frozen=True)
+class AddFeatureRequestAccountInput:
+    expected_version: int
+    account_id: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
+
+
+@dataclass(frozen=True)
 class CreateFeatureRequestEvidenceInput:
     expected_version: int
     account_link_id: UUID

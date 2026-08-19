@@ -49,6 +49,7 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountListPageApi,
+    FeatureRequestAddAccountApi,
     FeatureRequestApi,
     FeatureRequestCreateApi,
     FeatureRequestEvidenceCreateApi,
@@ -1734,6 +1735,24 @@ export const featureRequestsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedFeatureRequestUpdateApi),
+    })
+}
+
+export const getFeatureRequestsAddAccountCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/add_account/`
+}
+
+export const featureRequestsAddAccountCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestAddAccountApi: FeatureRequestAddAccountApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsAddAccountCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestAddAccountApi),
     })
 }
 

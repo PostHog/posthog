@@ -8,6 +8,7 @@ interface FeatureRequestDetailSectionProps {
     title: string
     children: ReactNode
     meta?: ReactNode
+    action?: ReactNode
     collapsible?: boolean
     defaultCollapsed?: boolean
     dataAttr?: string
@@ -18,6 +19,7 @@ export function FeatureRequestDetailSection({
     title,
     children,
     meta,
+    action,
     collapsible = false,
     defaultCollapsed = false,
     dataAttr,
@@ -54,6 +56,7 @@ export function FeatureRequestDetailSection({
                 ) : (
                     <div className="flex flex-1 items-center min-w-0 py-1">{header}</div>
                 )}
+                {action && <div className="shrink-0">{action}</div>}
             </div>
             {open && <div>{children}</div>}
         </section>

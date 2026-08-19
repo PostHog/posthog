@@ -1082,16 +1082,58 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
+
+export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    account_id: zod.uuid().describe('Accessible account to link to this feature request.'),
+    evidence: zod
+        .union([
+            zod.object({
+                summary: zod
+                    .string()
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault)
+                    .describe("Internal summary of this account's request evidence."),
+                customer_quote: zod
+                    .string()
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault)
+                    .describe('Customer quote kept with this evidence item.'),
+                evidence_source: zod
+                    .enum(['conversation', 'slack', 'zendesk', 'email', 'meeting', 'buildbetter', 'other'])
+                    .describe(
+                        '\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
+                    )
+                    .describe(
+                        'Channel where this evidence was recorded.\n\n\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
+                    ),
+                source_url: zod
+                    .url()
+                    .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault)
+                    .describe('Optional HTTP or HTTPS link to the source.'),
+                requested_on: zod.iso
+                    .date()
+                    .nullish()
+                    .describe('Date the account made the request, or null when unknown.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional first evidence item to create for the account in the same change.'),
+})
+
 export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
 export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
 
 export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
-    expected_version: zod
-        .number()
-        .min(1)
-        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
     summary: zod
         .string()
         .default(featureRequestsAddEvidenceCreateBodySummaryDefault)
@@ -1114,6 +1156,10 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
     account_link_id: zod.uuid().describe('Active account link that owns this evidence.'),
 })
 
@@ -1145,10 +1191,6 @@ export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
 
 export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.object({
-    expected_version: zod
-        .number()
-        .min(1)
-        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
     summary: zod
         .string()
         .default(featureRequestsUpdateEvidenceCreateBodySummaryDefault)
@@ -1171,6 +1213,10 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
     evidence_id: zod.uuid().describe('Evidence item to replace.'),
 })
 
