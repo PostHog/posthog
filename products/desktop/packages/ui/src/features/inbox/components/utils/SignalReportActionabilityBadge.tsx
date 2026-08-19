@@ -1,6 +1,6 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import type { SignalReportActionability } from "@posthog/shared/domain-types";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
-import { Tooltip } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 const ACTIONABILITY_STYLE: Record<
@@ -44,10 +44,13 @@ export function SignalReportActionabilityBadge({
   }
 
   return (
-    <Tooltip content={style.tooltip}>
-      <InboxBadge variant={style.variant} className="cursor-help">
+    <Tooltip>
+      <TooltipTrigger
+        render={<InboxBadge variant={style.variant} className="cursor-help" />}
+      >
         {style.label}
-      </InboxBadge>
+      </TooltipTrigger>
+      <TooltipContent side="top">{style.tooltip}</TooltipContent>
     </Tooltip>
   );
 }
