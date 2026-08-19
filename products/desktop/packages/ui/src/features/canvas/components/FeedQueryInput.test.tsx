@@ -21,6 +21,20 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
         first_name: "Moshe",
         last_name: "Katz",
       },
+      {
+        id: 3,
+        uuid: "uuid-alex-one",
+        email: "alex@example.com",
+        first_name: "Alex",
+        last_name: "One",
+      },
+      {
+        id: 4,
+        uuid: "uuid-alex-two",
+        email: "alex@example.org",
+        first_name: "Alex",
+        last_name: "Two",
+      },
     ],
     isLoading: false,
     isError: false,
@@ -70,6 +84,19 @@ describe("FeedQueryInput", () => {
     await user.click(screen.getByRole("option", { name: /shy@example\.com/ }));
 
     expect(screen.getByRole("status")).toHaveTextContent("created-by:shy");
+  });
+
+  it("uses full emails to distinguish teammates with matching names", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="created-by:alex" />);
+    const input = screen.getByRole("combobox");
+
+    await user.click(input);
+    await user.click(screen.getByRole("option", { name: /alex@example\.org/ }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "created-by:alex@example.org",
+    );
   });
 
   it("keeps the negation prefix through a completion", async () => {

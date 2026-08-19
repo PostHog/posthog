@@ -385,7 +385,7 @@ export function useFeedQuerySuggestions(
                   (m) => (m.first_name ?? "").toLowerCase() === first,
                 ).length === 1;
               return {
-                insert: unique ? first : member.email.split("@")[0],
+                insert: unique ? first : member.email,
                 label: userDisplayName(member),
                 hint: member.email,
                 icon: <UserAvatar user={member} size="xs" />,
