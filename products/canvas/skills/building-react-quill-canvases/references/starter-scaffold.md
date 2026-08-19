@@ -22,6 +22,7 @@ import {
   PopoverTrigger,
   quickRanges,
   SkeletonText,
+  Text,
 } from '@posthog/quill'
 import { RefreshCw } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -109,7 +110,9 @@ export default function Canvas() {
       {error && (
         <Card size="sm">
           <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-destructive">Couldn't load data: {error}</p>
+            <Text size="sm" className="text-destructive">
+              Couldn't load data: {error}
+            </Text>
             <Button variant="outline" size="sm" onClick={() => setNonce((n) => n + 1)}>
               Retry
             </Button>
@@ -126,7 +129,9 @@ export default function Canvas() {
             {loading ? (
               <SkeletonText lines={1} className="text-3xl" />
             ) : error ? (
-              <p className="text-sm text-muted-foreground">—</p>
+              <Text size="sm" className="text-muted-foreground">
+                —
+              </Text>
             ) : (
               <Heading size="2xl">{total.toLocaleString()}</Heading>
             )}
@@ -142,7 +147,9 @@ export default function Canvas() {
           {loading ? (
             <SkeletonText lines={6} />
           ) : error ? (
-            <p className="text-sm text-muted-foreground">—</p>
+            <Text size="sm" className="text-muted-foreground">
+              —
+            </Text>
           ) : (
             <div className="h-[280px] w-full">
               <ResponsiveContainer>
