@@ -102,6 +102,38 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+def is_flag_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    return p_type == "flag"
+
+
+# Identifiers a bare HogQL filter can reference in the "replay" scope. property_to_expr(..., scope="replay")
+# resolves these against the sessions and events tables, so the query already handles them.
+_REPLAY_SCOPE_HOGQL_MARKERS = ("distinct_id", "person_id", "$session_id", "session.")
+
+
+def is_replay_scope_hogql_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    if p_type != "hogql":
+        return False
+    p_key = getattr(p, "key", "") or ""
+    return any(marker in p_key for marker in _REPLAY_SCOPE_HOGQL_MARKERS)
+
+
+def report_worthy_unexpected_properties(
+    remaining_properties: list[AnyPropertyFilter] | None,
+) -> list[AnyPropertyFilter]:
+    """The stripped remainder that no replay-scope handler recognizes.
+
+    `_strip_person_and_event_and_cohort_properties` leaves flag filters and bare replay-scope HogQL
+    filters in the remainder because they still compile via property_to_expr(..., scope="replay").
+    They are supported, so they must not be reported as unexpected.
+    """
+    return [
+        p for p in (remaining_properties or []) if not is_flag_property(p) and not is_replay_scope_hogql_property(p)
+    ]
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -135,11 +167,13 @@ class UnexpectedQueryProperties(Exception):
         self.remaining_properties = remaining_properties
         # Drop the raw value from each filter so that user-supplied data (e.g. a domain or URL)
         # doesn't end up in the exception message — otherwise every distinct value produces a
-        # brand-new error-tracking fingerprint.
-        summary = [
-            {"type": getattr(p, "type", None), "key": getattr(p, "key", None), "operator": getattr(p, "operator", None)}
-            for p in (remaining_properties or [])
-        ]
+        # brand-new error-tracking fingerprint. A HogQL filter embeds its values in the key
+        # expression, so redact the key too rather than pass it through verbatim.
+        summary = []
+        for p in remaining_properties or []:
+            p_type = getattr(p, "type", None)
+            key = "<redacted hogql expression>" if p_type == "hogql" else getattr(p, "key", None)
+            summary.append({"type": p_type, "key": key, "operator": getattr(p, "operator", None)})
         super().__init__(f"Unexpected properties in query: {summary}")
 
 

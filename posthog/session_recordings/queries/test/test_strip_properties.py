@@ -3,6 +3,7 @@ from parameterized import parameterized
 from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -16,6 +17,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     is_recording_property,
     is_session_property,
+    report_worthy_unexpected_properties,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -87,6 +89,49 @@ class TestStripProperties:
         assert not is_recording_property(
             EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
         )
+
+    @parameterized.expand(
+        [
+            (
+                "bare distinct_id hogql is recognized",
+                HogQLPropertyFilter(key="distinct_id != '2'"),
+            ),
+            (
+                "bare person_id hogql is recognized",
+                HogQLPropertyFilter(key="person_id = 'abc'"),
+            ),
+            (
+                "bare $session_id hogql is recognized",
+                HogQLPropertyFilter(key="$session_id = 'xyz'"),
+            ),
+            (
+                "bare session field hogql is recognized",
+                HogQLPropertyFilter(key="session.$end_timestamp < now() - INTERVAL 1 HOUR"),
+            ),
+            (
+                "flag dependency is recognized",
+                FlagPropertyFilter(key="new-onboarding", value=True),
+            ),
+        ]
+    )
+    def test_report_worthy_skips_supported_replay_filters(self, _name: str, supported: AnyPropertyFilter) -> None:
+        # These filters compile via property_to_expr(..., scope="replay"), so reporting them as
+        # unexpected floods error tracking with noise (and, for hogql, with customer values).
+        remaining = _strip_person_and_event_and_cohort_properties([supported])
+        assert report_worthy_unexpected_properties(remaining) == []
+
+    def test_report_worthy_keeps_truly_unexpected_property(self) -> None:
+        unexpected = HogQLPropertyFilter(key="some_unrelated_hogql_expression = 1")
+        remaining = _strip_person_and_event_and_cohort_properties([unexpected])
+        assert report_worthy_unexpected_properties(remaining) == [unexpected]
+
+    def test_unexpected_query_properties_message_redacts_hogql_key(self) -> None:
+        # A hogql key embeds its values, so passing it through verbatim would carry customer
+        # data (phone numbers, person UUIDs) into error tracking.
+        exc = UnexpectedQueryProperties([HogQLPropertyFilter(key="distinct_id = '+15551234567'")])
+        assert "+15551234567" not in str(exc)
+        assert "distinct_id" not in str(exc)
+        assert "hogql" in str(exc)
 
     def test_unexpected_query_properties_message_does_not_contain_raw_value(self) -> None:
         # The exception used to embed the filter value directly, so every distinct
