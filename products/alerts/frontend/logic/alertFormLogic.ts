@@ -141,8 +141,10 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
 }
 
 /**
- * A 404 from an alert mutation means the alert is already gone server-side (deleted in another tab
- * or session). The caller's goal is met, so treat it as success rather than an error.
+ * A 404 from an alert mutation means the alert is no longer available to act on: it was deleted in
+ * another tab or session, or viewer access to its linked insight was revoked (the row can still
+ * exist server-side). The caller can no longer act on it either way, so callers close the modal
+ * with a neutral message rather than claim the mutation succeeded.
  */
 export function alertAlreadyGone(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404
@@ -872,10 +874,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 try {
                     await api.alerts.delete(alertId)
                 } catch (error) {
-                    if (!alertAlreadyGone(error)) {
-                        lemonToast.error("Couldn't delete the alert. Try again.")
+                    if (alertAlreadyGone(error)) {
+                        lemonToast.info('This alert is no longer available.')
+                        handleAlertGone(alertId)
                         return
                     }
+                    lemonToast.error("Couldn't delete the alert. Try again.")
+                    return
                 }
                 lemonToast.success('Alert deleted.')
                 handleAlertGone(alertId)
@@ -892,7 +897,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     })
                 } catch (error) {
                     if (alertAlreadyGone(error)) {
-                        lemonToast.info('This alert no longer exists.')
+                        lemonToast.info('This alert is no longer available.')
                         handleAlertGone(alertId)
                         return
                     }
@@ -918,7 +923,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     })
                 } catch (error) {
                     if (alertAlreadyGone(error)) {
-                        lemonToast.info('This alert no longer exists.')
+                        lemonToast.info('This alert is no longer available.')
                         handleAlertGone(alertId)
                         return
                     }

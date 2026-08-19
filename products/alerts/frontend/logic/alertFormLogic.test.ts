@@ -1138,9 +1138,11 @@ describe('alertFormLogic', () => {
             return logic
         }
 
-        // Regression: `deleteAlert` had no try/catch, so a 404 from a concurrently deleted alert became
-        // an unhandled exception instead of closing the modal.
-        it('treats a 404 on delete as success (alert already gone)', async () => {
+        // A 404 does not prove the alert was deleted: the backend also returns 404 when viewer access
+        // to the linked insight is revoked while the row survives. So the modal closes with a neutral
+        // toast, never a false "Alert deleted." confirmation. (It also no longer throws — `deleteAlert`
+        // has a try/catch, which regressed as an unhandled exception before.)
+        it('closes the modal with a neutral toast on a 404 delete (alert no longer available)', async () => {
             jest.spyOn(api.alerts, 'delete').mockRejectedValue(new ApiError('Not found.', 404))
             const onEditSuccess = jest.fn()
             const logic = mountExistingAlert(onEditSuccess)
@@ -1149,7 +1151,25 @@ describe('alertFormLogic', () => {
                 logic.actions.deleteAlert()
             }).toFinishAllListeners()
 
+            expect(infoToastSpy).toHaveBeenCalledWith('This alert is no longer available.')
+            expect(successToastSpy).not.toHaveBeenCalled()
+            expect(errorToastSpy).not.toHaveBeenCalled()
+            expect(onEditSuccess).toHaveBeenCalledWith(undefined)
+        })
+
+        // The real-success path (a 2xx delete) must still confirm with 'Alert deleted.' and close —
+        // the neutral 404 message is only for the already-gone / access-revoked case.
+        it('confirms and closes on a successful delete', async () => {
+            jest.spyOn(api.alerts, 'delete').mockResolvedValue(undefined)
+            const onEditSuccess = jest.fn()
+            const logic = mountExistingAlert(onEditSuccess)
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteAlert()
+            }).toFinishAllListeners()
+
             expect(successToastSpy).toHaveBeenCalledWith('Alert deleted.')
+            expect(infoToastSpy).not.toHaveBeenCalled()
             expect(errorToastSpy).not.toHaveBeenCalled()
             expect(onEditSuccess).toHaveBeenCalledWith(undefined)
         })
@@ -1178,7 +1198,7 @@ describe('alertFormLogic', () => {
                 logic.actions.snoozeAlert('2026-12-31T00:00:00Z')
             }).toFinishAllListeners()
 
-            expect(infoToastSpy).toHaveBeenCalledWith('This alert no longer exists.')
+            expect(infoToastSpy).toHaveBeenCalledWith('This alert is no longer available.')
             expect(onEditSuccess).toHaveBeenCalledWith(undefined)
         })
     })
