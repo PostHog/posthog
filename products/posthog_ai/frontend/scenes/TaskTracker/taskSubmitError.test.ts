@@ -19,8 +19,9 @@ describe('describeTaskSubmitError', () => {
 
     it.each([
         ['posthog_code_billing_limit_exceeded', 'Manage billing'],
-        ['organization_deactivated', 'Manage billing'],
         ['usage_limit_exceeded', 'Manage billing'],
+        // A deactivated org can't be fixed via billing — the backend copy says to contact support.
+        ['organization_deactivated', 'Contact support'],
         ['code_access_required', 'Learn more'],
     ])('routes the %s refusal to a next-step button with the backend reason', (code, expectedLabel) => {
         const error = new ApiError('denied', 429, undefined, { code, error: 'You reached a limit.' })

@@ -19,12 +19,11 @@ export interface TaskSubmitErrorInfo {
 
 // Backend refusal codes the composer routes to a next step instead of a dead toast.
 // See products/tasks/backend/logic/services/code_usage_gate.py and compute_quota.py.
-const BILLING_LIMIT_CODES = new Set([
-    'posthog_code_billing_limit_exceeded',
-    'organization_deactivated',
-    'usage_limit_exceeded',
-])
+// `organization_deactivated` is deliberately not here — the billing page can't clear it, so it
+// routes to support (below) to match the backend's "contact PostHog support" copy.
+const BILLING_LIMIT_CODES = new Set(['posthog_code_billing_limit_exceeded', 'usage_limit_exceeded'])
 const CODE_ACCESS_REQUIRED_CODE = 'code_access_required'
+const ORGANIZATION_DEACTIVATED_CODE = 'organization_deactivated'
 
 function stepPrefix(step: TaskSubmitStep): string {
     return step === 'create' ? 'Could not create the task' : 'Could not start the run'
@@ -57,6 +56,13 @@ export function describeTaskSubmitError(error: unknown, step: TaskSubmitStep): T
         return {
             message: reason ?? `${stepPrefix(step)}. Please try again.`,
             button: { label: 'Learn more', action: () => window.open('https://posthog.com/desktop', '_blank') },
+        }
+    }
+
+    if (error.code === ORGANIZATION_DEACTIVATED_CODE) {
+        return {
+            message: reason ?? `${stepPrefix(step)}. Please try again.`,
+            button: { label: 'Contact support', action: () => window.open('https://posthog.com/support', '_blank') },
         }
     }
 

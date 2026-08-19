@@ -671,7 +671,13 @@ class BaseAgentRunner(ABC):
             properties=properties,
         )
         try:
-            await asyncio.wait_for(asyncio.to_thread(posthoganalytics.flush), _TELEMETRY_FLUSH_TIMEOUT_SECONDS)
+            # Bound the flush inside the thread too — `flush()` defaults to a 10s budget, and
+            # `wait_for` alone would abandon the coroutine while the thread kept running and held a
+            # shared thread-pool slot. The outer `wait_for` is a small margin over the SDK budget.
+            await asyncio.wait_for(
+                asyncio.to_thread(posthoganalytics.flush, _TELEMETRY_FLUSH_TIMEOUT_SECONDS),
+                _TELEMETRY_FLUSH_TIMEOUT_SECONDS + 1,
+            )
         except Exception:
             logger.warning("Failed to flush LLM error telemetry", exc_info=True)
 
