@@ -41,6 +41,21 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
 _SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
 _SCOUT_STAGE_PREFIX = "scout:"
 
+# Products whose runs may mint an internally funded token. Mint scope needs
+# server-side provenance: `internal` and some origin_product values are
+# API-settable, so an unmapped origin marked internal resolves to
+# background_agents and must never mint. Signals products qualify because their
+# stages are set only by server flows and the signals_scout origin is reserved.
+MINTABLE_PRODUCTS = frozenset(
+    {
+        "signals_scout",
+        "signals_research",
+        "signals_implementation",
+        "signals_repo_selection",
+        "signals_custom_agent",
+    }
+)
+
 _MINT_ATTEMPTS = 3
 _MINT_TIMEOUT_SECONDS = 10
 

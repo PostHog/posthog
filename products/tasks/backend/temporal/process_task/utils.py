@@ -40,6 +40,12 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    MINTABLE_PRODUCTS,
+    mint_scoped_token,
+    resolve_sandbox_ai_product,
+    sandbox_product_routed,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -1313,12 +1319,6 @@ def ai_gateway_env_vars(
     the token is present, so a missing token (mint failure, or a caller that
     cannot supply run context) degrades the run to the Python gateway.
     """
-    from products.tasks.backend.temporal.process_task.ai_gateway_token import (
-        mint_scoped_token,
-        resolve_sandbox_ai_product,
-        sandbox_product_routed,
-    )
-
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         return {}
     env_vars = {
@@ -1327,7 +1327,9 @@ def ai_gateway_env_vars(
     }
     if team_id is not None:
         ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
-        if sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
+            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        ):
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token

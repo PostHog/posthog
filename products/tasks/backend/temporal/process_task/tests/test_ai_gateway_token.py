@@ -164,7 +164,7 @@ class TestMintScopedToken:
 class TestAiGatewayEnvVars:
     def test_routed_run_gets_url_products_and_token(self, mint_settings):
         with patch(
-            "products.tasks.backend.temporal.process_task.ai_gateway_token.mint_scoped_token",
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
             return_value="phe_abc",
         ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout:logs")
@@ -176,14 +176,14 @@ class TestAiGatewayEnvVars:
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123)
 
     def test_unrouted_run_gets_no_token(self, mint_settings):
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.mint_scoped_token") as mint:
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="loop")
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
     def test_mint_failure_omits_token(self, mint_settings):
         with patch(
-            "products.tasks.backend.temporal.process_task.ai_gateway_token.mint_scoped_token",
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
             return_value=None,
         ):
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
@@ -200,3 +200,49 @@ class TestAiGatewayEnvVars:
     def test_both_or_nothing_guard_unchanged(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_URL = None
         assert ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout") == {}
+
+
+class TestMintableGate:
+    """Mint scope needs server-side provenance: `internal` and some origin_product
+    values are API-settable, so a routed-but-unmintable product must never mint."""
+
+    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="image_builder", internal=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_stageless_signal_report_cannot_mint_for_bare_signals(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="signal_report", ai_stage=None)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+
+class TestProvisioningBoundaries:
+    """Each sandbox provisioning path must forward the run's team, origin, stage,
+    and internal context into token minting; a dropped kwarg silently degrades
+    every run on that path to the Python gateway."""
+
+    def test_build_sandbox_environment_variables_forwards_run_context(self, mint_settings):
+        from products.tasks.backend.temporal.process_task.utils import build_sandbox_environment_variables
+
+        with (
+            patch("products.tasks.backend.temporal.process_task.utils.ai_gateway_env_vars", return_value={}) as env,
+            patch(
+                "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+                return_value="jwt",
+            ),
+            patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url", return_value="url"),
+        ):
+            build_sandbox_environment_variables(
+                github_token="",
+                access_token="tok",
+                team_id=7,
+                origin_product="signals_scout",
+                ai_stage="scout:logs",
+                internal=True,
+            )
+        env.assert_called_once_with(team_id=7, origin_product="signals_scout", ai_stage="scout:logs", internal=True)
