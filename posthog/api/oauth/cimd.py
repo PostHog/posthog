@@ -672,6 +672,7 @@ def _create_cimd_application(
     client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
     app = OAuthApplication(
+        client_id=url,
         name=client_name,
         redirect_uris=redirect_uris,
         client_type=client_type,
@@ -897,7 +898,7 @@ def fetch_and_upsert_cimd_application(
         metadata, cache_ttl = fetch_cimd_metadata(url)
         cache.set(_cache_key(url), True, timeout=cache_ttl)
 
-        app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+        app = find_cimd_application(url)
         if app:
             updated = _update_cimd_application(
                 app,
@@ -948,7 +949,7 @@ def fetch_and_upsert_cimd_application(
             )
             return new_app
         except (IntegrityError, ValidationError):
-            app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+            app = find_cimd_application(url)
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
                 # The row a concurrent caller won the race with was written from this same
@@ -983,7 +984,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     - No app: fetch synchronously (must have the app before proceeding)
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
-    if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
+    if app := find_cimd_application(url):
         enqueue_cimd_refresh_if_stale(url)
         return app
 
@@ -995,7 +996,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     # Poll the DB until it appears or we give up.
     for _ in range(CIMD_FETCH_TIMEOUT_SECONDS + 1):
         time.sleep(1)
-        app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+        app = find_cimd_application(url)
         if app:
             return app
 
@@ -1020,6 +1021,18 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     refresh_cimd_metadata_task.delay(url)
 
 
+def find_cimd_application(url: str) -> OAuthApplication | None:
+    """Resolve a CIMD URL-form client_id to its application, or None.
+
+    ``client_id`` is the canonical column for the URL. The ``cimd_metadata_url``
+    fallback covers rows written before the client_id backfill (migration 1312)
+    ran, and rows created by pre-backfill code still serving during a deploy."""
+    return (
+        OAuthApplication.objects.filter(client_id=url).first()
+        or OAuthApplication.objects.filter(cimd_metadata_url=url).first()
+    )
+
+
 def get_application_by_client_id(client_id: str) -> OAuthApplication:
     """
     Look up an OAuthApplication by client_id, supporting CIMD URL-form client_ids.
@@ -1027,7 +1040,10 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     Raises OAuthApplication.DoesNotExist if not found.
     """
     if is_cimd_client_id(client_id):
-        return OAuthApplication.objects.get(cimd_metadata_url=client_id)
+        app = find_cimd_application(client_id)
+        if app is None:
+            raise OAuthApplication.DoesNotExist
+        return app
     return OAuthApplication.objects.get(client_id=client_id)
 
 
