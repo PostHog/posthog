@@ -547,6 +547,10 @@ async function buildCanvas(project) {
             posthog: { insights: [], inlineQueries: false, captureEvents: [] },
             network: { origins: [] },
         },
+        // Component-kind canvases freeze their placement contract (size,
+        // config schema) into the artifact, like capabilities: the grid host
+        // holds a placed widget to the contract its build shipped with.
+        ...(project.component ? { component: project.component } : {}),
         ...legacy,
     }
     return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }
