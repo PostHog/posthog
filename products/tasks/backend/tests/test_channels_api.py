@@ -163,6 +163,37 @@ class ChannelsAPITestCase(TestCase):
         legacy.refresh_from_db()
         self.assertEqual(legacy.system_role, Channel.SystemRole.GENERAL)
 
+    def test_creating_a_space_named_general_resolves_the_system_space(self):
+        created = self.client.post(self._channels_url(), {"name": "General"})
+        self.assertEqual(created.status_code, status.HTTP_200_OK)
+        self.assertEqual(created.json()["system_role"], "general")
+
+        provisioned = self._provision()
+        self.assertFalse(provisioned["general_created"])
+        self.assertEqual(
+            [c["id"] for c in provisioned["channels"] if c["system_role"] == "general"],
+            [created.json()["id"]],
+        )
+
+    @parameterized.expand(
+        [
+            ("rename", lambda client, url: client.patch(url, {"name": "not-general"})),
+            ("delete", lambda client, url: client.delete(url)),
+        ]
+    )
+    def test_unstamped_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
+        # Desktop reads an unstamped row named "general" as the team's general space, so
+        # the server has to protect it on the same terms.
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        response = act(self.client, f"{self._channels_url()}{legacy.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
