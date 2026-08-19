@@ -11,7 +11,6 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType, ProjectTreeRef } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { actionRetrieveApi } from '../actionsApi'
 import { actionEditLogic } from './actionEditLogic'
 
 export interface ActionLogicProps {
@@ -113,7 +112,7 @@ export const actionLogic = kea<actionLogicType>([
                     if (!props.id) {
                         throw new Error('Cannot fetch an unsaved action from the API.')
                     }
-                    return await actionRetrieveApi(props.id)
+                    return await api.actions.get(props.id)
                 },
             },
         ],

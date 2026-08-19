@@ -20,7 +20,6 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
@@ -28,7 +27,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-import { messagingTemplatesCreate, messagingTemplatesList } from 'products/messaging/frontend/generated/api'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { EmailFieldErrors, EmailTemplate } from './types'
@@ -460,8 +458,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await messagingTemplatesList(String(ApiConfig.getCurrentProjectId()))
-                    return response.results as unknown as MessageTemplate[]
+                    const response = await api.messaging.getTemplates()
+                    return response.results
                 },
             },
         ],
@@ -800,10 +798,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     },
                 }
 
-                await messagingTemplatesCreate(
-                    String(ApiConfig.getCurrentProjectId()),
-                    templateData as Parameters<typeof messagingTemplatesCreate>[1]
-                )
+                await api.messaging.createTemplate(templateData)
                 lemonToast.success('Template saved successfully')
                 actions.loadTemplates()
                 actions.setIsSaveTemplateModalOpen(false)

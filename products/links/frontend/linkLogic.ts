@@ -6,18 +6,15 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import type { LinkType } from '~/types'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import { linksCreate, linksDestroy, linksPartialUpdate, linksRetrieve } from './generated/api'
-import type { LinkApi } from './generated/api.schemas'
 import { linksLogic } from './linksLogic'
-
-type LinkType = LinkApi
 
 export type AvailableDomain = 'phog.gg' | 'postho.gg' | 'hog.gg' | 'custom'
 export type DomainDefinition = {
@@ -56,17 +53,17 @@ export interface linkLogicValues {
     isEditingLink: boolean
     isLinkSubmitting: boolean
     isLinkValid: boolean
-    link: LinkApi
+    link: LinkType
     linkAllErrors: Record<string, any>
     linkChanged: boolean
-    linkErrors: DeepPartialMap<LinkApi, ValidationErrorType>
+    linkErrors: DeepPartialMap<LinkType, ValidationErrorType>
     linkHasErrors: boolean
     linkLoading: boolean
     linkManualErrors: Record<string, any>
     linkMissing: boolean
     linkTouched: boolean
     linkTouches: Record<string, boolean>
-    linkValidationErrors: DeepPartialMap<LinkApi, ValidationErrorType>
+    linkValidationErrors: DeepPartialMap<LinkType, ValidationErrorType>
     mode: 'edit' | 'view'
     projectTreeRef: ProjectTreeRef
     showLinkErrors: boolean
@@ -76,10 +73,10 @@ export interface linkLogicValues {
 export interface linkLogicActions {
     loadLinks: () => any // linksLogic
     loadLinksSuccess: (
-        links: LinkApi[],
+        links: LinkType[],
         payload?: any
     ) => {
-        links: LinkApi[]
+        links: LinkType[]
         payload?: any
     } // linksLogic
     deleteLink: (linkId: LinkType['id']) => {
@@ -97,14 +94,14 @@ export interface linkLogicActions {
         errorObject?: any
     }
     loadLinkSuccess: (
-        link: LinkApi,
+        link: LinkType,
         payload?: any
     ) => {
-        link: LinkApi
+        link: LinkType
         payload?: any
     }
-    resetLink: (values?: LinkApi) => {
-        values?: LinkApi
+    resetLink: (values?: LinkType) => {
+        values?: LinkType
     }
     saveLink: (updatedLink: Partial<LinkType>) => Partial<LinkType>
     saveLinkFailure: (
@@ -115,10 +112,10 @@ export interface linkLogicActions {
         errorObject?: any
     }
     saveLinkSuccess: (
-        link: LinkApi,
+        link: LinkType,
         payload?: Partial<LinkType>
     ) => {
-        link: LinkApi
+        link: LinkType
         payload?: Partial<LinkType>
     }
     setLinkManualErrors: (errors: Record<string, any>) => {
@@ -134,8 +131,8 @@ export interface linkLogicActions {
         name: FieldName
         value: any
     }
-    setLinkValues: (values: DeepPartial<LinkApi>) => {
-        values: DeepPartial<LinkApi>
+    setLinkValues: (values: DeepPartial<LinkType>) => {
+        values: DeepPartial<LinkType>
     }
     submitLink: () => {
         value: boolean
@@ -147,11 +144,11 @@ export interface linkLogicActions {
         error: Error
         errors: Record<string, any>
     }
-    submitLinkRequest: (link: LinkApi) => {
-        link: LinkApi
+    submitLinkRequest: (link: LinkType) => {
+        link: LinkType
     }
-    submitLinkSuccess: (link: LinkApi) => {
-        link: LinkApi
+    submitLinkSuccess: (link: LinkType) => {
+        link: LinkType
     }
     touchLinkField: (key: string) => {
         key: string
@@ -163,7 +160,7 @@ export interface linkLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         mode: (id: string) => 'edit' | 'view'
-        breadcrumbs: (link: LinkApi) => Breadcrumb[]
+        breadcrumbs: (link: LinkType) => Breadcrumb[]
         projectTreeRef: (arg: string) => ProjectTreeRef
     }
 }
@@ -188,7 +185,7 @@ export const linkLogic = kea<linkLogicType>([
             loadLink: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        const response = await linksRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
+                        const response = await api.links.get(props.id)
                         return response
                     } catch (error) {
                         actions.setLinkMissing()
@@ -199,18 +196,9 @@ export const linkLogic = kea<linkLogicType>([
                 return NEW_LINK as LinkType
             },
             saveLink: async (updatedLink: Partial<LinkType>) => {
-                if (!updatedLink.redirect_url || !updatedLink.short_link_domain || !updatedLink.short_code) {
-                    throw new Error('Link destination, domain, and short code are required')
-                }
-                const result = await (props.id === 'new'
-                    ? linksCreate(String(ApiConfig.getCurrentProjectId()), {
-                          redirect_url: updatedLink.redirect_url,
-                          short_link_domain: updatedLink.short_link_domain,
-                          short_code: updatedLink.short_code,
-                          description: updatedLink.description,
-                          _create_in_folder: updatedLink._create_in_folder,
-                      })
-                    : linksPartialUpdate(String(ApiConfig.getCurrentProjectId()), props.id, updatedLink))
+                const result: LinkType = await (props.id === 'new'
+                    ? api.links.create(updatedLink)
+                    : api.links.update(props.id, updatedLink))
                 if (props.id === 'new') {
                     router.actions.replace(urls.link(result.id))
                 }
@@ -271,7 +259,7 @@ export const linkLogic = kea<linkLogicType>([
         },
         deleteLink: async ({ linkId }) => {
             try {
-                await linksDestroy(String(ApiConfig.getCurrentProjectId()), linkId)
+                await api.links.delete(linkId)
                 lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))
                 deleteFromTree('link', linkId)

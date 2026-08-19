@@ -5,18 +5,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { initKeaTests } from '~/test/init'
 
-import { logsExportCreate } from '../../generated/api'
-import { logsQueryCreate, logsSparklineCreate } from '../../generated/api'
 import { getExportColumns, logsExportLogic } from './logsExportLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
 jest.mock('lib/api')
 jest.mock('lib/utils/copyToClipboard')
-jest.mock('../../generated/api')
-
-const mockedLogsExportCreate = jest.mocked(logsExportCreate)
-const mockedLogsQueryCreate = jest.mocked(logsQueryCreate)
-const mockedLogsSparklineCreate = jest.mocked(logsSparklineCreate)
 
 describe('logsExportLogic', () => {
     describe('getExportColumns', () => {
@@ -55,14 +48,13 @@ describe('logsExportLogic', () => {
                 logs_distinct_id_attribute_keys: ['posthogDistinctId'],
                 logs_session_id_attribute_keys: ['posthogSessionId'],
             })
-            mockedLogsQueryCreate.mockResolvedValue({
-                query: {},
+            ;(api.logs.query as jest.Mock).mockResolvedValue({
                 results: [],
                 hasMore: false,
                 nextCursor: null,
                 maxExportableLogs: 10_000,
             })
-            mockedLogsSparklineCreate.mockResolvedValue({ results: [] })
+            ;(api.logs.sparkline as jest.Mock).mockResolvedValue([])
 
             viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()
@@ -94,7 +86,7 @@ describe('logsExportLogic', () => {
 
         describe('exportServerSide', () => {
             beforeEach(() => {
-                mockedLogsExportCreate.mockResolvedValue({} as never)
+                ;(api.logs.exportQuery as jest.Mock).mockResolvedValue({})
             })
 
             it('calls API with correct query parameters', async () => {
@@ -102,8 +94,7 @@ describe('logsExportLogic', () => {
                     exportLogic.actions.exportServerSide(100)
                 }).toFinishAllListeners()
 
-                expect(mockedLogsExportCreate).toHaveBeenCalledWith(
-                    expect.any(String),
+                expect(api.logs.exportQuery).toHaveBeenCalledWith(
                     expect.objectContaining({
                         columns: expect.arrayContaining(['timestamp', 'severity_text', 'body']),
                     })
@@ -118,8 +109,7 @@ describe('logsExportLogic', () => {
                     exportLogic.actions.exportServerSide(50)
                 }).toFinishAllListeners()
 
-                expect(mockedLogsExportCreate).toHaveBeenCalledWith(
-                    expect.any(String),
+                expect(api.logs.exportQuery).toHaveBeenCalledWith(
                     expect.objectContaining({
                         columns: ['timestamp', 'severity_text', 'service.name', 'body'],
                     })
@@ -131,8 +121,7 @@ describe('logsExportLogic', () => {
                     exportLogic.actions.exportServerSide(50)
                 }).toFinishAllListeners()
 
-                expect(mockedLogsExportCreate).toHaveBeenCalledWith(
-                    expect.any(String),
+                expect(api.logs.exportQuery).toHaveBeenCalledWith(
                     expect.objectContaining({
                         columns: ['timestamp', 'severity_text', 'body', 'attributes', 'resource_attributes'],
                     })

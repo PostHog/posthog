@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { IntegrationType } from '~/types'
 
-import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { type MCPErrorContext, formatErrorContext } from './errorContext'
@@ -102,13 +102,13 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
 
             let task
             try {
-                task = await taskApi.create(taskData)
+                task = await api.tasks.create(taskData)
             } catch (error) {
                 lemonToast.error('Failed to create the task')
                 throw error
             }
             try {
-                await taskApi.run(task.id)
+                await api.tasks.run(task.id)
                 lemonToast.success('Fix task created and agent run started')
             } catch {
                 lemonToast.warning('Task created, but the agent run could not be started')

@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { IconBook } from '@posthog/icons'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -25,8 +26,6 @@ import {
     RecordingUniversalFilters,
     SidePanelTab,
 } from '~/types'
-
-import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 
 import type { ActionType } from '../../types'
 import type { ToolRegistration } from './max-constants'
@@ -759,7 +758,7 @@ export const maxLogic = kea<maxLogicType>([
             let conversation: ConversationDetail | null = null
 
             try {
-                conversation = await conversationsApi.get(conversationId)
+                conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
                 if (err.status === 404) {
                     // If conversation is not found, do nothing. In the normal case a NotFound will be shown.

@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -30,7 +31,6 @@ import type { UserType } from '../../../../frontend/src/types'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
 import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
-import { taskApi } from '../taskApi'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -481,7 +481,7 @@ async function fetchLogEntriesWithRetry(
 ): Promise<unknown[] | { historyError: unknown }> {
     for (let attempt = 1; ; attempt++) {
         try {
-            return await taskApi.runs.getLogEntries(taskId, runId)
+            return await api.tasks.runs.getLogEntries(taskId, runId)
         } catch (error) {
             if (attempt >= MAX_HISTORY_FETCH_ATTEMPTS) {
                 return { historyError: error }
@@ -499,7 +499,7 @@ async function fetchRunStatus(
 ): Promise<{ status: string | null; artifacts: Partial<RunArtifacts> } | { error: StreamErrorEnvelope }> {
     try {
         const run: { status?: string; state?: unknown; output?: unknown; branch?: string | null } =
-            await taskApi.runs.get(taskId, runId)
+            await api.tasks.runs.get(taskId, runId)
         return { status: run.status ?? null, artifacts: extractRunArtifacts(run) }
     } catch (error) {
         return { error: mapHttpStatusToStreamError((error as { status?: number })?.status) }
@@ -2347,7 +2347,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (props.replayOnly) {
                 let replayRun: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
                 try {
-                    replayRun = await taskApi.runs.get(taskId, runId)
+                    replayRun = await api.tasks.runs.get(taskId, runId)
                 } catch (error) {
                     actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                     return
@@ -2404,7 +2404,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // in-progress (connect-first, then reconcile the seam).
             let run: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
             try {
-                run = await taskApi.runs.get(taskId, runId)
+                run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
@@ -2600,7 +2600,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
 
                 let response: Response
                 try {
-                    response = await taskApi.runs.openStream(taskId, runId, {
+                    response = await api.tasks.runs.openStream(taskId, runId, {
                         signal,
                         lastEventId,
                         startLatest,

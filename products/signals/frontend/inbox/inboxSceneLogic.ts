@@ -5,6 +5,7 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -15,11 +16,8 @@ import { userLogic } from 'scenes/userLogic'
 import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
-import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
-import { signalReportsApi } from 'products/signals/frontend/signalReportApi'
-import { signalScoutRunsApi } from 'products/signals/frontend/signalsApi'
 
 import {
     captureInboxReportClosed,
@@ -402,10 +400,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             {
                 loadRuns: async (_payload: void, breakpoint) => {
                     const [scoutResult, signalResult] = await Promise.allSettled([
-                        signalScoutRunsApi.list({ limit: SCOUT_RUNS_LIMIT }),
+                        api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
                         // `internal: 'all'` so the pipeline's runs (research and implementation, both
                         // created internal) are included. They're hidden from the default task list.
-                        taskApi.list({
+                        api.tasks.list({
                             origin_product: OriginProduct.SIGNAL_REPORT,
                             internal: 'all',
                             limit: SIGNAL_TASKS_LIMIT,
@@ -431,7 +429,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
                     try {
-                        const report = await signalReportsApi.get(id)
+                        const report = await api.signalReports.get(id)
                         breakpoint()
                         return report
                     } catch (error) {

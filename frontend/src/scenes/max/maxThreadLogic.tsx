@@ -19,7 +19,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -65,7 +65,6 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 import {
     attachedContextLogic,
     getRandomThinkingMessage,
@@ -74,7 +73,6 @@ import {
     runStreamLogic,
 } from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
-import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
@@ -134,7 +132,7 @@ export interface MaxThreadLogicProps {
 
 async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<boolean> {
     try {
-        const pendingTask = await taskApi.get(pendingBindTaskId)
+        const pendingTask = await api.tasks.get(pendingBindTaskId)
         if (!isPiTaskRuntime(pendingTask.runtime)) {
             return false
         }
@@ -1204,7 +1202,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         return { messages: [], limit: 0 }
                     }
                     try {
-                        const queue = await conversationsApi.queue.list(values.conversation.id)
+                        const queue = await api.conversations.queue.list(values.conversation.id)
                         return {
                             messages: queue.messages,
                             limit: queue.max_queue_messages,
@@ -1343,7 +1341,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
-                        const handle = await conversationsApi.open(conversationId, {
+                        const handle = await api.conversations.open(conversationId, {
                             content: streamData.content,
                             trace_id: traceId,
                             attached_context: attachedContext,
@@ -1412,7 +1410,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.agent_mode = agentMode
                 }
 
-                const response = await conversationsApi.stream(apiData, {
+                const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
 
@@ -1727,7 +1725,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Warm = open with no message: boots a Run that idles awaiting the first message. The
                 // returned handle lets a later release cancel exactly that Run via the relay (a full
                 // pool returns null — nothing to release).
-                const warm = await conversationsApi.open(values.conversationId, {
+                const warm = await api.conversations.open(values.conversationId, {
                     content: null,
                     initial_permission_mode: INITIAL_PERMISSION_MODE,
                 })
@@ -1800,7 +1798,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     queuePayload.agent_mode = agentMode
                 }
 
-                const queue = await conversationsApi.queue.enqueue(values.conversation.id, queuePayload)
+                const queue = await api.conversations.queue.enqueue(values.conversation.id, queuePayload)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
@@ -1820,7 +1818,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             try {
-                const queue = await conversationsApi.queue.update(values.conversation.id, queueId, content)
+                const queue = await api.conversations.queue.update(values.conversation.id, queueId, content)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
@@ -1840,7 +1838,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
             actions.setQueuedMessages(fallbackQueue)
             try {
-                const queue = await conversationsApi.queue.delete(values.conversation.id, queueId)
+                const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
@@ -1864,7 +1862,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
             actions.setQueuedMessages(fallbackQueue)
             try {
-                const queue = await conversationsApi.queue.delete(values.conversation.id, queueId)
+                const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
@@ -1882,7 +1880,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             try {
-                const queue = await conversationsApi.queue.clear(values.conversation.id)
+                const queue = await api.conversations.queue.clear(values.conversation.id)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
@@ -2104,7 +2102,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
                     actions.cancelSandboxRun()
                 } else {
-                    await conversationsApi.cancel(values.conversation.id)
+                    await api.conversations.cancel(values.conversation.id)
                 }
                 cache.generationController?.abort()
                 actions.clearQueuedMessages()
@@ -2273,7 +2271,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            await conversationsApi.appendMessage(conversationId, message)
+            await api.conversations.appendMessage(conversationId, message)
 
             actions.addMessage({
                 type: AssistantMessageType.Assistant,

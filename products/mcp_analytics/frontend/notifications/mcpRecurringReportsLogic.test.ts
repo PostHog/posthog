@@ -12,7 +12,6 @@ import { isMCPRecurringReport, mcpRecurringReportsLogic } from './mcpRecurringRe
 
 jest.mock('lib/utils/deleteWithUndo', () => ({ deleteWithUndo: jest.fn() }))
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
-    ...jest.requireActual('products/subscriptions/frontend/generated/api'),
     subscriptionsList: jest.fn(),
 }))
 jest.mock('products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled', () => ({

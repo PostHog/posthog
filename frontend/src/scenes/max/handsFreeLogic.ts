@@ -3,11 +3,9 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
-import { getMaxHandsFreeSynthesizeCreateUrl, maxHandsFreeTokenCreate } from 'products/posthog_ai/frontend/generated/api'
 
 import { AssistantSummary, buildSpokenText } from './handsFreeUtils'
 import { maxLogic } from './maxLogic'
@@ -277,7 +275,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             const establishConnection = async (isReconnect: boolean): Promise<boolean> => {
                 let token: string
                 try {
-                    const response = await maxHandsFreeTokenCreate(String(ApiConfig.getCurrentProjectId()))
+                    const response = await api.maxHandsFree.token()
                     token = response.token
                 } catch (err) {
                     posthog.captureException(err)
@@ -498,11 +496,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             cache.speakAbortController = controller
 
             try {
-                const response = await api.createResponse(
-                    getMaxHandsFreeSynthesizeCreateUrl(String(ApiConfig.getCurrentProjectId())),
-                    { text: spokenText },
-                    { signal: controller.signal }
-                )
+                const response = await api.maxHandsFree.synthesize(spokenText, { signal: controller.signal })
                 if (!response.ok) {
                     throw new Error(`TTS returned ${response.status}`)
                 }

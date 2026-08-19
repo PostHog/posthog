@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { signalReportsApi } from 'products/signals/frontend/signalReportApi'
+import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
@@ -57,7 +57,7 @@ export function useReportArchive({
                 // Fallback for standalone usage (e.g. stories) without a bound list logic.
                 setIsArchiving(true)
                 try {
-                    await signalReportsApi.setState(reportId, {
+                    await api.signalReports.setState(reportId, {
                         state: 'suppressed',
                         dismissal_reason: reason,
                         ...(note ? { dismissal_note: note } : {}),

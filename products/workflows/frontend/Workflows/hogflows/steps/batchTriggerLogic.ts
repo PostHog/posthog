@@ -1,12 +1,10 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig } from 'lib/api'
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import { hogFlowsUserBlastRadiusCreate } from 'products/workflows/frontend/workflowApiCompat'
 
 import { HogFlowAction } from '../types'
 
@@ -112,10 +110,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
                     if (!props.filters) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(String(ApiConfig.getCurrentProjectId()), {
-                        filters: props.filters,
-                        dedupe_key: props.dedupeKey,
-                    })
+                    return await api.hogFlows.getBatchTriggerBlastRadius(props.filters, props.dedupeKey)
                 },
             },
         ],

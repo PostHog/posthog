@@ -27,7 +27,7 @@ describe('LogsFilterVolumeSparkline', () => {
         sparklineCalls = 0
         useMocks({
             post: {
-                '/api/projects/:team_id/logs/sparkline/': () => {
+                '/api/environments/:team_id/logs/sparkline/': () => {
                     sparklineCalls += 1
                     return [
                         200,

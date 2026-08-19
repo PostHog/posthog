@@ -2,12 +2,11 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../frontend/src/types'
 import { browserNotificationLogic } from './browserNotificationLogic'
-import { conversationsTicketsUnreadCountRetrieve } from './generated/api'
 import { supportTicketsSceneLogic } from './scenes/tickets/supportTicketsSceneLogic'
 
 const POLL_INTERVAL = 5 * 1000 // 5 seconds - backend is cached so frequent polling is cheap
@@ -137,9 +136,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
                     await breakpoint(1)
 
                     try {
-                        const response = await conversationsTicketsUnreadCountRetrieve(
-                            String(ApiConfig.getCurrentProjectId())
-                        )
+                        const response = await api.conversationsTickets.unreadCount()
                         actions.clearErrorCount()
                         return response.count
                     } catch {

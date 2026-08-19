@@ -1,15 +1,13 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { logsQueryCreate } from 'products/logs/frontend/logsApi'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
@@ -181,11 +179,11 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                     }
 
                     try {
-                        const response = await logsQueryCreate(String(ApiConfig.getCurrentProjectId()), {
+                        const response = await api.logs.query({
                             query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end),
                         })
-                        actions.setLogsHasMore(!!response.hasMore)
-                        actions.setLogsNextCursor(response.nextCursor ?? undefined)
+                        actions.setLogsHasMore(response.hasMore)
+                        actions.setLogsNextCursor(response.nextCursor)
                         return response.results
                     } catch (error) {
                         console.error('Failed to load backend logs for session replay', error)
@@ -204,13 +202,13 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                     }
 
                     try {
-                        const response = await logsQueryCreate(String(ApiConfig.getCurrentProjectId()), {
+                        const response = await api.logs.query({
                             query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end, cursor),
                         })
                         const combined = [...values.logs, ...response.results]
                         const capped = combined.length >= MAX_LOG_ENTRIES
-                        actions.setLogsHasMore(capped ? false : !!response.hasMore)
-                        actions.setLogsNextCursor(capped ? undefined : (response.nextCursor ?? undefined))
+                        actions.setLogsHasMore(capped ? false : response.hasMore)
+                        actions.setLogsNextCursor(capped ? undefined : response.nextCursor)
                         return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
                     } catch (error) {
                         console.error('Failed to load more backend logs for session replay', error)

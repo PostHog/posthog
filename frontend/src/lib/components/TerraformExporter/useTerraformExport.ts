@@ -6,11 +6,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
 
-import { alertsList } from 'products/alerts/frontend/generated/api'
 import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 import { AlertType } from 'products/alerts/frontend/types'
 
-import api, { ApiConfig } from '../../api'
+import api from '../../api'
 import { DashboardExportResult, generateDashboardHCL } from './dashboardHclExporter'
 import { InsightExportResult, generateInsightHCL } from './insightHclExporter'
 
@@ -36,8 +35,8 @@ async function fetchAlertsForInsights(insights: InsightModel[]): Promise<Map<num
 
     const alertPromises = insightsWithIds.map(async (insight) => {
         try {
-            const response = await alertsList(String(ApiConfig.getCurrentProjectId()), { insight_id: insight.id })
-            return { insightId: insight.id, alerts: response.results as unknown as AlertType[] }
+            const response = await api.alerts.list(insight.id)
+            return { insightId: insight.id, alerts: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
                 extra: { context: 'TerraformExporter', operation: 'fetchAlertsForInsights', insightId: insight.id },

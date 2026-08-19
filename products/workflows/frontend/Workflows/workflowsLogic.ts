@@ -4,19 +4,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
-import { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-
-import { hogFlowsBulkDeleteCreate } from 'products/workflows/frontend/workflowApiCompat'
-import {
-    hogFlowsCreate,
-    hogFlowsDestroy,
-    hogFlowsList,
-    hogFlowsPartialUpdate,
-} from 'products/workflows/frontend/workflowApiCompat'
 
 import type { HogFlow } from './hogflows/types'
 
@@ -138,10 +130,10 @@ export interface workflowsLogicActions {
         errorObject?: any
     }
     loadWorkflowsSuccess: (
-        workflows: WorkflowsResult,
+        workflows: CountedPaginatedResponse<HogFlow>,
         payload?: {}
     ) => {
-        workflows: WorkflowsResult
+        workflows: CountedPaginatedResponse<HogFlow>
         payload?: {}
     }
     restoreWorkflow: (workflow: HogFlow) => {
@@ -279,10 +271,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
             { results: [], count: 0 } as WorkflowsResult,
             {
                 loadWorkflows: async () => {
-                    return await hogFlowsList(String(ApiConfig.getCurrentProjectId()), values.paramsFromFilters)
+                    return await api.hogFlows.getHogFlows(values.paramsFromFilters)
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
-                    await hogFlowsPartialUpdate(String(ApiConfig.getCurrentProjectId()), workflow.id, {
+                    await api.hogFlows.updateHogFlow(workflow.id, {
                         status: workflow.status === 'active' ? 'draft' : 'active',
                     })
                     // Reload instead of patching in place: the new status may no longer match the
@@ -291,7 +283,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    await hogFlowsCreate(String(ApiConfig.getCurrentProjectId()), {
+                    await api.hogFlows.createHogFlow({
                         ...workflow,
                         status: 'draft',
                         name: `${workflow.name} (copy)`,
@@ -316,7 +308,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             status: 'danger',
                             onClick: async () => {
                                 try {
-                                    await hogFlowsPartialUpdate(String(ApiConfig.getCurrentProjectId()), workflow.id, {
+                                    await api.hogFlows.updateHogFlow(workflow.id, {
                                         status: 'archived',
                                     })
                                     lemonToast.success(`Workflow "${workflow.name}" archived`)
@@ -338,7 +330,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 restoreWorkflow: async ({ workflow }) => {
                     try {
-                        await hogFlowsPartialUpdate(String(ApiConfig.getCurrentProjectId()), workflow.id, {
+                        await api.hogFlows.updateHogFlow(workflow.id, {
                             status: 'draft',
                         })
                         lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
@@ -364,7 +356,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             status: 'danger',
                             onClick: async () => {
                                 try {
-                                    await hogFlowsDestroy(String(ApiConfig.getCurrentProjectId()), workflow.id)
+                                    await api.hogFlows.deleteHogFlow(workflow.id)
                                     lemonToast.success(`Workflow "${workflow.name}" deleted`)
                                     deleteFromTree('hog_flow/', workflow.id)
                                     actions.loadWorkflows()
@@ -447,9 +439,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     status: 'danger',
                     onClick: async () => {
                         try {
-                            const result = await hogFlowsBulkDeleteCreate(String(ApiConfig.getCurrentProjectId()), {
-                                ids: ids,
-                            })
+                            const result = await api.hogFlows.bulkDeleteHogFlows(ids)
                             lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
                             for (const id of ids) {
                                 deleteFromTree('hog_flow/', id)

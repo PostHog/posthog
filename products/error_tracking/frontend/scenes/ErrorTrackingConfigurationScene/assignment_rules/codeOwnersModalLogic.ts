@@ -10,8 +10,6 @@ import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/roles
 import { ErrorTrackingIssueAssignee, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, OrganizationMemberType, RoleType } from '~/types'
 
-import { errorTrackingRulesCreate } from 'products/error_tracking/frontend/errorTrackingRuleApi'
-
 import type { OrganizationType } from '../../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
 import { rulesLogic } from '../rules/rulesLogic'
@@ -292,7 +290,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                                 // so the last owner gets the lowest key.
                                 order_key: rows.length - 1 - index,
                             }
-                            return errorTrackingRulesCreate(ErrorTrackingRuleType.Assignment, rule)
+                            return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )
                     const rejections = results.filter(

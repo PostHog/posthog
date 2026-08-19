@@ -52,11 +52,11 @@ describe('workflowLogic auto-save', () => {
         updateCalls = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': workflow,
+                '/api/environments/:team_id/hog_flows/:id/': workflow,
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     updateCalls += 1
                     return [200, workflow]
                 },
@@ -204,11 +204,11 @@ describe('workflowLogic auto-save', () => {
         // rules-of-hooks lint (the "use" prefix reads as a React hook).
         const activeMocks = (getResponse: HogFlow): Parameters<typeof useMocks>[0] => ({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': getResponse,
+                '/api/environments/:team_id/hog_flows/:id/': getResponse,
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
                     updateCalls += 1
                     const body = (await request.json()) as Record<string, any>
                     patchBodies.push(body)

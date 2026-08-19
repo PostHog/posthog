@@ -17,7 +17,6 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { Scene } from 'scenes/sceneTypes'
@@ -25,11 +24,6 @@ import { urls } from 'scenes/urls'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
-
-import {
-    errorTrackingFingerprintsList,
-    errorTrackingIssuesRetrieve,
-} from 'products/error_tracking/frontend/generated/api'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueFingerprintsQuery } from '../../queries'
@@ -237,19 +231,10 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
 
     loaders(({ values, props }) => ({
         issue: {
-            loadIssue: async () =>
-                (await errorTrackingIssuesRetrieve(
-                    String(ApiConfig.getCurrentProjectId()),
-                    props.id
-                )) as unknown as ErrorTrackingRelationalIssue,
+            loadIssue: async () => await api.errorTracking.getIssue(props.id),
         },
         issueFingerprints: {
-            loadIssueFingerprints: async () => {
-                const response = await errorTrackingFingerprintsList(String(ApiConfig.getCurrentProjectId()), {
-                    issue_id: props.id,
-                })
-                return response.results as unknown as ErrorTrackingFingerprint[]
-            },
+            loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             unmerge: ({ fingerprint }: { fingerprint: string }) =>
                 (values.issueFingerprints || []).filter((f: ErrorTrackingFingerprint) => f.fingerprint !== fingerprint),
         },

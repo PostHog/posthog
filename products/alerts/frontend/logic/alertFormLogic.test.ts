@@ -22,7 +22,6 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import * as alertsApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
@@ -120,10 +119,10 @@ describe('alertFormLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(alertsApi, 'alertsList').mockResolvedValue({ results: [], count: 0 })
-        jest.spyOn(alertsApi, 'alertsRetrieve').mockResolvedValue(makeSavedAlert() as never)
-        createSpy = jest.spyOn(alertsApi, 'alertsCreate').mockResolvedValue(makeSavedAlert() as never)
-        updateSpy = jest.spyOn(alertsApi, 'alertsPartialUpdate').mockResolvedValue(makeSavedAlert() as never)
+        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+        jest.spyOn(api.alerts, 'get').mockResolvedValue(makeSavedAlert())
+        createSpy = jest.spyOn(api.alerts, 'create').mockResolvedValue(makeSavedAlert())
+        updateSpy = jest.spyOn(api.alerts, 'update').mockResolvedValue(makeSavedAlert())
         jest.spyOn(api.integrations, 'list').mockResolvedValue({ results: [] } as any)
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
@@ -245,7 +244,7 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledTimes(1)
-        expect(createSpy.mock.calls[0][1].threshold.configuration.type).toBe(InsightThresholdType.PERCENTAGE)
+        expect(createSpy.mock.calls[0][0].threshold.configuration.type).toBe(InsightThresholdType.PERCENTAGE)
     })
 
     // Regression test for ticket #353:

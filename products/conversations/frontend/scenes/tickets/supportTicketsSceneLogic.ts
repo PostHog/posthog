@@ -15,7 +15,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
@@ -24,11 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
-import {
-    conversationsTicketsBulkUpdateStatusCreate,
-    conversationsTicketsList,
-    conversationsViewsRetrieve,
-} from '../../generated/api'
+import { conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -762,11 +758,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
             try {
-                const response = await conversationsTicketsList(String(ApiConfig.getCurrentProjectId()), params)
+                const response = await api.conversationsTickets.list(params)
                 // Drop responses that were superseded while in flight, so a slow reply
                 // to an older query can't overwrite newer results.
                 breakpoint()
-                actions.setTickets(response.results as unknown as Ticket[])
+                actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
             } catch (error: any) {
                 if (isBreakpoint(error)) {
@@ -907,10 +903,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
             try {
-                const result = await conversationsTicketsBulkUpdateStatusCreate(
-                    String(ApiConfig.getCurrentProjectId()),
-                    { ids, status }
-                )
+                const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()
                 actions.loadTickets()

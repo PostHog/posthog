@@ -1,16 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
-
-import {
-    messagingTemplatesCreate,
-    messagingTemplatesList,
-    messagingTemplatesPartialUpdate,
-} from 'products/messaging/frontend/messagingApiCompat'
 
 import { MessageTemplate } from './types'
 
@@ -39,12 +33,12 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     createTemplateSuccess: (
-        templates: any[],
+        templates: MessageTemplate[],
         payload?: {
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: any[]
+        templates: MessageTemplate[]
         payload?: {
             template: Partial<MessageTemplate>
         }
@@ -73,10 +67,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     duplicateTemplateSuccess: (
-        templates: any[],
+        templates: MessageTemplate[],
         payload?: MessageTemplate
     ) => {
-        templates: any[]
+        templates: MessageTemplate[]
         payload?: MessageTemplate
     }
     loadTemplates: () => any
@@ -112,13 +106,13 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     updateTemplateSuccess: (
-        templates: any[],
+        templates: MessageTemplate[],
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: any[]
+        templates: MessageTemplate[]
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>
@@ -162,7 +156,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await messagingTemplatesList(String(ApiConfig.getCurrentProjectId()))
+                    const response = await api.messaging.getTemplates()
                     return response.results
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
@@ -182,10 +176,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        const newTemplate = await messagingTemplatesCreate(
-                            String(ApiConfig.getCurrentProjectId()),
-                            template
-                        )
+                        const newTemplate = await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         return [...values.templates, newTemplate]
                     } catch {
@@ -201,11 +192,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     template: Partial<MessageTemplate>
                 }) => {
                     try {
-                        const updatedTemplate = await messagingTemplatesPartialUpdate(
-                            String(ApiConfig.getCurrentProjectId()),
-                            templateId,
-                            template
-                        )
+                        const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
                     } catch {
@@ -215,14 +202,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
-                        const duplicatedTemplate = await messagingTemplatesCreate(
-                            String(ApiConfig.getCurrentProjectId()),
-                            {
-                                name: `${template.name} (copy)`,
-                                description: template.description,
-                                content: template.content,
-                            }
-                        )
+                        const duplicatedTemplate = await api.messaging.createTemplate({
+                            name: `${template.name} (copy)`,
+                            description: template.description,
+                            content: template.content,
+                        })
                         lemonToast.success('Template duplicated successfully')
                         return [...values.templates, duplicatedTemplate]
                     } catch {

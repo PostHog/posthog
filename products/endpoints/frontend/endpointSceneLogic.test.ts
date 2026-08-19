@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
@@ -7,12 +8,18 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
-import { endpointsMaterializationSuggestionCreate, endpointsRetrieve } from './generated/api'
+import { endpointsMaterializationSuggestionCreate } from './generated/api'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
+    default: {
+        endpoint: {
+            get: jest.fn(),
+            run: jest.fn(),
+            listVersions: jest.fn().mockResolvedValue({ results: [] }),
+        },
+    },
     ApiConfig: {
-        getCurrentProjectId: jest.fn(() => 1),
         getCurrentTeamId: jest.fn(() => 1),
     },
 }))
@@ -35,12 +42,7 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
 
 jest.mock('./generated/api', () => ({
     endpointsMaterializationSuggestionCreate: jest.fn(),
-    endpointsRetrieve: jest.fn(),
-    endpointsRunCreate: jest.fn(),
-    endpointsVersionsList: jest.fn().mockResolvedValue({ results: [] }),
 }))
-
-const mockedEndpointsRetrieve = jest.mocked(endpointsRetrieve)
 
 jest.mock('./endpointsLogic', () => ({
     endpointsLogic: {
@@ -89,8 +91,8 @@ describe('endpointSceneLogic', () => {
         // The bare jest.fn() in the module mock resolves undefined, which the endpoint
         // loader would feed straight into its reducer. Echo the requested version so the
         // URL's version param survives the mount-time viewingVersion sync.
-        mockedEndpointsRetrieve.mockImplementation((_projectId, _name, params) =>
-            Promise.resolve(params?.version === undefined ? endpoint : { ...endpoint, version: params.version })
+        ;(api.endpoint.get as jest.Mock).mockImplementation((_name: string, version?: number) =>
+            Promise.resolve(version === undefined ? endpoint : { ...endpoint, version })
         )
         initKeaTests(false)
         localStorage.clear()
@@ -111,7 +113,7 @@ describe('endpointSceneLogic', () => {
 
     it('loads the requested version from the URL', async () => {
         const versionData = { ...endpoint, version: 2, description: 'Version 2' }
-        mockedEndpointsRetrieve.mockResolvedValue(versionData)
+        ;(api.endpoint.get as jest.Mock).mockResolvedValue(versionData)
 
         logic.actions.loadEndpointSuccess(endpoint)
         await expectLogic(logic).toFinishAllListeners()
@@ -120,7 +122,7 @@ describe('endpointSceneLogic', () => {
             viewingVersion: versionData,
         })
 
-        expect(mockedEndpointsRetrieve).toHaveBeenCalledWith('1', 'test-endpoint', { version: 2 })
+        expect(api.endpoint.get).toHaveBeenCalledWith('test-endpoint', 2)
         expect(router.values.location.pathname).toContain(urls.endpoint('test-endpoint'))
     })
 

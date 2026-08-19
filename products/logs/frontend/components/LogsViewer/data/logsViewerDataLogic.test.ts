@@ -44,8 +44,8 @@ describe('logsViewerDataLogic', () => {
     beforeEach(async () => {
         useMocks({
             post: {
-                '/api/projects/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
-                '/api/projects/:team_id/logs/sparkline/': () => [200, []],
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
             },
         })
         initKeaTests()
@@ -127,7 +127,7 @@ describe('logsViewerDataLogic', () => {
 
             useMocks({
                 post: {
-                    '/api/projects/:team_id/logs/query/': () => [
+                    '/api/environments/:team_id/logs/query/': () => [
                         200,
                         {
                             // The poll window overlaps: one genuinely new row plus repeats.
@@ -174,7 +174,7 @@ describe('logsViewerDataLogic', () => {
             let resolveQuery: (() => void) | undefined
             useMocks({
                 post: {
-                    '/api/projects/:team_id/logs/query/': () =>
+                    '/api/environments/:team_id/logs/query/': () =>
                         new Promise((resolve) => {
                             resolveQuery = () => resolve([200, { results: [], maxExportableLogs: 5000 }])
                         }),
@@ -455,11 +455,11 @@ describe('logsViewerDataLogic', () => {
             useMocks({
                 post: {
                     // Server echoes one alias per sent expression, in request (config) order.
-                    '/api/projects/:team_id/logs/query/': () => [
+                    '/api/environments/:team_id/logs/query/': () => [
                         200,
                         { results: [], maxExportableLogs: 5000, columns: ['col_a', 'col_b'] },
                     ],
-                    '/api/projects/:team_id/logs/sparkline/': () => [200, []],
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
                 },
             })
             logic.actions.setColumns([

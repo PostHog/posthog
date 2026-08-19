@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -14,8 +15,6 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
-
-import { endpointsApi } from 'products/endpoints/frontend/endpointsApi'
 
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'
@@ -324,7 +323,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    return await endpointsApi.retrieve(name)
+                    return await api.endpoint.get(name)
                 },
             },
         ],
@@ -335,9 +334,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const materializationStatus = await endpointsApi.materializationStatus(name, {
-                        version: version,
-                    })
+                    const materializationStatus = await api.endpoint.getMaterializationStatus(name, version)
 
                     // Update the endpoint object with the new materialization status (only for current version)
                     if (values.endpoint && version === undefined) {
@@ -362,7 +359,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    const response = await endpointsApi.versions(name)
+                    const response = await api.endpoint.listVersions(name)
                     return response.results
                 },
             },
@@ -385,7 +382,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (request.name) {
                         request.name = slugify(request.name)
                     }
-                    const response = await endpointsApi.create(request)
+                    const response = await api.endpoint.create(request)
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
@@ -431,10 +428,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             updateEndpoint: async ({ name, request, options }) => {
                 try {
-                    const response = await endpointsApi.update(name, {
-                        ...request,
-                        version: options?.version,
-                    })
+                    const response = await api.endpoint.update(name, request, options?.version)
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
@@ -485,9 +479,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 await breakpoint(250)
 
                 try {
-                    const saved = await endpointsApi.update(endpoint.name, {
-                        tags,
-                    } as Partial<EndpointRequest>)
+                    const saved = await api.endpoint.update(endpoint.name, { tags } as Partial<EndpointRequest>)
                     breakpoint()
 
                     actions.loadEndpointSuccess(saved as EndpointVersionType)
@@ -502,7 +494,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             deleteEndpoint: async ({ name }) => {
                 try {
-                    await endpointsApi.destroy(name)
+                    await api.endpoint.delete(name)
                     actions.deleteEndpointSuccess(name)
                 } catch (error) {
                     console.error('Failed to delete endpoint:', error)

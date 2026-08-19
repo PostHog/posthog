@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -19,19 +19,14 @@ import { userLogic } from 'scenes/userLogic'
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import {
-    subscriptionsCreate,
     subscriptionsDeliveriesList,
-    subscriptionsRetrieve,
-    subscriptionsSummaryQuotaRetrieve,
     subscriptionsTestDeliveryCreate,
-    subscriptionsUpdate,
 } from 'products/subscriptions/frontend/generated/api'
 import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
-import type { SubscriptionsSummaryQuotaRetrieve200 } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import {
@@ -322,10 +317,18 @@ export interface subscriptionLogicActions {
         errorObject?: any
     }
     loadSummaryQuotaSuccess: (
-        summaryQuota: SubscriptionsSummaryQuotaRetrieve200,
+        summaryQuota: {
+            active_count: number
+            at_limit: boolean
+            limit: number | null
+        },
         payload?: any
     ) => {
-        summaryQuota: SubscriptionsSummaryQuotaRetrieve200
+        summaryQuota: {
+            active_count: number
+            at_limit: boolean
+            limit: number | null
+        }
         payload?: any
     }
     resetSubscription: (values?: SubscriptionType) => {
@@ -488,10 +491,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
-                    const subscription = (await subscriptionsRetrieve(
-                        String(ApiConfig.getCurrentProjectId()),
-                        props.id
-                    )) as unknown as SubscriptionType
+                    const subscription = await api.subscriptions.get(props.id)
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
                     let byweekday = subscription.byweekday
@@ -524,7 +524,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         summaryQuota: {
             __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
             loadSummaryQuota: async () => {
-                return await subscriptionsSummaryQuotaRetrieve(String(ApiConfig.getCurrentProjectId()))
+                return await api.subscriptions.summaryQuota()
             },
         },
     })),
@@ -567,15 +567,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const updatedSub: SubscriptionType =
                     props.id === 'new'
-                        ? ((await subscriptionsCreate(
-                              String(ApiConfig.getCurrentProjectId()),
-                              payload as Parameters<typeof subscriptionsCreate>[1]
-                          )) as unknown as SubscriptionType)
-                        : ((await subscriptionsUpdate(
-                              String(ApiConfig.getCurrentProjectId()),
-                              props.id,
-                              payload as Parameters<typeof subscriptionsUpdate>[2]
-                          )) as unknown as SubscriptionType)
+                        ? await api.subscriptions.create(payload)
+                        : await api.subscriptions.update(props.id, payload)
 
                 actions.resetSubscription()
 

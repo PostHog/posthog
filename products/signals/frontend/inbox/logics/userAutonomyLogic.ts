@@ -3,7 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { signalUserAutonomyApi } from '../../signalsApi'
+import api from 'lib/api'
+
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalUserAutonomyConfig } from '../types'
 
@@ -54,7 +55,7 @@ export type userAutonomyLogicType = MakeLogicType<userAutonomyLogicValues, userA
 
 /**
  * Per-user Self-driving autonomy override. Wraps the `users/@me/signal_autonomy`
- * endpoint. The only field surfaced here is the PR
+ * endpoint via `api.signalUserAutonomy`. The only field surfaced here is the PR
  * auto-start priority threshold; `null` means "never auto-start" (review first).
  */
 export const userAutonomyLogic = kea<userAutonomyLogicType>([
@@ -77,7 +78,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             null as SignalUserAutonomyConfig | null,
             {
                 loadAutonomyConfig: async () => {
-                    return await signalUserAutonomyApi.get()
+                    return await api.signalUserAutonomy.get()
                 },
             },
         ],
@@ -110,7 +111,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
         setAutostartPriority: async ({ priority }) => {
             let success = true
             try {
-                await signalUserAutonomyApi.update({ autostart_priority: priority })
+                await api.signalUserAutonomy.update({ autostart_priority: priority })
             } catch (error: any) {
                 success = false
                 lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update auto-start threshold')
@@ -138,7 +139,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             }
             let success = true
             try {
-                await signalUserAutonomyApi.update(body)
+                await api.signalUserAutonomy.update(body)
             } catch (error: any) {
                 success = false
                 lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update Slack notification setting')

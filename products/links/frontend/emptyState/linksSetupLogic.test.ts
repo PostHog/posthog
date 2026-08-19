@@ -1,11 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import * as linksApi from '../generated/api'
 import { linksSetupLogic } from './linksSetupLogic'
 
 // Guards the connect + mapping into the app-wide setup-status layer: if either
@@ -14,7 +14,7 @@ describe('linksSetupLogic', () => {
     let listSpy: jest.SpyInstance
 
     beforeEach(() => {
-        listSpy = jest.spyOn(linksApi, 'linksList')
+        listSpy = jest.spyOn(api.links, 'list')
         initKeaTests()
     })
 

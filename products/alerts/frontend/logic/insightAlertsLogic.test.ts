@@ -9,7 +9,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
-import * as alertsApi from '../generated/api'
 import type { AlertType } from '../types'
 import {
     alertsUnsupportedReason,
@@ -49,7 +48,7 @@ describe('insightAlertsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(alertsApi, 'alertsList').mockResolvedValue({ results: [], count: 0 })
+        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
         hogFunctionsListSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 })
     })
 
@@ -138,7 +137,7 @@ describe('insightAlertsLogic', () => {
             alertsLogic.actions.loadAlerts()
         }).toFinishAllListeners()
 
-        expect(listSpy).toHaveBeenCalledWith(expect.any(String), { insight_id: 42 })
+        expect(listSpy).toHaveBeenCalledWith(42)
     })
 
     it('dispatches loadAlerts on mount when not deferred and cached insight has no alerts field', async () => {
@@ -160,7 +159,7 @@ describe('insightAlertsLogic', () => {
         alertsLogic.mount()
 
         await expectLogic(alertsLogic).toFinishAllListeners()
-        expect(listSpy).toHaveBeenCalledWith(expect.any(String), { insight_id: 42 })
+        expect(listSpy).toHaveBeenCalledWith(42)
     })
 
     it('uses loadAlertsSuccess from insight.alerts on mount when not deferred and does not call the API for an empty array', async () => {

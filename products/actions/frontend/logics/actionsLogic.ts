@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -14,7 +14,6 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActionType, ActivityScope, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { actionsListApi, actionUpdateApi } from '../actionsApi'
 
 export const ACTIONS_PER_PAGE = 50
 
@@ -192,11 +191,11 @@ export const actionsLogic = kea<actionsLogicType>([
             { count: 0, results: [] } as ActionsResponse,
             {
                 loadActions: async () => {
-                    const response = await actionsListApi(values.apiParams)
+                    const response = await api.actions.list(values.apiParams)
                     return { count: response.count ?? 0, results: response.results ?? [] }
                 },
                 pinAction: async (action: ActionType) => {
-                    const updated = await actionUpdateApi(action.id, {
+                    const updated = await api.actions.update(action.id, {
                         name: action.name,
                         pinned_at: new Date().toISOString(),
                     })
@@ -209,7 +208,7 @@ export const actionsLogic = kea<actionsLogicType>([
                     }
                 },
                 unpinAction: async (action: ActionType) => {
-                    const updated = await actionUpdateApi(action.id, {
+                    const updated = await api.actions.update(action.id, {
                         name: action.name,
                         pinned_at: null,
                     })

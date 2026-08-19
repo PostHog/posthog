@@ -68,7 +68,7 @@ describe('workflowLogic external edits', () => {
         getCalls = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
                     return [200, makeWorkflow()]
                 },
@@ -170,7 +170,7 @@ describe('workflowLogic external edits', () => {
         })
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
                     return [200, withInvalidEmail]
                 },
@@ -244,7 +244,7 @@ describe('workflowLogic external edits', () => {
         const DRAFT_AT = '2026-05-15T00:00:00.000Z'
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
                     return [200, makeWorkflow({ draft: { edges: [] }, draft_updated_at: DRAFT_AT })]
                 },
@@ -286,7 +286,7 @@ describe('workflowLogic external edits', () => {
         // The server copy has advanced; Keep mine adopts that timestamp so the user's next save wins.
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => [200, makeWorkflow({ updated_at: NEWER })],
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, makeWorkflow({ updated_at: NEWER })],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
@@ -305,11 +305,11 @@ describe('workflowLogic external edits', () => {
         silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => [200, makeWorkflow()],
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, makeWorkflow()],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/projects/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
             },
         })
         logic.actions.setAutoSaveEnabled(false)
@@ -327,14 +327,14 @@ describe('workflowLogic external edits', () => {
         silenceKeaLoadersErrors()
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
                     return [200, makeWorkflow()]
                 },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/projects/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
             },
         })
         logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
@@ -354,14 +354,14 @@ describe('workflowLogic external edits', () => {
         silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': () => {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
                     return [200, makeWorkflow()]
                 },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/projects/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
             },
         })
         logic.actions.setWorkflowValue('name', 'Conflicting edit')

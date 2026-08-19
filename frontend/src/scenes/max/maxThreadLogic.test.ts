@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -30,9 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
@@ -68,10 +66,10 @@ describe('maxThreadLogic', () => {
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                '/api/projects/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
+                '/api/environments/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
                 // loadQueueData fires on mount; without a shaped default it hits the empty-response
                 // floor (no `messages`/`max_queue_messages`) and the queue reducers reduce to undefined.
-                '/api/projects/:team_id/conversations/:conversation_id/queue': {
+                '/api/environments/:team_id/conversations/:conversation_id/queue': {
                     messages: [],
                     max_queue_messages: 0,
                 },
@@ -703,7 +701,7 @@ describe('maxThreadLogic', () => {
     describe('queueing', () => {
         beforeEach(() => {
             featureFlagLogic.mount()
-            jest.spyOn(conversationsApi.queue, 'list').mockResolvedValue({
+            jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -717,7 +715,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('does not queue prompts for a Pi task', async () => {
-            const enqueueSpy = jest.spyOn(conversationsApi.queue, 'enqueue')
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
             const conversation: ConversationDetail = {
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 agent_runtime: 'sandbox',
@@ -733,7 +731,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('queues prompts while loading and omits null fields', async () => {
-            const enqueueSpy = jest.spyOn(conversationsApi.queue, 'enqueue').mockResolvedValue({
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -760,7 +758,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('includes ui_context and agent_mode when set', async () => {
-            const enqueueSpy = jest.spyOn(conversationsApi.queue, 'enqueue').mockResolvedValue({
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -785,7 +783,7 @@ describe('maxThreadLogic', () => {
 
         it('shows an error toast when the queue is full', async () => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
-            const enqueueSpy = jest.spyOn(conversationsApi.queue, 'enqueue')
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
 
             logic.actions.setQueuedMessages([
                 { id: 'queue-1', content: 'first', created_at: new Date().toISOString() },
@@ -808,7 +806,7 @@ describe('maxThreadLogic', () => {
                 content: 'Original',
                 created_at: new Date().toISOString(),
             }
-            jest.spyOn(conversationsApi.queue, 'update').mockResolvedValue({
+            jest.spyOn(api.conversations.queue, 'update').mockResolvedValue({
                 messages: [{ ...queueMessage, content: 'Updated' }],
                 max_queue_messages: 2,
             })
@@ -829,7 +827,7 @@ describe('maxThreadLogic', () => {
                 content: 'Original',
                 created_at: new Date().toISOString(),
             }
-            jest.spyOn(conversationsApi.queue, 'delete').mockResolvedValue({
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -845,7 +843,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('clears queued messages when approvals are pending', async () => {
-            jest.spyOn(conversationsApi.queue, 'clear').mockResolvedValue({
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -877,7 +875,7 @@ describe('maxThreadLogic', () => {
                 content: 'Queued',
                 created_at: new Date().toISOString(),
             }
-            ;(conversationsApi.queue.list as jest.Mock).mockResolvedValue({
+            ;(api.conversations.queue.list as jest.Mock).mockResolvedValue({
                 messages: [queueMessage],
                 max_queue_messages: 2,
             })
@@ -896,7 +894,7 @@ describe('maxThreadLogic', () => {
                 content: 'Queued',
                 created_at: new Date().toISOString(),
             }
-            jest.spyOn(conversationsApi.queue, 'delete').mockResolvedValue({
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -917,7 +915,7 @@ describe('maxThreadLogic', () => {
                 content: 'Queued',
                 created_at: new Date().toISOString(),
             }
-            const listSpy = jest.spyOn(conversationsApi.queue, 'list').mockResolvedValue({
+            const listSpy = jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
@@ -1323,7 +1321,7 @@ describe('maxThreadLogic', () => {
 
     describe('400 error message handling', () => {
         it('surfaces server detail message for 400 errors', async () => {
-            jest.spyOn(conversationsApi, 'stream').mockRejectedValue(
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
                 new ApiError('Bad Request', 400, undefined, { detail: 'The server error message' })
             )
 
@@ -1347,7 +1345,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('shows content length message for 400 errors with content attr', async () => {
-            jest.spyOn(conversationsApi, 'stream').mockRejectedValue(
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
                 new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
             )
 
@@ -1382,7 +1380,7 @@ describe('maxThreadLogic', () => {
             const captureExceptionSpy = jest
                 .spyOn(posthog, 'captureException')
                 .mockImplementation(() => undefined as any)
-            jest.spyOn(conversationsApi, 'stream').mockRejectedValue(new ApiError('error', status, undefined, {}))
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', status, undefined, {}))
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
@@ -1571,7 +1569,7 @@ describe('maxThreadLogic', () => {
                 { type: AssistantMessageType.Assistant, content: 'first answer', id: 'assistant-1' },
             ]
             logic.unmount()
-            const getSpy = jest.spyOn(conversationsApi, 'get').mockResolvedValue({
+            const getSpy = jest.spyOn(api.conversations, 'get').mockResolvedValue({
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 messages: loadedMessages,
             } as ConversationDetail)
@@ -1612,7 +1610,7 @@ describe('maxThreadLogic', () => {
             // new chat and 404.
             logic.unmount()
             maxLogicInstance.actions.startNewConversation()
-            const getSpy = jest.spyOn(conversationsApi, 'get')
+            const getSpy = jest.spyOn(api.conversations, 'get')
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
@@ -1714,9 +1712,9 @@ describe('maxThreadLogic', () => {
 
         it('replays logs/ then opens SSE for a non-terminal sandbox run, never reconnecting LangGraph', async () => {
             logic.unmount()
-            jest.spyOn(conversationsApi, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
-            const logsSpy = jest.spyOn(taskApi.runs, 'getLogEntries').mockResolvedValue([])
-            const runSpy = jest.spyOn(taskApi.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            const runSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1739,8 +1737,8 @@ describe('maxThreadLogic', () => {
         it('does not bootstrap a Pi task run', async () => {
             logic.unmount()
             const conversation = sandboxConversation(SANDBOX_RUN_ID, RuntimeEnumApi.Pi)
-            jest.spyOn(conversationsApi, 'get').mockResolvedValue(conversation)
-            const logsSpy = jest.spyOn(taskApi.runs, 'getLogEntries')
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(conversation)
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1757,8 +1755,8 @@ describe('maxThreadLogic', () => {
 
         it('does not bootstrap a sandbox run without a latest_run', async () => {
             logic.unmount()
-            jest.spyOn(conversationsApi, 'get').mockResolvedValue(sandboxConversation(null))
-            const logsSpy = jest.spyOn(taskApi.runs, 'getLogEntries')
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(null))
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1794,7 +1792,7 @@ describe('maxThreadLogic', () => {
 
         async function mountIdleSandbox(): Promise<void> {
             logic.unmount()
-            jest.spyOn(conversationsApi, 'get').mockResolvedValue(idleSandboxConversation())
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(idleSandboxConversation())
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
                 panelId: 'test',
@@ -1818,7 +1816,7 @@ describe('maxThreadLogic', () => {
             // Warm = open with content: null. Keep the POST in flight so the abandon races it.
             let resolvePrewarm: (handle: typeof warmHandle) => void = () => {}
             const openSpy = jest
-                .spyOn(conversationsApi, 'open')
+                .spyOn(api.conversations, 'open')
                 .mockReturnValue(new Promise<typeof warmHandle>((resolve) => (resolvePrewarm = resolve)) as any)
 
             logic.actions.prewarmSandbox()
@@ -1845,7 +1843,7 @@ describe('maxThreadLogic', () => {
         it('does not release a warm that resolved with no pending abandon', async () => {
             await mountIdleSandbox()
 
-            jest.spyOn(conversationsApi, 'open').mockResolvedValue(warmHandle)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(warmHandle)
 
             await expectLogic(logic, () => {
                 logic.actions.prewarmSandbox()
@@ -3235,7 +3233,7 @@ describe('maxThreadLogic', () => {
 
     describe('stopGeneration button state (LangGraph cancel race)', () => {
         it('clears all loading flags after a successful cancel so the stop button returns to send', async () => {
-            jest.spyOn(conversationsApi, 'cancel').mockResolvedValue(undefined)
+            jest.spyOn(api.conversations, 'cancel').mockResolvedValue(undefined)
 
             // An in-progress conversation drives conversationLoading -> true
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
@@ -3574,9 +3572,9 @@ describe('maxThreadLogic', () => {
         it('does not open a sandbox conversation bound to a Pi task', async () => {
             maxLogicInstance.actions.setPendingBindTaskId('pi-task')
             const taskSpy = jest
-                .spyOn(taskApi, 'get')
+                .spyOn(api.tasks, 'get')
                 .mockResolvedValue({ id: 'pi-task', runtime: RuntimeEnumApi.Pi } as any)
-            const openSpy = jest.spyOn(conversationsApi, 'open')
+            const openSpy = jest.spyOn(api.conversations, 'open')
 
             logic.actions.askMax('hello')
             await Promise.resolve()
@@ -3591,9 +3589,9 @@ describe('maxThreadLogic', () => {
         it('validates a pending ACP task once before opening the conversation', async () => {
             maxLogicInstance.actions.setPendingBindTaskId('acp-task')
             const taskSpy = jest
-                .spyOn(taskApi, 'get')
+                .spyOn(api.tasks, 'get')
                 .mockResolvedValue({ id: 'acp-task', runtime: RuntimeEnumApi.Acp } as any)
-            jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.askMax('hello')
@@ -3604,7 +3602,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('holds the streaming lock until the sandbox turn completes and releases exactly once', async () => {
-            const openSpy = jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3639,7 +3637,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('does not release the lock on a non-terminal task_run_state frame', async () => {
-            jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3662,7 +3660,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('lights the optimistic boot indicator before the open POST and clears it once the SSE opens', async () => {
-            jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3676,7 +3674,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
-            jest.spyOn(conversationsApi, 'open').mockRejectedValue(new Error('boom'))
+            jest.spyOn(api.conversations, 'open').mockRejectedValue(new Error('boom'))
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3697,7 +3695,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('releases the lock immediately when no run was started', async () => {
-            const openSpy = jest.spyOn(conversationsApi, 'open')
+            const openSpy = jest.spyOn(api.conversations, 'open')
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3711,7 +3709,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
-            const openSpy = jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
             // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
             attachedContextLogic.mount()
             attachedContextLogic.actions.registerContext('test-provider', [
@@ -3750,7 +3748,7 @@ describe('maxThreadLogic', () => {
                 addEventListener(): void {}
                 close(): void {}
             }
-            jest.spyOn(conversationsApi, 'open').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
         })
 
         afterEach(() => {
@@ -3807,7 +3805,7 @@ describe('maxThreadLogic', () => {
 
         it('markTurnComplete drains the sandbox queue combined, without an optimistic echo', async () => {
             // No POSTHOG_AI_QUEUE_MESSAGES_SYSTEM flag — sandbox queueing is flag-independent.
-            jest.spyOn(conversationsApi.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
 
             const sandboxStreamInstance = await startSandboxTurn()
             // completeThreadGeneration's queue-drain only runs with a non-null conversation.

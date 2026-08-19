@@ -4,10 +4,9 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { LinkType } from '~/types'
 
-import type { LinkApi } from './generated/api.schemas'
-
-const LINKS_RESULT: LinkApi[] = [
+const LINKS_RESULT: LinkType[] = [
     {
         id: '0187c22c-06d9-0000-34fe-daa2e2afb503',
         redirect_url: 'https://www.google.com',
@@ -22,7 +21,6 @@ const LINKS_RESULT: LinkApi[] = [
             distinct_id: '0187c22c-06d9-0000-34fe-daa2e2afb505',
             first_name: 'John',
             email: 'john@example.com',
-            hedgehog_config: null,
         },
     },
     {
@@ -39,7 +37,6 @@ const LINKS_RESULT: LinkApi[] = [
             distinct_id: '0187c22c-06d9-0000-34fe-daa2e2afb505',
             first_name: 'John',
             email: 'john@example.com',
-            hedgehog_config: null,
         },
     },
     {
@@ -56,7 +53,6 @@ const LINKS_RESULT: LinkApi[] = [
             distinct_id: '0187c22c-06d9-0000-34fe-daa2e2afb505',
             first_name: 'John',
             email: 'john@example.com',
-            hedgehog_config: null,
         },
     },
 ]

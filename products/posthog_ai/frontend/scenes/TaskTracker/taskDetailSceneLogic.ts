@@ -15,13 +15,13 @@ import {
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 
 import { isApiNotFound, loadErrorMessage } from '../../lib/load-error'
 import { phDebugQueryParams } from '../../lib/ph-debug'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
-import { taskApi } from '../../taskApi'
 import { TaskRun } from '../../types/taskTypes'
 import type { Task, TaskUpsertProps } from '../../types/taskTypes'
 
@@ -207,7 +207,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 loadTaskRuns: async () => {
                     try {
-                        const response = await taskApi.runs.list(props.taskId, phDebugQueryParams())
+                        const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
                         return response.results
                     } catch (errorObject) {
                         actions.loadTaskRunsFailure(loadErrorMessage('', errorObject), errorObject)
@@ -224,7 +224,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         return null
                     }
                     try {
-                        const run = await taskApi.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
+                        const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
                         return run ?? null
                     } catch (errorObject) {
                         actions.loadSelectedTaskRunFailure(loadErrorMessage('', errorObject), errorObject)

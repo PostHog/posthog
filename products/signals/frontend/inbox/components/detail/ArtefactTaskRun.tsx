@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
-import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
@@ -43,7 +43,7 @@ export function ArtefactTaskRun({
         }
         setLoading(true)
         let cancelled = false
-        taskApi
+        api.tasks
             .get(content.task_id)
             .then((result) => {
                 if (!cancelled) {

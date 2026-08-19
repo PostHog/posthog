@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -19,7 +19,6 @@ import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { QueryBasedInsightModel } from '../../../../frontend/src/types'
-import { alertsList } from '../generated/api'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
 import { buildAlertFilterConfig } from './alertNotifications'
 
@@ -258,10 +257,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                const response = await alertsList(String(ApiConfig.getCurrentProjectId()), {
-                    insight_id: props.insightId,
-                })
-                return response.results as unknown as AlertType[]
+                const response = await api.alerts.list(props.insightId)
+                return response.results
             },
         },
         alertDestinationCounts: [

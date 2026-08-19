@@ -49,22 +49,22 @@ describe('subscriptionLogic', () => {
         window.localStorage.clear()
         useMocks({
             get: {
-                '/api/projects/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
-                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/subscriptions/1/deliveries/': {
                     next: null,
                     previous: null,
                     results: [],
                 },
                 '/api/projects/:team/integrations': { count: 0, results: [] },
-                '/api/projects/:team/subscriptions/summary_quota': {
+                '/api/environments/:team/subscriptions/summary_quota': {
                     active_count: 0,
                     limit: null,
                     at_limit: false,
                 },
             },
             post: {
-                '/api/projects/:team/subscriptions': async ({ request }) => [
+                '/api/environments/:team/subscriptions': async ({ request }) => [
                     200,
                     { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
                 ],
@@ -133,7 +133,7 @@ describe('subscriptionLogic', () => {
     it('uses the UTC weekday for legacy weekly subscriptions', async () => {
         useMocks({
             get: {
-                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'weekly',
                     start_date: '2024-01-01T00:30:00Z',
                     byweekday: null,
@@ -151,7 +151,7 @@ describe('subscriptionLogic', () => {
     it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
         useMocks({
             get: {
-                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'daily',
                     interval: 2,
                     byweekday: ['monday', 'wednesday'],
@@ -410,7 +410,7 @@ describe('subscriptionLogic', () => {
             })
             useMocks({
                 get: {
-                    '/api/projects/:team/subscriptions/summary_quota': {
+                    '/api/environments/:team/subscriptions/summary_quota': {
                         active_count: 0,
                         limit: 5,
                         at_limit: atLimit,
@@ -576,7 +576,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/projects/:team/subscriptions': async ({ request }) => {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 42, ...capturedBody } as SubscriptionType]
                 },
@@ -605,7 +605,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/projects/:team/subscriptions': async ({ request }) => {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 43, ...capturedBody } as SubscriptionType]
                 },

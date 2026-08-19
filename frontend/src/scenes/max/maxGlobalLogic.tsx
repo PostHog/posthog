@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -18,7 +19,6 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
-import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -323,7 +323,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
-                    const response = await conversationsApi.list()
+                    const response = await api.conversations.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
                             conversation,
@@ -333,7 +333,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await conversationsApi.get(conversationId)
+                    const response = await api.conversations.get(conversationId)
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers
                         return values.conversationHistory

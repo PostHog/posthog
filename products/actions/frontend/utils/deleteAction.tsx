@@ -1,9 +1,9 @@
+import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { ActionType } from '~/types'
 
-import { actionDeleteEndpoint, actionReferencesApi } from '../actionsApi'
 import type { ActionReferenceApi } from '../generated/api.schemas'
 
 /**
@@ -13,14 +13,15 @@ import type { ActionReferenceApi } from '../generated/api.schemas'
 export async function deleteActionWithWarning(action: ActionType, callback: (undo: boolean) => void): Promise<void> {
     let references: ActionReferenceApi[] = []
     try {
-        references = await actionReferencesApi(action.id)
+        // nosemgrep: prefer-codegen-api
+        references = await api.get(`api/projects/@current/actions/${action.id}/references`)
     } catch {
         // If we can't fetch references, proceed with delete anyway
     }
 
     const performDelete = async (): Promise<void> => {
         await deleteWithUndo({
-            endpoint: actionDeleteEndpoint(),
+            endpoint: api.actions.determineDeleteEndpoint(),
             object: action,
             callback,
         })

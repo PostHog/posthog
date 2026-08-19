@@ -6,7 +6,6 @@ import { AlertState } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
-import * as alertsApi from '../generated/api'
 import { AlertType } from '../types'
 import { alertsLogic } from './alertsLogic'
 
@@ -31,7 +30,7 @@ describe('alertsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(alertsApi, 'alertsList').mockResolvedValue({ results: [alert], count: 1 } as never)
+        listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [alert], count: 1 })
         hogFunctionsListSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 })
     })
 
@@ -43,7 +42,7 @@ describe('alertsLogic', () => {
     })
 
     it('keeps a deleted alert out of a reloaded list', async () => {
-        deleteSpy = jest.spyOn(alertsApi, 'alertsDestroy').mockResolvedValue()
+        deleteSpy = jest.spyOn(api.alerts, 'delete').mockResolvedValue()
         const nextAlert = { ...alert, id: 'alert-2', name: 'Newer alert' }
         listSpy.mockReset()
         listSpy
@@ -56,7 +55,7 @@ describe('alertsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.deleteAlert(alert)).toFinishAllListeners()
 
-        expect(deleteSpy).toHaveBeenCalledWith(expect.any(String), alert.id)
+        expect(deleteSpy).toHaveBeenCalledWith(alert.id)
         expect(listSpy).toHaveBeenCalledTimes(2)
         expect(logic.values.alertsResponse).toEqual({ results: [nextAlert], count: 1 })
 
@@ -68,7 +67,7 @@ describe('alertsLogic', () => {
         const deletePromise = new Promise<void>((resolve) => {
             resolveDelete = resolve
         })
-        deleteSpy = jest.spyOn(alertsApi, 'alertsDestroy').mockReturnValue(deletePromise)
+        deleteSpy = jest.spyOn(api.alerts, 'delete').mockReturnValue(deletePromise)
 
         const logic = alertsLogic()
         logic.mount()
@@ -88,7 +87,7 @@ describe('alertsLogic', () => {
         const updatePromise = new Promise<AlertType>((resolve) => {
             resolveUpdate = resolve
         })
-        updateSpy = jest.spyOn(alertsApi, 'alertsPartialUpdate').mockReturnValue(updatePromise as never)
+        updateSpy = jest.spyOn(api.alerts, 'update').mockReturnValue(updatePromise)
 
         const logic = alertsLogic()
         logic.mount()
@@ -96,7 +95,7 @@ describe('alertsLogic', () => {
 
         logic.actions.toggleAlertEnabled(alert)
 
-        expect(updateSpy).toHaveBeenCalledWith(expect.any(String), alert.id, { enabled: false })
+        expect(updateSpy).toHaveBeenCalledWith(alert.id, { enabled: false })
         expect(logic.values.togglingAlertIds).toEqual(new Set([alert.id]))
 
         const alertFromNewerList = { ...alert, id: 'alert-2', name: 'Newer filtered result' }

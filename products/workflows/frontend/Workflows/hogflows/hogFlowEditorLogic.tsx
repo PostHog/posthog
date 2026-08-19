@@ -25,7 +25,7 @@ import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType } from '../../../../../frontend/src/types'
+import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
@@ -192,10 +192,1592 @@ export interface hogFlowEditorLogicActions {
         value: true
     } // optOutCategoriesLogic
     loadWorkflowSuccess: (
-        originalWorkflow: HogFlow | null,
+        originalWorkflow:
+            | HogFlow
+            | {
+                  abort_action?: string | undefined
+                  actions: (
+                      | {
+                            config: {
+                                cohorts: {
+                                    name?: string | undefined
+                                    percentage: number
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'random_cohort_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                delay_duration: string
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                reason?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'exit'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                                delay_duration?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                condition: {
+                                    filters?:
+                                        | {
+                                              actions?: any[] | undefined
+                                              events?: any[] | undefined
+                                              properties?: any[] | undefined
+                                          }
+                                        | null
+                                        | undefined
+                                    name?: string | undefined
+                                }
+                                events?:
+                                    | {
+                                          filters?:
+                                              | {
+                                                    actions?: any[] | undefined
+                                                    events?: any[] | undefined
+                                                    properties?: any[] | undefined
+                                                }
+                                              | null
+                                              | undefined
+                                          name?: string | undefined
+                                      }[]
+                                    | undefined
+                                max_wait_duration: string
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'wait_until_condition'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                mappings?:
+                                    | {
+                                          disabled?: boolean | undefined
+                                          filters?: any
+                                          inputs?:
+                                              | Record<
+                                                    string,
+                                                    {
+                                                        bytecode?: any
+                                                        order?: number | undefined
+                                                        secret?: boolean | undefined
+                                                        templating?: 'hog' | 'liquid' | undefined
+                                                        value: any
+                                                    }
+                                                >
+                                              | null
+                                              | undefined
+                                          inputs_schema?:
+                                              | {
+                                                    choices?:
+                                                        | {
+                                                              label: string
+                                                              value: string
+                                                          }[]
+                                                        | undefined
+                                                    default?: any
+                                                    description?: string | undefined
+                                                    hidden?: boolean | undefined
+                                                    integration?: string | undefined
+                                                    integration_field?: string | undefined
+                                                    integration_key?: string | undefined
+                                                    key: string
+                                                    label: string
+                                                    required?: boolean | undefined
+                                                    requiredScopes?: string | undefined
+                                                    requires_field?: string | undefined
+                                                    secret?: boolean | undefined
+                                                    templating?: boolean | undefined
+                                                    type:
+                                                        | 'boolean'
+                                                        | 'choice'
+                                                        | 'customer_analytics_account_properties'
+                                                        | 'customer_analytics_account_relationships'
+                                                        | 'dictionary'
+                                                        | 'email'
+                                                        | 'integration'
+                                                        | 'integration_field'
+                                                        | 'integration_multi'
+                                                        | 'json'
+                                                        | 'native_email'
+                                                        | 'non_failure_status_codes'
+                                                        | 'number'
+                                                        | 'posthog_assignee'
+                                                        | 'posthog_business_hours'
+                                                        | 'posthog_ticket_tags'
+                                                        | 'string'
+                                                }[]
+                                              | undefined
+                                          name: string
+                                      }[]
+                                    | undefined
+                                template_id: string
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                day:
+                                    | (
+                                          | 'friday'
+                                          | 'monday'
+                                          | 'saturday'
+                                          | 'sunday'
+                                          | 'thursday'
+                                          | 'tuesday'
+                                          | 'wednesday'
+                                      )[]
+                                    | 'any'
+                                    | 'weekday'
+                                    | 'weekend'
+                                fallback_timezone?: string | null | undefined
+                                time: [string, string] | 'any'
+                                timezone: string | null
+                                use_person_timezone?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'wait_until_time_window'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-twilio'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_sms'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-email'
+                                template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_email'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config:
+                                | {
+                                      type: 'schedule'
+                                  }
+                                | {
+                                      filters: {
+                                          actions?: any[] | undefined
+                                          events?: any[] | undefined
+                                          filter_test_accounts?: boolean | undefined
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'manual'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'tracking_pixel'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'webhook'
+                                  }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'trigger'
+                            updated_at?: number | undefined
+                        }
+                  )[]
+                  conversion?:
+                      | {
+                            bytecode?: (number | string)[] | undefined
+                            events?:
+                                | {
+                                      filters?: any
+                                      name?: string | undefined
+                                  }[]
+                                | undefined
+                            filters: any
+                            window_minutes: number | null
+                        }
+                      | undefined
+                  created_at: string
+                  created_by?: UserBasicType | null | undefined
+                  description?: string | undefined
+                  edges: {
+                      from: string
+                      index?: number | undefined
+                      to: string
+                      type: 'branch' | 'continue'
+                  }[]
+                  exit_condition:
+                      | 'exit_on_conversion'
+                      | 'exit_on_trigger_not_matched'
+                      | 'exit_on_trigger_not_matched_or_conversion'
+                      | 'exit_only_at_end'
+                  id: string
+                  image_url?: string | null | undefined
+                  name: string
+                  scope?: 'global' | 'organization' | 'team' | null | undefined
+                  status: 'draft'
+                  tags: string[]
+                  team_id: number
+                  trigger?:
+                      | {
+                            type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                filter_test_accounts?: boolean | undefined
+                                properties?: any[] | undefined
+                            }
+                            type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-table'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'manual'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'tracking_pixel'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'webhook'
+                        }
+                      | undefined
+                  trigger_masking?:
+                      | {
+                            bytecode: (number | string)[]
+                            hash: string
+                            threshold: number | null
+                            ttl: number | null
+                        }
+                      | null
+                      | undefined
+                  updated_at: string
+                  variables?:
+                      | {
+                            choices?:
+                                | {
+                                      label: string
+                                      value: string
+                                  }[]
+                                | undefined
+                            default?: any
+                            description?: string | undefined
+                            hidden?: boolean | undefined
+                            integration?: string | undefined
+                            integration_field?: string | undefined
+                            integration_key?: string | undefined
+                            key: string
+                            label: string
+                            required?: boolean | undefined
+                            requiredScopes?: string | undefined
+                            requires_field?: string | undefined
+                            secret?: boolean | undefined
+                            templating?: boolean | undefined
+                            type:
+                                | 'boolean'
+                                | 'choice'
+                                | 'customer_analytics_account_properties'
+                                | 'customer_analytics_account_relationships'
+                                | 'dictionary'
+                                | 'email'
+                                | 'integration'
+                                | 'integration_field'
+                                | 'integration_multi'
+                                | 'json'
+                                | 'native_email'
+                                | 'non_failure_status_codes'
+                                | 'number'
+                                | 'posthog_assignee'
+                                | 'posthog_business_hours'
+                                | 'posthog_ticket_tags'
+                                | 'string'
+                        }[]
+                      | null
+                      | undefined
+                  version: number
+              },
         payload?: any
     ) => {
-        originalWorkflow: HogFlow | null
+        originalWorkflow:
+            | HogFlow
+            | {
+                  abort_action?: string | undefined
+                  actions: (
+                      | {
+                            config: {
+                                cohorts: {
+                                    name?: string | undefined
+                                    percentage: number
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'random_cohort_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                delay_duration: string
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                reason?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'exit'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                                delay_duration?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                condition: {
+                                    filters?:
+                                        | {
+                                              actions?: any[] | undefined
+                                              events?: any[] | undefined
+                                              properties?: any[] | undefined
+                                          }
+                                        | null
+                                        | undefined
+                                    name?: string | undefined
+                                }
+                                events?:
+                                    | {
+                                          filters?:
+                                              | {
+                                                    actions?: any[] | undefined
+                                                    events?: any[] | undefined
+                                                    properties?: any[] | undefined
+                                                }
+                                              | null
+                                              | undefined
+                                          name?: string | undefined
+                                      }[]
+                                    | undefined
+                                max_wait_duration: string
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'wait_until_condition'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                mappings?:
+                                    | {
+                                          disabled?: boolean | undefined
+                                          filters?: any
+                                          inputs?:
+                                              | Record<
+                                                    string,
+                                                    {
+                                                        bytecode?: any
+                                                        order?: number | undefined
+                                                        secret?: boolean | undefined
+                                                        templating?: 'hog' | 'liquid' | undefined
+                                                        value: any
+                                                    }
+                                                >
+                                              | null
+                                              | undefined
+                                          inputs_schema?:
+                                              | {
+                                                    choices?:
+                                                        | {
+                                                              label: string
+                                                              value: string
+                                                          }[]
+                                                        | undefined
+                                                    default?: any
+                                                    description?: string | undefined
+                                                    hidden?: boolean | undefined
+                                                    integration?: string | undefined
+                                                    integration_field?: string | undefined
+                                                    integration_key?: string | undefined
+                                                    key: string
+                                                    label: string
+                                                    required?: boolean | undefined
+                                                    requiredScopes?: string | undefined
+                                                    requires_field?: string | undefined
+                                                    secret?: boolean | undefined
+                                                    templating?: boolean | undefined
+                                                    type:
+                                                        | 'boolean'
+                                                        | 'choice'
+                                                        | 'customer_analytics_account_properties'
+                                                        | 'customer_analytics_account_relationships'
+                                                        | 'dictionary'
+                                                        | 'email'
+                                                        | 'integration'
+                                                        | 'integration_field'
+                                                        | 'integration_multi'
+                                                        | 'json'
+                                                        | 'native_email'
+                                                        | 'non_failure_status_codes'
+                                                        | 'number'
+                                                        | 'posthog_assignee'
+                                                        | 'posthog_business_hours'
+                                                        | 'posthog_ticket_tags'
+                                                        | 'string'
+                                                }[]
+                                              | undefined
+                                          name: string
+                                      }[]
+                                    | undefined
+                                template_id: string
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                day:
+                                    | (
+                                          | 'friday'
+                                          | 'monday'
+                                          | 'saturday'
+                                          | 'sunday'
+                                          | 'thursday'
+                                          | 'tuesday'
+                                          | 'wednesday'
+                                      )[]
+                                    | 'any'
+                                    | 'weekday'
+                                    | 'weekend'
+                                fallback_timezone?: string | null | undefined
+                                time: [string, string] | 'any'
+                                timezone: string | null
+                                use_person_timezone?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'wait_until_time_window'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-twilio'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_sms'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                template_id: 'template-email'
+                                template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_email'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config:
+                                | {
+                                      type: 'schedule'
+                                  }
+                                | {
+                                      filters: {
+                                          actions?: any[] | undefined
+                                          events?: any[] | undefined
+                                          filter_test_accounts?: boolean | undefined
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'manual'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'tracking_pixel'
+                                  }
+                                | {
+                                      inputs: Record<
+                                          string,
+                                          {
+                                              bytecode?: any
+                                              order?: number | undefined
+                                              secret?: boolean | undefined
+                                              templating?: 'hog' | 'liquid' | undefined
+                                              value: any
+                                          }
+                                      >
+                                      template_id: string
+                                      template_uuid?: string | undefined
+                                      type: 'webhook'
+                                  }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'trigger'
+                            updated_at?: number | undefined
+                        }
+                  )[]
+                  conversion?:
+                      | {
+                            bytecode?: (number | string)[] | undefined
+                            events?:
+                                | {
+                                      filters?: any
+                                      name?: string | undefined
+                                  }[]
+                                | undefined
+                            filters: any
+                            window_minutes: number | null
+                        }
+                      | undefined
+                  created_at: string
+                  created_by?: UserBasicType | null | undefined
+                  description?: string | undefined
+                  edges: {
+                      from: string
+                      index?: number | undefined
+                      to: string
+                      type: 'branch' | 'continue'
+                  }[]
+                  exit_condition:
+                      | 'exit_on_conversion'
+                      | 'exit_on_trigger_not_matched'
+                      | 'exit_on_trigger_not_matched_or_conversion'
+                      | 'exit_only_at_end'
+                  id: string
+                  image_url?: string | null | undefined
+                  name: string
+                  scope?: 'global' | 'organization' | 'team' | null | undefined
+                  status: 'draft'
+                  tags: string[]
+                  team_id: number
+                  trigger?:
+                      | {
+                            type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                filter_test_accounts?: boolean | undefined
+                                properties?: any[] | undefined
+                            }
+                            type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-table'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'manual'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'tracking_pixel'
+                        }
+                      | {
+                            inputs: Record<
+                                string,
+                                {
+                                    bytecode?: any
+                                    order?: number | undefined
+                                    secret?: boolean | undefined
+                                    templating?: 'hog' | 'liquid' | undefined
+                                    value: any
+                                }
+                            >
+                            template_id: string
+                            template_uuid?: string | undefined
+                            type: 'webhook'
+                        }
+                      | undefined
+                  trigger_masking?:
+                      | {
+                            bytecode: (number | string)[]
+                            hash: string
+                            threshold: number | null
+                            ttl: number | null
+                        }
+                      | null
+                      | undefined
+                  updated_at: string
+                  variables?:
+                      | {
+                            choices?:
+                                | {
+                                      label: string
+                                      value: string
+                                  }[]
+                                | undefined
+                            default?: any
+                            description?: string | undefined
+                            hidden?: boolean | undefined
+                            integration?: string | undefined
+                            integration_field?: string | undefined
+                            integration_key?: string | undefined
+                            key: string
+                            label: string
+                            required?: boolean | undefined
+                            requiredScopes?: string | undefined
+                            requires_field?: string | undefined
+                            secret?: boolean | undefined
+                            templating?: boolean | undefined
+                            type:
+                                | 'boolean'
+                                | 'choice'
+                                | 'customer_analytics_account_properties'
+                                | 'customer_analytics_account_relationships'
+                                | 'dictionary'
+                                | 'email'
+                                | 'integration'
+                                | 'integration_field'
+                                | 'integration_multi'
+                                | 'json'
+                                | 'native_email'
+                                | 'non_failure_status_codes'
+                                | 'number'
+                                | 'posthog_assignee'
+                                | 'posthog_business_hours'
+                                | 'posthog_ticket_tags'
+                                | 'string'
+                        }[]
+                      | null
+                      | undefined
+                  version: number
+              }
         payload?: any
     } // workflowLogic
     setWorkflowAction: (

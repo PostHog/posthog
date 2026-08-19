@@ -114,7 +114,7 @@ describe('workflowLogic email step "from" validation', () => {
     ])('marks the step invalid but stays quiet before any save attempt when %s', async (_name, fromValue) => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
@@ -134,7 +134,7 @@ describe('workflowLogic email step "from" validation', () => {
     it('reveals the field messages when enabling an invalid draft, while blocking the save itself', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
@@ -157,7 +157,7 @@ describe('workflowLogic email step "from" validation', () => {
     it('keeps an email step added after a save attempt quiet until the next attempt', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
@@ -185,10 +185,10 @@ describe('workflowLogic email step "from" validation', () => {
     it('surfaces the softened sender message on its field once a save is attempted', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
-            patch: { '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}) },
+            patch: { '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}) },
         })
         initKeaTests()
         logic = workflowLogic({ id: WORKFLOW_ID })
@@ -217,7 +217,7 @@ describe('workflowLogic email step "from" validation', () => {
     ])('does not flag a "from" error when %s has been picked', async (_name, fromValue) => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
@@ -234,7 +234,7 @@ describe('workflowLogic email step "from" validation', () => {
     it('flags a broken Liquid template in the custom sender fields once a save is attempted', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
                     integrationId: 42,
                     email: '{{ event.properties.sender',
                 }),
@@ -256,7 +256,7 @@ describe('workflowLogic email step "from" validation', () => {
     it('keeps the step invalid after templates load (generic validator must not resurface a blob)', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': loadedTemplatesResponse,
             },
         })
@@ -275,7 +275,7 @@ describe('workflowLogic email step "from" validation', () => {
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })

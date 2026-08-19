@@ -1,10 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-
-import * as coreMemoryApi from 'products/posthog_ai/frontend/generated/api'
 
 import { maxSettingsLogic } from './maxSettingsLogic'
 
@@ -23,7 +23,7 @@ describe('maxSettingsLogic', () => {
     it('loads core memory from the first result', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/core_memory/': () => [
+                '/api/environments/:team_id/core_memory/': () => [
                     200,
                     { results: [{ id: 'mem-1', text: 'remember this' }] },
                 ],
@@ -42,7 +42,7 @@ describe('maxSettingsLogic', () => {
         async (status) => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/core_memory/': () => [status, { detail: 'nope' }],
+                    '/api/environments/:team_id/core_memory/': () => [status, { detail: 'nope' }],
                 },
             })
             logic = maxSettingsLogic()
@@ -60,7 +60,7 @@ describe('maxSettingsLogic', () => {
     it('lets non-HTTP errors propagate so real regressions stay visible', async () => {
         silenceKeaLoadersErrors()
         // A programming error (not an ApiError) should surface as a failure, not be silently swallowed.
-        jest.spyOn(coreMemoryApi, 'coreMemoryList').mockRejectedValueOnce(new TypeError('boom'))
+        jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('boom'))
         logic = maxSettingsLogic()
         logic.mount()
 

@@ -4,18 +4,11 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
-import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import {
-    messagingTemplatesCreate,
-    messagingTemplatesPartialUpdate,
-    messagingTemplatesRetrieve,
-} from 'products/messaging/frontend/messagingApiCompat'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, UserBasicType } from '../../../../frontend/src/types'
@@ -110,10 +103,10 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     loadTemplateSuccess: (
-        template: any,
+        template: MessageTemplate,
         payload?: any
     ) => {
-        template: any
+        template: MessageTemplate
         payload?: any
     }
     resetTemplate: (values?: {
@@ -150,10 +143,10 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: any,
+        template: MessageTemplate,
         payload?: any
     ) => {
-        template: any
+        template: MessageTemplate
         payload?: any
     }
     setOriginalTemplate: (template: MessageTemplate) => {
@@ -352,13 +345,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
-                return await messagingTemplatesRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
+                return await api.messaging.getTemplate(props.id)
             },
             saveTemplate: (template) => {
                 if (template.id === 'new') {
-                    return messagingTemplatesCreate(String(ApiConfig.getCurrentProjectId()), template)
+                    return api.messaging.createTemplate(template)
                 }
-                return messagingTemplatesPartialUpdate(String(ApiConfig.getCurrentProjectId()), template.id, template)
+                return api.messaging.updateTemplate(template.id, template)
             },
         },
         message: {
@@ -421,7 +414,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             const template = values.template
             try {
-                const duplicatedTemplate = await messagingTemplatesCreate(String(ApiConfig.getCurrentProjectId()), {
+                const duplicatedTemplate = await api.messaging.createTemplate({
                     name: `${template.name} (copy)`,
                     description: template.description,
                     content: template.content,

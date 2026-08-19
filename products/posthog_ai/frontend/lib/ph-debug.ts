@@ -6,7 +6,7 @@ import { router } from 'kea-router'
  * PostHog-internal debugging (US-prod team only).
  *
  * Use `phDebugQueryParams()` with API helpers that take a params object
- * (task and task-run retrieval) — they pipe it through
+ * (`api.tasks.get`, `api.tasks.runs.get`, …) — they pipe it through
  * `withQueryString`.
  */
 function isPhDebugSet(): boolean {

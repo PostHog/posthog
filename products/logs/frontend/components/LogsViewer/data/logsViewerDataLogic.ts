@@ -20,7 +20,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
@@ -40,7 +40,6 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { logsQueryCreate, logsSparklineCreate } from 'products/logs/frontend/logsApi'
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
@@ -312,10 +311,10 @@ export interface logsViewerDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        sparkline: Record<string, any>[],
+        sparkline: any[],
         payload?: any
     ) => {
-        sparkline: Record<string, any>[]
+        sparkline: any[]
         payload?: any
     }
     handleQueryChange: (
@@ -681,8 +680,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const sentCustomColumns = values.customColumns
                     const sentExpressions = sentCustomColumns ?? []
 
-                    const response = await (({ signal, ...request }) =>
-                        logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
+                    const response = await api.logs.query({
                         query: {
                             limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
@@ -734,8 +732,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     }
 
                     await breakpoint(300)
-                    const response = await (({ signal, ...request }) =>
-                        logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
+                    const response = await api.logs.query({
                         query: {
                             limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
@@ -770,8 +767,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const signal = sparklineController.signal
                     actions.cancelInProgressSparkline(sparklineController)
 
-                    const response = await (({ signal, ...request }) =>
-                        logsSparklineCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
+                    const response = await api.logs.sparkline({
                         query: {
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
@@ -1157,8 +1153,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
             try {
                 const start = Date.now()
-                const response = await (({ signal, ...request }) =>
-                    logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
+                const response = await api.logs.query({
                     query: {
                         limit: DEFAULT_LOGS_PAGE_SIZE,
                         orderBy: values.orderBy,

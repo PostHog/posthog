@@ -1,12 +1,11 @@
 import { MakeLogicType, connect, events, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ActionType } from '~/types'
-
-import { actionsListApi, actionUpdateApi } from 'products/actions/frontend/actionsApi'
 
 import type { TeamPublicType, TeamType } from '../types'
 
@@ -132,21 +131,21 @@ export const actionsModel = kea<actionsModelType>([
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
-                const response = await actionsListApi(props.params)
+                const response = await api.actions.list(props.params)
                 return response.results ?? []
             },
             updateAction: (action: ActionType) => (values.actions || []).map((a) => (action.id === a.id ? action : a)),
         },
         pin: {
             pinAction: async (action: ActionType) => {
-                const response = await actionUpdateApi(action.id, {
+                const response = await api.actions.update(action.id, {
                     name: action.name,
                     pinned_at: new Date().toISOString(),
                 })
                 actions.updateAction(response)
             },
             unpinAction: async (action: ActionType) => {
-                const response = await actionUpdateApi(action.id, {
+                const response = await api.actions.update(action.id, {
                     name: action.name,
                     pinned_at: null,
                 })
