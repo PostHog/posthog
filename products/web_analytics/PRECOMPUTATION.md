@@ -291,6 +291,14 @@ Accepted semantic differences vs vanilla trends (the tiles align with the overvi
 
 The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
 
+### Retention tile
+
+The dashboard's retention tile sends a weekly first-occurrence any-event `RetentionQuery`. With the `web-analytics-retention-precompute` flag (locally evaluated, fails closed) on for the team, dispatch routes web-analytics-tagged retention queries to `WebRetentionQueryRunner`, which serves the matrix from `web_retention_preaggregated` buckets: per-(team-tz activity day, first-seen cohort week) person uniq states, merged across the days of each activity week into (cohort, offset) cells. Every other retention shape (day/month periods, recurring type, custom brackets, breakdowns, specific entities, minimum occurrences, rolling windows) falls back to the live retention path.
+
+The insert's first-seen arm scans the window's active persons over full history — the same unbounded anchor the live first-time retention query computes — so a bucket build costs about one live retention query per daily window; the payoff is every later read of any covered range. A check-only miss enqueues the RetentionQuery itself for background revalidation: replaying it under the warming trigger routes back through this family with inline inserts, which is what converges misses (enqueuing the inner overview carrier instead would warm the wrong family forever).
+
+Rollout gate: the `web-analytics-retention-precompute` flag, folded into the runner's cache key so disabling it invalidates cached precompute-served results immediately. The shared enrollment gate still applies underneath. Persons whose first occurrence predates the queried range are excluded from every cohort, matching the live path. Distinct-id-aggregating teams fall back (buckets store person-id uniq states).
+
 ## Related code
 
 - `products/web_analytics/backend/hogql_queries/web_overview.py` — runner
