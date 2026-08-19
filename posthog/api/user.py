@@ -457,6 +457,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
+        # impersonating users shouldn't bounced into the credential review screen
+        request = self.context.get("request")
+        if request is not None and is_impersonated_session(request):
+            return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
         if WebauthnCredential.objects.filter(user=instance).exists():

@@ -344,6 +344,19 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
 
+    def test_requires_credential_review_skipped_when_impersonating(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated"),
+            scopes=["*"],
+        )
+        with patch("posthog.api.user.is_impersonated_session", return_value=True):
+            response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
