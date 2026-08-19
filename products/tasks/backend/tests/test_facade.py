@@ -859,6 +859,12 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
             [first],
         )
+        # Slack, Max, and the canvas file tasks through here for users who may never open
+        # Desktop, so this is where a system space would go out unstamped.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
