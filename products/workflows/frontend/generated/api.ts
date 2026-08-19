@@ -16,6 +16,7 @@ import type {
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
+    HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
@@ -443,6 +444,33 @@ export const hogFlowsBatchJobsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
     })
+}
+
+export const getHogFlowsBatchJobsCancelCreateUrl = (projectId: string, id: string, batchJobId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/${batchJobId}/cancel/`
+}
+
+/**
+ * Stop a batch run: no more of its audience is enrolled, and every run of it
+ * still in flight is canceled.
+ *
+ * Stopping is asynchronous: runs are flagged here, then terminated by the
+ * workflow workers. Steps that already executed, like sent messages, are not
+ * undone. Already-finished batch runs are left untouched.
+ */
+export const hogFlowsBatchJobsCancelCreate = async (
+    projectId: string,
+    id: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<HogFlowBatchJobCancelResponseApi> => {
+    return apiMutator<HogFlowBatchJobCancelResponseApi>(
+        getHogFlowsBatchJobsCancelCreateUrl(projectId, id, batchJobId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {

@@ -14,8 +14,12 @@ import re
 import json
 from typing import Any
 
+import jsonschema
+
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.contract import (
+    MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH,
     allowed_import_specifiers,
     canonical_network_origin,
     canvas_sdk_version,
@@ -27,6 +31,38 @@ CANVAS_SOURCE_SCHEMA_VERSION = 1
 CANVAS_ENTRY_HTML = "index.html"
 # The conventional React entry component (also what the synthetic shell mounts).
 CANVAS_COMPONENT_PATH = "src/canvas.tsx"
+
+# Config schemas are author-supplied, so the vocabulary is an allowlist:
+# no $ref/$dynamicRef (nothing downstream may be induced to resolve one) and
+# no pattern/patternProperties (placement-config validation must not evaluate
+# author-supplied regexes). Size-capped so a schema cannot bloat version rows.
+MAX_CONFIG_SCHEMA_BYTES = 16 * 1024
+# Depth-capped as well: a schema well under the byte cap can still nest deeply
+# enough to exhaust the Python recursion limit inside jsonschema's check_schema
+# (or our own keyword scan), which would escape as a 500 rather than a validation
+# diagnostic. Bounded far below where check_schema starts recursing off the limit.
+MAX_CONFIG_SCHEMA_DEPTH = 32
+ALLOWED_CONFIG_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type",
+        "title",
+        "description",
+        "default",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "format",
+    }
+)
 
 # File extensions whose content is scanned as source code.
 _CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
@@ -385,16 +421,137 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     return diagnostics
 
 
-def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_component_size(size: Any) -> str | None:
+    """Validate a component's grid-size contract; returns the problem or None."""
+    if not isinstance(size, dict):
+        return "component.size must be an object with defaultW, defaultH, minW, and minH"
+    for key in ("defaultW", "defaultH", "minW", "minH", "maxW", "maxH"):
+        value = size.get(key)
+        if value is None:
+            if key in ("maxW", "maxH"):
+                continue
+            return f"component.size.{key} is required"
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            return f"component.size.{key} must be a positive integer"
+    for axis, cap in (("W", MAX_COMPONENT_WIDTH), ("H", MAX_COMPONENT_HEIGHT)):
+        maximum = size.get(f"max{axis}", cap)
+        if maximum > cap:
+            return f"component.size.max{axis} may not exceed {cap}"
+        if not size[f"min{axis}"] <= size[f"default{axis}"] <= maximum:
+            return f"component.size must satisfy min{axis} <= default{axis} <= max{axis} (cap {cap})"
+    return None
+
+
+def _unknown_config_schema_keywords(schema: Any) -> set[str]:
+    """Every schema keyword used anywhere in the schema tree that is not allowlisted."""
+    if not isinstance(schema, dict):
+        return set()
+    unknown = {key for key in schema if key not in ALLOWED_CONFIG_SCHEMA_KEYWORDS}
+    for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            for nested in value.values():
+                unknown |= _unknown_config_schema_keywords(nested)
+        elif key in ("items", "additionalProperties"):
+            unknown |= _unknown_config_schema_keywords(value)
+    return unknown
+
+
+def _max_json_depth(value: Any) -> int:
+    """Deepest container nesting in a JSON value, walked with an explicit stack.
+
+    Author config schemas are hostile input, so depth is measured without
+    recursion — the point is to bound nesting before any recursive processing
+    (the keyword scan, jsonschema's check_schema) descends into it.
+    """
+    max_depth = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if isinstance(current, dict):
+            children: Any = current.values()
+        elif isinstance(current, list):
+            children = current
+        else:
+            continue
+        if depth > max_depth:
+            max_depth = depth
+        for child in children:
+            stack.append((child, depth + 1))
+    return max_depth
+
+
+def _validate_config_schema(config_schema: Any) -> str | None:
+    """Validate a component's placement-config schema; returns the problem or None."""
+    if not isinstance(config_schema, dict) or config_schema.get("type") != "object":
+        return 'component.configSchema must be a JSON Schema object with "type": "object"'
+    if len(json.dumps(config_schema, separators=(",", ":")).encode("utf-8")) > MAX_CONFIG_SCHEMA_BYTES:
+        return f"component.configSchema may not exceed {MAX_CONFIG_SCHEMA_BYTES // 1024} KB serialized"
+    if _max_json_depth(config_schema) > MAX_CONFIG_SCHEMA_DEPTH:
+        return f"component.configSchema may not nest deeper than {MAX_CONFIG_SCHEMA_DEPTH} levels"
+    unknown = _unknown_config_schema_keywords(config_schema)
+    if unknown:
+        return (
+            "component.configSchema uses unsupported keywords: "
+            + ", ".join(sorted(unknown))
+            + " — supported: "
+            + ", ".join(sorted(ALLOWED_CONFIG_SCHEMA_KEYWORDS))
+        )
+    try:
+        jsonschema.Draft202012Validator.check_schema(config_schema)
+    except jsonschema.SchemaError as error:
+        return f"component.configSchema is not a valid JSON Schema: {error.message}"
+    return None
+
+
+def validate_component_meta(project: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    """Validate a project's component placement contract for its canvas kind.
+
+    Components must declare how grids may place them (size, optional config
+    schema); every other kind must not carry a contract, so an author cannot
+    believe a freeform canvas is placeable.
+    """
+    meta = project.get("component")
+    if kind != "component":
+        if meta:
+            return [
+                diagnostic(
+                    "error",
+                    "component_meta_not_allowed",
+                    "only component-kind canvases may declare a `component` placement contract",
+                )
+            ]
+        return []
+    if not isinstance(meta, dict):
+        return [
+            diagnostic(
+                "error",
+                "component_meta_missing",
+                "a component project must declare `component` with a `size` contract "
+                '(e.g. {"size": {"defaultW": 2, "defaultH": 1, "minW": 1, "minH": 1}})',
+            )
+        ]
+    diagnostics: list[dict[str, Any]] = []
+    size_problem = _validate_component_size(meta.get("size"))
+    if size_problem is not None:
+        diagnostics.append(diagnostic("error", "component_size_invalid", size_problem))
+    if meta.get("configSchema") is not None:
+        schema_problem = _validate_config_schema(meta["configSchema"])
+        if schema_problem is not None:
+            diagnostics.append(diagnostic("error", "component_config_schema_invalid", schema_problem))
+    return diagnostics
+
+
+def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") -> list[dict[str, Any]]:
     """Validate a candidate source project against the platform contract.
 
     Returns structured diagnostics; an empty list (or warnings only) means the
     project is publishable. Mirrors the build pipeline's stage-1 validation
     (schema, paths, file count, total size) plus dependency, runtime-safety,
     and capability constraints. The authoritative builder performs
-    module-graph validation.
+    module-graph validation. ``kind`` is the owning canvas's kind — it gates
+    the component placement contract, which only component projects carry.
     """
-    diagnostics: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = list(validate_component_meta(project, kind))
     limits = contract_limits()
 
     if project.get("schemaVersion") != CANVAS_SOURCE_SCHEMA_VERSION:

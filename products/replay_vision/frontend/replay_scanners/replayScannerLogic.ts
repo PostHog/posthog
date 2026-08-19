@@ -1671,8 +1671,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
-                    // The drafted event filter (when the goal mapped to a real event); the triggers step
-                    // shows it for review like any hand-picked filter.
+                    // The drafted session filter (when the goal mapped to real screens or events); the
+                    // triggers step shows it for review like any hand-picked filter.
                     ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
                 })
                 router.actions.push(urls.replayVisionScannerDetails('new'))

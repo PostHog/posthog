@@ -348,7 +348,12 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, last_refresh, pending_calculation = (
+                summary_data.context,
+                summary_data.last_refresh,
+                summary_data.pending_calculation,
+            )
 
         self.assertEqual(context.experiment_id, experiment.id)
         self.assertEqual(context.experiment_name, "query-runner-test")
@@ -358,6 +363,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(pending_calculation)
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        # The real exposure runner rejects a feature_flag dict without a non-empty "key".
+        exposure_query = mock_exposure_runner_class.call_args.kwargs["query"]
+        self.assertEqual(exposure_query.feature_flag["key"], "query-runner-test")
         # The agent can't poll, so it always blocks on stale cache rather than dropping pending metrics.
         self.assertEqual(
             mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
@@ -387,10 +395,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         await experiment.asave(update_fields=["metrics"])
 
         data_service = ExperimentSummaryDataService(self.team, self.user)
-        context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
+        summary_data = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertFalse(pending_calculation)
-        self.assertIsNotNone(last_refresh)
+        self.assertFalse(summary_data.pending_calculation)
+        self.assertIsNotNone(summary_data.last_refresh)
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_includes_saved_metrics(self):
@@ -465,7 +473,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
@@ -564,7 +572,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         # 1 inline primary + 1 saved primary = 2
         self.assertEqual(len(context.primary_metrics_results), 2)
@@ -577,3 +585,53 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
         # Inline funnel primary, saved mean primary, inline funnel secondary, saved funnel secondary
         self.assertEqual(metrics_queried, ["funnel", "mean", "funnel", "funnel"])
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_reports_metrics_omitted_by_cap(self):
+        experiment = await self.acreate_experiment(name="metric-cap-test", with_metrics=False)
+        experiment.metrics = [
+            {
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": f"event_{i}"}],
+                "name": f"Metric {i}",
+            }
+            for i in range(52)
+        ]
+        await experiment.asave(update_fields=["metrics"])
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="control",
+                method="bayesian",
+                chance_to_win=0.5,
+                credible_interval=[-0.03, 0.03],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+        ]
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            data_service = ExperimentSummaryDataService(self.team, self.user)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, omitted_count = summary_data.context, summary_data.omitted_metric_count
+
+        self.assertEqual(len(context.primary_metrics_results), 50)
+        self.assertEqual(omitted_count, 2)
