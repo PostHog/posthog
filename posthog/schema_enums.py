@@ -2559,6 +2559,7 @@ class ExternalDataSourceType(StrEnum):
     SAM_CART = "SamCart"
     IRON_SOURCE_ADS = "IronSourceAds"
     MICROSOFT_EXCEL = "MicrosoftExcel"
+    PROFOUND = "Profound"
 
 
 class ExternalQueryErrorCode(StrEnum):
