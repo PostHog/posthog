@@ -370,14 +370,23 @@ export const defaultPlatformAddons: BillingProductV2AddonType[] = [
     makePlatformAddon(BillingPlan.Enterprise),
 ]
 
-export type PlatformAddonScenario = 'trial-available' | 'trial-used' | 'on-scale' | 'on-legacy-teams'
+export type PlatformAddonScenario =
+    | 'trial-available'
+    | 'trial-used'
+    | 'active-trial'
+    | 'on-scale'
+    | 'on-legacy-teams'
 
 const SCENARIO_SUBSCRIBED: Record<PlatformAddonScenario, AddonType | null> = {
     'trial-available': null,
     'trial-used': null,
+    'active-trial': null,
     'on-scale': BillingPlan.Scale,
     'on-legacy-teams': BillingPlan.Teams,
 }
+
+// Addon whose 14-day trial is currently running in the 'active-trial' scenario.
+const ACTIVE_TRIAL_ADDON: AddonType = BillingPlan.Boost
 
 export const makeBillingWithPlatformAddons = (
     baseBilling: BillingType,
@@ -385,6 +394,7 @@ export const makeBillingWithPlatformAddons = (
 ): BillingType => {
     const subscribedType = SCENARIO_SUBSCRIBED[scenario]
     const trialEligible = scenario === 'trial-available'
+    const activeTrial = scenario === 'active-trial'
 
     const addons = defaultPlatformAddons.map((addon) => {
         const subscribed = addon.type === subscribedType
@@ -401,6 +411,10 @@ export const makeBillingWithPlatformAddons = (
 
     return {
         ...baseBilling,
+        // A running trial the customer can convert or cancel from the addon card.
+        trial: activeTrial
+            ? { type: 'autosubscribe', status: 'active', target: ACTIVE_TRIAL_ADDON, expires_at: '2026-06-15T00:00:00Z' }
+            : baseBilling.trial,
         products: baseBilling.products.map((product) =>
             product.type === 'platform_and_support'
                 ? {

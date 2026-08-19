@@ -427,6 +427,12 @@ export const BillingProductPlatformAddonsTrialUsed: Story = {
     render: () => renderPlatformAddonsStory('trial-used'),
 }
 
+// Boost trial is running: the addon card offers "Subscribe now" (convert to paid
+// now) alongside "Cancel trial".
+export const BillingProductPlatformAddonsActiveTrial: Story = {
+    render: () => renderPlatformAddonsStory('active-trial'),
+}
+
 export const BillingProductPlatformAddonsOnScale: Story = {
     render: () => renderPlatformAddonsStory('on-scale'),
 }

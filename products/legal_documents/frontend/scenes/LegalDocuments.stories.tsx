@@ -101,8 +101,8 @@ export const NewBAA: Story = {
 /**
  * New-document page for a BAA when the org is on an active addon trial. The
  * billing payload includes a top-level `trial` block targeting `boost`, so the
- * paywall banner swaps to the trial-specific copy that instructs the user to
- * cancel the trial and subscribe before generating the BAA.
+ * paywall banner swaps to the trial-specific copy that points the user to the
+ * "Subscribe now" action on billing to end the trial before generating the BAA.
  */
 export const NewBAATrial: Story = {
     parameters: {

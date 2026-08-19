@@ -201,9 +201,9 @@ export function LegalDocumentNewScene(): JSX.Element {
                                     </>
                                 ) : isOnQualifyingAddonTrial ? (
                                     <>
-                                        A BAA requires an active paid subscription. Cancel your trial and subscribe on
-                                        your <Link to={urls.organizationBilling()}>billing page</Link>, then come back
-                                        here to generate your BAA.
+                                        A BAA requires an active paid subscription. On your{' '}
+                                        <Link to={urls.organizationBilling()}>billing page</Link>, use Subscribe now to
+                                        end your trial early, then come back here to generate your BAA.
                                     </>
                                 ) : (
                                     <>

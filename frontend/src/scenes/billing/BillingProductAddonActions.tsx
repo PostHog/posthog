@@ -105,22 +105,46 @@ export const BillingProductAddonActions = ({
     }
 
     const renderTrialActions = (): JSX.Element | null => {
-        // Hide Cancel button only for Enterprise 'standard' trials (typically sales-managed)
+        // Enterprise 'standard' trials are sales-managed: both conversion and
+        // cancellation go through the account team, so show no self-serve buttons.
         if (addon.type === 'enterprise' && billing?.trial?.type !== 'autosubscribe') {
             return null
         }
+        const hasFlatRate = !!currentAndUpgradePlans?.upgradePlan?.flat_rate
         return (
-            <LemonButton
-                type="primary"
-                size="small"
-                onClick={() => {
-                    setSurveyResponse('$survey_response_1', addon.type)
-                    reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
-                }}
-                loading={trialLoading}
-            >
-                Cancel trial
-            </LemonButton>
+            <>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    data-attr="billing-addon-trial-subscribe-now"
+                    disabledReason={(billingError && billingError.message) || purchaseDisabledReason}
+                    loading={billingProductLoading === addon.type}
+                    onClick={() => {
+                        // Subscribing ends the trial and starts the paid plan now, so a
+                        // customer who needs the add-on live (for example, to generate a BAA)
+                        // doesn't have to wait for the trial to lapse or cancel it first.
+                        if (hasFlatRate) {
+                            showConfirmPurchaseModal()
+                        } else {
+                            onPurchaseClick?.()
+                            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                        }
+                    }}
+                >
+                    Subscribe now
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        setSurveyResponse('$survey_response_1', addon.type)
+                        reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
+                    }}
+                    loading={trialLoading}
+                >
+                    Cancel trial
+                </LemonButton>
+            </>
         )
     }
 
