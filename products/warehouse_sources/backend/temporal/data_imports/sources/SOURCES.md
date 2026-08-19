@@ -557,6 +557,7 @@ the row lists both.
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
+| profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
