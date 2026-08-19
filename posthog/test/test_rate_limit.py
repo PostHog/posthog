@@ -885,7 +885,7 @@ class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
         _find_personal_api_key: Mock,
         _team_can_bypass: Mock,
     ) -> None:
-        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/evaluation_summary/")
+        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/summarization/")
         view = Mock(team_id=1)
 
         with patch.object(throttle_class, "rate", "1/minute"):
