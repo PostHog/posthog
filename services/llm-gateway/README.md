@@ -275,6 +275,10 @@ cold-cache requests. Grants cache for 15 minutes and denials for 60 seconds, so 
 locks an entitled user out for at most a minute after their cached grant expires.
 `LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
+`signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
+Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.
+The PostHog Code application ids stay listed on `signals` until every region mints under the new app; removing them completes the isolation.
+
 ### Adding a new product
 
 1. **Add to `PRODUCTS`** in `src/llm_gateway/products/config.py`:
@@ -323,6 +327,25 @@ Per-user cost caps using a burst + sustained pattern. Configured in `DEFAULT_USE
 Products without an explicit entry fall back to the **default: $100/24h burst, $1000/30d sustained**.
 
 User-level limits only apply when an `end_user_id` is present (OAuth token holder, or `user` param in the request body).
+
+### Per-run limits
+
+A sandbox agent run can spend a whole window's budget in one conversation, because the person driving it decides when it ends.
+`DEFAULT_SANDBOX_TASK_COST_LIMITS` caps the total spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
+
+```python
+"my_budget": ProductCostLimit(limit_usd=50.0, window_seconds=604800)  # $50 per run
+```
+
+Opt-in — a budget with no entry has no per-run ceiling, and a token with no task binding is never metered here.
+
+### Budget keys
+
+The three limits above are usually keyed by product, but a product that serves both our own scheduled work and a button a customer can press needs two budgets rather than one.
+`resolve_cost_key` picks the budget from the token's scopes, which are minted server-side, instead of from the product in the URL, which the caller chooses.
+
+Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
+`signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
 
 ## Error handling
 
