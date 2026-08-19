@@ -20,6 +20,9 @@ export function areClientFeatureFlagsHonored(preflight: Pick<PreflightStatus, 'c
     return !!preflight?.cloud || !!preflight?.is_debug
 }
 
+export const FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON =
+    'This toggle has no effect on self-hosted instances. Feature previews here are controlled by the PERSISTED_FEATURE_FLAGS environment variable.'
+
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
     if (!eventsNotified[flag]) {

@@ -5,7 +5,11 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { areClientFeatureFlagsHonored, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON,
+    areClientFeatureFlagsHonored,
+    featureFlagLogic,
+} from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -64,13 +68,13 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 isEmpty
                 actionElementOverride={
                     feature ? (
-                        <label className="flex items-center gap-2 cursor-pointer" htmlFor="feature-preview-gate-switch">
+                        <label
+                            className={`flex items-center gap-2 ${flagsHonored ? 'cursor-pointer' : 'cursor-default'}`}
+                            htmlFor="feature-preview-gate-switch"
+                        >
                             <LemonSwitch
                                 checked={feature.enabled}
-                                disabledReason={
-                                    !flagsHonored &&
-                                    'This toggle has no effect on self-hosted instances. Feature previews here are controlled by the PERSISTED_FEATURE_FLAGS environment variable.'
-                                }
+                                disabledReason={!flagsHonored && FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON}
                                 onChange={(checked) =>
                                     updateEarlyAccessFeatureEnrollment(feature.flagKey, checked, feature.stage)
                                 }
@@ -98,7 +102,7 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                                     </LemonButton>
                                 )}
                             </div>
-                            {!preflight?.cloud && (
+                            {!flagsHonored && (
                                 <span className="text-secondary text-xs">
                                     On self-hosted instances, feature previews are controlled by the
                                     PERSISTED_FEATURE_FLAGS environment variable.

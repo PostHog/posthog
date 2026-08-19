@@ -100,11 +100,13 @@ function setupMocks({
     activeSceneId = null,
     featureFlags = {},
     cloud = true,
+    isDebug = false,
 }: {
     earlyAccessFeatures?: Array<{ flagKey: string; enabled: boolean; stage?: string }>
     activeSceneId?: string | null
     featureFlags?: Record<string, boolean | string>
     cloud?: boolean
+    isDebug?: boolean
 } = {}): void {
     mockedUseMountedLogic.mockReturnValue({})
 
@@ -119,7 +121,7 @@ function setupMocks({
             return { featureFlags }
         }
         if (isPreflightLogicRef(logic)) {
-            return { preflight: { cloud } }
+            return { preflight: { cloud, is_debug: isDebug } }
         }
         return {}
     })
@@ -261,27 +263,46 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
         })
 
-        test('disables the toggle switch on a self-hosted instance since it has no effect there', () => {
+        test.each([
+            [false, false, false],
+            [true, false, true],
+            [false, true, true],
+        ])('with cloud=%s and is_debug=%s the toggle switch is enabled: %s', (cloud, isDebug, expectedEnabled) => {
             setupMocks({
                 earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false }],
-                cloud: false,
+                cloud,
+                isDebug,
             })
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
-            expect(screen.getByRole('switch')).toBeDisabled()
+            const toggle = screen.getByRole('switch')
+            if (expectedEnabled) {
+                expect(toggle).toBeEnabled()
+            } else {
+                expect(toggle).toBeDisabled()
+            }
         })
 
-        test('keeps the toggle switch enabled on cloud', () => {
-            setupMocks({
-                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false }],
-                cloud: true,
-            })
+        test.each([
+            [false, false, true],
+            [true, false, false],
+            [false, true, false],
+        ])(
+            'with cloud=%s and is_debug=%s the PERSISTED_FEATURE_FLAGS note is shown: %s',
+            (cloud, isDebug, expectedVisible) => {
+                setupMocks({ earlyAccessFeatures: [], cloud, isDebug })
 
-            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+                render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
-            expect(screen.getByRole('switch')).toBeEnabled()
-        })
+                const note = screen.queryByText(/controlled by the PERSISTED_FEATURE_FLAGS environment variable/)
+                if (expectedVisible) {
+                    expect(note).toBeInTheDocument()
+                } else {
+                    expect(note).not.toBeInTheDocument()
+                }
+            }
+        )
     })
 
     describe('request access', () => {

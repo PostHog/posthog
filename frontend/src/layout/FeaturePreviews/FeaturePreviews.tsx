@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
+import { FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON, areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { Label } from 'lib/ui/Label/Label'
 import { userLogic } from 'scenes/userLogic'
@@ -62,7 +62,7 @@ export function FeaturePreviews(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {!flagsHonored && !shouldShowEmptyState && (
+            {!flagsHonored && betaFeatures.length > 0 && (
                 <LemonBanner type="info" className="mb-2">
                     Feature previews on this instance are controlled by the PERSISTED_FEATURE_FLAGS environment
                     variable, not the toggles below.
@@ -301,13 +301,13 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
             feature={feature}
             title={
                 <div className="flex items-center gap-1">
-                    <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
+                    <Label
+                        className={`flex items-center gap-2 ${flagsHonored ? 'cursor-pointer' : 'cursor-default'}`}
+                        htmlFor={`${feature.flagKey}-switch`}
+                    >
                         <LemonSwitch
                             checked={enabled}
-                            disabledReason={
-                                !flagsHonored &&
-                                'This toggle has no effect on self-hosted instances. Feature previews here are controlled by the PERSISTED_FEATURE_FLAGS environment variable.'
-                            }
+                            disabledReason={!flagsHonored && FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON}
                             onChange={(newChecked) =>
                                 updateEarlyAccessFeatureEnrollment(flagKey, newChecked, feature.stage)
                             }
