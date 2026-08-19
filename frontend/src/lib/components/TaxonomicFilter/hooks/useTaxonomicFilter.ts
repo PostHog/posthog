@@ -21,7 +21,7 @@
  *     and `taxonomicFilterPinnedPropertiesLogic`; the orchestrator only reads
  *     them via the bridge, doesn't write)
  */
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -404,14 +404,15 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
 
+    const lazyActionsModel = useMountedLogic(actionsModel({ skipLoad: true }))
+    const { loadActions } = useActions(lazyActionsModel)
+
     const getLocalOverride = useTaxonomicLocalOverrides({
         taxonomicGroupTypes: groupTypes,
         excludedOperators,
         selectingKeyOnly,
         excludedProperties,
     })
-
-    const { loadActions } = useActions(actionsModel({ skipLoad: true }))
 
     useEffect(() => {
         if (activeGroupType === TaxonomicFilterGroupType.Actions) {

@@ -85,6 +85,7 @@ describe('useTaxonomicFilter', () => {
         act(() => result.current.setActiveGroupType(TaxonomicFilterGroupType.Actions))
 
         await waitFor(() => expect(actionList).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(actionsModel({ skipLoad: true }).values.actionsLoaded).toBe(true))
     })
 
     it.each([
