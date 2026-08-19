@@ -1,0 +1,474 @@
+import { create } from '@bufbuild/protobuf'
+import { Code, ConnectError, ConnectRouter } from '@connectrpc/connect'
+import { connectNodeAdapter } from '@connectrpc/connect-node'
+import * as http2 from 'node:http2'
+import { Counter, Gauge } from 'prom-client'
+
+import {
+    IngestStreamRequest,
+    IngestStreamResponse,
+    IngestStreamResponseSchema,
+    KafkaMessage,
+    StreamHello,
+    SubBatchStatus,
+    WorkerIngest,
+} from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+import { logger } from '~/common/utils/logger'
+import { FeedResult } from '~/ingestion/framework/batching-pipeline'
+
+import { FeedOrderSentinel } from './feed-order-sentinel'
+import { SerializedKafkaMessage } from './types'
+
+const grpcStreams = new Gauge({
+    name: 'ingestion_api_grpc_streams',
+    help: 'Open WorkerIngest streams (one per connected consumer process)',
+})
+
+const grpcSubBatches = new Counter({
+    name: 'ingestion_api_grpc_sub_batches_total',
+    help: 'Sub-batches resolved on the gRPC ingest path',
+    labelNames: ['status'],
+})
+
+const grpcMessagesProcessed = new Counter({
+    name: 'ingestion_api_grpc_messages_processed_total',
+    help: 'Messages acked on the gRPC ingest path',
+})
+
+const grpcProtocolErrors = new Counter({
+    name: 'ingestion_api_grpc_protocol_errors_total',
+    help: 'Streams closed for protocol violations (missing hello, seq gap or regression)',
+    labelNames: ['kind'],
+})
+
+/** A batch the pipeline finished, with all side effects settled (the ack barrier). */
+export interface CompletedSubBatch {
+    streamId: number
+    seq: number
+    accepted: number
+}
+
+/**
+ * Pipeline mechanics behind the stream protocol. The server owns ordering,
+ * acks, and stream lifecycle; the driver owns how a sub-batch enters the
+ * shared pipeline and when its processing (side effects included) is durably
+ * done — `next()` must resolve only once the completed batch is safe to ack.
+ */
+export interface StreamIngestDriver {
+    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[]): Promise<FeedResult>
+    next(): Promise<CompletedSubBatch | null>
+}
+
+export interface WorkerIngestServerOptions {
+    port: number
+    /** Delay between feed retries while the pipeline is at concurrent batch capacity. */
+    capacityRetryMs?: number
+    /** Delay before re-pumping when the pipeline reports drained but sub-batches are still in flight. */
+    pumpIdleMs?: number
+}
+
+interface WorkerIngestServerDeps {
+    driver: StreamIngestDriver
+    /** Shared with the HTTP path so both transports check the same invariant. */
+    feedOrderSentinel?: FeedOrderSentinel
+    /**
+     * A pipeline error poisons the shared pipeline for every stream, so the
+     * server fails all streams and hands the error up — the owner mirrors the
+     * HTTP path's crash-and-rebuild contract.
+     */
+    onFatal: (error: Error) => void
+}
+
+/** Unbounded FIFO handed from the pump to each stream's response generator. */
+class AckQueue {
+    private items: IngestStreamResponse[] = []
+    private waiter: {
+        resolve: (value: IteratorResult<IngestStreamResponse>) => void
+        reject: (err: Error) => void
+    } | null = null
+    private done = false
+    private error: Error | null = null
+
+    push(item: IngestStreamResponse): void {
+        if (this.done) {
+            return
+        }
+        if (this.waiter) {
+            const { resolve } = this.waiter
+            this.waiter = null
+            resolve({ value: item, done: false })
+            return
+        }
+        this.items.push(item)
+    }
+
+    /** No more acks will arrive; the generator completes after draining. */
+    end(): void {
+        this.done = true
+        if (this.waiter && this.items.length === 0) {
+            const { resolve } = this.waiter
+            this.waiter = null
+            resolve({ value: undefined, done: true })
+        }
+    }
+
+    /** Fail the consuming generator (stream error towards the consumer). */
+    fail(error: Error): void {
+        this.error = error
+        this.done = true
+        if (this.waiter) {
+            const { reject } = this.waiter
+            this.waiter = null
+            reject(error)
+        }
+    }
+
+    [Symbol.asyncIterator](): AsyncIterator<IngestStreamResponse> {
+        return {
+            next: (): Promise<IteratorResult<IngestStreamResponse>> => {
+                if (this.items.length > 0) {
+                    return Promise.resolve({ value: this.items.shift()!, done: false })
+                }
+                if (this.error) {
+                    return Promise.reject(this.error)
+                }
+                if (this.done) {
+                    return Promise.resolve({ value: undefined, done: true })
+                }
+                return new Promise((resolve, reject) => {
+                    this.waiter = { resolve, reject }
+                })
+            },
+        }
+    }
+}
+
+interface StreamState {
+    id: number
+    hello: StreamHello | null
+    nextSeq: number
+    inFlight: Set<number>
+    readerDone: boolean
+    acks: AckQueue
+}
+
+export function grpcMessageToSerialized(message: KafkaMessage): SerializedKafkaMessage {
+    return {
+        topic: message.topic,
+        partition: message.partition,
+        offset: Number(message.offset),
+        timestamp: Number(message.timestamp),
+        key: message.key ?? null,
+        value: message.value ?? null,
+        headers: message.headers,
+    }
+}
+
+/**
+ * Serves `ingestion.worker.v1.WorkerIngest`: the ordered streaming transport
+ * from the Rust ingestion consumer.
+ *
+ * Ordering: each stream has one reader loop that awaits the pipeline's
+ * acceptance of a sub-batch before reading the next frame, so feed order
+ * equals stream order — and HTTP/2 flow control backpressures the consumer
+ * while the pipeline is at capacity, replacing the HTTP path's 503s.
+ * Processing stays concurrent behind the feed; acks are pushed as batches
+ * complete, out of order, correlated by `seq`.
+ *
+ * Failure: any pipeline failure poisons the shared pipeline, so every open
+ * stream is failed and `onFatal` fires — the consumer treats a broken stream
+ * as a dead lane and replays its un-acked tail.
+ */
+export class WorkerIngestServer {
+    private server: http2.Http2Server | null = null
+    private streams = new Map<number, StreamState>()
+    private nextStreamId = 1
+    private stopped = false
+    private fatalError: Error | null = null
+    private pumpTask: Promise<void> | null = null
+    private wakePump: (() => void) | null = null
+    private readonly capacityRetryMs: number
+    private readonly pumpIdleMs: number
+
+    constructor(
+        private options: WorkerIngestServerOptions,
+        private deps: WorkerIngestServerDeps
+    ) {
+        this.capacityRetryMs = options.capacityRetryMs ?? 20
+        this.pumpIdleMs = options.pumpIdleMs ?? 20
+    }
+
+    async start(): Promise<void> {
+        this.pumpTask = this.runPump()
+        this.server = http2.createServer(
+            connectNodeAdapter({
+                routes: (router: ConnectRouter) => {
+                    router.service(WorkerIngest, {
+                        ingestStream: (requests) => this.ingestStream(requests),
+                    })
+                },
+            })
+        )
+        await new Promise<void>((resolve, reject) => {
+            this.server!.once('error', reject)
+            this.server!.listen(this.options.port, () => {
+                this.server!.removeListener('error', reject)
+                logger.info('🛜', `WorkerIngest gRPC server listening on port ${this.options.port}`)
+                resolve()
+            })
+        })
+    }
+
+    async stop(): Promise<void> {
+        this.stopped = true
+        for (const stream of this.streams.values()) {
+            stream.acks.fail(new ConnectError('server shutting down', Code.Unavailable))
+        }
+        this.wake()
+        if (this.server) {
+            await new Promise<void>((resolve) => this.server!.close(() => resolve()))
+            this.server = null
+        }
+        // A poisoned pipeline can leave the pump blocked in a next() that will
+        // never resolve — bound the wait instead of hanging shutdown on it.
+        await Promise.race([this.pumpTask, sleep(5_000)])
+    }
+
+    /** Open stream count, exposed for tests. */
+    get streamCount(): number {
+        return this.streams.size
+    }
+
+    private wake(): void {
+        if (this.wakePump) {
+            const wake = this.wakePump
+            this.wakePump = null
+            wake()
+        }
+    }
+
+    private totalInFlight(): number {
+        let total = 0
+        for (const stream of this.streams.values()) {
+            total += stream.inFlight.size
+        }
+        return total
+    }
+
+    /**
+     * The single pump: drains completed batches from the driver and routes
+     * acks to their stream. One loop per server — completed batches carry
+     * their stream id, so streams never contend over the pipeline's results.
+     */
+    private async runPump(): Promise<void> {
+        while (!this.stopped) {
+            if (this.totalInFlight() === 0) {
+                await new Promise<void>((resolve) => {
+                    this.wakePump = resolve
+                })
+                continue
+            }
+            try {
+                const completed = await this.deps.driver.next()
+                if (completed === null) {
+                    // The pipeline drained between feeds while acked work is
+                    // still being registered — yield briefly and re-pump.
+                    await sleep(this.pumpIdleMs)
+                    continue
+                }
+                this.ackCompleted(completed)
+            } catch (error) {
+                this.fatal(error instanceof Error ? error : new Error(String(error)))
+                return
+            }
+        }
+    }
+
+    private ackCompleted(completed: CompletedSubBatch): void {
+        const stream = this.streams.get(completed.streamId)
+        if (!stream) {
+            // The stream died while its sub-batch was processing; the consumer
+            // replays the un-acked tail on its next stream.
+            return
+        }
+        stream.inFlight.delete(completed.seq)
+        stream.acks.push(
+            create(IngestStreamResponseSchema, {
+                seq: BigInt(completed.seq),
+                status: SubBatchStatus.OK,
+                accepted: completed.accepted,
+            })
+        )
+        grpcSubBatches.inc({ status: 'ok' })
+        grpcMessagesProcessed.inc(completed.accepted)
+        this.maybeFinish(stream)
+    }
+
+    private maybeFinish(stream: StreamState): void {
+        if (stream.readerDone && stream.inFlight.size === 0) {
+            stream.acks.end()
+        }
+    }
+
+    /**
+     * A pipeline failure poisons the shared pipeline (same contract as the
+     * HTTP handler's fatal path): fail every stream so consumers tear down
+     * their lanes and replay, then hand the error to the owner to shut down.
+     */
+    private fatal(error: Error): void {
+        if (this.fatalError) {
+            return
+        }
+        this.fatalError = error
+        logger.error('💥', 'WorkerIngest pipeline failed — failing all streams', { error: error.message })
+        for (const stream of this.streams.values()) {
+            stream.acks.fail(new ConnectError(`ingest pipeline failed: ${error.message}`, Code.Internal))
+        }
+        this.deps.onFatal(error)
+    }
+
+    async *ingestStream(requests: AsyncIterable<IngestStreamRequest>): AsyncIterable<IngestStreamResponse> {
+        if (this.fatalError) {
+            throw new ConnectError('ingest pipeline is poisoned', Code.Unavailable)
+        }
+        const stream: StreamState = {
+            id: this.nextStreamId++,
+            hello: null,
+            nextSeq: 1,
+            inFlight: new Set(),
+            readerDone: false,
+            acks: new AckQueue(),
+        }
+        this.streams.set(stream.id, stream)
+        grpcStreams.inc()
+
+        const reader = this.runReader(stream, requests)
+        // The generator surfaces reader failures through the ack queue; this
+        // handler keeps the rejection from becoming an unhandled one.
+        reader.catch(() => {})
+
+        try {
+            for await (const ack of stream.acks) {
+                yield ack
+            }
+            // Normal completion: propagate a reader outcome the queue may not
+            // have carried (it can only fail after a waiter is registered).
+            await reader
+        } finally {
+            this.streams.delete(stream.id)
+            grpcStreams.dec()
+            this.wake()
+        }
+    }
+
+    private async runReader(stream: StreamState, requests: AsyncIterable<IngestStreamRequest>): Promise<void> {
+        try {
+            for await (const request of requests) {
+                if (request.msg.case === 'hello') {
+                    if (stream.hello) {
+                        throw this.protocolError(stream, 'duplicate_hello', 'received a second hello frame')
+                    }
+                    stream.hello = request.msg.value
+                    continue
+                }
+                if (request.msg.case !== 'subBatch') {
+                    throw this.protocolError(stream, 'unknown_frame', 'frame is neither hello nor sub_batch')
+                }
+                if (!stream.hello) {
+                    throw this.protocolError(stream, 'missing_hello', 'received a sub-batch before the hello frame')
+                }
+
+                const subBatch = request.msg.value
+                const seq = Number(subBatch.seq)
+                if (seq !== stream.nextSeq) {
+                    throw this.protocolError(
+                        stream,
+                        'seq_mismatch',
+                        `expected seq ${stream.nextSeq}, got ${seq} — frames were lost or reordered`
+                    )
+                }
+                stream.nextSeq++
+
+                if (subBatch.messages.length === 0) {
+                    // An empty feed never completes a batch, so ack it directly.
+                    stream.acks.push(
+                        create(IngestStreamResponseSchema, {
+                            seq: BigInt(seq),
+                            status: SubBatchStatus.OK,
+                            accepted: 0,
+                        })
+                    )
+                    continue
+                }
+
+                const serialized = subBatch.messages.map(grpcMessageToSerialized)
+                // The sentinel's sender scope includes both epochs, so
+                // reconnects and rebalances rebaseline instead of counting
+                // legitimate replays as violations.
+                this.deps.feedOrderSentinel?.check(
+                    serialized,
+                    `${stream.hello.consumerId}#${stream.hello.streamEpoch}#${subBatch.assignmentEpoch}`,
+                    subBatch.replay
+                )
+
+                // Await acceptance before reading the next frame — this is the
+                // point where stream order becomes feed order. While the
+                // pipeline is at capacity the read loop stalls, and HTTP/2
+                // flow control backpressures the consumer.
+                stream.inFlight.add(seq)
+                while (true) {
+                    const result = await this.feedGuarded(stream, seq, serialized)
+                    if (result.ok) {
+                        break
+                    }
+                    if (result.kind === 'at_capacity') {
+                        await sleep(this.capacityRetryMs)
+                        continue
+                    }
+                    stream.inFlight.delete(seq)
+                    stream.acks.push(
+                        create(IngestStreamResponseSchema, {
+                            seq: BigInt(seq),
+                            status: SubBatchStatus.FAILED,
+                            error: result.reason,
+                        })
+                    )
+                    grpcSubBatches.inc({ status: 'failed' })
+                    throw new ConnectError(`sub-batch ${seq} rejected: ${result.reason}`, Code.Internal)
+                }
+                this.wake()
+            }
+            stream.readerDone = true
+            this.maybeFinish(stream)
+        } catch (error) {
+            stream.readerDone = true
+            const connectError = error instanceof ConnectError ? error : new ConnectError(String(error), Code.Internal)
+            stream.acks.fail(connectError)
+            throw connectError
+        }
+    }
+
+    /** Feed through the driver, converting a thrown pipeline error into the fatal path. */
+    private async feedGuarded(
+        stream: StreamState,
+        seq: number,
+        messages: SerializedKafkaMessage[]
+    ): Promise<FeedResult> {
+        try {
+            return await this.deps.driver.feed(stream.id, seq, messages)
+        } catch (error) {
+            this.fatal(error instanceof Error ? error : new Error(String(error)))
+            throw new ConnectError('ingest pipeline failed', Code.Internal)
+        }
+    }
+
+    private protocolError(stream: StreamState, kind: string, message: string): ConnectError {
+        grpcProtocolErrors.inc({ kind })
+        logger.warn('⚠️', 'WorkerIngest protocol violation', { streamId: stream.id, kind, message })
+        return new ConnectError(message, Code.FailedPrecondition)
+    }
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}

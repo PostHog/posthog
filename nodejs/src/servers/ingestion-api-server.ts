@@ -71,8 +71,9 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
+import { CompletedSubBatch, StreamIngestDriver, WorkerIngestServer } from '../ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
-import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
+import { IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
@@ -214,6 +215,17 @@ export class IngestionApiServer implements NodeServer {
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
     >
+    // Separate pipeline instance for the gRPC path: HTTP handlers pump their
+    // pipeline's next() themselves, so sharing one instance would let an HTTP
+    // handler consume a gRPC batch's completion (and its ack). Stores,
+    // producers, and services are shared; only the batching state is split.
+    private grpcPipeline?: ReturnType<
+        typeof createJoinedIngestionPipeline<
+            JoinedIngestionPipelineInput,
+            JoinedIngestionPipelineContext & { grpcStreamId: number; grpcSeq: number }
+        >
+    >
+    private grpcServer?: WorkerIngestServer
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
@@ -513,6 +525,28 @@ export class IngestionApiServer implements NodeServer {
             await this.handleIngestRequest(req, res)
         })
 
+        if (this.config.INGESTION_API_GRPC_ENABLED) {
+            this.grpcPipeline = createJoinedIngestionPipeline<
+                JoinedIngestionPipelineInput,
+                JoinedIngestionPipelineContext & { grpcStreamId: number; grpcSeq: number }
+            >(joinedPipelineConfig, joinedPipelineDeps)
+            this.grpcServer = new WorkerIngestServer(
+                { port: this.config.INGESTION_API_GRPC_PORT },
+                {
+                    driver: this.createStreamIngestDriver(),
+                    feedOrderSentinel: this.feedOrderSentinel,
+                    onFatal: (error) => {
+                        // Same crash-and-rebuild contract as the HTTP path.
+                        if (!this.fatalError) {
+                            this.fatalError = error
+                            void this.stop(error)
+                        }
+                    },
+                }
+            )
+            await this.grpcServer.start()
+        }
+
         const service: PluginServerService = {
             id: 'ingestion-api',
             onShutdown: async () => {
@@ -635,6 +669,49 @@ export class IngestionApiServer implements NodeServer {
         }
     }
 
+    /**
+     * Pipeline mechanics for the gRPC stream server. `next()` resolving is
+     * the ack barrier: it mirrors the HTTP handler's contract by settling the
+     * batch's side effects and the promise scheduler before the ack goes out.
+     */
+    private createStreamIngestDriver(): StreamIngestDriver {
+        const pipeline = this.grpcPipeline!
+        return {
+            feed: (streamId: number, seq: number, messages: SerializedKafkaMessage[]) => {
+                const batch = messages.map((serialized) => {
+                    const message = deserializeKafkaMessage(serialized)
+                    return createOkContext(
+                        { message },
+                        {
+                            message,
+                            debugContext: createKafkaDebugContext(message),
+                            grpcStreamId: streamId,
+                            grpcSeq: seq,
+                        }
+                    )
+                })
+                return pipeline.feed(batch)
+            },
+            next: async (): Promise<CompletedSubBatch | null> => {
+                const result = await pipeline.next()
+                if (result === null) {
+                    return null
+                }
+                await Promise.all(result.sideEffects ?? [])
+                await this.promiseScheduler.waitForAll()
+                const context = result.elements[0]?.context as { grpcStreamId?: number; grpcSeq?: number } | undefined
+                if (typeof context?.grpcStreamId !== 'number' || typeof context?.grpcSeq !== 'number') {
+                    throw new Error('completed batch lost its gRPC stream context')
+                }
+                return {
+                    streamId: context.grpcStreamId,
+                    seq: context.grpcSeq,
+                    accepted: result.elements.length,
+                }
+            },
+        }
+    }
+
     private isHealthy(): HealthCheckResult {
         // TODO: add output producer health checks
         if (this.fatalError) {
@@ -652,6 +729,9 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
+                // Stop accepting stream traffic before draining stores, so no
+                // new batches land mid-teardown.
+                await this.grpcServer?.stop()
                 // No Kafka offsets in this server — drain buffered writes before
                 // shutdown so shutdown() can assert a clean cache.
                 if (this.personsStore) {

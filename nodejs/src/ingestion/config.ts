@@ -130,6 +130,13 @@ export type IngestionConsumerConfig = {
     // least-recently-seen key is dropped and rebaselines unchecked.
     INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
+    // Streaming ingest (ingestion API server only): serve
+    // ingestion.worker.v1.WorkerIngest over gRPC alongside HTTP /ingest.
+    // The stream delivers each consumer's sub-batches in order, closing the
+    // wire-reordering window concurrent HTTP requests leave open.
+    INGESTION_API_GRPC_ENABLED: boolean
+    INGESTION_API_GRPC_PORT: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -299,6 +306,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
+        INGESTION_API_GRPC_ENABLED: false,
+        INGESTION_API_GRPC_PORT: 6739,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
