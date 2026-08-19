@@ -44,7 +44,7 @@ from posthog.schema import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -86,6 +86,8 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -147,10 +149,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 
@@ -2138,16 +2141,11 @@ class TeamViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
+        authenticator = self.request.successful_authenticator
+        if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
+            queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+        if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
+            queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -2223,6 +2221,12 @@ class TeamViewSet(
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
+                raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming an environment the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
                 raise exceptions.NotFound()
             return team
 

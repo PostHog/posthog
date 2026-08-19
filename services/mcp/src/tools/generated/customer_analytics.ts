@@ -230,6 +230,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         if (params.slack_summary_cadence !== undefined) {
             body['slack_summary_cadence'] = params.slack_summary_cadence
         }
+        if (params.churned_at !== undefined) {
+            body['churned_at'] = params.churned_at
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -301,6 +304,9 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
 })
 
 const AccountsListSchema = AccountsListQueryParams.extend({
+    include_churned: AccountsListQueryParams.shape['include_churned'].describe(
+        'Include churned accounts. Churned accounts are hidden by default.'
+    ),
     tags: AccountsListQueryParams.shape['tags'].describe(
         'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
     ),
@@ -316,6 +322,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
+                include_churned: params.include_churned,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -442,6 +449,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.slack_summary_cadence !== undefined) {
             body['slack_summary_cadence'] = params.slack_summary_cadence
+        }
+        if (params.churned_at !== undefined) {
+            body['churned_at'] = params.churned_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

@@ -15,9 +15,11 @@ import type {
     CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
+    DataQualityGateConfigApi,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
     DataWarehouseExpressionApi,
+    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
@@ -32,6 +34,8 @@ import type {
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseMonitoringSeriesResponseApi,
+    ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
@@ -46,7 +50,7 @@ import type {
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
     PaginatedWarehouseColumnAnnotationListApi,
-    PaginatedWarehouseColumnStatisticsListApi,
+    PatchedDataQualityGateConfigApi,
     PatchedDataWarehouseExpressionApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryColumnAnnotationApi,
@@ -72,8 +76,6 @@ import type {
     ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
-    WarehouseColumnStatisticsApi,
-    WarehouseColumnStatisticsListParams,
     WarehouseExpressionsListParams,
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
@@ -303,6 +305,43 @@ export const dataWarehouseDataOpsDashboardRetrieve = async (
     })
 }
 
+export const getDataWarehouseDataQualityGateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_quality_gate/`
+}
+
+/**
+ * Read or update the team's data quality gate: whether a materialization whose error-severity checks fail is published.
+ */
+export const dataWarehouseDataQualityGateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityGateConfigApi> => {
+    return apiMutator<DataQualityGateConfigApi>(getDataWarehouseDataQualityGateRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseDataQualityGatePartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_quality_gate/`
+}
+
+/**
+ * Read or update the team's data quality gate: whether a materialization whose error-severity checks fail is published.
+ */
+export const dataWarehouseDataQualityGatePartialUpdate = async (
+    projectId: string,
+    patchedDataQualityGateConfigApi?: PatchedDataQualityGateConfigApi,
+    options?: RequestInit
+): Promise<DataQualityGateConfigApi> => {
+    return apiMutator<DataQualityGateConfigApi>(getDataWarehouseDataQualityGatePartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataQualityGateConfigApi),
+    })
+}
+
 export const getDataWarehouseDeleteOrgDestroyUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/delete-org/`
 }
@@ -369,6 +408,64 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
 ): Promise<ManagedWarehouseDataStatusResponseApi> => {
     return apiMutator<ManagedWarehouseDataStatusResponseApi>(
         getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring/`
+}
+
+/**
+ * Get tenant-safe live worker, session, queue, and capacity data for the current organization.
+ * @summary Get managed warehouse monitoring snapshot
+ */
+export const dataWarehouseManagedWarehouseMonitoringRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSnapshotResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSnapshotResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/`
+}
+
+/**
+ * Get one allow-listed monitoring metric for the current organization and trailing time window.
+ * @summary Get managed warehouse monitoring time series
+ */
+export const dataWarehouseManagedWarehouseMonitoringTimeseriesRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSeriesResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSeriesResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -1226,68 +1323,6 @@ export const warehouseColumnAnnotationsDestroy = async (
     return apiMutator<void>(getWarehouseColumnAnnotationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getWarehouseColumnStatisticsListUrl = (
-    projectId: string,
-    params?: WarehouseColumnStatisticsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_column_statistics/`
-}
-
-/**
- * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
- *
- * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
- * better queries. They are system-owned and read-only here. List can be filtered to one table with
- * `?table_id=<uuid>`.
- */
-export const warehouseColumnStatisticsList = async (
-    projectId: string,
-    params?: WarehouseColumnStatisticsListParams,
-    options?: RequestInit
-): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
-    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
-        getWarehouseColumnStatisticsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
-}
-
-/**
- * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
- *
- * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
- * better queries. They are system-owned and read-only here. List can be filtered to one table with
- * `?table_id=<uuid>`.
- */
-export const warehouseColumnStatisticsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<WarehouseColumnStatisticsApi> => {
-    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 

@@ -52,10 +52,6 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
             [{"name": CHARGE_RESOURCE_NAME, "table_name": None}]
         )
 
-        # Set the table to None to simulate missing table
-        charge_schema = self.get_stripe_schema_by_name(CHARGE_RESOURCE_NAME)
-        charge_schema.table = None
-
         query = build(self.stripe_handle)
 
         # Test the query structure

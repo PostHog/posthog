@@ -76,6 +76,41 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    def test_get_billing_adds_todays_usage_to_usage_summary(self):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.organization.usage = {
+            "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34, "limit": None},
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+        }
+        manager = BillingManager(license)
+        billing_response = {
+            "customer": {
+                "products": [],
+                "usage_summary": {
+                    "posthog_code_token_credits": {"usage": 1200, "limit": None},
+                    "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                },
+            }
+        }
+
+        with (
+            patch.object(manager, "_get_billing", return_value=billing_response),
+            patch.object(manager, "update_org_details"),
+            patch.object(manager, "get_default_products", return_value={"products": []}),
+        ):
+            response = manager.get_billing(self.organization)
+
+        assert response["usage_summary"]["posthog_code_token_credits"] == {
+            "usage": 1200,
+            "limit": None,
+            "todays_usage": 34,
+        }
+        assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
+
     @parameterized.expand(
         [
             ("with_ip", "203.0.113.7", True),
@@ -1531,11 +1566,13 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
 
         mock_get.assert_called_once()
+        assert mock_get.call_args.kwargs["timeout"] == (5, 30)
         get_params = mock_get.call_args[1]["params"]
         assert get_params["teams_map"] == '{"1": "Team A"}'
         assert get_params["start_date"] == "2025-01-01"
 
         mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["timeout"] == (5, 30)
         post_json = mock_post.call_args[1]["json"]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"

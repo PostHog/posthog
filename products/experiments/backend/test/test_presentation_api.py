@@ -3716,7 +3716,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
         )
 
-        # Test removing aggregation_group_type_index
+        # Test removing aggregation_group_type_index. PATCH filters merge with the stored
+        # state per top-level key (#50084), so clearing requires an explicit null rather
+        # than omitting the key.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
             {
@@ -3726,6 +3728,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         {"properties": [], "rollout_percentage": 1},
                     ],
                     "payloads": {},
+                    "aggregation_group_type_index": None,
                     "multivariate": {
                         "variants": [
                             {"key": "control", "rollout_percentage": 10},

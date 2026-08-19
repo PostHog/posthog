@@ -821,6 +821,11 @@ export interface AutocompleteCompletionItem {
      * an icon is chosen by the editor.
      */
     kind: AutocompleteCompletionItemKind
+    /**
+     * Overrides the editor's default ordering for this item. Set when the backend can rank a
+     * suggestion, for example a function whose return type fits the comparison being written.
+     */
+    sortText?: string
 }
 
 export interface HogQLAutocompleteResponse {
@@ -2813,6 +2818,7 @@ export enum AccountsTableAccountField {
     ExternalId = 'external_id',
     CreatedAt = 'created_at',
     UpdatedAt = 'updated_at',
+    ChurnedAt = 'churned_at',
     StripeCustomerId = 'stripe_customer_id',
     HubspotDealId = 'hubspot_deal_id',
     BillingId = 'billing_id',
@@ -3034,6 +3040,8 @@ export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
     kind: NodeKind.AccountsTableQuery
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
@@ -3824,6 +3832,7 @@ export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBrea
     issueId: ErrorTrackingIssue['id']
     breakdownProperties: string[]
     dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
@@ -9004,6 +9013,9 @@ export const externalDataSources = [
     'DeelFlows',
     'Hootsuite',
     'WisprFlow',
+    'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

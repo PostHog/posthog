@@ -954,15 +954,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     suggest_replay_vision_tags: {
-        name: 'Suggest tags',
-        description: 'Suggest tags for a classifier, grounded in what it has seen',
+        name: 'Suggest categories',
+        description: 'Suggest categories for a classifier, grounded in what it has seen',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Suggest tags'
+                return 'Suggest categories'
             }
-            return 'Suggest tags...'
+            return 'Suggest categories...'
         },
     },
     read_replay_vision_actions: {

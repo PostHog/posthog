@@ -638,6 +638,10 @@ export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
 
+export const ScannerEditorDetails: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
+}
+
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
@@ -660,6 +664,10 @@ export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
 
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
+}
+
+export const ScannerEditorBudget: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
 export const ActionEditorAlert: StoryObj = {

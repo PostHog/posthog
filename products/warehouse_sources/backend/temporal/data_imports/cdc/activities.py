@@ -1648,6 +1648,12 @@ class CDCExtractActivity:
         # here, mirroring what update_external_job_status does for non-CDC syncs.
         if terminal and not marked_broken:
             self._schedule_failure_digest()
+        # An unclassified failure stays retryable and never pauses the schedule, so a deterministic
+        # one re-fails every scheduled run indefinitely. Only _capture_non_retryable emits analytics,
+        # so these never reach error triage — capture the terminal case so the taxonomy can be taught
+        # to recognise it (and, where fatal, stop retrying).
+        if terminal and info.category == CDCErrorCategory.UNKNOWN:
+            self._capture_unclassified(exc)
         self._emit_run_duration("failed")
         return info
 
@@ -1675,6 +1681,30 @@ class CDCExtractActivity:
             )
         except Exception:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
+
+    def _capture_unclassified(self, exc: BaseException) -> None:
+        # Send the exception types in the cause chain — never str(exc), which can embed the customer's
+        # host, database, schema, or table names — so the taxonomy can be extended to catch this.
+        seen: set[int] = set()
+        type_names: list[str] = []
+        current: BaseException | None = exc
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            type_names.append(type(current).__name__)
+            current = current.__cause__ or current.__context__
+        # Best-effort: analytics must never mask the failure the caller is about to re-raise.
+        try:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="cdc extraction unclassified error",
+                properties={
+                    "team_id": self.inputs.team_id,
+                    "source_id": str(self.inputs.source_id),
+                    "exception_types": type_names,
+                },
+            )
+        except Exception:
+            self.log.warning("cdc_unclassified_capture_failed", exc_info=True)
 
     def _create_failure_visibility_jobs(self, friendly_error: str) -> None:
         """Create one terminal FAILED ExternalDataJob per job-less CDC schema for this run.

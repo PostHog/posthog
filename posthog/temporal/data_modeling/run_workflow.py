@@ -725,6 +725,11 @@ async def materialize_model(
         preserve_table_name_casing=True,
         existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
         logger=logger,
+        # Reopen the table instead of reusing this snapshot: a concurrent compaction can advance the
+        # log after `delta_table` loaded, so the retry needs the listing that log now holds.
+        refresh_file_uris=lambda: asyncio.to_thread(
+            lambda: deltalake.DeltaTable(table_uri, storage_options=storage_options).file_uris()
+        ),
     )
 
     saved_query.is_materialized = True

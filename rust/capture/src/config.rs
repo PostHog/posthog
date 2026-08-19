@@ -149,6 +149,70 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
+    /// Minimum effective event count before a key earns a Redis sync. Keys below
+    /// this cannot be limited whatever other nodes report, so syncing them costs
+    /// two Redis keys per tick for no enforcement value. With an unbounded key
+    /// space this is what keeps the pipeline sized to enforceable keys rather
+    /// than to total traffic. 0 syncs every key.
+    ///
+    /// The level is per-pod, so this must stay well under
+    /// `threshold / pod_count` or a key sitting at the threshold but spread
+    /// evenly across the fleet would never sync and could never be limited.
+    #[envconfig(default = "10")]
+    pub global_rate_limit_min_sync_floor: u64,
+
+    /// Max keys drained from the pending-sync set per tick. Excess stays queued,
+    /// so a backlog shows up as sync staleness rather than a tick that overruns
+    /// its interval.
+    #[envconfig(default = "20000")]
+    pub global_rate_limit_max_sync_keys_per_tick: usize,
+
+    /// Max Redis keys per individual command. Reads cost two keys per entity, so
+    /// an entity chunk is half this. Bounds how long any single command can take,
+    /// which is what the per-command timeouts below are budgeting for.
+    #[envconfig(default = "2000")]
+    pub global_rate_limit_max_keys_per_command: usize,
+
+    /// How many chunked commands may be in flight at once per Redis instance.
+    #[envconfig(default = "4")]
+    pub global_rate_limit_max_concurrent_commands: usize,
+
+    /// Max distinct (key, epoch) entries held in the deferred write batch per
+    /// limiter. Merges are always accepted; at the cap, updates for new keys
+    /// are dropped and counted (fail-open). Bounds limiter memory under
+    /// unique-key floods that outrun the per-tick write drain.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_write_batch_entries: usize,
+
+    /// Max keys held in the pending-sync set per limiter. At the cap, new sync
+    /// requests drop and re-queue on the key's next request (fail-open).
+    /// Bounds limiter memory alongside the write-batch cap.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_pending_sync_entries: usize,
+
+    /// How long a local cache entry survives regardless of access (seconds).
+    /// Bounds how stale a key's cached count can be before it is rebuilt.
+    #[envconfig(default = "600")]
+    pub global_rate_limit_local_cache_ttl_secs: u64,
+
+    /// Evict local cache entries not accessed within this window (seconds).
+    /// This is the main lever on cache cardinality: with a key space dominated
+    /// by one-shot identities, most entries are pure churn and hold a slot for
+    /// the full idle window. Must stay at or above the rate-limit window, or
+    /// entries expire inside the enforcement window and the limiter loses the
+    /// counts it is supposed to be accumulating -- values below the window are
+    /// clamped up, with a warning.
+    #[envconfig(default = "300")]
+    pub global_rate_limit_local_cache_idle_timeout_secs: u64,
+
+    /// Timeout for a single global rate limiter Redis read command (milliseconds).
+    #[envconfig(default = "250")]
+    pub global_rate_limit_read_timeout_ms: u64,
+
+    /// Timeout for a single global rate limiter Redis write command (milliseconds).
+    #[envconfig(default = "250")]
+    pub global_rate_limit_write_timeout_ms: u64,
+
     // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production

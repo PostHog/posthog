@@ -47,11 +47,11 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
-     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
-     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
-     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
-     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
+     * `imageurl:<pseudoTeam>:<hash>` ref. The prefix differs from the image lane's `image:` on
+     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
+     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
      * URLs and how many distinct hosts real traffic carries.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
@@ -69,6 +69,9 @@ export type MlMirrorConfig = {
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
 
+    // US-only, PEM, multiple keys allowed (comma-separated)
+    WEB_BOT_AUTH_PRIVATE_KEYS: string
+
     /**
      * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
      * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
@@ -84,6 +87,17 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
     /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
+    /**
+     * TTL on each crawl history entry, so it is both the recrawl interval and the ledger's Redis
+     * footprint: the key count converges on the distinct-URL count of this window, which is the
+     * number that sizes the Redis. An env var because it is the main memory lever for that cluster,
+     * and memory pressure moves faster than a deploy.
+     *
+     * 7 days measures the dry-run dedup hit rate over a window the cluster can hold. Once fetching
+     * is on, this is also how often a recurring image is refetched from the customer's site, so
+     * raising it back up trades Redis memory for outbound politeness.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: number
     /** Bounds one round trip to the crawl history, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
 
@@ -231,11 +245,13 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
         SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: 7 * 24 * 60 * 60,
         SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
         SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,

@@ -3,9 +3,7 @@ import {
   ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
-  ChartBarIcon,
   DotsThreeIcon,
-  FileTextIcon,
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -61,7 +59,6 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
-import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
@@ -71,7 +68,6 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
-import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import {
   NO_TASKS,
   type SpaceTasks,
@@ -122,6 +118,7 @@ import {
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -137,6 +134,8 @@ import {
   useState,
 } from "react";
 import { hostClient } from "../hostClient";
+
+const channelsLog = logger.scope("channels");
 
 /**
  * A row's clickable surface.
@@ -953,9 +952,6 @@ const ChannelSection = memo(
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
-    // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
-    // while open.
-    const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
@@ -963,7 +959,6 @@ const ChannelSection = memo(
       undefined,
     );
     useEffect(() => () => clearTimeout(prefetchTimer.current), []);
-    const createAndOpenCanvas = useCreateAndOpenDashboard(channel.id);
     // Shared by the "..." dropdown and the right-click context menu so both offer
     // the same star / edit / rename / delete actions.
     const {
@@ -975,6 +970,15 @@ const ChannelSection = memo(
       confirmDelete,
       isDeleting,
     } = useChannelActions(channel);
+
+    const newTask = () => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "new_task_open",
+        surface: "sidebar",
+        channel_id: channel.id,
+      });
+      openTaskInput({ channelId: channel.id });
+    };
 
     // A boolean rather than the value itself, so a keypress re-renders only the
     // two rows whose answer changed. The row's autocomplete value is the space
@@ -1134,71 +1138,30 @@ const ChannelSection = memo(
               </ContextMenuContent>
             </ContextMenu>
           </SpaceHoverCard>
-          {/* Hover actions: the "+" dropdown (New task / New canvas) and the
-            options menu. Stay visible while either is open. */}
+          {/* Hover actions stay visible while the menu is open. */}
           <div className="absolute top-1 right-1">
             <ButtonGroup>
-              <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="outline"
-                            size="icon-xs"
-                            aria-label={`New in ${channel.name}`}
-                            className={cn(
-                              "gap-1 transition-opacity group-hover:border-border",
-                              menuOpen || newMenuOpen
-                                ? "opacity-100"
-                                : "opacity-0 group-hover/chan:opacity-100",
-                            )}
-                          >
-                            <PlusIcon size={12} weight="bold" />
-                          </Button>
-                        }
-                      />
-                    }
-                  />
-                  <TooltipContent side="top">New…</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent
-                  align="start"
-                  side="bottom"
-                  sideOffset={4}
-                  className="w-auto min-w-fit"
-                >
-                  <DropdownMenuItem
-                    onClick={() => {
-                      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                        action_type: "new_task_open",
-                        surface: "sidebar",
-                        channel_id: channel.id,
-                      });
-                      openTaskInput({ channelId: channel.id });
-                    }}
-                  >
-                    <FileTextIcon size={14} />
-                    New task
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      // Create + open a canvas with the default template directly;
-                      // the canvas's own composer drives what gets built.
-                      trackAndCreateCanvas(
-                        channel.id,
-                        undefined,
-                        "sidebar",
-                        () => void createAndOpenCanvas(),
-                      );
-                    }}
-                  >
-                    <ChartBarIcon size={14} />
-                    New canvas
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      aria-label={`New task in ${channel.name}`}
+                      className={cn(
+                        "gap-1 transition-opacity group-hover:border-border",
+                        menuOpen
+                          ? "opacity-100"
+                          : "opacity-0 group-hover/chan:opacity-100",
+                      )}
+                      onClick={newTask}
+                    >
+                      <PlusIcon size={12} weight="bold" />
+                    </Button>
+                  }
+                />
+                <TooltipContent side="top">New task</TooltipContent>
+              </Tooltip>
               <ChannelMenu
                 channelName={channel.name}
                 actions={actions}
@@ -1313,11 +1276,15 @@ function useOpenPersonalChannel(): {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
-  const { channels } = useChannels();
+  const { channels, isLoading } = useChannels();
 
   const ensureChannelId = (): string | undefined => {
     const meChannel = channels.find((c) => c.channelType === "personal");
     if (!meChannel) {
+      channelsLog.warn("Personal space missing from the channel list", {
+        channelCount: channels.length,
+        isLoading,
+      });
       toast.error("Couldn't open personal space", {
         description:
           "Your personal space is still loading. Try again in a moment.",
@@ -1382,8 +1349,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
-  // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
 
   // Personal channels are provisioned lazily server-side when the channel list
   // is fetched; `undefined` just means the list hasn't loaded it yet.
@@ -1391,7 +1356,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
-  const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
     (pathname === `/website/${meChannel.id}` ||
@@ -1406,17 +1370,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
       channel_id: channelId,
     });
     openTaskInput({ channelId });
-  };
-
-  const newCanvas = () => {
-    const channelId = ensureChannelId();
-    if (!channelId) return;
-    trackAndCreateCanvas(
-      channelId,
-      undefined,
-      "sidebar",
-      () => void createAndOpenCanvas({ channelId }),
-    );
   };
 
   // The one row in the list that carries a glyph, and it earns the exception:
@@ -1479,47 +1432,22 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           )}
         </SpaceRowSurface>
         <div className="absolute top-0 right-1">
-          <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon-xs"
-                        aria-label={`New in ${PERSONAL_CHANNEL_LABEL}`}
-                        className={cn(
-                          "gap-1 transition-opacity group-hover:border-border",
-                          newMenuOpen
-                            ? "opacity-100"
-                            : "opacity-0 group-hover/chan:opacity-100",
-                        )}
-                      >
-                        <PlusIcon size={12} weight="bold" />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent side="top">New…</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              align="start"
-              side="bottom"
-              sideOffset={4}
-              className="w-auto min-w-fit"
-            >
-              <DropdownMenuItem onClick={newTask}>
-                <FileTextIcon size={14} />
-                New task
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={newCanvas}>
-                <ChartBarIcon size={14} />
-                New canvas
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  aria-label={`New task in ${PERSONAL_CHANNEL_LABEL}`}
+                  className="gap-1 opacity-0 transition-opacity group-hover:border-border group-hover/chan:opacity-100"
+                  onClick={newTask}
+                >
+                  <PlusIcon size={12} weight="bold" />
+                </Button>
+              }
+            />
+            <TooltipContent side="top">New task</TooltipContent>
+          </Tooltip>
         </div>
       </Box>
       {expanded && meChannel && (
@@ -1549,7 +1477,7 @@ const sectionValue = (sectionId: string) => `section:${sectionId}`;
 // long). Unstyled parts give a plain label row that snaps.
 //
 // The whole header row is the trigger, and the label is all of it: the headings
-// are two, named, and always in the same order, so a glyph beside each was
+// are few, named, and always in the same order, so a glyph beside each was
 // decoration rather than a way of telling them apart.
 function ChannelGroup({
   sectionId,

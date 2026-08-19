@@ -24,11 +24,11 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
     Integration,
+    IntegrationError,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -93,7 +93,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
+    "IntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -138,12 +138,12 @@ class S3IntegrationNotFoundError(Exception):
 
 async def _get_s3_integration(
     integration_id: int, team_id: int
-) -> AwsS3RoleBasedIntegration | AwsS3Integration | S3CompatibleIntegration:
+) -> AWSS3RoleBasedIntegration | AWSS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
     purely defensive against an integration whose kind was changed out from under the export.
-    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `IntegrationError` if
     the credentials are malformed.
     """
     try:
@@ -153,19 +153,19 @@ async def _get_s3_integration(
 
     if integration.kind == Integration.IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
-            return AwsS3RoleBasedIntegration(integration)
-        return AwsS3Integration(integration)
+            return AWSS3RoleBasedIntegration(integration)
+        return AWSS3Integration(integration)
 
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
-    raise S3CredentialIntegrationError(
+    raise IntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
     )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
@@ -180,8 +180,8 @@ class S3InsertInputs(BatchExportInsertInputs):
     # at run time; otherwise the inline credentials below are used (legacy path).
     integration_id: int | None = None
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_session_token: str | None = None
+    aws_secret_access_key: str | None = dataclasses.field(default=None, repr=False)
+    aws_session_token: str | None = dataclasses.field(default=None, repr=False)
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -568,11 +568,11 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         if inputs.integration_id is not None:
             integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
 
-            if isinstance(integration, AwsS3Integration):
+            if isinstance(integration, AWSS3Integration):
                 aws_access_key_id = integration.aws_access_key_id
                 aws_secret_access_key = integration.aws_secret_access_key
 
-            if isinstance(integration, AwsS3RoleBasedIntegration):
+            if isinstance(integration, AWSS3RoleBasedIntegration):
                 team = await Team.objects.aget(id=inputs.team_id)
                 external_id = f"posthog-{team.organization_id}"
 

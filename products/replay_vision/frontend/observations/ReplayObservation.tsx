@@ -75,7 +75,7 @@ export const scene: SceneExport = {
 }
 
 const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Tags',
+    classifier: 'Categories',
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
@@ -536,7 +536,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         {classifierVocab && classifierVocab.length > 0 && (
-                            <LabeledRow label="Vocabulary">
+                            <LabeledRow label="Categories">
                                 <div className="flex flex-wrap gap-1">
                                     {classifierVocab.map((tag) => (
                                         <LemonTag key={tag} type="default" size="small">
@@ -552,12 +552,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         {classifierMultiLabel !== null && (
-                            <LabeledRow label="Multi-label">
+                            <LabeledRow label="Multiple categories per session">
                                 <BooleanTag value={classifierMultiLabel} />
                             </LabeledRow>
                         )}
                         {classifierAllowFreeform !== null && (
-                            <LabeledRow label="Freeform tags">
+                            <LabeledRow label="Freeform categories">
                                 <BooleanTag value={classifierAllowFreeform} />
                             </LabeledRow>
                         )}

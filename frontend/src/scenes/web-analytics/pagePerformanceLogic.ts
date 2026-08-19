@@ -14,12 +14,13 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { percentage } from 'lib/utils/numbers'
 import { isAbortedRequest } from 'lib/utils/requests'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { performQuery } from '~/queries/query'
 import {
     ActionConversionGoal,
@@ -66,6 +67,8 @@ import type { DateFilterState } from './webAnalyticsLogic'
 
 const PAGE_PERFORMANCE_EVENTS = "('$pageview', '$screen', '$http_log')"
 
+const HUMAN_EVENTS = "('$pageview', '$screen')"
+
 const PAGE_TABLE_LIMIT = 20
 
 const PAGE_CANDIDATE_LIMIT = 200
@@ -111,6 +114,28 @@ export interface OverviewTotals {
     pages: number
 }
 
+export type PagePerformanceBucket = 'hour' | 'day' | 'week'
+
+export interface OverviewSeriesPoint {
+    label: string
+    visitors: number
+    google: number
+    llm: number
+    crawls: number
+}
+
+export type OverviewMetricKey = 'visitors' | 'google_search' | 'llm_referrals' | 'agent_crawls'
+
+export interface OverviewMetric {
+    key: OverviewMetricKey
+    label: string
+    value: number
+    previous: number | null
+    changeFromPreviousPct: number | null
+    sparkline: number[]
+    sparklineLabels: string[]
+}
+
 export interface AiSectionQueries {
     referralTrend: InsightVizNode
     byEngine: DataTableNode
@@ -120,11 +145,53 @@ export interface AiSectionQueries {
     crawledPages: DataTableNode
 }
 
-export const OVERVIEW_CARD_LABELS: Record<string, string> = {
-    visitors: 'Visitors',
-    google_search: 'Google search',
-    llm_referrals: 'LLM referrals',
-    agent_crawls: 'Agent crawls',
+const OVERVIEW_METRICS: {
+    key: OverviewMetricKey
+    label: string
+    value: (totals: OverviewTotals) => number
+    previous: (totals: OverviewTotals) => number
+    series: (point: OverviewSeriesPoint) => number
+}[] = [
+    {
+        key: 'visitors',
+        label: 'Visitors',
+        value: (t) => t.visitors,
+        previous: (t) => t.visitorsPrevious,
+        series: (p) => p.visitors,
+    },
+    {
+        key: 'google_search',
+        label: 'Google search',
+        value: (t) => t.google,
+        previous: (t) => t.googlePrevious,
+        series: (p) => p.google,
+    },
+    {
+        key: 'llm_referrals',
+        label: 'LLM referrals',
+        value: (t) => t.llm,
+        previous: (t) => t.llmPrevious,
+        series: (p) => p.llm,
+    },
+    {
+        key: 'agent_crawls',
+        label: 'Agent crawls',
+        value: (t) => t.crawls,
+        previous: (t) => t.crawlsPrevious,
+        series: (p) => p.crawls,
+    },
+]
+
+const EMPTY_OVERVIEW_TOTALS: OverviewTotals = {
+    visitors: 0,
+    visitorsPrevious: 0,
+    google: 0,
+    googlePrevious: 0,
+    llm: 0,
+    llmPrevious: 0,
+    crawls: 0,
+    crawlsPrevious: 0,
+    pages: 0,
 }
 
 const tsLiteral = (date: dayjs.Dayjs, timezone: string): string => date.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
@@ -188,6 +255,171 @@ export const resolvePagePerformanceWindow = (
     return { currentFrom, currentTo, previousFrom, previousTo, timezone }
 }
 
+export interface ParsedOverviewResponse {
+    totals: Record<string, number>
+    buckets: { bucket: dayjs.Dayjs; values: Record<string, number> }[]
+}
+
+/**
+ * Splits an overview response into its grand total and its per-bucket series. The queries group by
+ * `GROUPING SETS ((bucket), ())`, so one row carries the exact total over the whole window — summing
+ * the buckets would instead sum per-bucket uniques and overcount visitors.
+ */
+export const parsePagePerformanceOverviewResponse = (
+    columns: string[] | undefined,
+    results: unknown[][] | undefined,
+    window: PagePerformanceWindow
+): ParsedOverviewResponse => {
+    const cols = columns ?? []
+    const bucketIdx = cols.indexOf('bucket')
+    const totals: Record<string, number> = {}
+    const buckets: ParsedOverviewResponse['buckets'] = []
+
+    const readRow = (row: unknown[]): Record<string, number> => {
+        const values: Record<string, number> = {}
+        cols.forEach((name, idx) => {
+            if (name !== 'bucket') {
+                values[name] = Number(row[idx] ?? 0)
+            }
+        })
+        return values
+    }
+
+    for (const row of results ?? []) {
+        if (!Array.isArray(row)) {
+            continue
+        }
+        const rawBucket = bucketIdx >= 0 ? row[bucketIdx] : null
+        const bucket = rawBucket ? dayjs.tz(String(rawBucket), window.timezone) : null
+        // The grand-total row comes back with the DateTime default rather than a real bucket.
+        if (!bucket || !bucket.isValid() || bucket.year() <= 1970) {
+            Object.assign(totals, readRow(row))
+            continue
+        }
+        if (window.currentFrom && bucket.isBefore(window.currentFrom)) {
+            continue
+        }
+        buckets.push({ bucket, values: readRow(row) })
+    }
+
+    buckets.sort((a, b) => a.bucket.valueOf() - b.bucket.valueOf())
+    return { totals, buckets }
+}
+
+/** Aligns the human and crawler series onto one bucket axis — either query can miss a bucket entirely. */
+export const mergePagePerformanceSeries = (
+    human: ParsedOverviewResponse,
+    crawler: ParsedOverviewResponse,
+    bucketSize: PagePerformanceBucket
+): OverviewSeriesPoint[] => {
+    const byBucket = new Map<number, OverviewSeriesPoint>()
+
+    const upsert = (bucket: dayjs.Dayjs): OverviewSeriesPoint => {
+        const key = bucket.valueOf()
+        const existing = byBucket.get(key)
+        if (existing) {
+            return existing
+        }
+        const point: OverviewSeriesPoint = {
+            label: formatBucketLabel(bucket, bucketSize),
+            visitors: 0,
+            google: 0,
+            llm: 0,
+            crawls: 0,
+        }
+        byBucket.set(key, point)
+        return point
+    }
+
+    for (const { bucket, values } of human.buckets) {
+        const point = upsert(bucket)
+        point.visitors = values.visitors ?? 0
+        point.google = values.google ?? 0
+        point.llm = values.llm ?? 0
+    }
+    for (const { bucket, values } of crawler.buckets) {
+        upsert(bucket).crawls = values.crawls ?? 0
+    }
+
+    return [...byBucket.entries()].sort(([a], [b]) => a - b).map(([, point]) => point)
+}
+
+export const resolvePagePerformanceBucket = (window: PagePerformanceWindow): PagePerformanceBucket => {
+    if (!window.currentFrom) {
+        return 'week'
+    }
+    const days = window.currentTo.diff(window.currentFrom, 'day', true)
+    if (days <= 2) {
+        return 'hour'
+    }
+    if (days <= 120) {
+        return 'day'
+    }
+    return 'week'
+}
+
+const PAGE_TABLE_COLUMNS = [
+    'context.columns.breakdown_value',
+    'context.columns.visitors',
+    'context.columns.google_search',
+    'context.columns.llm_referrals',
+    'context.columns.agent_crawls',
+    'context.columns.conversions',
+    'context.columns.avg_time',
+]
+
+const PAGE_TABLE_VISITORS_INDEX = PAGE_TABLE_COLUMNS.indexOf('context.columns.visitors')
+
+const BUCKET_HOGQL_FN: Record<PagePerformanceBucket, string> = {
+    hour: 'toStartOfHour',
+    day: 'toStartOfDay',
+    week: 'toStartOfWeek',
+}
+
+const BUCKET_LABEL_FORMAT: Record<PagePerformanceBucket, string> = {
+    hour: 'MMM D, HH:mm',
+    day: 'MMM D',
+    week: 'MMM D',
+}
+
+// The bucket is parsed with `dayjs.tz(..., timezone)`, so it already carries the target offset.
+const formatBucketLabel = (bucket: dayjs.Dayjs, bucketSize: PagePerformanceBucket): string =>
+    bucket.format(BUCKET_LABEL_FORMAT[bucketSize])
+
+export interface MetricCellValue {
+    current: number
+    previous: number
+}
+
+/** Every leaderboard metric column is `tuple(current, previous)`; agent crawls is `tuple(crawls, agents)`. */
+export const parseMetricCell = (value: unknown): MetricCellValue | null =>
+    Array.isArray(value) && value.length >= 2
+        ? { current: Number(value[0] ?? 0), previous: Number(value[1] ?? 0) }
+        : null
+
+/** The row's own human visitor count, which every other metric on that row is a share of. */
+export const pageVisitorsFromRecord = (record: unknown): number => {
+    const cell = Array.isArray(record) ? record[PAGE_TABLE_VISITORS_INDEX] : null
+    return Array.isArray(cell) ? Number(cell[0] ?? 0) : 0
+}
+
+/** Shares below 10% get a decimal, so a page holding 0.4% of site traffic doesn't read as 0%. */
+export const formatShare = (part: number, whole: number): string | null => {
+    if (whole <= 0 || part <= 0) {
+        return null
+    }
+    const fraction = part / whole
+    return percentage(fraction, fraction < 0.1 ? 1 : 0)
+}
+
+/** Percent change against the previous period, or null when there is no comparable baseline. */
+export const changeVsPrevious = (current: number, previous: number): number | null => {
+    if (previous === 0) {
+        return null
+    }
+    return current === previous ? 0 : current / previous - 1
+}
+
 const SORTABLE_COLUMNS = new Set([
     'breakdown_value',
     'visitors',
@@ -235,9 +467,7 @@ export const buildPagePerformanceTableQuery = (
     )
 
     const match = conversionMatch(conversionGoal)
-    const conversions = match
-        ? `tuple(countIf((${match}) AND ${cur}), uniqIf(person_id, (${HUMAN_VIEW}) AND ${cur}))`
-        : 'tuple(0, 0)'
+    const conversions = match ? `tuple(countIf((${match}) AND ${cur}), countIf((${match}) AND ${prev}))` : 'tuple(0, 0)'
 
     const orderExpr = orderByExpr(orderBy.column)
 
@@ -250,7 +480,7 @@ SELECT
     ) AS "context.columns.visitors",
     tuple(
         uniqIf(person_id, (${GOOGLE_VIEW}) AND ${cur}),
-        uniqIf(person_id, (${HUMAN_VIEW}) AND ${cur})
+        uniqIf(person_id, (${GOOGLE_VIEW}) AND ${prev})
     ) AS "context.columns.google_search",
     tuple(
         uniqIf(person_id, (${AI_VIEW}) AND ${cur}),
@@ -293,21 +523,44 @@ LIMIT ${PAGE_TABLE_LIMIT}
 `
 }
 
-const buildOverviewQuery = (window: PagePerformanceWindow, pathExpr: string): string => {
+const buildOverviewHumanQuery = (
+    window: PagePerformanceWindow,
+    pathExpr: string,
+    bucketSize: PagePerformanceBucket
+): string => {
     const { cur, prev, full } = windowPredicates(window)
     const pageKey = pageKeyExpr(pathExpr)
 
     return `
 SELECT
+    ${BUCKET_HOGQL_FN[bucketSize]}(timestamp) AS bucket,
     uniqIf(person_id, (${HUMAN_VIEW}) AND ${cur}) AS visitors,
     uniqIf(person_id, (${HUMAN_VIEW}) AND ${prev}) AS visitors_previous,
     uniqIf(person_id, (${GOOGLE_VIEW}) AND ${cur}) AS google,
     uniqIf(person_id, (${GOOGLE_VIEW}) AND ${prev}) AS google_previous,
     uniqIf(person_id, (${AI_VIEW}) AND ${cur}) AS llm,
     uniqIf(person_id, (${AI_VIEW}) AND ${prev}) AS llm_previous,
-    countIf((${CRAWLER}) AND ${cur}) AS crawls,
-    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous,
     uniqIf(${pageKey}, (${HUMAN_VIEW}) AND ${cur}) AS pages
+FROM events
+WHERE and(
+    event IN ${HUMAN_EVENTS},
+    properties.$pathname IS NOT NULL,
+    properties.$pathname != '',
+    (${full}),
+    {filters}
+)
+GROUP BY GROUPING SETS ((bucket), ())
+`
+}
+
+const buildOverviewCrawlerQuery = (window: PagePerformanceWindow, bucketSize: PagePerformanceBucket): string => {
+    const { cur, prev, full } = windowPredicates(window)
+
+    return `
+SELECT
+    ${BUCKET_HOGQL_FN[bucketSize]}(timestamp) AS bucket,
+    countIf((${CRAWLER}) AND ${cur}) AS crawls,
+    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous
 FROM events
 WHERE and(
     event IN ${PAGE_PERFORMANCE_EVENTS},
@@ -316,6 +569,7 @@ WHERE and(
     (${full}),
     {filters}
 )
+GROUP BY GROUPING SETS ((bucket), ())
 `
 }
 
@@ -391,18 +645,25 @@ export interface pagePerformanceLogicValues {
     aiSectionQueries: AiSectionQueries
     breakdownModal: PagePerformanceBreakdownState | null
     breakdownQuery: DataTableNode | null
+    candidatesError: string | null
+    candidatesInput: string
+    candidatesLoading: boolean
     footerText: string
     goalLabel: string | null
     orderBy: PagePerformanceOrderBy
-    overviewCards: OverviewItem[]
+    bucketSize: PagePerformanceBucket
+    comparePeriods: boolean
+    siteVisitors: number
+    overviewCrawlerQuery: string
+    overviewError: string | null
+    overviewHumanQuery: string
+    overviewInput: string
     overviewLoading: boolean
-    overviewQuery: string
+    overviewMetrics: OverviewMetric[]
+    overviewSeries: OverviewSeriesPoint[]
     overviewTotals: OverviewTotals | null
     pageCandidateQuery: WebStatsTableQuery
     pageCandidates: string[] | null
-    pageDataError: string | null
-    pageDataInput: string
-    pageDataLoading: boolean
     pageTableQuery: DataTableNode
     pathExpr: string
     previousPathExpr: string
@@ -414,17 +675,26 @@ export interface pagePerformanceLogicActions {
     closeBreakdown: () => {
         value: true
     }
-    loadPageData: () => {
+    loadOverview: () => {
         value: true
     }
-    loadPageDataFailure: (error: string) => {
+    loadOverviewFailure: (error: string) => {
         error: string
     }
-    loadPageDataSuccess: (
+    loadOverviewSuccess: (
         overviewTotals: OverviewTotals,
-        pageCandidates: string[]
+        overviewSeries: OverviewSeriesPoint[]
     ) => {
         overviewTotals: OverviewTotals
+        overviewSeries: OverviewSeriesPoint[]
+    }
+    loadCandidates: () => {
+        value: true
+    }
+    loadCandidatesFailure: (error: string) => {
+        error: string
+    }
+    loadCandidatesSuccess: (pageCandidates: string[]) => {
         pageCandidates: string[]
     }
     openBreakdown: (breakdown: PagePerformanceBreakdownState) => {
@@ -464,15 +734,28 @@ export interface pagePerformanceLogicMeta {
             conversionGoal: WebAnalyticsConversionGoal | null,
             compareFilter: CompareFilter
         ) => AiSectionQueries
-        overviewQuery: (window: PagePerformanceWindow, pathExpr: string) => string
-        pageDataInput: (overviewQuery: string, pageCandidateQuery: WebStatsTableQuery) => string
+        bucketSize: (window: PagePerformanceWindow) => PagePerformanceBucket
+        overviewHumanQuery: (
+            window: PagePerformanceWindow,
+            pathExpr: string,
+            bucketSize: PagePerformanceBucket
+        ) => string
+        overviewCrawlerQuery: (window: PagePerformanceWindow, bucketSize: PagePerformanceBucket) => string
+        overviewInput: (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean) => string
+        candidatesInput: (pageCandidateQuery: WebStatsTableQuery) => string
         breakdownQuery: (
             breakdownModal: PagePerformanceBreakdownState | null,
             window: PagePerformanceWindow,
             filterTestAccounts: boolean,
             pathExpr: string
         ) => DataTableNode | null
-        overviewCards: (overviewTotals: OverviewTotals | null, compareFilter: CompareFilter) => OverviewItem[]
+        comparePeriods: (compareFilter: CompareFilter) => boolean
+        siteVisitors: (overviewTotals: OverviewTotals | null) => number
+        overviewMetrics: (
+            overviewTotals: OverviewTotals | null,
+            overviewSeries: OverviewSeriesPoint[],
+            comparePeriods: boolean
+        ) => OverviewMetric[]
         goalLabel: (conversionGoal: WebAnalyticsConversionGoal | null, allActions: ActionType[]) => string | null
         footerText: (
             overviewTotals: OverviewTotals | null,
@@ -512,12 +795,15 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         setOrderBy: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         openBreakdown: (breakdown: PagePerformanceBreakdownState) => ({ breakdown }),
         closeBreakdown: true,
-        loadPageData: true,
-        loadPageDataFailure: (error: string) => ({ error }),
-        loadPageDataSuccess: (overviewTotals: OverviewTotals, pageCandidates: string[]) => ({
+        loadOverview: true,
+        loadOverviewFailure: (error: string) => ({ error }),
+        loadOverviewSuccess: (overviewTotals: OverviewTotals, overviewSeries: OverviewSeriesPoint[]) => ({
             overviewTotals,
-            pageCandidates,
+            overviewSeries,
         }),
+        loadCandidates: true,
+        loadCandidatesFailure: (error: string) => ({ error }),
+        loadCandidatesSuccess: (pageCandidates: string[]) => ({ pageCandidates }),
     }),
     reducers({
         orderBy: [
@@ -536,38 +822,52 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         overviewTotals: [
             null as OverviewTotals | null,
             {
-                loadPageData: () => null,
-                loadPageDataSuccess: (_, { overviewTotals }) => overviewTotals,
+                loadOverview: () => null,
+                loadOverviewSuccess: (_, { overviewTotals }) => overviewTotals,
             },
         ],
-        pageCandidates: [
-            null as string[] | null,
+        overviewSeries: [
+            [] as OverviewSeriesPoint[],
             {
-                loadPageData: () => null,
-                loadPageDataSuccess: (_, { pageCandidates }) => pageCandidates,
+                loadOverview: () => [],
+                loadOverviewSuccess: (_, { overviewSeries }) => overviewSeries,
             },
         ],
-        pageDataError: [
+        overviewError: [
             null as string | null,
             {
-                loadPageData: () => null,
-                loadPageDataFailure: (_, { error }) => error,
-            },
-        ],
-        pageDataLoading: [
-            false,
-            {
-                loadPageData: () => true,
-                loadPageDataSuccess: () => false,
-                loadPageDataFailure: () => false,
+                loadOverview: () => null,
+                loadOverviewFailure: (_, { error }) => error,
             },
         ],
         overviewLoading: [
             false,
             {
-                loadPageData: () => true,
-                loadPageDataSuccess: () => false,
-                loadPageDataFailure: () => false,
+                loadOverview: () => true,
+                loadOverviewSuccess: () => false,
+                loadOverviewFailure: () => false,
+            },
+        ],
+        pageCandidates: [
+            null as string[] | null,
+            {
+                loadCandidates: () => null,
+                loadCandidatesSuccess: (_, { pageCandidates }) => pageCandidates,
+            },
+        ],
+        candidatesError: [
+            null as string | null,
+            {
+                loadCandidates: () => null,
+                loadCandidatesFailure: (_, { error }) => error,
+            },
+        ],
+        candidatesLoading: [
+            false,
+            {
+                loadCandidates: () => true,
+                loadCandidatesSuccess: () => false,
+                loadCandidatesFailure: () => false,
             },
         ],
     }),
@@ -808,14 +1108,37 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 }
             },
         ],
-        overviewQuery: [
-            (s) => [s.window, s.pathExpr],
-            (window: PagePerformanceWindow, pathExpr: string): string => buildOverviewQuery(window, pathExpr),
+        bucketSize: [
+            (s) => [s.window],
+            (window: PagePerformanceWindow): PagePerformanceBucket => resolvePagePerformanceBucket(window),
         ],
-        pageDataInput: [
-            (s) => [s.overviewQuery, s.pageCandidateQuery],
-            (overviewQuery: string, pageCandidateQuery: WebStatsTableQuery): string =>
-                JSON.stringify([overviewQuery, pageCandidateQuery]),
+        comparePeriods: [
+            (s) => [s.compareFilter],
+            (compareFilter: CompareFilter): boolean => compareFilter.compare !== false,
+        ],
+        // A number rather than the totals object, so a reload doesn't re-render every row on identity alone.
+        siteVisitors: [
+            (s) => [s.overviewTotals],
+            (overviewTotals: OverviewTotals | null): number => overviewTotals?.visitors ?? 0,
+        ],
+        overviewHumanQuery: [
+            (s) => [s.window, s.pathExpr, s.bucketSize],
+            (window: PagePerformanceWindow, pathExpr: string, bucketSize: PagePerformanceBucket): string =>
+                buildOverviewHumanQuery(window, pathExpr, bucketSize),
+        ],
+        overviewCrawlerQuery: [
+            (s) => [s.window, s.bucketSize],
+            (window: PagePerformanceWindow, bucketSize: PagePerformanceBucket): string =>
+                buildOverviewCrawlerQuery(window, bucketSize),
+        ],
+        overviewInput: [
+            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery, s.filterTestAccounts],
+            (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean): string =>
+                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts]),
+        ],
+        candidatesInput: [
+            (s) => [s.pageCandidateQuery],
+            (pageCandidateQuery: WebStatsTableQuery): string => JSON.stringify(pageCandidateQuery),
         ],
         breakdownQuery: [
             (s) => [s.breakdownModal, s.window, s.filterTestAccounts, s.pathExpr],
@@ -845,28 +1168,29 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 }
             },
         ],
-        overviewCards: [
-            (s) => [s.overviewTotals, s.compareFilter],
-            (overviewTotals: OverviewTotals | null, compareFilter: CompareFilter): OverviewItem[] => {
-                const compare = compareFilter.compare !== false
-                const card = (key: string, value: number, previous: number): OverviewItem => ({
-                    key,
-                    value,
-                    previous: compare ? previous : undefined,
-                    changeFromPreviousPct:
-                        compare && previous > 0 ? Math.round(((value - previous) / previous) * 100) : undefined,
-                    kind: 'unit',
+        overviewMetrics: [
+            (s) => [s.overviewTotals, s.overviewSeries, s.comparePeriods],
+            (
+                overviewTotals: OverviewTotals | null,
+                overviewSeries: OverviewSeriesPoint[],
+                comparePeriods: boolean
+            ): OverviewMetric[] => {
+                const totals = overviewTotals ?? EMPTY_OVERVIEW_TOTALS
+                const sparklineLabels = overviewSeries.map((point) => point.label)
+                return OVERVIEW_METRICS.map(({ key, label, value, previous, series }) => {
+                    const current = value(totals)
+                    const before = previous(totals)
+                    return {
+                        key,
+                        label,
+                        value: current,
+                        previous: comparePeriods ? before : null,
+                        changeFromPreviousPct:
+                            comparePeriods && before > 0 ? Math.round(((current - before) / before) * 100) : null,
+                        sparkline: overviewSeries.map(series),
+                        sparklineLabels,
+                    }
                 })
-                const t = overviewTotals
-                if (!t) {
-                    return []
-                }
-                return [
-                    card('visitors', t.visitors, t.visitorsPrevious),
-                    card('google_search', t.google, t.googlePrevious),
-                    card('llm_referrals', t.llm, t.llmPrevious),
-                    card('agent_crawls', t.crawls, t.crawlsPrevious),
-                ]
             },
         ],
         goalLabel: [
@@ -888,78 +1212,111 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 goalLabel: string | null,
                 isPathCleaningEnabled: boolean
             ): string => {
-                const pages = overviewTotals?.pages ?? 0
                 return [
-                    `${pages} ${pages === 1 ? 'page' : 'pages'}`,
+                    pluralize(overviewTotals?.pages ?? 0, 'page'),
                     `conversion goal: ${goalLabel ?? 'not set'}`,
                     `path cleaning ${isPathCleaningEnabled ? 'on' : 'off'}`,
                 ].join(' · ')
             },
         ],
     })),
-    listeners(({ values, actions, cache }) => ({
-        loadPageData: async (_, breakpoint) => {
-            await breakpoint(300)
-            cache.disposables.dispose('pageDataRequest')
+    listeners(({ values, actions, cache }) => {
+        // Re-adding under the same key disposes the previous controller, aborting the request it owns.
+        const signalFor = (key: string): AbortSignal => {
             const abortController = new AbortController()
-            cache.disposables.add(() => abortController.abort(), 'pageDataRequest')
+            cache.disposables.add(() => () => abortController.abort(), key, { pauseOnPageHidden: false })
+            return abortController.signal
+        }
+        const isCancellation = (error: unknown): boolean =>
+            (error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)
+        const failureMessage = (error: unknown): string =>
+            error instanceof Error ? error.message : 'Could not load search and AI data'
 
-            const overviewNode: HogQLQuery = {
-                kind: NodeKind.HogQLQuery,
-                query: values.overviewQuery,
-                filters: { filterTestAccounts: values.filterTestAccounts },
-                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-            }
-            try {
-                const [overviewResponse, candidatesResponse] = await Promise.all([
-                    performQuery(overviewNode, { signal: abortController.signal }),
-                    performQuery(values.pageCandidateQuery, { signal: abortController.signal }),
-                ])
-                breakpoint()
-                const row = overviewResponse.results?.[0] ?? []
-                const columns: string[] = overviewResponse.columns ?? []
-                const at = (name: string): number => {
-                    const idx = columns.indexOf(name)
-                    return idx >= 0 ? Number(row[idx] ?? 0) : 0
-                }
-                const pageCandidates = (candidatesResponse.results ?? []).flatMap((candidate) => {
-                    if (!Array.isArray(candidate) || typeof candidate[0] !== 'string' || candidate[0] === '') {
-                        return []
-                    }
-                    return [candidate[0]]
+        return {
+            loadOverview: async (_, breakpoint) => {
+                await breakpoint(300)
+                const signal = signalFor('overviewRequest')
+                const overviewNode = (query: string): HogQLQuery => ({
+                    kind: NodeKind.HogQLQuery,
+                    query,
+                    filters: { filterTestAccounts: values.filterTestAccounts },
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 })
-                actions.loadPageDataSuccess(
-                    {
-                        visitors: at('visitors'),
-                        visitorsPrevious: at('visitors_previous'),
-                        google: at('google'),
-                        googlePrevious: at('google_previous'),
-                        llm: at('llm'),
-                        llmPrevious: at('llm_previous'),
-                        crawls: at('crawls'),
-                        crawlsPrevious: at('crawls_previous'),
-                        pages: at('pages'),
-                    },
-                    pageCandidates
-                )
-            } catch (error) {
-                if ((error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)) {
-                    return
+                try {
+                    const [humanResponse, crawlerResponse] = await Promise.all([
+                        performQuery(overviewNode(values.overviewHumanQuery), { signal }),
+                        performQuery(overviewNode(values.overviewCrawlerQuery), { signal }),
+                    ])
+                    breakpoint()
+                    const { window: dateWindow, bucketSize } = values
+                    const human = parsePagePerformanceOverviewResponse(
+                        humanResponse.columns,
+                        humanResponse.results,
+                        dateWindow
+                    )
+                    const crawler = parsePagePerformanceOverviewResponse(
+                        crawlerResponse.columns,
+                        crawlerResponse.results,
+                        dateWindow
+                    )
+                    actions.loadOverviewSuccess(
+                        {
+                            visitors: human.totals.visitors ?? 0,
+                            visitorsPrevious: human.totals.visitors_previous ?? 0,
+                            google: human.totals.google ?? 0,
+                            googlePrevious: human.totals.google_previous ?? 0,
+                            llm: human.totals.llm ?? 0,
+                            llmPrevious: human.totals.llm_previous ?? 0,
+                            crawls: crawler.totals.crawls ?? 0,
+                            crawlsPrevious: crawler.totals.crawls_previous ?? 0,
+                            pages: human.totals.pages ?? 0,
+                        },
+                        mergePagePerformanceSeries(human, crawler, bucketSize)
+                    )
+                } catch (error) {
+                    if (isCancellation(error)) {
+                        return
+                    }
+                    actions.loadOverviewFailure(failureMessage(error))
                 }
-                actions.loadPageDataFailure(error instanceof Error ? error.message : 'Could not load page performance')
-            }
-        },
-        reloadAll: () => {
-            actions.loadPageData()
-        },
-    })),
+            },
+            loadCandidates: async (_, breakpoint) => {
+                await breakpoint(300)
+                const signal = signalFor('candidatesRequest')
+                try {
+                    const candidatesResponse = await performQuery(values.pageCandidateQuery, { signal })
+                    breakpoint()
+                    const pageCandidates = (candidatesResponse.results ?? []).flatMap((candidate) => {
+                        if (!Array.isArray(candidate) || typeof candidate[0] !== 'string' || candidate[0] === '') {
+                            return []
+                        }
+                        return [candidate[0]]
+                    })
+                    actions.loadCandidatesSuccess(pageCandidates)
+                } catch (error) {
+                    if (isCancellation(error)) {
+                        return
+                    }
+                    actions.loadCandidatesFailure(failureMessage(error))
+                }
+            },
+            reloadAll: () => {
+                actions.loadOverview()
+                actions.loadCandidates()
+            },
+        }
+    }),
     subscriptions(({ actions }) => ({
-        pageDataInput: () => {
-            actions.loadPageData()
+        overviewInput: () => {
+            actions.loadOverview()
+        },
+        candidatesInput: () => {
+            actions.loadCandidates()
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadPageData()
+        actions.loadOverview()
+        actions.loadCandidates()
     }),
 ])
 
