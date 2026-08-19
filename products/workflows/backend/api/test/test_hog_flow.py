@@ -13,6 +13,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
@@ -28,7 +29,6 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
-    _gated_template_enabled,
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
@@ -4866,7 +4866,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # workflows through this endpoint directly - without the server-side gate they could
         # attach the step on any team.
         with patch(
-            "products.workflows.backend.api.hog_flow._gated_template_enabled", return_value=flag_enabled
+            "products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=flag_enabled
         ) as mock_gate:
             response = self._post_flow_with_create_task_action()
 
@@ -4878,7 +4878,7 @@ class TestFlagGatedTemplates(APIBaseTest):
     def test_flag_eval_failure_hides_the_gated_template(self):
         # A flag-service blip must hide the pre-release step, not expose it.
         with patch(
-            "products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled",
+            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
             side_effect=Exception("flag service down"),
         ):
-            assert _gated_template_enabled("workflow-ai-task-action", self.team) is False
+            assert gated_template_enabled("workflow-ai-task-action", self.team) is False
