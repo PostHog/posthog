@@ -779,6 +779,14 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.restoredAttachments, updateAttachments]);
 
+  const clear = useCallback(() => {
+    editor?.commands.clearContent();
+    prevBashModeRef.current = false;
+    pasteCountRef.current = 0;
+    updateAttachments([]);
+    draft.clearDraft();
+  }, [editor, draft, updateAttachments]);
+
   const submit = useCallback(() => {
     if (!editor) return;
     if (disabled || submitDisabled) return;
@@ -792,11 +800,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
     const doClear = () => {
       if (!clearOnSubmit) return;
-      editor.commands.clearContent();
-      prevBashModeRef.current = false;
-      pasteCountRef.current = 0;
-      updateAttachments([]);
-      draft.clearDraft();
+      clear();
     };
 
     if (enableBashMode && isBashModeDoc(editor, text)) {
@@ -813,7 +817,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       const serialized = contentToXml(content);
 
       if (callbackRefs.current.onBeforeSubmit) {
-        if (!callbackRefs.current.onBeforeSubmit(serialized, doClear)) {
+        if (!callbackRefs.current.onBeforeSubmit(serialized, clear)) {
           return;
         }
       }
@@ -832,7 +836,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     clearOnSubmit,
     attachments,
     enableBashMode,
-    updateAttachments,
+    clear,
   ]);
 
   submitRef.current = submit;
@@ -845,12 +849,6 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     }
   }, [editor]);
   const blur = useCallback(() => editor?.commands.blur(), [editor]);
-  const clear = useCallback(() => {
-    editor?.commands.clearContent();
-    prevBashModeRef.current = false;
-    updateAttachments([]);
-    draft.clearDraft();
-  }, [editor, draft, updateAttachments]);
   const getText = useCallback(() => editor?.getText() ?? "", [editor]);
   const setContent = useCallback(
     (content: string | EditorContent) => {
