@@ -446,6 +446,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
         return {}
 
