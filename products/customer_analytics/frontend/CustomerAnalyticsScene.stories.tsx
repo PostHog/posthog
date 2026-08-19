@@ -98,6 +98,127 @@ export const B2BModeWithoutGroups: Story = {
     },
 }
 
+const featureRequestStoryItem = {
+    id: '018f47de-7e12-7000-8000-000000000001',
+    title: 'Export account-level retention data',
+    description: 'The customer needs this export for their monthly reporting workflow.',
+    request_status: 'planned',
+    request_priority: 'high',
+    is_archived: false,
+    archived_at: null,
+    archived_by: null,
+    version: 1,
+    account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+    product_areas: [
+        {
+            id: '018f47de-7e12-7000-8000-000000000003',
+            name: 'Product analytics',
+            display_order: 1,
+            is_active: true,
+            created_at: '2024-01-10T10:00:00Z',
+            updated_at: '2024-01-10T10:00:00Z',
+        },
+        {
+            id: '018f47de-7e12-7000-8000-000000000004',
+            name: 'Data warehouse',
+            display_order: 2,
+            is_active: true,
+            created_at: '2024-01-10T10:00:00Z',
+            updated_at: '2024-01-10T10:00:00Z',
+        },
+    ],
+    created_by: 1,
+    updated_by: 1,
+    created_at: '2024-01-12T10:00:00Z',
+    updated_at: '2024-01-14T10:00:00Z',
+}
+
+export const FeatureRequests: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/feature_requests/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [featureRequestStoryItem],
+                },
+                'api/projects/:team_id/feature_requests/:id/': featureRequestStoryItem,
+                'api/projects/:team_id/feature_requests/:id/history/': [
+                    {
+                        id: '018f47de-7e12-7000-8000-000000000006',
+                        changes: [
+                            { field: 'status', before: 'requested', after: 'planned' },
+                            { field: 'priority', before: null, after: 'high' },
+                            {
+                                field: 'product_areas',
+                                before: [{ id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' }],
+                                after: [
+                                    { id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' },
+                                    { id: '018f47de-7e12-7000-8000-000000000004', name: 'Data warehouse' },
+                                ],
+                            },
+                        ],
+                        is_initial: false,
+                        change_source: 'manual',
+                        actor_id: 1,
+                        actor_name: 'Alex Morgan',
+                        changed_at: '2024-01-14T10:00:00Z',
+                    },
+                    {
+                        id: '018f47de-7e12-7000-8000-000000000005',
+                        changes: [
+                            { field: 'status', before: null, after: 'requested' },
+                            { field: 'priority', before: null, after: null },
+                            {
+                                field: 'account',
+                                before: null,
+                                after: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+                            },
+                            {
+                                field: 'product_areas',
+                                before: [],
+                                after: [{ id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' }],
+                            },
+                        ],
+                        is_initial: true,
+                        change_source: 'manual',
+                        actor_id: 1,
+                        actor_name: 'Alex Morgan',
+                        changed_at: '2024-01-12T10:00:00Z',
+                    },
+                ],
+                'api/projects/:team_id/feature_request_product_areas/': featureRequestStoryItem.product_areas,
+                'api/projects/:team_id/accounts/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [featureRequestStoryItem.account],
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS],
+        pageUrl: urls.customerAnalyticsFeatureRequests(),
+        testOptions: {
+            waitForSelector: '[data-attr="new-feature-request"]',
+        },
+    },
+}
+
+export const FeatureRequestDetails: Story = {
+    ...FeatureRequests,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS],
+        pageUrl: urls.customerAnalyticsFeatureRequests(featureRequestStoryItem.id),
+        testOptions: {
+            waitForSelector: '[data-attr="edit-feature-request"]',
+        },
+    },
+}
+
 export const GatedWithoutMatchingEarlyAccessFeature: Story = {
     render: () => <App />,
     parameters: {

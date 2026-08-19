@@ -193,7 +193,7 @@ import {
   type IPowerManager,
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
-import { type Adapter, SYNC_CLOUD_TASKS_FLAG } from "@posthog/shared";
+import type { Adapter } from "@posthog/shared";
 import { sandboxProxyHtml } from "@posthog/shared/mcp-sandbox-proxy";
 import { authUiModule } from "@posthog/ui/features/auth/auth.module";
 import {
@@ -501,19 +501,10 @@ container
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
 
-// ── Feature flags (real posthog-js, with one host-forced flag) ──
-container.bind(FEATURE_FLAGS).toConstantValue({
-  // Cloud-task sync is a hard requirement of the cloud-only host — __root's
-  // reconcile effect derives the (localStorage-backed) sidebar task list from it
-  // — so force it on regardless of the remote flag, then defer every other flag
-  // to posthog-js. When posthog isn't initialized (no real VITE_POSTHOG_API_KEY),
-  // isEnabled returns false for everything else, so only the forced flag is on —
-  // same behavior as the old stub, but real flags light up once a key is set.
-  isEnabled: (flagKey: string) =>
-    flagKey === SYNC_CLOUD_TASKS_FLAG || posthogFeatureFlags.isEnabled(flagKey),
-  getPayload: posthogFeatureFlags.getPayload,
-  onFlagsLoaded: posthogFeatureFlags.onFlagsLoaded,
-});
+// ── Feature flags (real posthog-js) ──
+// When posthog isn't initialized (no real VITE_POSTHOG_API_KEY), isEnabled
+// returns false for everything; real flags light up once a key is set.
+container.bind(FEATURE_FLAGS).toConstantValue(posthogFeatureFlags);
 
 // ── Analytics + error tracking (real posthog-js) ──
 // Both ports share the single posthog-js instance initialized in main.tsx (see

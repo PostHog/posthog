@@ -30,6 +30,12 @@ class QuotaExceededError(LLMError):
     """Raised when API quota is exceeded"""
 
 
+class ProviderConnectionError(LLMError):
+    """Raised on a transient network/transport error talking to the provider — connection reset,
+    read timeout, DNS failure. Retryable: callers should retry rather than treat it as a hard error,
+    and should not log it as an exception since it's usually resolved on the next attempt."""
+
+
 class ProviderMismatchError(LLMError):
     """Raised when request provider doesn't match provider key's provider"""
 

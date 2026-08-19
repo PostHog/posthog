@@ -22,6 +22,7 @@ export const INBOX_EVENTS = {
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
+    REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
@@ -30,6 +31,7 @@ export const INBOX_EVENTS = {
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -80,9 +82,10 @@ export type InboxReportActionType =
 /**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
- * indistinguishable, so an attempted PR counts the same as a created one.
+ * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server
+ * limit (the per-report task cap or the per-user creation throttle) refusing an issued request.
  */
-export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked'
+export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /** Panels that replace the report list and so never fire `Inbox viewed`. */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
@@ -104,8 +107,10 @@ export type ScoutActionType =
     | 'open_skill_in_posthog'
     | 'open_helper_skill'
     | 'open_findings'
-    | 'toggle_hide_disabled'
     | 'filter_tags'
+    | 'leave_note'
+    | 'delete_note'
+    | 'run_now'
     | 'expand_run'
     | 'collapse_run'
     | 'filter_runs'
@@ -319,6 +324,26 @@ export function captureInboxReportClosed(
     )
 }
 
+/**
+ * The report detail pane was scrolled, fired once per open on the first scroll. It feeds the dwell
+ * half of the "Inbox engagement" metric, whose second step reads a scroll after at least 5 seconds.
+ * Only the desktop `Inbox report scrolled` event fed that step before, so it was dead for cloud.
+ * `time_since_open_ms` is the dwell before the scroll. Mirrors the desktop event's shape.
+ */
+export function captureInboxReportScrolled(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SCROLLED, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
 export function captureInboxReportAction(params: {
     /** Omitted for bulk actions, which act on a selection rather than a single report. */
     report?: SignalReport | null
@@ -414,9 +439,30 @@ export function captureSignalSourceInterest(source: string): void {
 }
 
 /**
+ * A source's steering rules were saved. Carries only lengths and flags: the rules text names the
+ * customer's own labels, projects, and workflows, so it never leaves their project. Fired once the
+ * request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceSteeringChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    steeringLength: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_STEERING_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        steering_length: params.steeringLength,
+        has_steering: params.steeringLength > 0,
+        success: params.success,
+    })
+}
+
+/**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
- * a product problem rather than a failure — hence its own bucket.
+ * a product problem rather than a failure — hence its own bucket. `limited` means the server
+ * refused the request with a limit 429; `limit_code` says which limit.
  */
 export function captureInboxReportActionCompleted(params: {
     report: SignalReport
@@ -424,12 +470,15 @@ export function captureInboxReportActionCompleted(params: {
     outcome: InboxReportActionOutcome
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
+    /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
+    limitCode?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
         action_type: params.actionType,
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
+        ...(params.limitCode ? { limit_code: params.limitCode } : {}),
     })
 }
 

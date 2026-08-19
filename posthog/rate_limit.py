@@ -613,6 +613,18 @@ class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
+# The scanner volume estimate can run two ClickHouse queries per call, and its primary caller is
+# the session-authenticated editor, which the ClickHouse*RateThrottle pair does not cover.
+class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_burst"
+    rate = "20/minute"
+
+
+class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_sustained"
+    rate = "200/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -1505,6 +1517,11 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
+    rate = "6/minute"
+
+
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
     rate = "6/minute"
 
 

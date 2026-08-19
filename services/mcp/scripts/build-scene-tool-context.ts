@@ -78,6 +78,11 @@ const CONFIGS: SceneContextConfig[] = [
                 skillDir: 'products/workflows/skills/building-workflows',
                 files: ['SKILL.md', 'references/graph-schema.md'],
             },
+            {
+                constName: 'DESIGNING_EMAIL_TEMPLATES_SKILL',
+                skillDir: 'products/workflows/skills/designing-email-templates',
+                files: ['SKILL.md', 'references/unlayer-design-json.md', 'references/design-guidelines.md'],
+            },
         ],
     },
 ]

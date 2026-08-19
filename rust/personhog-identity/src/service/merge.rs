@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use personhog_common::properties::sanitize_for_jsonb;
 use serde_json::Value;
 use tonic::Status;
 
@@ -24,7 +25,9 @@ use crate::lifecycle::merge::{
     OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
     OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
 };
-use crate::lifecycle::validation::{is_distinct_id_illegal, validate_merge_persons};
+use crate::lifecycle::validation::{
+    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
+};
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
 
 /// Handler-decided outcomes that never reach the saga.
@@ -32,6 +35,9 @@ const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
 const OUTCOME_ATTACHED: &str = "attached";
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
+const PAYLOAD_NUL_SANITIZED_TOTAL: &str = "personhog_identity_merge_payload_nul_sanitized_total";
+const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
+    "personhog_identity_merge_payload_numbers_clamped_total";
 
 /// The full MergePersons flow, owned by the identity side of the crate.
 pub struct MergeEntrance {
@@ -62,8 +68,25 @@ impl MergeEntrance {
     ) -> Result<MergePersonsResponse, Status> {
         let (op_id, move_limit) = validate_merge_persons(&request)?;
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
-        let event_set = parse_json_map(&request.event_set, "event_set")?;
-        let event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
+        let mut event_set = parse_json_map(&request.event_set, "event_set")?;
+        let mut event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
+        // The frozen op row and the retry comparisons live in jsonb
+        // round-trip space: what Postgres hands back must equal what was
+        // written, or the freeze insert fails outright (NUL) and every
+        // retry is rejected as a different request (rewritten numbers).
+        // sanitize_for_jsonb is that canonical form — the leader applies
+        // the same one when the properties land, so nothing downstream
+        // sees a value the sync plane didn't.
+        let mut stats = sanitize_for_jsonb(&mut event_set);
+        let once_stats = sanitize_for_jsonb(&mut event_set_once);
+        stats.nul_strings += once_stats.nul_strings;
+        stats.clamped_numbers += once_stats.clamped_numbers;
+        if stats.nul_strings > 0 {
+            common_metrics::inc(PAYLOAD_NUL_SANITIZED_TOTAL, &[], stats.nul_strings);
+        }
+        if stats.clamped_numbers > 0 {
+            common_metrics::inc(PAYLOAD_NUMBERS_CLAMPED_TOTAL, &[], stats.clamped_numbers);
+        }
         let original = merge_original(&request, &event_set, &event_set_once);
 
         // Attach-first: classification below is time-dependent (a retry
@@ -72,16 +95,17 @@ impl MergeEntrance {
         // compared on the ORIGINAL call and driven with its own frozen
         // request — never re-classified. Two racing FIRST calls can still
         // classify divergently and the insert loser then sees the engine's
-        // full-request mismatch; that surfaces as FAILED_PRECONDITION once
-        // and self-heals — the next retry attaches here.
+        // full-request mismatch; that surfaces as retryable UNAVAILABLE
+        // (see MergeOpExecutor::execute) and the retry attaches here.
         if let Some(row) = self.ops.find(op_id).await? {
             if row.op_type != OP_TYPE_MERGE
                 || row.team_id != request.team_id
                 || row.request.get("original") != Some(&original)
             {
-                return Err(Status::failed_precondition(format!(
-                    "op_id {op_id} was already used for a different request"
-                )));
+                return Err(personhog_common::grpc::semantic_refusal(
+                    format!("op_id {op_id} was already used for a different request"),
+                    "op_id_reused",
+                ));
             }
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
@@ -118,7 +142,10 @@ impl MergeEntrance {
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
         for source in &request.sources {
             let did = &source.source_distinct_id;
-            if is_distinct_id_illegal(did) {
+            // Oversized ids share the illegal settlement: they cannot
+            // exist in the varchar(400) column, so they can never resolve
+            // — and attaching one would fail the insert.
+            if is_distinct_id_illegal(did) || is_distinct_id_oversized(did) {
                 inline_results.insert(did.clone(), OUTCOME_SKIPPED_ILLEGAL.to_string());
                 continue;
             }
@@ -443,15 +470,15 @@ fn merge_original(
     event_set: &Value,
     event_set_once: &Value,
 ) -> Value {
+    // event_uuid is deliberately absent: the proto documents it as
+    // advisory data the merge never reads, so a retry that regenerated
+    // its event uuids must still match the recorded request.
     serde_json::json!({
         "target_distinct_id": request.target_distinct_id,
         "sources": request
             .sources
             .iter()
-            .map(|s| serde_json::json!({
-                "distinct_id": s.source_distinct_id,
-                "event_uuid": s.event_uuid,
-            }))
+            .map(|s| &s.source_distinct_id)
             .collect::<Vec<_>>(),
         "event_set": event_set,
         "event_set_once": event_set_once,
@@ -528,6 +555,9 @@ fn merge_response(
             ))
         })?
         .unwrap_or_default();
+    // Loud on a misshapen frozen shape, like inline_results above: a
+    // silent empty here would answer OK with no results for a corrupt
+    // row.
     let original_sources: Vec<String> = row
         .request
         .get("original")
@@ -536,11 +566,13 @@ fn merge_response(
         .map(|sources| {
             sources
                 .iter()
-                .filter_map(|s| s.get("distinct_id").and_then(|d| d.as_str()))
+                .filter_map(|s| s.as_str())
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            Status::internal(format!("op {} original sources are malformed", row.op_id))
+        })?;
 
     let results = original_sources
         .iter()

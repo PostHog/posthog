@@ -163,6 +163,38 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     expect(labels(menu.lastItems)).toContain("Archive");
   });
 
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showTaskContextMenu({
+      ...baseTask,
+      channels: [
+        {
+          id: "0",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+        { id: "1", name: "alpha" },
+        { id: "2", name: "beta", starred: true },
+        { id: "3", name: "gamma" },
+        { id: "4", name: "delta", starred: true },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual([
+      "personal",
+      "#beta",
+      "#delta",
+      "#alpha",
+      "#gamma",
+    ]);
+    findSubmenuItem(menu.lastItems, "File to…", "#delta").click();
+    expect(await result).toEqual({
+      action: { type: "file-to-channel", channelId: "4" },
+    });
+  });
+
   it("resolves to null when the menu is dismissed", async () => {
     const menu = new FakeContextMenu();
     const result = makeService(menu).showTaskContextMenu(baseTask);
@@ -242,6 +274,26 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
     expect(await result).toEqual({
       action: { type: "file-to-channel", channelId: "c1" },
     });
+  });
+
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    makeService(menu).showBulkTaskContextMenu({
+      taskCount: 2,
+      channels: [
+        { id: "c1", name: "support" },
+        { id: "c2", name: "design", starred: true },
+        {
+          id: "c3",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
   });
 
   it("gates archive on confirmation", async () => {

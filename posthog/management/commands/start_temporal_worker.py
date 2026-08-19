@@ -113,10 +113,6 @@ from posthog.temporal.session_replay.enforce_max_replay_retention import (
     ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.gemini_cleanup_sweep import (
-    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
-    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
-)
 from posthog.temporal.session_replay.rasterize_recording import (
     RASTERIZE_RECORDING_ACTIVITIES,
     RASTERIZE_RECORDING_WORKFLOWS,
@@ -124,15 +120,6 @@ from posthog.temporal.session_replay.rasterize_recording import (
 from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
-from posthog.temporal.session_replay.session_summary_group import (
-    SESSION_SUMMARY_GROUP_ACTIVITIES,
-    SESSION_SUMMARY_GROUP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.summarization_sweep import (
-    SUMMARIZATION_SWEEP_ACTIVITIES,
-    SUMMARIZATION_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep import (
     SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
@@ -167,6 +154,10 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.billing_alerts.backend.temporal import (
+    ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
 )
 from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
@@ -410,8 +401,11 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES
+        + SALESFORCE_ENRICHMENT_ACTIVITIES
+        + USAGE_REPORTS_ACTIVITIES
+        + BILLING_ALERTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -430,26 +424,18 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        GEMINI_CLEANUP_SWEEP_WORKFLOWS
-        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS
-        + SESSION_SUMMARY_GROUP_WORKFLOWS
-        + SUMMARIZATION_SWEEP_WORKFLOWS
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
-        GEMINI_CLEANUP_SWEEP_ACTIVITIES
-        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES
-        + SESSION_SUMMARY_GROUP_ACTIVITIES
-        + SUMMARIZATION_SWEEP_ACTIVITIES
         + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
         + SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),

@@ -6,7 +6,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
@@ -167,7 +170,9 @@ describe('reviewHogSettingsLogic', () => {
         ])
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
-        await expectLogic(logic, () => logic.actions.submitTriggerReview(RunModeEnumApi.ResolveOnly))
+        await expectLogic(logic, () =>
+            logic.actions.submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+        )
             .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
             .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
             .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
@@ -411,5 +416,97 @@ describe('reviewHogSettingsLogic', () => {
         // More rows exist server-side, but the ceiling is reached — the button goes away rather
         // than offering a request the server rejects.
         expect(logic.values.moreReviewsAvailable).toBe(false)
+    })
+
+    it('keeps a slower baseline poll running when nothing is in progress', async () => {
+        // Reviews started outside this page (the GitHub label, inbox auto-reviews, a teammate)
+        // only ever appear via the baseline poll — reverting to dispose-on-idle makes the page
+        // permanently stale until a manual refresh.
+        jest.useFakeTimers()
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions([
+                'loadRecentReviewsSuccess',
+                'applyDefaultReviewsScope',
+                'loadRecentReviewsSuccess',
+            ])
+
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(30_000)
+            }).toDispatchActions(['loadRecentReviews', 'loadRecentReviewsSuccess'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('refreshes the stats and an open drawer when a watched run finishes', async () => {
+        // A poll response is the only place a completion becomes visible: without the fan-out the
+        // proof/effectiveness cards and an open drawer keep pre-completion numbers until reload.
+        let finished = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/': () => [
+                    200,
+                    {
+                        results: [{ id: 'r-live', in_progress: !finished, run_count: finished ? 1 : 0 }],
+                        has_more: false,
+                    },
+                ],
+                '/api/projects/:team_id/review_hog/reviews/r-live/': () => [200, reviewDetail('r-live', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess']).toFinishAllListeners()
+
+        logic.actions.openReviewDetailById('r-live')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+
+        finished = true
+        await expectLogic(logic, () => logic.actions.loadRecentReviews()).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'loadPerspectiveStats',
+            'loadReviewDetail',
+        ])
+    })
+
+    it('keeps the failure banner off for a background refresh blip', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/': () => [500, {}] } })
+
+        // The poll retries on its next tick and the prior rows stay on screen — flashing the
+        // page-level banner over one blip would cry wolf every time a request hiccups.
+        await expectLogic(logic, () => logic.actions.loadRecentReviews())
+            .toDispatchActions(['loadRecentReviewsFailure'])
+            .toNotHaveDispatchedActions(['markInitialLoadFailed'])
+        expect(logic.values.initialLoadFailed).toBe(false)
+    })
+
+    it('flags a reviews failure with nothing loaded yet as an initial-load failure', async () => {
+        // Without this the section sits on skeletons forever with no retry path offered.
+        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/': () => [500, {}] } })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsFailure', 'markInitialLoadFailed'])
+        expect(logic.values.initialLoadFailed).toBe(true)
+    })
+
+    it('checks the list immediately when the tab becomes visible again', async () => {
+        // The poll interval is paused while hidden and resumes with a full interval still to wait,
+        // which reads as stale exactly when the user comes back to look.
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+
+        await expectLogic(logic, () => {
+            document.dispatchEvent(new Event('visibilitychange'))
+        }).toDispatchActions(['loadRecentReviews'])
     })
 })

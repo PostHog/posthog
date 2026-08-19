@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// A "File to…" target. `starred` floats it to the top of the submenu.
+const fileToChannel = z.object({
+  id: z.string(),
+  name: z.string(),
+  channelType: z.enum(["public", "personal"]).optional(),
+  starred: z.boolean().optional(),
+});
+
 export const taskContextMenuInput = z.object({
   taskTitle: z.string(),
   worktreePath: z.string().optional(),
@@ -12,7 +20,7 @@ export const taskContextMenuInput = z.object({
   showArchivePrior: z.boolean().optional(),
   // The project's channels available as "File to…" targets.
   // Omit (or pass empty) to hide the submenu entirely.
-  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const bulkTaskContextMenuInput = z.object({
@@ -24,7 +32,7 @@ export const bulkTaskContextMenuInput = z.object({
   // Whether archiving would also shut a cloud sandbox down.
   stopsCloudSandbox: z.boolean().optional(),
   // "File to…" targets. Omit (or pass empty) to hide the submenu entirely.
-  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const archivedTaskContextMenuInput = z.object({

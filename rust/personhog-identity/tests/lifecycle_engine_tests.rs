@@ -186,6 +186,26 @@ async fn an_op_id_reused_with_a_different_request_is_rejected() {
 }
 
 #[tokio::test]
+async fn a_first_call_is_not_compared_against_its_own_normalized_insert() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let op_id = Uuid::now_v7();
+
+    // Postgres renders 1e17 back as an integer, so the reloaded row never
+    // equals this request value-for-value. The call that won the insert
+    // owns the row by construction and must not verify against its own
+    // jsonb-normalized copy.
+    let row = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"count": 1e17}))
+        .await
+        .expect("the inserting call is never a request mismatch");
+    assert_eq!(row.step, STEP_COMPLETED);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn resume_picks_up_an_op_from_its_saved_step() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();

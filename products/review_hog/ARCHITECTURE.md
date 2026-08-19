@@ -88,6 +88,18 @@ the PR author's resolution criteria (canonical for unmapped authors). Design + d
 Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
+**Resolution visibility & the busy-guard** (grilled 2026-08-13, DECISIONS.md "Resolution-stage visibility & cycle guard"; ADR `adr/0001`):
+a run opens with a `resolution_run` work-list artefact (queued thread ids + counts) written by `_prepare_run`,
+and `reviewer/progress.py::resolution_states` derives the run's state from artefacts alone —
+resolving (delivered verdicts — `reply_posted` — counted against the queue, fresh activity), completed (a closing run note, author `RESOLUTION_RUN_NOTE_AUTHOR`), or died-partway (no note, stale).
+The PR-comment counters likewise count only threads whose GitHub writes landed (`delivered_outcomes`); judged-but-undelivered threads join the closing tally's "couldn't handle" count instead.
+The reviews API exposes it as the row's `resolution` field ("Resolving comments · 6/10" / "Resolution didn't finish · stopped at 6/10" in the scene),
+the PR status comment carries a marker-delimited resolution section (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
+with a patched workflow-level backstop (`fail_resolution_activity`, fired from `ResolvePRWorkflow`'s except) covering the deaths the activity handler can't see — prepare failures, timeouts, cancellation, worker death — by idling the report and writing the failed section from the persisted work-list,
+and each queued thread's opening comment gets a best-effort 👀 reaction (queue marker; never removed).
+The **busy-guard** (`temporal/client.py::workflow_running`, fail-open describe on the deterministic ids) refuses a review start while the PR's `resolve-pr` runs and a standalone resolution while `review-pr` runs —
+Temporal's same-id joining can't see across the two workflows; the chained post-publish dispatch is exempt by construction.
+
 **TODO (SOON) — react to thread replies: answer and act when a human responds to an escalated (or any settled) thread.**
 The per-thread mechanics already exist and are e2e-proven: a new human comment beats the verdict watermark and
 re-opens triage for exactly that thread, standing verdicts ("SAFE TO FIX" / "E2E REQUIRED") steer the re-judged
@@ -287,7 +299,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    no chunk walk, no file inventory, no summary of the diff, because nobody reads one. Valid `MUST_FIX`/`SHOULD_FIX`
    findings whose line isn't on the diff are still appended as an **"Other findings (outside the changed lines)"**
    section so they aren't silently dropped at publish.
-   `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
+   `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark. On
+   publishing runs it **defers the idle write** to the publish stage — the report stays `active` through
+   stage 10, `publish_persisted_review` returns it to `idle` on every outcome, and the failure activity
+   restores rest on a dead run — so the reviews API never reports a completed-but-unpublished turn as at
+   rest (the UI's poll would stop on that snapshot and freeze a wrong "Not published"). Non-publishing
+   runs go `idle` at finalize; `progress_payload` labels the deferred window "finalizing".
 10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
     `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
     posts a standalone "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the
@@ -552,6 +569,10 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
+- **Enable inbox reviews for a whole team:** `python manage.py enable_inbox_reviews --team-id <id> [--dry-run]`
+  upserts every active org member's `ReviewUserSettings` with `review_inbox_prs` + `stamphog_review_inbox_prs` on.
+  A deliberate operator action because the per-user default stays off (the budget gate); members who join later
+  keep the default until a re-run.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify
@@ -592,7 +613,10 @@ project-wide so any listed review opens. A specific report is linkable at `/code
 targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
 below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the
 fallback for pre-column rows — and its first tab reads "Published" only when the review actually posted
-(`published_head_sha` set), "Kept" otherwise.
+(`published_head_sha` set), "Kept" otherwise. The scene keeps itself current by polling the reviews
+list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
+tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
+refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
 
 ---
 
@@ -628,6 +652,23 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
   "Published" with no not-published banner. Fix: `retrieve` already loads the completed head — expose
   per-turn truth (`published_head_sha == completed_head_sha`) on the detail payload and gate the drawer's
   published flag on it.
+- **TODO — no resolution-stage progress label.** A resolution run holds the report `active` at a
+  published head, where `progress_payload` falls through to a review-stage label ("deduplicating"; the
+  pre-publish window reads "finalizing"). A dedicated `resolving` stage needs the serializer enum, the
+  frontend stage labels, and regenerated types — deliberately left out of the staleness fix.
+- **Accepted gap — a stopped standalone resolution on a never-reviewed PR never shows in the scene list.** Such
+  a report has no `last_run_at` (only review turns stamp it), and the list admits it only while its activity is
+  fresh — mutually exclusive with the stale-based "stopped" state, so the row drops out exactly when it would
+  say "didn't finish" (the detail endpoint excludes it too). Accepted because the PR status comment now carries
+  the failure notice reliably (the workflow-level `fail_resolution_activity` backstop) and the flow is rare
+  (`/resolve` / inbox handoffs on PRs ReviewHog never reviewed). Fixing it means a new list slice for reports
+  with a recent `resolution_run` plus an aging-out bound for stopped rows.
+- **Accepted gap — a resolution turn longer than the 30-minute staleness window shows a false "didn't finish".**
+  Resolution writes once per settled thread, so a single long turn (worst: the first, which carries sandbox boot
+  - clone) can outlast `IN_PROGRESS_STALE_AFTER` with the run healthy — the row reads "stopped" while a
+    retrigger correctly 409s. Accepted: typical turns run a few minutes, the label self-corrects on the next
+    verdict, and the busy-guard still prevents double runs. If turns ever grow, add a periodic DB liveness beat
+    inside `resolve_threads_activity` (Temporal's Heartbeater pings Temporal only, never the DB the UI reads).
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users

@@ -23,6 +23,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -205,6 +206,10 @@ class OpenAIAdapter:
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+        except openai.APIConnectionError as e:
+            # Transient transport failure (connection reset, read timeout). Map to a quiet
+            # retryable error so the caller retries silently instead of spamming error tracking.
+            raise ProviderConnectionError(str(e)) from e
         except openai.APIStatusError as e:
             if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
                 raise ContextWindowExceededError(str(e)) from e

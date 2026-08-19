@@ -15,7 +15,13 @@ There is one non-webhook entry: **self-driving inbox PRs**. When a self-driving 
 
 ## The digest
 
-Independently of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/tasks/digest.py`): merges are stamped with an audience (author's GitHub team, or a channel the repo declares under `digest:` in `.stamphog/policy.yml`), summarized with a small model, and posted per channel. Review-enabled repos digest only stamphog-approved merges; digest-only repos (review off) digest every merge.
+On top of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/tasks/digest.py`). Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repo.
+
+A merge fans out to every audience it belongs to (`backend/logic/audiences.py`): the author's GitHub team (or the channel the repo declares under `digest:` in `.stamphog/policy.yml`), plus every team owning a file it changed, read back from the ownership the review already resolved. So a team hears both what it shipped and what changed in its area, and a `PullRequestAudience` row per audience is what the daily run claims — one channel failing to post never strands the merge for another.
+
+Each audience resolves to a Slack channel in three steps (`backend/logic/channel_resolution.py`): the repo's declared channel, then the team's entry in the repo's root `owners.yaml` registry (read through `posthog_owners`, which is what routes a team whose channel isn't named after its slug), then a plain name match. A resolved channel is enabled straight away and the app joins it on the first post, so a team's digest starts without anyone wiring it up — channels shared outside the workspace are skipped, and disabling one in the Stamphog scene is a permanent opt-out.
+
+Summaries are written where the diff is. The reviewer emits a one-line `change_summary` alongside its verdict, which is stamped onto the merged PR; the daily run condenses those rather than guessing from PR titles, and for an owning team it also sees which of the changed files are theirs, so a repo-wide sweep that grazed two of them can be dropped as noise.
 
 ## Configuration
 

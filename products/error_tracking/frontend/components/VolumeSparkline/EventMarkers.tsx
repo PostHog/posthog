@@ -151,7 +151,7 @@ export const EventMarkers = memo(function EventMarkers({
                         labelRefs.current[index] = node
                     }}
                     data-attr="error-tracking-volume-event-label"
-                    className="absolute flex items-center px-[5px] rounded text-[10px] font-semibold text-white whitespace-nowrap cursor-default"
+                    className="absolute flex items-center px-2 rounded text-[10px] font-semibold text-white whitespace-nowrap cursor-default"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         top: labelTop,

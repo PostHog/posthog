@@ -56,6 +56,7 @@ describe("createRuntimeMcpServers", () => {
         env: { POSTHOG_LOCAL_TOOLS_ENABLED: "finish" },
         transport: "stdio",
         lifecycle: "eager",
+        requestTimeoutMs: 300_000,
         directTools: true,
       },
     });

@@ -384,7 +384,7 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, sqlV2ReturnVariable } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -406,8 +406,13 @@ const Settings = ({
             persistConnection
             // Refs come from the notebook content, not the tiptap editor: markdown notebooks
             // (the only surface with SQLV2 cells) have no tiptap editor at all.
+            // outputName is what a rerouted (DuckDB) run binds its result to in the kernel, so
+            // downstream cells can read this cell's frame; a ClickHouse run ignores it.
             onRunQuery={(code, connection) =>
-                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), connection)
+                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), {
+                    ...connection,
+                    outputName: sqlV2ReturnVariable,
+                })
             }
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}

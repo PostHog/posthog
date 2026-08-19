@@ -4,8 +4,8 @@ This is the PostHog-side half of the duckgres "Service Credentials" contract
 (see duckgres/CLAUDE.md). A background job (dagster today) calls
 ``mint_service_credential`` once per run to get a credential scoped to the
 org's warehouse access — minted as its own server-side grant ROW (not a
-rewrite of a shared team login's hash) — instead of reading the org-wide
-root credential out of a ``DuckgresServer`` row.
+rewrite of a shared team login's hash) instead of reading the stored login
+out of a ``DuckgresServer`` row.
 
 Contract essentials mirrored here (read the CP side for the authoritative
 wording):
@@ -13,16 +13,12 @@ wording):
 - ``POST /api/v1/orgs/{org}/service-credentials``, authed with the existing
   internal secret — the same trust class as every other provisioning call.
   The response's ``credential_id`` is CP-generated (``svc_<24 random hex>``).
-- Expiry is enforced by the credential lapsing at ``expires_at``, not by the
-  caller honoring a rotation schedule: a still-valid grant for the same
-  (org, principal) is returned WITHOUT a secret (the caller already holds it
-  from a prior fetch — or must ask for a rotation).
-- ``force_rotate=True`` is how a caller with nothing cached gets a secret.
-  First call of a run must pass it. Alternatively,
-  ``POST /api/v1/orgs/{org}/service-credentials/refresh`` (via
-  ``refresh_service_credential``) ALWAYS rotates the secret for a known
-  ``credential_id`` — there is no "reuse" on that endpoint by explicit
-  design: each credential is unique, so there is nothing to race.
+- Every mint creates a new grant and returns its new ``credential_id`` and
+  ``credential_secret``. ``principal`` is audit metadata, so concurrent jobs
+  can use the same principal without sharing or rotating each other's grants.
+- ``POST /api/v1/orgs/{org}/service-credentials/refresh`` (via
+  ``refresh_service_credential``) rotates the secret for one known
+  ``credential_id``. Callers retain that ID to manage the grant they minted.
 - The credential is live ONLY until ``expires_at``; refresh before lapse.
   Established connections are never killed on expiry (handshake-only
   semantics, RDS-IAM style); only NEW connections need a live credential.
@@ -100,9 +96,9 @@ def mint_service_credential(
     *,
     principal: str,
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
-    force_rotate: bool = False,
+    timeout_seconds: int | None = None,
 ) -> ServiceCredential:
-    """Mint-or-reuse an org-scoped service credential for a short-lived job.
+    """Mint a new org-scoped service credential for a short-lived job.
 
     Returns a ``ServiceCredential``. Raises ``ServiceCredentialUnavailable``
     on any CP-side failure — the CP's own error string is propagated verbatim
@@ -111,7 +107,8 @@ def mint_service_credential(
     ``team_id`` is kept as a parameter purely for backwards compatibility
     with callers that still have it in scope. It is NOT sent on the wire:
     under the org-scoped per-credential-grant contract the control plane does
-    not key credentials by team, only by (org, principal).
+    not key credentials by team. ``principal`` is audit metadata and does not
+    identify or reuse a grant.
     """
     # Imported here to avoid an import cycle: presentation.views imports the
     # facade, the facade (via client.py → service-credential-aware conninfo)
@@ -120,18 +117,23 @@ def mint_service_credential(
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
+    request_kwargs: dict[str, Any] = {
+        "json_body": {
+            "principal": principal,
+            "ttl_seconds": ttl_seconds,
+        },
+        "require_enabled": False,
+    }
+    if timeout_seconds is not None:
+        request_kwargs["timeout"] = timeout_seconds
+
     response = _request(
         "POST",
         organization_id,
         "/service-credentials",
-        json_body={
-            "principal": principal,
-            "ttl_seconds": ttl_seconds,
-            "force_rotate": force_rotate,
-        },
         # Backend caller: never gate on the user-facing data-warehouse feature
         # flag (a dagster worker may not have the flag definition loaded).
-        require_enabled=False,
+        **request_kwargs,
     )
     if not status.is_success(response.status_code):
         raise ServiceCredentialUnavailable(
@@ -146,7 +148,6 @@ def mint_service_credential(
         team_id=team_id,
         principal=principal,
         credential_id=credential.credential_id,
-        rotated=credential.rotated,
         expires_at=credential.expires_at.isoformat(),
         connect_host=credential.connect.host,
         connect_port=credential.connect.port,
@@ -162,14 +163,13 @@ def refresh_service_credential(
 ) -> ServiceCredential:
     """Rotate the secret on a known credential before it lapses.
 
-    Refresh ALWAYS rotates: the response always carries a fresh
-    ``credential_secret`` (``rotated`` is True). There is no "reuse" on this
-    endpoint by explicit design — each credential is its own grant row, so
-    there is nothing to race.
+    Refresh always returns a fresh ``credential_secret`` for the supplied
+    ``credential_id``. Addressing the grant by ID prevents one caller from
+    refreshing another caller's credential.
 
     Returns a ``ServiceCredential``. Raises ``ServiceCredentialUnavailable``
-    on any CP-side failure (unknown credential_id, lapsed credential, 5xx) —
-    the CP's own error string is propagated verbatim so operators see the
+    on any CP-side failure (unknown credential_id, lapsed credential, 5xx).
+    The CP's own error string is propagated verbatim so operators see the
     real reason.
     """
     # See mint_service_credential for the import-cycle note.
@@ -209,8 +209,8 @@ def _parse_credential_response(data: dict[str, Any], *, action: str) -> ServiceC
     """Parse a successful mint/refresh response into a ``ServiceCredential``.
 
     Shared by both endpoints: the response contract is the same shape
-    (``credential_id``, optional ``credential_secret``, ``expires_at``,
-    ``connect``); refresh differs only in that the secret is always present.
+    (``credential_id``, ``credential_secret``, ``expires_at``, ``connect``).
+    Mint and refresh both require a plaintext secret in their response.
     """
     credential_id = data.get("credential_id")
     if not credential_id:
@@ -218,6 +218,9 @@ def _parse_credential_response(data: dict[str, Any], *, action: str) -> ServiceC
         # still carry a live `credential_secret`, and the backfill's broad
         # fallback handler logs whatever exception text we raise here.
         raise ServiceCredentialUnavailable(f"{action} returned no credential_id: {_redact_payload(data)!r}")
+    credential_secret = data.get("credential_secret")
+    if not credential_secret:
+        raise ServiceCredentialUnavailable(f"{action} returned no credential_secret: {_redact_payload(data)!r}")
     expires_raw = data.get("expires_at")
     try:
         expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
@@ -226,9 +229,8 @@ def _parse_credential_response(data: dict[str, Any], *, action: str) -> ServiceC
     connect = _parse_connect(data, action=action)
     return ServiceCredential(
         credential_id=str(credential_id),
-        credential_secret=str(data.get("credential_secret") or ""),
+        credential_secret=str(credential_secret),
         expires_at=expires_at,
-        rotated=bool(data.get("credential_secret")),
         connect=connect,
     )
 
@@ -241,8 +243,7 @@ def _parse_connect(data: dict[str, Any], *, action: str = "mint") -> ServiceCred
     connect-bundle change. A 2xx without it means the CP is older than the
     contract; the service-credential conninfo builder no longer reads the
     ``DuckgresServer`` row, so there is nothing to fall back to here and we
-    raise ``ServiceCredentialUnavailable`` (the caller's broad fallback to
-    root engages — the established transitional degradation).
+    raise ``ServiceCredentialUnavailable`` so the caller can apply its configured fallback.
     """
     raw = data.get("connect")
     if not isinstance(raw, dict):

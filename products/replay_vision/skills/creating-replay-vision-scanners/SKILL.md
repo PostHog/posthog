@@ -79,8 +79,8 @@ Two levers narrow it further, applied in this order:
 #### Which model?
 
 `model` sets the price of every observation the scanner makes, so it's a cost lever as much as a quality one:
-`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.6-flash`
-(15 credits). Start at the default and only reach for `gemini-3.6-flash` when the cheaper tiers demonstrably
+`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.7-flash`
+(15 credits). Start at the default and only reach for `gemini-3.7-flash` when the cheaper tiers demonstrably
 miss what the scanner is looking for.
 
 ### Step 3: Size it — the gut-check (do not skip)
@@ -121,6 +121,10 @@ Then decide on `rest_of_period` against `remaining`:
   one resets. Mid-period a scanner can fit in `remaining` and still blow the next period's budget.
 - If the org is already `exhausted`, say so. A new enabled scanner won't produce anything until the budget
   resets: its scheduled observations are silently skipped, and on-demand scans are rejected outright.
+- If the estimate is a large fraction of `remaining` but the user still wants the scanner, offer a
+  per-scanner cap: set `credit_limit` on create so this scanner can only ever spend that many credits per
+  billing period. It stops scanning once the credits left can't cover another observation, then resumes
+  when the period resets. Sessions it skipped while capped are not scanned later.
 
 Confirmation here is a conversation step, not an API capability — surface the trade-off and let the user
 choose. When the projected volume is clearly small relative to the budget, you don't need to ask.

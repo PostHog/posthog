@@ -73,8 +73,6 @@ apps/code/assets/fonts/BerkeleyMono/
 # Local dev skills (override shipped + remote skills in dev mode)
 plugins/posthog/local-skills/
 
-# Symlinked copies of posthog, to make developing against those APIs easier
-posthog-sym
 
 .claude/settings.local.json
 CLAUDE.local.md

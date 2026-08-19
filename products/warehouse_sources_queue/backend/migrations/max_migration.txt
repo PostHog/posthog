@@ -1,1 +1,1 @@
-0007_remove_duckgres_batch_sink_models
+0008_sourcebatch_superseded

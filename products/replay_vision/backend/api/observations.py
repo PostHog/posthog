@@ -359,6 +359,21 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
             "allow_inconclusive, tags, scale, or length), taken from the observation run snapshots."
         ),
     )
+    # The remaining version-tracked fields, so the history can name which one bumped a version.
+    # Null means this version's run snapshots predate recording that field.
+    scanner_type = serializers.CharField(allow_null=True, help_text="The scanner type this version ran as.")
+    model = serializers.CharField(allow_null=True, help_text="The model this version ran on.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider this version ran on.")
+    emits_signals = serializers.BooleanField(allow_null=True, help_text="Whether this version emitted signals.")
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="The `RecordingsQuery` recording filters this version ran with.",
+    )
+    sampling_rate = serializers.FloatField(allow_null=True, help_text="The 0..1 downsample this version ran with.")
+    sampling_mode = serializers.CharField(
+        allow_null=True,
+        help_text="The session-coverage pre-filter this version ran with.",
+    )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
     total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
@@ -384,8 +399,8 @@ class ObservationLabelStatsSerializer(serializers.Serializer):
     version_markers = ObservationVersionMarkerSerializer(
         many=True,
         help_text=(
-            "Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, "
-            "and rating counts, for chart markers and the prompt version history."
+            "Each scanner version that produced observations (all-time), with its first day, the config it ran "
+            "with, and rating counts, for chart markers and the config version history."
         ),
     )
 

@@ -49,10 +49,14 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import {
+  ArtifactCard,
+  stopCardOpen,
+} from "@posthog/ui/primitives/ArtifactCard";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type MouseEvent, type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
@@ -69,81 +73,6 @@ function CommentCountBadge({ count }: { count: number }) {
       {count}
     </Badge>
   );
-}
-
-/**
- * One artifact card. The whole card is the open control - a `role="button"`
- * div rather than a `<button>`, because the version picker and the trailing
- * actions are real buttons and HTML forbids nesting those (see NestedButton
- * for the same call). Inner controls stop propagation so they don't open it.
- */
-function ArtifactCard({
-  icon,
-  title,
-  meta,
-  onOpen,
-  onHoverStart,
-  actions,
-}: {
-  icon: ReactNode;
-  title: string;
-  meta?: ReactNode;
-  onOpen?: () => void;
-  onHoverStart?: () => void;
-  /** Always-visible trailing cluster: comment badge, download, open externally. */
-  actions?: ReactNode;
-}) {
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> card
-    <div
-      data-artifact-card
-      role="button"
-      tabIndex={onOpen ? 0 : undefined}
-      aria-disabled={onOpen ? undefined : true}
-      aria-label={`View ${title}`}
-      className={`flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted py-2 pr-1.5 pl-2 text-[13px] transition-colors ${
-        onOpen ? "cursor-pointer hover:border-gray-6 hover:bg-gray-3" : ""
-      }`}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        // Only the card itself: inner controls' key presses bubble up here.
-        if (event.target !== event.currentTarget) return;
-        if (onOpen && (event.key === "Enter" || event.key === " ")) {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      onPointerEnter={onHoverStart}
-      onFocus={onHoverStart}
-    >
-      <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gray-4">
-        {/* The icon again, blown up and blurred: the tile tints itself with
-            the icon's own colors, so new icons never need a color mapping. */}
-        <div
-          aria-hidden
-          className="absolute inset-0 flex scale-[2.4] items-center justify-center opacity-40 blur-[9px] saturate-[1.8] dark:opacity-70"
-        >
-          {icon}
-        </div>
-        <div className="relative flex items-center justify-center">{icon}</div>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{title}</div>
-        {meta && (
-          <div className="flex items-center gap-1 whitespace-nowrap text-[12px] text-muted-foreground">
-            {meta}
-          </div>
-        )}
-      </div>
-      {actions && (
-        <div className="flex shrink-0 items-center gap-1">{actions}</div>
-      )}
-    </div>
-  );
-}
-
-function stopCardOpen(event: MouseEvent) {
-  event.stopPropagation();
 }
 
 function PrRow({

@@ -182,6 +182,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
@@ -2616,6 +2617,7 @@ export interface workflowLogicMeta {
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
+        autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -2908,10 +2910,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 409) {
-                            // A newer version exists (SSE event likely missed) — surface the reconcile banner,
-                            // which carries the actionable Reload / Keep mine choice. No toast: it would just
-                            // duplicate the banner (the global kea handler already skips 409).
-                            actions.setExternallyEdited(true)
+                            if (values.isAutoSave && values.pendingSchedule === false) {
+                                // An auto-save losing the race is not a decision point: the user never
+                                // asked to overwrite anything, so reconcile to the newer copy silently.
+                                // A pending schedule change is the exception: only a manual save
+                                // persists it, and the reload would wipe it, so that gets the banner.
+                                actions.setSyncingExternalEdit(true)
+                                actions.loadWorkflow()
+                            } else {
+                                // A newer version exists (SSE event likely missed): surface the reconcile
+                                // banner, which carries the actionable Reload / Keep mine choice. No toast,
+                                // as it would just duplicate the banner (the global kea handler already
+                                // skips 409).
+                                actions.setExternallyEdited(true)
+                            }
                         }
                         throw error
                     }
@@ -3067,7 +3079,8 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
-        // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
+        // unsaved local edits that auto-save can't flush (toggled off, validation errors, or a pending
+        // schedule change). Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
         // we reload or save, since both reconcile us with the server copy.
         externallyEdited: [
             false as boolean,
@@ -3273,7 +3286,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
                                     ? 'Choose an email sender, or connect a new one'
-                                    : undefined,
+                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
+                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -3393,6 +3407,13 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
+        // Action validation errors don't block: on an active workflow content stages into the
+        // draft, which is safe to hold incomplete steps (enable and publish revalidate before
+        // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
+        // them would strand a user's edits unsaved exactly while they iterate.
+        autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow: HogFlow): TriggerAction | null => {
@@ -3479,12 +3500,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
                 return
             }
-            if (values.hasUnsavedChanges) {
-                // Don't clobber the user's in-progress edits — let them choose (banner).
+            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
+            // a few seconds old, so reconcile silently instead of interrupting with a conflict
+            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
+            // schedule change, which only a manual save persists), the buffer can hold real work,
+            // so the banner lets the user choose.
+            const autoSaveCanFlush =
+                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
-                // Clean slate: catch up to the external edit. Flag the sync first so the editor shows a
-                // brief working/disabled overlay and re-enables once the fresh copy loads (like auto-save).
+                // Flag the sync first so the editor shows a brief working/disabled overlay and
+                // re-enables once the fresh copy loads (like auto-save).
                 actions.setSyncingExternalEdit(true)
                 actions.loadWorkflow()
             }
@@ -3807,7 +3834,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.workflowHasErrors
+                values.autoSaveBlockedByValidation
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

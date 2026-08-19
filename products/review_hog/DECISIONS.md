@@ -3149,6 +3149,46 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
 
 ---
 
+### 🧯 Live statuses in the Code review UI — baseline polling + idle deferred to publish (BUILT 2026-08-13)
+
+The Code review scene went stale without a manual refresh, three ways, all rooted in the list poll arming only
+while an in-progress row was already visible: externally-triggered runs (label / inbox / MCP / a teammate) never
+appeared on an already-open page; the run-end race froze rows on "Not published" (finalize wrote `idle` before the
+publish stage wrote `published_head_sha`, and a poll tick landing in that window was the poll's last — it disposes
+itself at the first at-rest response); and the stats cards and an open drawer never refreshed at all.
+
+**Decisions (and the alternatives weighed):**
+
+- **The poll never stops; it changes cadence.** 10s while a run is in progress or freshly triggered, 30s idle,
+  paused on hidden tabs (the disposables plugin), one immediate refresh on tab return (a non-pausing
+  `visibilitychange` listener — a pausing one would be re-attached mid-dispatch of the very event it must observe,
+  and listeners added during dispatch don't run for that event). Rejected: stop-after-N-idle (a state machine to
+  save a flag-gated dogfood page a 30s request) and a push channel (nothing else on the scene justifies the
+  infrastructure).
+- **Finalize defers the idle write on publishing runs** (`will_publish` on `BuildBodyInput` →
+  `finalize_review_report`); `publish_persisted_review` returns the report to `idle` on every outcome (posted — in
+  the same save as the watermark —, already-posted skip, and no-post), and `fail_status_comment_activity` restores
+  rest on a dead run. The failure-path write lives inside that existing activity, not as a new workflow command,
+  because a new unconditional command breaks replay for in-flight histories. Rejected: a `publishing` status enum
+  value (a migration plus every status reader, for a state that lasts seconds) and a frontend-only reconciliation
+  delay (leaves the API reporting `in_progress=false, published=false` for a state that is neither).
+- **The publish window reads "finalizing".** With `run_count` already bumped there are no in-flight findings, so
+  `progress_payload` otherwise falls through and misreads the finished turn's working state as "deduplicating".
+  The branch is scoped to the not-yet-published head deliberately: a resolution run holds the same
+  ACTIVE-at-completed-head shape at a _published_ head and keeps its pre-existing label — the proper `resolving`
+  stage (serializer enum + frontend labels + regenerated types) is a separate change, in flight on its own
+  (maintainer, 2026-08-13), tracked in ARCHITECTURE.md's known issues.
+- **A poll response is the fan-out point.** A run observed finishing (its `in_progress` dropping or `run_count`
+  bumping between responses) reloads the perspective stats, and the drawer's detail when it is open on that
+  report. The error banner keys off a new `markInitialLoadFailed` (dispatched only when the failing surface has
+  nothing loaded), so a background poll blip retries silently instead of flashing the page-level failure banner.
+
+Known residuals, deliberate: the list's `published` flag is still report-lifetime (the drawer-flag TODO in
+ARCHITECTURE.md's known issues), and `_in_progress_report_ids`' 30-minute staleness cutoff can still hide a run
+whose current stage stays quiet longer than that.
+
+---
+
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
 
 #### Adversarial validation — a 3-skeptic panel instead of a single verify pass (noted 2026-07-03)
@@ -3751,3 +3791,53 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
+
+## Resolution-stage visibility & cycle guard (grilled 2026-08-13)
+
+Motivated by the first prod day: a resolution on a user's PR (#80527) showed no progress anywhere, and #78061's
+resolution died silently at sandbox checkout. Decisions, in one PR:
+
+- **Busy-guard, both directions.** Starting a review (UI, label, trigger API) is refused while the PR's
+  `resolve-pr` workflow runs ("Still resolving comments from the last review"); starting a standalone resolution
+  is refused while `review-pr` runs. Chained hand-off exempt (fires post-publish by construction). Explicit check
+  on the two deterministic workflow ids — Temporal same-id joining can't see across workflows (ADR 0001; blocked,
+  not queued — queueing machinery isn't worth it yet).
+- **Resolving progress derives from the artefact stream, not new columns.** At prepare, the run appends a
+  work-list artefact (total, skipped); the reviews API counts the run's thread-verdict artefacts against it.
+  Row shows "Resolving comments · 6/10 · 5 fixed, 1 needs you"; crashed runs go quiet and age out via the
+  existing staleness window, mirroring review progress. Rejected: mutable stats block on the report (second
+  writer, stale stats on crash).
+- **Settled means delivered** (PR-review follow-up, 2026-08-18). The counters originally bumped at judge time,
+  so a thread whose GitHub reply/resolve failed still read as done/fixed until the next run redelivered. Both
+  surfaces now count only delivered threads — the activity renders from `delivered_outcomes` (bumped after
+  `_deliver_side_effects` succeeds) and the UI derivation counts only `reply_posted` verdict rows — with
+  undelivered threads folded into the closing tally's "couldn't handle" count. `triaged`/`outcomes` keep their
+  judge-time meaning for the run note. Rejected: leaving it (the tally claimed replies that weren't on the PR)
+  and a separate "pending redelivery" bucket (a third state to explain for a transient window).
+- **Same GitHub status comment, extended.** Chained runs edit the review's existing status comment with a
+  resolving section + final tally; standalone runs create the comment on demand via the same machinery
+  (edits don't notify — one ReviewHog voice per PR).
+- **Failure is visible.** UI: work-list artefact present + activity stale + no closing run-note ⇒ "Resolution
+  didn't finish · stopped at N/M". GitHub: partial failures flow into the final tally ("couldn't handle 2");
+  hard crashes get a best-effort failure edit (reusing the review's `fail_status_comment` pattern). Closes the
+  silent-death mode observed on #78061.
+- **Workflow-level failure cleanup** (PR-review follow-up, 2026-08-18). The activity's final-attempt failure
+  edit misses three death modes: `_prepare_run` failures (before its `try` opens), timeout/cancellation
+  (`CancelledError` is a `BaseException`), and worker death (no handler runs) — all of which left the GitHub
+  comment saying "Resolving comments" forever (the UI half self-heals via staleness). `ResolvePRWorkflow` now
+  wraps the resolution activity and fires a best-effort `fail_resolution_activity` before re-raising, gated
+  behind `workflow.patched("fail-resolution-cleanup-2026-08")` for in-flight runs. The cleanup locates the
+  report by `(team, repo, pr_number)` (the workflow never learns the report id on failure), idles it, and
+  derives stopped-at counts via `resolution_states` — the exact numbers the UI row shows; no live run anchor
+  means no comment edit, so a pre-queue crash can't spawn a spurious "stopped at 0/0" comment. The
+  activity-level edit stays as the fast path. Mirrors the review workflow's `fail_status_comment_activity`.
+- **👀 reaction marks queued threads.** Added right after work-list classification, triage-queued threads only
+  (so 👀 = "in this run's queue"), best-effort, and left in place afterwards (removal doubles API calls for no
+  real gain). Reactions send no notifications. Rejected: placeholder "working on it" comments — double
+  notifications, and a crashed run leaves broken promises.
+- **Not doing:** re-review-after-fixes dispatch (the loop's job, separately costed); prohibiting re-review after
+  a _finished_ cycle (already safe: same-id review starts join the running workflow).
+
+Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
+(kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
+versioning outweigh the manual seam).

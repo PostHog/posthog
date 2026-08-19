@@ -21,7 +21,6 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
@@ -101,6 +100,7 @@ import {
     DataModelingNode,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -193,7 +193,6 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
-    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -230,11 +229,6 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type {
-    SessionGroupSummaryListItemType,
-    SessionGroupSummaryType,
-    SessionSummariesConfig,
-} from 'products/session_summaries/frontend/types'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -357,7 +351,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
@@ -397,6 +391,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -687,6 +686,10 @@ export class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -2025,20 +2028,6 @@ export class ApiRequest {
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
-    }
-
-    // Session summary
-    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
-    }
-
-    // Session group summaries
-    public sessionGroupSummaries(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('session_group_summaries')
-    }
-
-    public sessionGroupSummary(id: string, projectId?: ProjectType['id']): ApiRequest {
-        return this.sessionGroupSummaries(projectId).addPathComponent(id)
     }
 
     // Heatmap screenshots
@@ -3626,7 +3615,9 @@ const api = {
     },
 
     organizationMembers: {
-        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+        async list(
+            params: ListOrganizationMembersParams = {}
+        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
             return await new ApiRequest().organizationMembers().withQueryString(params).get()
         },
 
@@ -3904,6 +3895,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
@@ -4534,22 +4534,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(
-            recordingId: SessionRecordingType['id'],
-            options?: ApiMethodOptions & { forceRestart?: boolean }
-        ): Promise<Response> {
-            const { forceRestart, ...apiOptions } = options ?? {}
-            return await api.createResponse(
-                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                forceRestart ? { force_restart: true } : undefined,
-                apiOptions
-            )
-        },
-
-        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
-        },
-
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
@@ -5023,26 +5007,6 @@ const api = {
         },
     },
 
-    sessionGroupSummaries: {
-        async get(id: string): Promise<SessionGroupSummaryType> {
-            return await new ApiRequest().sessionGroupSummary(id).get()
-        },
-        async list(
-            params: {
-                created_by?: string
-                search?: string
-                order?: string
-                limit?: number
-                offset?: number
-            } = {}
-        ): Promise<CountedPaginatedResponse<SessionGroupSummaryListItemType>> {
-            return await new ApiRequest().sessionGroupSummaries().withQueryString(toParams(params)).get()
-        },
-        async delete(id: string): Promise<void> {
-            return await new ApiRequest().sessionGroupSummary(id).delete()
-        },
-    },
-
     batchExports: {
         async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
             return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
@@ -5210,9 +5174,6 @@ const api = {
             scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
-        },
-        async analyzeSessions(): Promise<Record<string, any>> {
-            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
         },
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
@@ -5747,8 +5708,19 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        async run(viewId: DataWarehouseSavedQuery['id'], fullRefresh?: boolean): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('run')
+                .create({ data: { full_refresh: !!fullRefresh } })
+        },
+        async checkIncremental(data: {
+            query: string
+            incremental_key?: string
+            unique_key?: string[]
+            lookback_seconds?: number
+        }): Promise<DataWarehouseSavedQueryIncrementalCheck> {
+            return await new ApiRequest().dataWarehouseSavedQueries().withAction('check_incremental').create({ data })
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
@@ -7428,29 +7400,6 @@ const api = {
 
         async regenerate(id: number | string): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).withAction('regenerate').create()
-        },
-    },
-
-    sessionSummaries: {
-        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
-            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
-        },
-        async createIndividual(data: {
-            session_ids: string[]
-            focus_area?: string
-        }): Promise<Record<string, SessionSummaryContent>> {
-            return await new ApiRequest()
-                .sessionSummary()
-                .withAction('create_session_summaries_individually')
-                .create({ data })
-        },
-        config: {
-            async get(): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').get()
-            },
-            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
-            },
         },
     },
 

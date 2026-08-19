@@ -17,7 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { communitySkillsLogic } from './communitySkillsLogic'
 import { TrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi } from './generated/api.schemas'
-import { SkillsSceneShell } from './SkillsSceneShell'
+import { COMMUNITY_SKILLS_TAB_DESCRIPTION, COMMUNITY_SKILLS_TAB_KEY, SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
     component: CommunitySkillsScene,
@@ -148,7 +148,13 @@ function CommunitySkillsGrid({ skills, loading }: { skills: CommunitySkillListAp
 }
 
 export function CommunitySkillsScene(): JSX.Element {
-    return <SkillsSceneShell activeTab="community" content={<CommunitySkillsContent />} />
+    return (
+        <SkillsSceneShell
+            activeTabKey={COMMUNITY_SKILLS_TAB_KEY}
+            description={COMMUNITY_SKILLS_TAB_DESCRIPTION}
+            content={<CommunitySkillsContent />}
+        />
+    )
 }
 
 function CommunitySkillsContent(): JSX.Element {
