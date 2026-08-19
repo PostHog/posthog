@@ -49633,6 +49633,134 @@ export namespace Schemas {
     }
 
     /**
+     * * `all_weekly_digest_disabled` - all_weekly_digest_disabled
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest` - error_tracking_weekly_digest
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `plugin_disabled` - plugin_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest` - web_analytics_weekly_digest
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+     */
+    export type SettingEnum = typeof SettingEnum[keyof typeof SettingEnum];
+
+
+    export const SettingEnum = {
+      AllWeeklyDigestDisabled: 'all_weekly_digest_disabled',
+      DiscussionsMentioned: 'discussions_mentioned',
+      ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+      ErrorTrackingWeeklyDigest: 'error_tracking_weekly_digest',
+      ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+      MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+      MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+      MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+      OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+      PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+      PluginDisabled: 'plugin_disabled',
+      ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+      WebAnalyticsWeeklyDigest: 'web_analytics_weekly_digest',
+      WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+    } as const;
+
+    export interface OrganizationNotificationLock {
+      /** Notification setting this lock enforces.
+       *
+       * * `all_weekly_digest_disabled` - all_weekly_digest_disabled
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest` - error_tracking_weekly_digest
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `plugin_disabled` - plugin_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest` - web_analytics_weekly_digest
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** What the setting applies to: a project ID, pipeline ID, or organization ID. Empty for a setting that is a single switch. */
+      scope_id: string;
+      /** The value the organization enforces. */
+      locked_value: boolean;
+      /** True when the lock covers every member, including members who join later. */
+      applies_to_all_members: boolean;
+    }
+
+    export interface OrganizationNotificationLockChange {
+      /**
+         * Member to change. Null applies the change to every member, including future joiners.
+         * @nullable
+         */
+      user_id: number | null;
+      /** Notification setting to lock or unlock.
+       *
+       * * `all_weekly_digest_disabled` - all_weekly_digest_disabled
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest` - error_tracking_weekly_digest
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `plugin_disabled` - plugin_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest` - web_analytics_weekly_digest
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** What the setting applies to. Empty for a setting that is a single switch. */
+      scope_id?: string;
+      /**
+         * Value to enforce, or null to remove the lock and give the member their own choice back.
+         * @nullable
+         */
+      locked_value: boolean | null;
+    }
+
+    export interface OrganizationNotificationLockBulkUpdate {
+      /**
+         * Only the entries you changed. Anything left out keeps whatever it had.
+         * @maxItems 2000
+         */
+      changes: OrganizationNotificationLockChange[];
+    }
+
+    /**
+     * The member's own stored notification settings, before any locks apply.
+     */
+    export type OrganizationNotificationMemberNotificationSettings = { [key: string]: unknown };
+
+    export interface OrganizationNotificationMember {
+      /** Numeric ID of the member, used as the key when saving changes. */
+      user_id: number;
+      /** Stable public identifier of the member. */
+      uuid: string;
+      /** Member's first name, for display. */
+      first_name: string;
+      /** Member's last name, for display. */
+      last_name: string;
+      /** Member's email address, which is where these notifications go. */
+      email: string;
+      /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+      organization_membership_level: number;
+      /** False when the member's membership level is above yours, which means you cannot change their settings. */
+      editable: boolean;
+      /** The member's own stored notification settings, before any locks apply. */
+      notification_settings: OrganizationNotificationMemberNotificationSettings;
+      /** Locks in force for this member, including organization-wide ones they inherit. */
+      locks: OrganizationNotificationLock[];
+    }
+
+    /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */
     export interface OrganizationOAuthApplication {

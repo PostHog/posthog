@@ -140,7 +140,6 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     premium_feature = AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     posthog_feature_flag = ORG_NOTIFICATION_GOVERNANCE_FLAG
     pagination_class = None
-    param_derived_from_user_current_team = "organization_id"
 
     @extend_schema(
         responses={200: OrganizationNotificationMemberSerializer(many=True)},
@@ -215,7 +214,7 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
 
     def _actor_level(self) -> int:
         membership = OrganizationMembership.objects.filter(
-            user=self.request.user, organization_id=self.organization.id
+            user=cast(User, self.request.user), organization_id=self.organization.id
         ).first()
         return membership.level if membership else OrganizationMembership.Level.MEMBER
 
