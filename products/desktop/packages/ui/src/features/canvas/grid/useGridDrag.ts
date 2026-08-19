@@ -34,6 +34,13 @@ export interface GridDragOutcome {
  * snapped as the pointer moves (move/resize rects stay clamped to the grid);
  * the caller decides what a completed drag means.
  */
+type GridCell = { col: number; row: number };
+
+function sameCell(a: GridCell | null, b: GridCell | null): boolean {
+  if (!a || !b) return a === b;
+  return a.col === b.col && a.row === b.row;
+}
+
 export function useGridDrag({
   surfaceRef,
   grid,
@@ -46,6 +53,10 @@ export function useGridDrag({
   onComplete: (outcome: GridDragOutcome) => void;
 }) {
   const [drag, setDrag] = useState<GridDragState | null>(null);
+  // The empty cell under a resting pointer, so the surface can show where a
+  // click would put a box. Only the surface itself reports one: a tile handles
+  // its own presses, and hovering it is not an offer to draw.
+  const [hover, setHover] = useState<GridCell | null>(null);
 
   const cellAt = (event: React.PointerEvent) => {
     const surface = surfaceRef.current?.getBoundingClientRect();
@@ -62,6 +73,7 @@ export function useGridDrag({
     if (event.target !== surfaceRef.current) return;
     const anchor = cellAt(event);
     capture(event);
+    setHover(null);
     setDrag({ kind: "draw", anchor, rect: rectFromCells(anchor, anchor) });
   };
 
@@ -70,6 +82,7 @@ export function useGridDrag({
       if (!interactive || event.button !== 0) return;
       event.stopPropagation();
       capture(event);
+      setHover(null);
       setDrag({
         kind: "move",
         placementId: placement.id,
@@ -89,6 +102,7 @@ export function useGridDrag({
       if (!interactive || event.button !== 0) return;
       event.stopPropagation();
       capture(event);
+      setHover(null);
       setDrag({
         kind: "resize",
         placementId: placement.id,
@@ -103,7 +117,17 @@ export function useGridDrag({
     };
 
   const onPointerMove = (event: React.PointerEvent) => {
-    if (!drag) return;
+    if (!drag) {
+      const cell =
+        interactive && event.target === surfaceRef.current
+          ? cellAt(event)
+          : null;
+      // Every pointer move crosses this, and the surface renders a widget per
+      // tile — so hold the same cell rather than re-rendering the canvas at
+      // pointer rate.
+      setHover((current) => (sameCell(current, cell) ? current : cell));
+      return;
+    }
     const cell = cellAt(event);
     if (drag.kind === "draw") {
       setDrag({ ...drag, rect: rectFromCells(drag.anchor, cell) });
@@ -153,8 +177,14 @@ export function useGridDrag({
     setDrag(null);
   };
 
+  const onPointerLeave = () => {
+    setHover(null);
+  };
+
   return {
     drag,
+    hover,
+    onPointerLeave,
     onSurfacePointerDown,
     onPointerMove,
     onPointerUp,
