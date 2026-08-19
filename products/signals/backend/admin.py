@@ -128,7 +128,10 @@ class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[SignalReportCanvasGeneration]:
-        queryset = super().get_queryset(request)
+        # Django admin intentionally browses generations across teams, outside a
+        # request team scope. Keep application reads fail-closed while making
+        # this explicit cross-team surface use the unscoped queryset.
+        queryset = SignalReportCanvasGeneration.objects.unscoped()
         url_name = getattr(request.resolver_match, "url_name", "")
         return queryset if url_name.endswith("_change") else queryset.defer("output_source")
 

@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.contrib.admin.sites import AdminSite
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
@@ -15,6 +17,7 @@ from products.canvas.backend.report_canvas import (
     CanvasGenerationSourceUnavailable,
     CanvasGenerationState,
 )
+from products.signals.backend.admin import SignalReportCanvasGenerationAdmin
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SuggestedReviewers
 from products.signals.backend.models import (
@@ -54,6 +57,15 @@ class TestReportCanvasGeneration(APIBaseTest):
 
     def _generation_result(self, task_id: uuid.UUID, run_id: uuid.UUID) -> SimpleNamespace:
         return SimpleNamespace(task_id=task_id, latest_run=SimpleNamespace(id=run_id))
+
+    def test_generation_admin_uses_an_explicit_cross_team_queryset(self) -> None:
+        model_admin = SignalReportCanvasGenerationAdmin(SignalReportCanvasGeneration, AdminSite())
+        request = RequestFactory().get("/admin/signals/signalreportcanvasgeneration/")
+
+        queryset = model_admin.get_queryset(request)
+
+        assert queryset.model is SignalReportCanvasGeneration
+        assert "output_source" in queryset.query.deferred_loading[0]
 
     def test_creates_one_shared_session_and_reuses_in_flight_generation(self) -> None:
         report = self._report()
