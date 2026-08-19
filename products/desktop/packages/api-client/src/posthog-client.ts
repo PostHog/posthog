@@ -3,31 +3,23 @@ import type {
   Adapter,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
-  CreateTaskAutomationOptions,
   ExecutionMode,
   McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
   StoredLogEntry,
-  TaskAutomation,
   TaskRunArtifactMetadata,
-  UpdateTaskAutomationOptions,
 } from "@posthog/shared";
 import {
   buildCloudTaskConfigOptions,
   type CloudTaskConfigOption,
-  createTaskAutomationSchema,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
   resolveCloudInitialPermissionMode,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  updateTaskAutomationSchema,
 } from "@posthog/shared";
 import type {
   AgentAnalyticsData,
@@ -320,36 +312,6 @@ export class CloudUsageLimitError extends Error {
     this.resetAt = params.resetAt;
     this.isPro = params.isPro;
   }
-}
-
-export class TaskAutomationValidationError extends Error {
-  readonly status = 400;
-  readonly code: string;
-  readonly attr: string | null;
-
-  constructor(details: {
-    detail: string;
-    code: string;
-    attr: string | null;
-  }) {
-    super(details.detail);
-    this.name = "TaskAutomationValidationError";
-    this.code = details.code;
-    this.attr = details.attr;
-  }
-}
-
-function rethrowTaskAutomationError(error: unknown): never {
-  if (error instanceof ApiRequestError && error.status === 400) {
-    const validationError = taskAutomationValidationErrorSchema.safeParse(
-      error.body,
-    );
-    if (validationError.success) {
-      throw new TaskAutomationValidationError(validationError.data);
-    }
-  }
-
-  throw error;
 }
 
 export const MCP_CATEGORIES = [
@@ -2502,101 +2464,6 @@ export class PostHogAPIClient {
     }
     const data = (await response.json()) as { pinned: boolean };
     return data.pinned;
-  }
-
-  async listTaskAutomations(options?: {
-    limit?: number;
-    offset?: number;
-  }): Promise<TaskAutomation[]> {
-    const teamId = await this.getTeamId();
-    const data = await this.api.get(
-      `/api/projects/{project_id}/task_automations/`,
-      {
-        path: { project_id: teamId.toString() },
-        query: {
-          limit: options?.limit ?? 500,
-          ...(options?.offset === undefined ? {} : { offset: options.offset }),
-        },
-      },
-    );
-
-    return taskAutomationListSchema.parse(data).results;
-  }
-
-  async getTaskAutomation(automationId: string): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const data = await this.api.get(
-      `/api/projects/{project_id}/task_automations/{id}/`,
-      {
-        path: { project_id: teamId.toString(), id: automationId },
-      },
-    );
-
-    return taskAutomationSchema.parse(data);
-  }
-
-  async createTaskAutomation(
-    options: CreateTaskAutomationOptions,
-  ): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const body = createTaskAutomationSchema.parse(options);
-
-    try {
-      const data = await this.api.post(
-        `/api/projects/{project_id}/task_automations/`,
-        {
-          path: { project_id: teamId.toString() },
-          body: body as Schemas.TaskAutomation,
-        },
-      );
-      return taskAutomationSchema.parse(data);
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
-  }
-
-  async updateTaskAutomation(
-    automationId: string,
-    updates: UpdateTaskAutomationOptions,
-  ): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const body = updateTaskAutomationSchema.parse(updates);
-
-    try {
-      const data = await this.api.patch(
-        `/api/projects/{project_id}/task_automations/{id}/`,
-        {
-          path: { project_id: teamId.toString(), id: automationId },
-          body,
-        },
-      );
-      return taskAutomationSchema.parse(data);
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
-  }
-
-  async deleteTaskAutomation(automationId: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    await this.api.delete(`/api/projects/{project_id}/task_automations/{id}/`, {
-      path: { project_id: teamId.toString(), id: automationId },
-    });
-  }
-
-  async runTaskAutomation(automationId: string): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/task_automations/${automationId}/run/`;
-
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "post",
-        path,
-        url: new URL(`${this.api.baseUrl}${path}`),
-      });
-      return taskAutomationSchema.parse(await response.json());
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
   }
 
   async createTask(
