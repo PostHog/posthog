@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,16 +25,25 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
     const confirm = (enabled: boolean): void => {
         LemonDialog.open({
             title: `Turn this filter ${enabled ? 'on' : 'off'} for every existing insight?`,
-            description: (
-                <>
-                    This changes the insights you already have. It doesn't change the default for new insights. SQL
-                    insights have no such filter, so they stay as they are, and so do insights you can't edit.
-                    Dashboards follow their insights unless a dashboard sets its own override.
-                    <br />
-                    <br />
-                    There's no undo. Running it the other way later would also flip insights that were set differently
-                    before.
-                </>
+            width: 560,
+            content: (
+                <div className="flex flex-col gap-3">
+                    <p className="mb-0">
+                        This updates the insights you already have. The default for new insights stays as it is.
+                    </p>
+                    <div>
+                        <p className="mb-1">Left as they are:</p>
+                        <ul className="list-disc pl-5 mb-0">
+                            <li>SQL insights, which have no such filter</li>
+                            <li>Insights you can't edit</li>
+                        </ul>
+                    </div>
+                    <p className="mb-0">Dashboards follow their insights, unless a dashboard sets its own override.</p>
+                    <LemonBanner type="warning">
+                        There's no undo. Running it the other way later would also flip insights that were set
+                        differently before.
+                    </LemonBanner>
+                </div>
             ),
             primaryButton: {
                 children: `Turn it ${enabled ? 'on' : 'off'}`,
