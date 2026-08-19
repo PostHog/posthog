@@ -1,11 +1,12 @@
 import csv
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
 from dateutil import parser as dateutil_parser
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -22,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_p
 WAF_BLOCK_MARKER = "Your access has been blocked due to security concerns"
 
 
-@dataclasses.dataclass
+@frozen
 class ECBResumeConfig:
     next_start_period: str
 

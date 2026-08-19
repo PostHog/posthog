@@ -1,13 +1,14 @@
-from dataclasses import dataclass
 from datetime import date
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://data-api.ecb.europa.eu"
 
 
-@dataclass
+@frozen
 class ECBEndpointConfig:
     name: str
     flow: str
