@@ -7,7 +7,7 @@ import {
   Lightbulb,
 } from "@phosphor-icons/react";
 import { repoMatchesGitHubRepos } from "@posthog/core/onboarding/repoProvider";
-import { cn, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { cn } from "@posthog/quill";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Box, Button, Flex, Text } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
@@ -55,11 +55,11 @@ export function SelectRepoStep({
     refreshRepositories,
   } = useUserRepositoryIntegration();
 
-  // With GitHub connected the repo list comes first; the folder picker stays
-  // available as the alternative. `null` = follow that default until the user
-  // picks a source explicitly.
+  // With GitHub connected the repo list is the primary path; the folder
+  // picker stays reachable through a quiet text link, not an equal-weight
+  // toggle. `null` = follow the default until the user switches explicitly.
   const [chosenSource, setChosenSource] = useState<RepoSource | null>(null);
-  const showSourceToggle = localWorkspaces && hasGithubIntegration === true;
+  const showSourceSwitch = localWorkspaces && hasGithubIntegration === true;
   const repoSource: RepoSource = !localWorkspaces
     ? "github"
     : (chosenSource ?? (hasGithubIntegration ? "github" : "local"));
@@ -132,24 +132,6 @@ export function SelectRepoStep({
                           : "Select a single repository folder, not a parent folder that contains multiple repos."}
                       </Text>
                     </Flex>
-                    {showSourceToggle && (
-                      <ToggleGroup
-                        value={[repoSource]}
-                        onValueChange={(next: string[]) => {
-                          const selected = next[0] as RepoSource | undefined;
-                          if (selected) setChosenSource(selected);
-                        }}
-                        aria-label="Repository source"
-                        className="gap-1 self-start"
-                      >
-                        <ToggleGroupItem value="github" size="sm">
-                          GitHub repo
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="local" size="sm">
-                          Local folder
-                        </ToggleGroupItem>
-                      </ToggleGroup>
-                    )}
                     {repoSource === "github" ? (
                       <GitHubRepoPicker
                         value={
@@ -175,6 +157,21 @@ export function SelectRepoStep({
                         onChange={onDirectoryChange}
                         placeholder="Select repository..."
                       />
+                    )}
+                    {showSourceSwitch && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setChosenSource(
+                            repoSource === "github" ? "local" : "github",
+                          )
+                        }
+                        className="cursor-pointer self-start border-0 bg-transparent p-0 text-(--gray-10) text-[13px] underline hover:text-(--gray-11)"
+                      >
+                        {repoSource === "github"
+                          ? "Use a local folder instead"
+                          : "Back to GitHub repos"}
+                      </button>
                     )}
                     <AnimatePresence mode="wait">
                       {repoSource === "local" && isDetectingRepo && (
