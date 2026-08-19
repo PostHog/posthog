@@ -94,6 +94,19 @@ redis.call('EXPIRE', total_key, tracking_ttl)
 return redis.call('GET', total_key)
 """
 
+# Lua script for the pointer swap: replace the entry only while it still holds the exact bytes
+# the caller wrote, so a swap that lost a race to a newer write skips instead of clobbering it.
+# Compares the full expected value rather than a redis.sha1hex digest because fakeredis's Lua
+# runtime, which the tests run on, does not implement sha1hex.
+REPLACE_IF_UNCHANGED_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current ~= ARGV[1] then
+    return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
 # Lua script for atomic and idempotent tracking removal
 # Only decrements if key exists in hash, preventing double-decrement races
 REMOVE_TRACKING_SCRIPT = """
@@ -155,6 +168,7 @@ class TeamCacheSizeTracker:
 
         # redis-py's stubs omit register_script on RedisCluster; the runtime supports it.
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)  # type: ignore[union-attr]
+        self._replace_if_unchanged_script = self.redis_client.register_script(REPLACE_IF_UNCHANGED_SCRIPT)  # type: ignore[union-attr]
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)  # type: ignore[union-attr]
 
     def set(self, cache_key: str, data: bytes, ttl: int) -> list[str]:
@@ -198,13 +212,21 @@ class TeamCacheSizeTracker:
 
         return evicted
 
-    def replace_value(self, cache_key: str, data: bytes, ttl: int) -> None:
-        """Overwrite an entry's stored bytes and size accounting, without set()'s limit check
-        or logging. For the pointer swap, where the new value only ever shrinks usage; also
-        runs on upload worker threads, so it must stay free of Django ORM calls.
+    def replace_value(self, cache_key: str, data: bytes, ttl: int, *, expected: bytes) -> bool:
+        """Swap an entry's stored bytes for `data` only while it still holds `expected`,
+        updating size accounting on success; returns whether the swap landed. Skips set()'s
+        limit check and logging: for the pointer swap, where the new value only ever shrinks
+        usage, and a store that landed mid-upload must not be replaced by an older upload's
+        pointer. Also runs on upload worker threads, so it must stay free of Django ORM calls.
         """
-        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
+        swapped = self._replace_if_unchanged_script(
+            keys=[storage.entry_redis_key(cache_key)],
+            args=[expected, data, ttl],
+        )
+        if not swapped:
+            return False
         self.track_cache_write(cache_key, len(data))
+        return True
 
     def track_cache_write(self, cache_key: str, size_bytes: int) -> None:
         """Track a cache write with its size. Atomic via Lua script."""

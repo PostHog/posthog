@@ -196,7 +196,7 @@ def schedule_upload_for_pointer(
     cache_key: str,
     inline_value: bytes,
     last_refresh: Optional[str],
-    swap: Callable[[bytes], None],
+    swap: Callable[[bytes], bool],
 ) -> None:
     """Upload an already-stored inline value to S3 off the calling thread, then swap(pointer).
 
@@ -226,7 +226,10 @@ def schedule_upload_for_pointer(
                 team_id=team_id, cache_key=cache_key, blob=inline_value, mode=mode, last_refresh=last_refresh
             )
             if mode == "on" and pointer is not None:
-                swap(pointer)
+                swapped = swap(pointer)
+                if not swapped:
+                    # The blob this upload wrote is unreferenced; the lifecycle rule collects it.
+                    logger.info("query_cache_s3_swap_superseded", team_id=team_id, cache_key=cache_key)
         except Exception:
             logger.warning("query_cache_s3_swap_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
         finally:

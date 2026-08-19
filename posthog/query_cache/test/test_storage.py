@@ -217,9 +217,9 @@ class TestQueryCacheS3Routing(BaseTest):
         storage_patcher.start()
         self.addCleanup(storage_patcher.stop)
         # Run uploads inline so assertions right after store_result see the swapped pointer.
-        inline_executor = MagicMock()
-        inline_executor.submit.side_effect = lambda fn: fn()
-        executor_patcher = patch("posthog.query_cache.storage._get_upload_executor", return_value=inline_executor)
+        self.upload_executor = MagicMock()
+        self.upload_executor.submit.side_effect = lambda fn: fn()
+        executor_patcher = patch("posthog.query_cache.storage._get_upload_executor", return_value=self.upload_executor)
         executor_patcher.start()
         self.addCleanup(executor_patcher.stop)
 
@@ -233,6 +233,27 @@ class TestQueryCacheS3Routing(BaseTest):
         raw = _redis_raw(cache_key)
         assert raw is not None
         return raw.startswith(S3_POINTER_MAGIC)
+
+    def test_stale_upload_cannot_replace_a_newer_entry(self):
+        cache_key = f"s3_race_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        pending: list = []
+        self.upload_executor.submit.side_effect = pending.append
+
+        older = {**self._large_response(), "cache_key": "older"}
+        newer = {**self._large_response(), "cache_key": "newer"}
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            cache.store_result(response=older, target_age=None)
+            cache.store_result(response=newer, target_age=None)
+            older_upload, newer_upload = pending
+
+            newer_upload()
+            assert self._redis_holds_pointer(cache_key)
+            older_upload()
+
+        entry = cache.lookup().entry
+        assert entry is not None
+        assert entry.as_full_response() == newer
 
     def test_on_mode_large_result_round_trips_via_pointer(self):
         cache_key = f"s3_on_large_{self.team.pk}"
