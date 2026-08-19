@@ -75,14 +75,33 @@ def _columns(**overrides: str) -> dict[str, str]:
     return {**_COMMON_COLUMNS, **overrides}
 
 
+# Stripe stores every monetary amount in the currency of its own row, with the code in a sibling
+# `currency` column that can differ from row to row. A plain `sum()` across rows adds different
+# currencies together and returns a wrong total, with no error. `_money` appends this warning to
+# each such amount column so it reaches the SQL editor and data catalog, where the bad aggregate
+# gets written.
+_MIXED_CURRENCY_NOTE = (
+    " The value is in this row's own currency (see the `currency` column), which can differ from row "
+    "to row, so a plain sum across rows mixes currencies and returns a wrong total. For a correct "
+    "total in one currency, query your Revenue analytics revenue view, which converts every amount to "
+    "your team's base currency."
+)
+
+
+def _money(description: str) -> str:
+    return description + _MIXED_CURRENCY_NOTE
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     CHARGE_RESOURCE_NAME: {
         "description": "A single attempt to move money into your Stripe account by charging a payment source.",
         "docs_url": "https://stripe.com/docs/api/charges",
         "columns": _columns(
-            amount="Amount intended to be collected by this charge, in the smallest currency unit (e.g. cents).",
-            amount_captured="Amount actually captured from the charge, in the smallest currency unit.",
-            amount_refunded="Amount refunded from the charge, in the smallest currency unit.",
+            amount=_money(
+                "Amount intended to be collected by this charge, in the smallest currency unit (e.g. cents)."
+            ),
+            amount_captured=_money("Amount actually captured from the charge, in the smallest currency unit."),
+            amount_refunded=_money("Amount refunded from the charge, in the smallest currency unit."),
             currency="Three-letter ISO currency code of the charge, in lowercase.",
             customer="ID of the customer this charge is for, if one exists.",
             paid="Whether the charge has been fully paid.",
@@ -126,26 +145,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             subscription="ID of the subscription this invoice was prepared for, if any.",
             status="Status of the invoice: draft, open, paid, uncollectible, or void.",
             currency="Three-letter ISO currency code of the invoice, in lowercase.",
-            amount_due="Final amount due at this time for this invoice, in the smallest currency unit.",
-            amount_paid="Amount that was paid on this invoice, in the smallest currency unit.",
-            amount_remaining="Amount remaining to be paid on this invoice, in the smallest currency unit.",
-            total="Total of all line items and discounts on the invoice, in the smallest currency unit.",
-            subtotal="Total before any discounts or taxes are applied, in the smallest currency unit.",
+            amount_due=_money("Final amount due at this time for this invoice, in the smallest currency unit."),
+            amount_paid=_money("Amount that was paid on this invoice, in the smallest currency unit."),
+            amount_remaining=_money("Amount remaining to be paid on this invoice, in the smallest currency unit."),
+            total=_money("Total of all line items and discounts on the invoice, in the smallest currency unit."),
+            subtotal=_money("Total before any discounts or taxes are applied, in the smallest currency unit."),
             due_date="Date on which payment for this invoice is due, as a Unix timestamp.",
             paid="Whether the invoice has been paid.",
             number="Unique, user-facing reference number assigned to the invoice.",
             period_start="Start of the billing period covered by this invoice, as a Unix timestamp.",
             period_end="End of the billing period covered by this invoice, as a Unix timestamp.",
-            amount_shipping="Total amount of shipping charged on the invoice, in the smallest currency unit.",
+            amount_shipping=_money("Total amount of shipping charged on the invoice, in the smallest currency unit."),
             default_source="ID of the default payment source used to pay this invoice, if set.",
-            subtotal_excluding_tax="Subtotal of the invoice excluding tax, in the smallest currency unit.",
+            subtotal_excluding_tax=_money("Subtotal of the invoice excluding tax, in the smallest currency unit."),
         ),
     },
     INVOICE_ITEM_RESOURCE_NAME: {
         "description": "A one-off charge or credit added to a customer's upcoming invoice.",
         "docs_url": "https://stripe.com/docs/api/invoiceitems",
         "columns": _columns(
-            amount="Amount of the invoice item, in the smallest currency unit.",
+            amount=_money("Amount of the invoice item, in the smallest currency unit."),
             currency="Three-letter ISO currency code of the invoice item, in lowercase.",
             customer="ID of the customer the invoice item belongs to.",
             description="Free-form description that appears as a line item on the invoice.",
@@ -154,7 +173,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             proration="Whether the invoice item was created automatically as a proration adjustment.",
             quantity="Quantity of units for the invoice item.",
             subscription="ID of the subscription this invoice item was created for, if any.",
-            unit_amount="Per-unit amount of the invoice item, in the smallest currency unit.",
+            unit_amount=_money("Per-unit amount of the invoice item, in the smallest currency unit."),
             date="Date the invoice item was created, as a Unix timestamp.",
             subscription_item="ID of the subscription item this invoice item is associated with, if any.",
         ),
@@ -193,7 +212,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": _columns(
             product="ID of the product this price is for.",
             currency="Three-letter ISO currency code the price is set in, in lowercase.",
-            unit_amount="Amount charged per unit, in the smallest currency unit (e.g. cents).",
+            unit_amount=_money("Amount charged per unit, in the smallest currency unit (e.g. cents)."),
             active="Whether the price can be used for new purchases.",
             type="Whether the price is for a one_time purchase or a recurring subscription.",
             nickname="Brief internal description of the price, not shown to customers.",
@@ -204,9 +223,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A change to your Stripe account balance — a charge, refund, payout, or fee.",
         "docs_url": "https://stripe.com/docs/api/balance_transactions",
         "columns": _columns(
-            amount="Gross amount of the transaction, in the smallest currency unit.",
-            net="Net amount of the transaction after fees, in the smallest currency unit.",
-            fee="Fees (in the smallest currency unit) taken from this transaction.",
+            amount=_money("Gross amount of the transaction, in the smallest currency unit."),
+            net=_money("Net amount of the transaction after fees, in the smallest currency unit."),
+            fee=_money("Fees (in the smallest currency unit) taken from this transaction."),
             currency="Three-letter ISO currency code of the transaction, in lowercase.",
             type="Transaction type (e.g. charge, refund, payout, adjustment, stripe_fee).",
             status="Status of the transaction: available or pending.",
@@ -218,7 +237,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A customer's challenge of a charge with their card issuer (a chargeback) and its resolution.",
         "docs_url": "https://stripe.com/docs/api/disputes",
         "columns": _columns(
-            amount="Disputed amount, in the smallest currency unit (may be less than the original charge).",
+            amount=_money("Disputed amount, in the smallest currency unit (may be less than the original charge)."),
             currency="Three-letter ISO currency code of the dispute, in lowercase.",
             charge="ID of the charge that was disputed.",
             payment_intent="ID of the PaymentIntent that was disputed, if any.",
@@ -231,7 +250,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A refund of all or part of a charge back to the customer.",
         "docs_url": "https://stripe.com/docs/api/refunds",
         "columns": _columns(
-            amount="Amount refunded, in the smallest currency unit.",
+            amount=_money("Amount refunded, in the smallest currency unit."),
             currency="Three-letter ISO currency code of the refund, in lowercase.",
             charge="ID of the charge that was refunded.",
             payment_intent="ID of the PaymentIntent that was refunded, if any.",
@@ -244,7 +263,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A transfer of funds from your Stripe balance to your bank account or debit card.",
         "docs_url": "https://stripe.com/docs/api/payouts",
         "columns": _columns(
-            amount="Amount paid out, in the smallest currency unit.",
+            amount=_money("Amount paid out, in the smallest currency unit."),
             currency="Three-letter ISO currency code of the payout, in lowercase.",
             arrival_date="Date the payout is expected to arrive in the bank, as a Unix timestamp.",
             status="Status of the payout: paid, pending, in_transit, canceled, or failed.",
@@ -261,7 +280,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "An adjustment to an issued invoice that reduces the amount owed or refunds the customer.",
         "docs_url": "https://stripe.com/docs/api/credit_notes",
         "columns": _columns(
-            amount="Total amount of the credit note, in the smallest currency unit.",
+            amount=_money("Total amount of the credit note, in the smallest currency unit."),
             currency="Three-letter ISO currency code of the credit note, in lowercase.",
             customer="ID of the customer the credit note is for.",
             invoice="ID of the invoice the credit note adjusts.",
@@ -269,21 +288,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             number="Unique, user-facing reference number for the credit note.",
             reason="Reason for the credit note (duplicate, fraudulent, order_change, product_unsatisfactory).",
             type="Whether the credit note was issued pre_payment or post_payment.",
-            total="Total amount of the credit note including tax, in the smallest currency unit.",
+            total=_money("Total amount of the credit note including tax, in the smallest currency unit."),
             memo="Free-form memo shown to the customer on the credit note.",
-            post_payment_amount="Amount of the credit note that was issued after payment and refunded to the customer, in the smallest currency unit.",
+            post_payment_amount=_money(
+                "Amount of the credit note that was issued after payment and refunded to the customer, in the smallest currency unit."
+            ),
         ),
     },
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: {
         "description": "An adjustment to a single customer's credit balance (used toward or away from future invoices).",
         "docs_url": "https://stripe.com/docs/api/customer_balance_transactions",
         "columns": _columns(
-            amount="Amount of the transaction, in the smallest currency unit (negative reduces what the customer owes).",
+            amount=_money(
+                "Amount of the transaction, in the smallest currency unit (negative reduces what the customer owes)."
+            ),
             currency="Three-letter ISO currency code of the transaction, in lowercase.",
             customer="ID of the customer whose balance changed.",
             type="Reason for the balance change (e.g. adjustment, applied_to_invoice, credit_note, initial).",
             description="Free-form description of the balance transaction.",
-            ending_balance="The customer's balance after this transaction, in the smallest currency unit.",
+            ending_balance=_money("The customer's balance after this transaction, in the smallest currency unit."),
             invoice="ID of the invoice this transaction was applied to, if any.",
             checkout_session="ID of the Checkout Session that created this balance transaction, if any.",
         ),
@@ -317,7 +340,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://stripe.com/docs/api/coupons",
         "columns": _columns(
             name="Name of the coupon shown to customers on invoices and receipts.",
-            amount_off="Fixed amount discounted, in the smallest currency unit (mutually exclusive with percent_off).",
+            amount_off=_money(
+                "Fixed amount discounted, in the smallest currency unit (mutually exclusive with percent_off)."
+            ),
             percent_off="Percentage discounted off the invoice (mutually exclusive with amount_off).",
             currency="Three-letter ISO currency code for amount_off, in lowercase.",
             duration="How long the discount lasts: forever, once, or repeating.",
@@ -345,9 +370,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "The full lifecycle of collecting one payment, including attempts that never became a charge.",
         "docs_url": "https://stripe.com/docs/api/payment_intents",
         "columns": _columns(
-            amount="Amount intended to be collected, in the smallest currency unit (e.g. cents).",
-            amount_capturable="Amount that can still be captured from this PaymentIntent.",
-            amount_received="Amount this PaymentIntent has collected.",
+            amount=_money("Amount intended to be collected, in the smallest currency unit (e.g. cents)."),
+            amount_capturable=_money("Amount that can still be captured from this PaymentIntent."),
+            amount_received=_money("Amount this PaymentIntent has collected."),
             currency="Three-letter ISO currency code, in lowercase.",
             customer="ID of the customer this PaymentIntent belongs to, if one exists.",
             description="Arbitrary free-form description attached to the PaymentIntent.",
@@ -360,7 +385,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             latest_charge="ID of the most recent charge created by this PaymentIntent.",
             payment_method="ID of the payment method used in this PaymentIntent.",
             payment_method_types="Payment method types this PaymentIntent is allowed to use.",
-            application_fee_amount="Application fee requested on the payment and transferred to the platform account.",
+            application_fee_amount=_money(
+                "Application fee requested on the payment and transferred to the platform account."
+            ),
             receipt_email="Email address the receipt for the resulting payment is sent to.",
             review="ID of the Radar review associated with this PaymentIntent, if any.",
             setup_future_usage="Whether the payment method is being saved for future on-session or off-session payments.",
@@ -372,8 +399,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A customer's session paying through Stripe Checkout or a payment link, including sessions that were never completed.",
         "docs_url": "https://stripe.com/docs/api/checkout/sessions",
         "columns": _columns(
-            amount_subtotal="Total of all items before discounts and taxes are applied.",
-            amount_total="Total of all items after discounts and taxes are applied.",
+            amount_subtotal=_money("Total of all items before discounts and taxes are applied."),
+            amount_total=_money("Total of all items after discounts and taxes are applied."),
             currency="Three-letter ISO currency code, in lowercase.",
             customer="ID of the customer for this session.",
             customer_email="Email used to create the Customer object, if provided up front.",
@@ -445,8 +472,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://stripe.com/docs/api/plans",
         "columns": _columns(
             active="Whether the plan can be used for new purchases.",
-            amount="Unit amount charged, in the smallest currency unit. Only set when billing_scheme is per_unit.",
-            amount_decimal="Unit amount charged as a decimal string with up to 12 decimal places.",
+            amount=_money(
+                "Unit amount charged, in the smallest currency unit. Only set when billing_scheme is per_unit."
+            ),
+            amount_decimal=_money("Unit amount charged as a decimal string with up to 12 decimal places."),
             billing_scheme="How the price per period is computed: per_unit or tiered.",
             currency="Three-letter ISO currency code, in lowercase.",
             interval="Billing frequency: day, week, month, or year.",
@@ -497,8 +526,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A proposed set of prices for a customer that creates an invoice, subscription, or schedule once accepted.",
         "docs_url": "https://stripe.com/docs/api/quotes",
         "columns": _columns(
-            amount_subtotal="Total before any discounts or taxes are applied.",
-            amount_total="Total after discounts and taxes are applied.",
+            amount_subtotal=_money("Total before any discounts or taxes are applied."),
+            amount_total=_money("Total after discounts and taxes are applied."),
             currency="Three-letter ISO currency code, in lowercase.",
             customer="ID of the customer who received this quote.",
             number="Unique number identifying the quote, assigned once it is finalized.",
@@ -619,8 +648,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_COMMON_COLUMNS_NO_METADATA,
             "invoice": "ID of the invoice that was paid.",
             "payment": "The payment object, such as a PaymentIntent, that paid the invoice.",
-            "amount_requested": "Amount intended to be paid toward this invoice, in the smallest currency unit.",
-            "amount_paid": "Amount actually paid, in the smallest currency unit. Null until the payment is paid.",
+            "amount_requested": _money(
+                "Amount intended to be paid toward this invoice, in the smallest currency unit."
+            ),
+            "amount_paid": _money(
+                "Amount actually paid, in the smallest currency unit. Null until the payment is paid."
+            ),
             "currency": "Three-letter ISO currency code, in lowercase.",
             "status": "Status of the payment: open, paid, or canceled.",
             "status_transitions": "Timestamps of the payment's status changes.",
@@ -687,8 +720,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A movement of funds between Stripe accounts as part of Connect.",
         "docs_url": "https://stripe.com/docs/api/transfers",
         "columns": _columns(
-            amount="Amount transferred, in the smallest currency unit.",
-            amount_reversed="Amount reversed, in the smallest currency unit.",
+            amount=_money("Amount transferred, in the smallest currency unit."),
+            amount_reversed=_money("Amount reversed, in the smallest currency unit."),
             currency="Three-letter ISO currency code, in lowercase.",
             description="Arbitrary free-form description attached to the transfer.",
             destination="ID of the Stripe account the transfer was sent to.",
@@ -707,8 +740,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             **_COMMON_COLUMNS_NO_METADATA,
             "account": "ID of the Stripe account this fee was taken from.",
-            "amount": "Amount earned, in the smallest currency unit.",
-            "amount_refunded": "Amount of the fee refunded, in the smallest currency unit.",
+            "amount": _money("Amount earned, in the smallest currency unit."),
+            "amount_refunded": _money("Amount of the fee refunded, in the smallest currency unit."),
             "currency": "Three-letter ISO currency code, in lowercase.",
             "application": "ID of the Connect application that earned the fee.",
             "charge": "ID of the charge the application fee was taken from.",
@@ -723,7 +756,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A top-up that adds funds to your Stripe balance.",
         "docs_url": "https://stripe.com/docs/api/topups",
         "columns": _columns(
-            amount="Amount transferred, in the smallest currency unit.",
+            amount=_money("Amount transferred, in the smallest currency unit."),
             currency="Three-letter ISO currency code, in lowercase.",
             description="Arbitrary free-form description attached to the top-up.",
             status="Status of the top-up: canceled, failed, pending, reversed, or succeeded.",
