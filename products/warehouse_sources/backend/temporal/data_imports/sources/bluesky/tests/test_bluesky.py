@@ -29,10 +29,14 @@ class TestGetResource:
     def test_endpoint_shape(self, name: str, expected_path: str, expected_selector: str) -> None:
         resource = get_resource(name, actor="jay.bsky.team")
         endpoint = resource["endpoint"]
+        assert isinstance(endpoint, dict)
 
         assert endpoint["path"] == expected_path
         assert endpoint["data_selector"] == expected_selector
-        assert endpoint["params"]["actor"] == "jay.bsky.team"
+
+        params = endpoint["params"]
+        assert isinstance(params, dict)
+        assert params["actor"] == "jay.bsky.team"
 
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
@@ -41,7 +45,11 @@ class TestGetResource:
     def test_posts_excludes_replies(self) -> None:
         # Matches what most marketing/brand tracking cares about: the author's own content.
         resource = get_resource("Posts", actor="jay.bsky.team")
-        assert resource["endpoint"]["params"]["filter"] == "posts_no_replies"
+        endpoint = resource["endpoint"]
+        assert isinstance(endpoint, dict)
+        params = endpoint["params"]
+        assert isinstance(params, dict)
+        assert params["filter"] == "posts_no_replies"
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
