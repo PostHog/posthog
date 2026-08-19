@@ -187,7 +187,11 @@ jobs:
 
     build-storybook:
         name: Build Storybook (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
+        # lifecycle scripts, and Depot runners inject the org-wide sccache credentials ambiently
+        # (see ci-frontend.yml frontend-typescript-checks). Fork frontend PRs trade the larger
+        # runner for a build that can't exfiltrate the shared cache token.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
         # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
         # runner yields a slow-but-green build instead of a cancelled one that hard-fails
