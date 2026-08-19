@@ -21,6 +21,20 @@ const METRIC_NAME_LABEL: &str = "__name__";
 const JOB_LABEL: &str = "job";
 const INSTANCE_LABEL: &str = "instance";
 
+/// Approximate in-memory/Avro cost of one row beyond its label data (uuid,
+/// timestamps, type/temporality strings, map overhead). Used by
+/// [`estimate_expanded_bytes`] so a request full of near-empty samples still
+/// registers a per-row cost.
+const ROW_OVERHEAD_BYTES: u64 = 256;
+
+/// How much larger than the (already decompression-capped) request body the
+/// expanded row set may be. Row building clones the series label map per
+/// sample and the whole batch becomes a single Kafka message, so a 2 wire-byte
+/// sample expands to hundreds of bytes — legitimate senders (Prometheus
+/// defaults to 2k samples per send, vmagent to 10k rows per block) stay far
+/// below this; only expansion-bomb payloads exceed it.
+const MAX_EXPANSION_FACTOR: u64 = 16;
+
 /// Decode a snappy-compressed Prometheus remote-write v1 payload.
 ///
 /// Prometheus sends `Content-Encoding: snappy` using the snappy *block* format
@@ -51,16 +65,16 @@ pub fn decode_write_request(body: &[u8], max_decompressed_bytes: usize) -> Resul
 /// unchanged. One row is emitted per sample. Returns the rows and the number of
 /// samples whose timestamp was clamped by `override_timestamp`.
 pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u64) {
-    // Metric-family name -> declared type. Only populated when the sender
-    // includes the optional metadata block (vmagent and many agents omit it,
-    // so the name-suffix heuristic in `classify` is the primary path).
-    let metadata: HashMap<String, MetricType> = req
+    // Metric-family name -> declared (type, unit). Only populated when the
+    // sender includes the optional metadata block (vmagent and many agents
+    // omit it, so the name-suffix heuristic in `classify` is the primary path).
+    let metadata: HashMap<String, (MetricType, String)> = req
         .metadata
         .iter()
         .filter_map(|m| {
             MetricType::try_from(m.r#type)
                 .ok()
-                .map(|t| (m.metric_family_name.clone(), t))
+                .map(|t| (m.metric_family_name.clone(), (t, m.unit.clone())))
         })
         .collect();
 
@@ -102,8 +116,10 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
             continue;
         }
 
+        let declared = lookup_metadata(&metadata, &metric_name);
+        let unit = declared.map(|(_, u)| u.clone()).unwrap_or_default();
         let (metric_type, is_monotonic, temporality) =
-            classify(&metric_name, lookup_type(&metadata, &metric_name));
+            classify(&metric_name, declared.map(|(t, _)| *t));
 
         let series_fingerprint = compute_series_fingerprint(
             &metric_name,
@@ -141,7 +157,7 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
                 count: 1,
                 histogram_bounds: Vec::new(),
                 histogram_counts: Vec::new(),
-                unit: String::new(),
+                unit: unit.clone(),
                 aggregation_temporality: temporality.to_string(),
                 is_monotonic,
                 resource_attributes: resource_attributes.clone(),
@@ -155,21 +171,44 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
     (rows, timestamps_overridden)
 }
 
-/// Look up a declared metric type, falling back to the base family name —
+/// Look up declared metadata, falling back to the base family name —
 /// histogram/summary/counter families register under a base name while the
 /// exposed series append `_bucket`/`_sum`/`_count`/`_total`.
-fn lookup_type(metadata: &HashMap<String, MetricType>, name: &str) -> Option<MetricType> {
-    if let Some(t) = metadata.get(name) {
-        return Some(*t);
+fn lookup_metadata<'a>(
+    metadata: &'a HashMap<String, (MetricType, String)>,
+    name: &str,
+) -> Option<&'a (MetricType, String)> {
+    if let Some(m) = metadata.get(name) {
+        return Some(m);
     }
     for suffix in ["_bucket", "_sum", "_count", "_total"] {
         if let Some(base) = name.strip_suffix(suffix) {
-            if let Some(t) = metadata.get(base) {
-                return Some(*t);
+            if let Some(m) = metadata.get(base) {
+                return Some(m);
             }
         }
     }
     None
+}
+
+/// Approximate the bytes the request expands to as `KafkaMetricRow`s: every
+/// sample becomes a row carrying a clone of its series' label data plus fixed
+/// per-row overhead. Wire size bounds neither — a zero-valued `Sample` is 2
+/// wire bytes, and one fat label set is encoded once but cloned per sample —
+/// so this is checked against a multiple of the body limit before any row is
+/// built. Also keeps the single Kafka message the batch becomes bounded.
+pub fn estimate_expanded_bytes(req: &WriteRequest) -> u64 {
+    req.timeseries
+        .iter()
+        .map(|series| {
+            let label_bytes: u64 = series
+                .labels
+                .iter()
+                .map(|l| (l.name.len() + l.value.len()) as u64)
+                .sum();
+            (series.samples.len() as u64) * (ROW_OVERHEAD_BYTES + label_bytes)
+        })
+        .sum()
 }
 
 /// Infer (metric_type, is_monotonic, aggregation_temporality) for a series.
@@ -287,6 +326,22 @@ pub async fn export_prometheus_remote_write_http(
             ));
         }
     };
+
+    // 400, not 5xx: a batch that expands past the limit will never fit, so the
+    // sender must drop it rather than retry it forever.
+    let expanded = estimate_expanded_bytes(&write_request);
+    let max_expanded = MAX_EXPANSION_FACTOR * service.max_request_body_size_bytes as u64;
+    if expanded > max_expanded {
+        error!(
+            "Rejecting remote-write request expanding to ~{expanded} bytes (limit {max_expanded})"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("request expands to too many samples (~{expanded} > {max_expanded} bytes); send smaller batches")
+            })),
+        ));
+    }
 
     let (rows, timestamps_overridden) = write_request_to_kafka_rows(write_request);
     let row_count = rows.len();

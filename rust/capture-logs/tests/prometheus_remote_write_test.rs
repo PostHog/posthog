@@ -429,3 +429,129 @@ fn overridden_timestamps_do_not_split_series_identity() {
         "the synthetic $originalTimestamp attribute must not change identity"
     );
 }
+
+/// Declared metadata units must reach the row, including on decomposed
+/// component series that look up their family by stripped suffix.
+#[test]
+fn metadata_unit_reaches_rows() {
+    let req = WriteRequest {
+        timeseries: vec![
+            series(
+                vec![label("__name__", "req_duration"), label("job", "api")],
+                vec![Sample {
+                    value: 0.2,
+                    timestamp: now_ms(),
+                }],
+            ),
+            series(
+                vec![
+                    label("__name__", "req_duration_bucket"),
+                    label("job", "api"),
+                    label("le", "0.5"),
+                ],
+                vec![Sample {
+                    value: 3.0,
+                    timestamp: now_ms(),
+                }],
+            ),
+        ],
+        metadata: vec![MetricMetadata {
+            r#type: MetricType::Histogram as i32,
+            metric_family_name: "req_duration".to_string(),
+            help: String::new(),
+            unit: "seconds".to_string(),
+        }],
+    };
+
+    let (rows, _) = write_request_to_kafka_rows(req);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].unit, "seconds");
+    assert_eq!(rows[1].unit, "seconds", "suffix fallback carries the unit");
+}
+
+#[test]
+fn rows_without_metadata_have_empty_unit() {
+    let req = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "up"), label("job", "api")],
+            vec![Sample {
+                value: 1.0,
+                timestamp: now_ms(),
+            }],
+        )],
+        metadata: vec![],
+    };
+
+    let (rows, _) = write_request_to_kafka_rows(req);
+
+    assert_eq!(rows[0].unit, "");
+}
+
+/// A size-compliant body can still decode into a huge number of samples (a
+/// zero-valued Sample is 2 wire bytes), each of which becomes a row cloning
+/// the series label map — and the whole batch is one Kafka message. The
+/// expansion estimate must flag such payloads before any row is built.
+#[test]
+fn estimates_expansion_of_many_samples_and_fat_labels() {
+    use capture_logs::endpoints::prometheus::estimate_expanded_bytes;
+
+    // A realistic vmagent-sized batch stays far under a 16x cap on a 2 MiB body.
+    let realistic = WriteRequest {
+        timeseries: (0..1000)
+            .map(|i| {
+                series(
+                    vec![
+                        label("__name__", &format!("some_metric_{i}_total")),
+                        label("job", "api"),
+                        label("instance", "10.0.0.1:9100"),
+                        label("route", "/checkout/step/confirm"),
+                    ],
+                    (0..10)
+                        .map(|_| Sample {
+                            value: 1.0,
+                            timestamp: now_ms(),
+                        })
+                        .collect(),
+                )
+            })
+            .collect(),
+        metadata: vec![],
+    };
+    assert!(estimate_expanded_bytes(&realistic) < 16 * 2 * 1024 * 1024);
+
+    // One series, one million empty samples: tiny on the wire, enormous expanded.
+    let sample_bomb = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "m")],
+            vec![
+                Sample {
+                    value: 0.0,
+                    timestamp: 0,
+                };
+                1_000_000
+            ],
+        )],
+        metadata: vec![],
+    };
+    assert!(estimate_expanded_bytes(&sample_bomb) > 16 * 2 * 1024 * 1024);
+
+    // Fat label value cloned into tens of thousands of rows.
+    let label_bomb = WriteRequest {
+        timeseries: vec![series(
+            vec![
+                label("__name__", "m"),
+                label("blob", &"x".repeat(1024 * 1024)),
+            ],
+            vec![
+                Sample {
+                    value: 0.0,
+                    timestamp: 0,
+                };
+                50_000
+            ],
+        )],
+        metadata: vec![],
+    };
+    assert!(estimate_expanded_bytes(&label_bomb) > 16 * 2 * 1024 * 1024);
+}
