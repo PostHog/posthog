@@ -5937,13 +5937,13 @@ snapshots:
     scenes-app-data-management--ingestion-warnings--light:
         hash: v1.k794b7964.3209e00fefa6b56227f01db9fe3f231e0bef672e4fbae05757144510e79094f1.hzeCCQksEIyxI52va51UNvenmIlxwKNAFf21tLkD_MI
     scenes-app-data-management--warehouse-properties--dark:
-        hash: v1.k794b7964.665922080691f05ad35d117c89b0eb715ad678a707cb278892eb627eb2ff62c2.ESs6rHGY5A-Ss_ssl5SyF7uc98sfu2wZij4pmR6la18
+        hash: v1.k794b7964.ee5d8237fc9ebc790c7e71a71e01e1831e8f132caa2363d93ddae59ecfd6eaf8.j44UeGwvBsVjvX8fHyKOsRlpYvR9PRu9gUMayoeysRU
     scenes-app-data-management--warehouse-properties--light:
-        hash: v1.k794b7964.cbb43b5ac8dd2d367d44359ebfc3153294dfdb618b7663a5202d9fbfd14d77e6.3zG1301UKdyuoQRz9vTIjlLTTs8LygETMtOTsDK5UqA
+        hash: v1.k794b7964.119edaac6990f8debc3d44e00bd2a355642af239e35c11a4d7c6c1d4856c68be.RlUIPKdDbZoCIAxIPtqWcxv6fcd7EfgOQAuiYJRREjI
     scenes-app-data-management--warehouse-properties-groups-tab--dark:
-        hash: v1.k794b7964.e7a956ea10bc12b0665dacf6f77e06007c5c881e6af54e6253010a378d216f29.DG8_wQnqLMr-LisByo39mZnjiMBs5r22TzkUYIWBGhc
+        hash: v1.k794b7964.75e04bee3fdb59a1843eaa5161081a18503dab7819507ea18cdc58c1b6530a30.bp087q5qYwr2GjacmAfRqtEjwnzqO4qbBACRunoW5vM
     scenes-app-data-management--warehouse-properties-groups-tab--light:
-        hash: v1.k794b7964.64bfec93b16ecc0852691d8f407d19f27b5c3c07b3292ef7fe3eddf57e23c56d.pRBZME1SPf0vemOSwV41eu3dIa91C2E6c5r1imkukTI
+        hash: v1.k794b7964.055dad5f89f7a11a6b6d0bb732e7f9420d68508a00745e8de1fcf8b204450779.Ab4pvOaOoH-NBrU1x5hj1DJs--s5NlJM6B3cyqiWbNU
     scenes-app-data-management-actions--action--dark:
         hash: v1.k794b7964.00b57c65346e514c9454e88054c04eb8aef6f1093d64fdc46cbbef3604e7f2d6.89yiroC6COFhV4T8jtCoYYdBQat6ZW24vyN_AW3GRTI
     scenes-app-data-management-actions--action--light:
