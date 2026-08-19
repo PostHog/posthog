@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -182,6 +183,7 @@ export function DataTable({
         responseLoading,
         responseError,
         responseErrorObject,
+        responseErrorIsTransient,
         queryId,
         queryCancelled,
         nextDataLoading,
@@ -1012,6 +1014,14 @@ export function DataTable({
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
+                    {responseError && responseErrorIsTransient && (dataTableRows ?? []).length > 0 && (
+                        <LemonBanner
+                            type="warning"
+                            action={{ children: 'Retry', onClick: () => loadData('force_blocking') }}
+                        >
+                            Couldn't reach the server to refresh this table. The rows below may be out of date.
+                        </LemonBanner>
+                    )}
                     {showResultsTable && (
                         <div className="relative">
                             {usedWebAnalyticsLazyPrecompute ? (
@@ -1046,20 +1056,24 @@ export function DataTable({
                                                 query={query}
                                                 queryId={responseErrorObject?.queryId ?? queryId}
                                                 titleStatus={responseErrorObject?.status}
+                                                errorType={responseErrorIsTransient ? 'network' : 'server'}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
-                                                        : response && 'error' in response
-                                                          ? response.error
-                                                          : responseError
+                                                        : responseErrorIsTransient
+                                                          ? "Couldn't reach the server"
+                                                          : response && 'error' in response
+                                                            ? response.error
+                                                            : responseError
                                                 }
                                             />
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
+                                                errorType={responseErrorIsTransient ? 'network' : 'server'}
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )

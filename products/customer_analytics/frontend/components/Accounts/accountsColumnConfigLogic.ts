@@ -216,19 +216,32 @@ const SKIPPED_DIRECT_FIELD_TYPES = new Set([
     'unknown',
 ])
 
+// Join columns that render through a dedicated cell must use the alias that
+// `columnFromExpression` recognizes (`accountsTableQuery.ts`). Without this the
+// picker builds `accounts.tags.names AS names`, which the query plan drops, and
+// the alias mismatch also hides that the column is already selected — so the user
+// can add the tags (or notebook-count) column a second time and it renders blank.
+const JOIN_COLUMN_ALIASES: Record<string, string> = {
+    'tags.names': 'tag_names',
+    'notebooks.count': 'notebook_count',
+}
+
 function buildJoinOptions(
     fieldName: string,
     fields: string[],
     joinedTable: DatabaseSchemaTable | undefined
 ): AccountColumnOption[] {
-    return fields.map((name) => ({
-        name,
-        // `accounts.<join>.<col> AS <col>` — alias keeps the visible column
+    return fields.map((name) => {
+        // `accounts.<join>.<col> AS <alias>` — the alias keeps the visible column
         // name human-readable while disambiguating columns that collide with
         // direct fields (e.g. `name` on a joined table).
-        expression: `accounts.${fieldName}.${name} AS ${name}`,
-        type: joinedTable?.fields?.[name]?.type,
-    }))
+        const alias = JOIN_COLUMN_ALIASES[`${fieldName}.${name}`] ?? name
+        return {
+            name,
+            expression: `accounts.${fieldName}.${name} AS ${alias}`,
+            type: joinedTable?.fields?.[name]?.type,
+        }
+    })
 }
 
 function joinOptionsFromSchema(

@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { isNetworkError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
@@ -306,6 +307,7 @@ export interface dataNodeLogicValues {
         | TraceSpansQueryResponse
         | null
     responseError: string | null
+    responseErrorIsTransient: boolean
     responseErrorObject: Record<string, any> | null
     responseLoading: boolean
     shouldCalculateCount: boolean
@@ -1303,8 +1305,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         response: {
-            // Clear the response if a failure to avoid showing inconsistencies in the UI
-            loadDataFailure: () => null,
+            // Clear the response on a failure to avoid showing inconsistencies in the UI, but keep
+            // already-loaded rows when the request never reached the server: that blip may succeed
+            // on retry, so throwing the rows away would force the user to rebuild their view.
+            loadDataFailure: (state: any, { errorObject }: { errorObject?: any }) =>
+                isNetworkError(errorObject) ? state : null,
         },
         responseErrorObject: [
             null as Record<string, any> | null,
@@ -1312,6 +1317,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadDataFailure: (_, { errorObject }) => errorObject,
                 loadDataSuccess: () => null,
+            },
+        ],
+        responseErrorIsTransient: [
+            false,
+            {
+                loadData: () => false,
+                loadDataFailure: (_, { errorObject }) => isNetworkError(errorObject),
+                loadDataSuccess: () => false,
             },
         ],
         responseError: [

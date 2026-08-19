@@ -197,3 +197,12 @@ export class NetworkError extends ApiError {
         this.cause = cause
     }
 }
+
+/**
+ * Whether a failure means the request never reached the server, so the same call may well succeed
+ * on retry. Callers use this to keep already-loaded data on screen and offer a retry, rather than
+ * treating a connectivity blip as a server error that throws the data away.
+ */
+export function isNetworkError(error: unknown): error is NetworkError {
+    return error instanceof NetworkError
+}

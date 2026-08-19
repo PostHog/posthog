@@ -16,6 +16,7 @@ import {
     roleKeyToDefinitionMap,
     translateSelectColumns,
 } from './accountsColumnConfigLogic'
+import { columnFromExpression } from './accountsTableQuery'
 
 function definition(
     id: string,
@@ -150,6 +151,32 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
             'accounts.tags',
             'accounts.notebooks',
         ])
+    })
+
+    it('builds tags and notebook-count join options with the alias their dedicated cell recognizes', () => {
+        const table = (name: string, fields: Record<string, Record<string, unknown>>): DatabaseSchemaTable =>
+            ({ name, fields }) as unknown as DatabaseSchemaTable
+        const allTablesMap = {
+            'system.accounts': table('accounts', {
+                tags: { name: 'tags', type: 'lazy_table', table: 'account_tags', fields: ['names'] },
+                notebooks: {
+                    name: 'notebooks',
+                    type: 'lazy_table',
+                    table: 'account_notebooks',
+                    fields: ['count'],
+                },
+            }),
+            account_tags: table('account_tags', { names: { name: 'names', type: 'array' } }),
+            account_notebooks: table('account_notebooks', { count: { name: 'count', type: 'integer' } }),
+        }
+        const groups = buildAccountColumnGroups(allTablesMap)
+        const tagsExpression = groups.find((g) => g.key === 'accounts.tags')!.options[0].expression
+        const notebooksExpression = groups.find((g) => g.key === 'accounts.notebooks')!.options[0].expression
+
+        // A drifting alias (e.g. `AS names`) would make the query plan drop the column and the
+        // picker offer it a second time, rendering a blank duplicate.
+        expect(columnFromExpression(tagsExpression, {})).toEqual({ kind: 'tags' })
+        expect(columnFromExpression(notebooksExpression, {})).toEqual({ kind: 'note_count' })
     })
 
     it('translateSelectColumns resolves legacy roles through the lazy join and drops unmatched ones', () => {

@@ -90,9 +90,13 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
+            {/* The bar spans full width for the underline border, but only the tabs and the right
+                slot should be clickable — clicks on the empty area past the last tab do nothing and
+                register as dead clicks. Passing them through the bar narrows the hit area to the tabs.
+                When the tabs overflow, the inner list fills the bar, so horizontal scroll still works. */}
+            <ul className={cn('LemonTabs__bar pointer-events-none', barClassName)} role="tablist" ref={containerRef}>
                 <div
-                    className={cn('flex gap-x-4 md:gap-x-8', {
+                    className={cn('flex gap-x-4 md:gap-x-8 pointer-events-auto', {
                         'gap-x-2': size === 'small',
                         'pr-4': rightSlot,
                     })}
@@ -156,7 +160,7 @@ export function LemonTabs<T extends string | number>({
                 {rightSlot && (
                     <div
                         className={cn(
-                            'mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4',
+                            'mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4 pointer-events-auto',
                             rightSlotClassName
                         )}
                     >

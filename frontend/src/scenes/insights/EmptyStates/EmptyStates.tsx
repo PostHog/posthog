@@ -709,6 +709,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** A request that never reached the server is not a server fault: it reports as `network` and skips the apology. */
+    errorType?: 'server' | 'network'
     query?: Record<string, any> | Node | null
     queryId?: string | null
     excludeDetail?: boolean
@@ -721,6 +723,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    errorType = 'server',
     query,
     queryId,
     excludeDetail = false,
@@ -737,11 +740,16 @@ export function InsightErrorState({
     // query_id lets staff look the actual error up server-side
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
-            error_type: 'server',
+            error_type: errorType,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })
     })
+
+    if (errorType === 'network') {
+        // The request never reached the server, so there is nothing to apologize for or report.
+        excludeDetail = true
+    }
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances

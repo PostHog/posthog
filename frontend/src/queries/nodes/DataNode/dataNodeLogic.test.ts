@@ -1,5 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { NetworkError } from 'lib/api-error'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
@@ -91,6 +93,44 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
+    })
+
+    it('keeps loaded rows when a reload never reaches the server, but clears them on a server error', async () => {
+        const results = { results: [{ a: 1 }] }
+        mockedQuery.mockResolvedValueOnce(results)
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic).delay(0).toMatchValues({ response: partial(results) })
+
+        // A request that never reached the server is transient: the rows stay so a retry can recover them.
+        mockedQuery.mockRejectedValueOnce(new NetworkError('network'))
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp', 'person'],
+            }),
+        })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial(results), responseErrorIsTransient: true })
+
+        // A genuine server error still clears the rows and is not flagged as transient.
+        mockedQuery.mockRejectedValueOnce(new Error('boom'))
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp', 'person', 'distinct_id'],
+            }),
+        })
+        await expectLogic(logic).delay(0).toMatchValues({ response: null, responseErrorIsTransient: false })
     })
 
     it('can load new data if EventsQuery sorted by timestamp', async () => {
