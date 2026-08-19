@@ -36,13 +36,19 @@ from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_pre
 _METRICS = ["INP", "LCP", "CLS", "FCP"]
 
 
-def _series(metric: str, math: str = "p90", math_property: Optional[str] = None) -> EventsNode:
+def _series(
+    metric: str,
+    math: str = "p90",
+    math_property: Optional[str] = None,
+    math_multiplier: Optional[float] = None,
+) -> EventsNode:
     return EventsNode(
         event="$web_vitals",
         name="$web_vitals",
         custom_name=metric,
         math=math,
         math_property=math_property or f"$web_vitals_{metric}_value",
+        math_multiplier=math_multiplier,
     )
 
 
@@ -94,6 +100,10 @@ class TestVitalsTimeseriesGate(APIBaseTest):
             (
                 "total_value_display",
                 {"source_overrides": {"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE)}},
+            ),
+            (
+                "math_multiplier",
+                {"source_overrides": {"series": [_series(m, math_multiplier=2.0) for m in _METRICS]}},
             ),
             (
                 "breakdown",

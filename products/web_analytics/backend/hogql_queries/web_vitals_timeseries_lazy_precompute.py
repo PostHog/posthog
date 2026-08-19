@@ -162,6 +162,11 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
             return None
         if series.fixedProperties or series.properties:
             return None
+        # The live path multiplies the property before computing the percentile;
+        # the buckets store raw quantile state, so a multiplier would be silently
+        # ignored (same reason the sibling web_trends gate rejects it).
+        if series.math_multiplier is not None:
+            return None
         math = str(series.math) if series.math is not None else ""
         if math not in _MATH_TO_PCT_INDEX:
             return None
