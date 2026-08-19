@@ -28,10 +28,25 @@ import hashlib
 import subprocess
 import unicodedata
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, NoReturn
+from types import NoneType, UnionType
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    NoReturn,
+    NotRequired,
+    TypedDict,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 from urllib.parse import ParseResult, urlparse
 
 import click
@@ -64,11 +79,11 @@ _MIN_REF_PREFIX = 4
 # classifier's judgement in a second place.
 _STATE_MEANINGS: dict[str, str] = {
     "breaking_master": "failing on the default branch, and that job's latest run is still red",
-    "blocking_merge_queue": "failing only on merge-queue gate branches, holding up landings on a commit the PR's own CI passed",
+    "blocking_merge_queue": "failed only on merge-queue gate branches on a commit the PR's own CI passed",
     "novel_burst": "first seen within a day and already spreading across branches, not on trunk yet",
     "potentially_resolved": "hit the default branch but that job is green again",
     "flaky": "sporadic across two or more branches over more than a day",
-    "pr_only": "confined to one branch, so it is one PR's own problem",
+    "pr_only": "limited branch spread; confirm the current run before assigning it to a PR",
 }
 
 _SPARK_LEVELS = " ▁▂▃▄▅▆▇█"
@@ -97,6 +112,229 @@ _CAVEATS = (
     "Counts are absolute, never rates, because passing runs are not in this data.\n"
     "A run's conclusion can lag until GitHub's webhook settles it; confirm a specific run with `gh`."
 )
+
+
+_BrokenTestState = Literal[
+    "breaking_master",
+    "blocking_merge_queue",
+    "novel_burst",
+    "potentially_resolved",
+    "flaky",
+    "pr_only",
+]
+_FlakyTestClassification = Literal["confirmed_flake", "suspected_regression", "quarantined"]
+
+
+class _GitHubSource(TypedDict):
+    id: str
+    repo: str
+    prefix: str
+    synced: bool
+
+
+class _CurrentBranchHealth(TypedDict):
+    default_branch: str
+    settled_workflows: int
+    failing_workflows: int
+    failing_workflow_names: list[str]
+
+
+class _RepoRef(TypedDict):
+    provider: str
+    owner: str
+    name: str
+
+
+class _MasterFailureGroup(TypedDict):
+    repo: _RepoRef
+    workflow_name: str
+    failed_job: str
+    run_count: int
+    first_seen: str
+    last_seen: str
+    latest_run_id: int
+
+
+class _BrokenTestRow(TypedDict):
+    fingerprint: str
+    test_id: str
+    error_signature: str
+    job_name: str
+    repo: str
+    state: _BrokenTestState
+    first_seen: str
+    last_seen: str
+    occurrences: int
+    branches: int
+    master_hits: int
+    latest_run_id: int
+    latest_branch: str
+    trend_24h: list[int]
+
+
+class _BrokenTestSummary(TypedDict):
+    ref: str
+    fingerprint: str
+    test_id: str
+    error_signature: str
+    job_name: str
+    repo: str
+    state: _BrokenTestState
+    first_seen: str
+    last_seen: str
+    occurrences: int
+    branches: int
+    master_hits: int
+    latest_run_id: int
+    latest_branch: str
+
+
+class _BrokenTests(TypedDict):
+    rows: list[_BrokenTestRow]
+    breaking_master_jobs: list[str]
+    window_days: int
+    truncated: bool
+    limit: int
+
+
+class _FlakyTestItem(TypedDict):
+    runner: str
+    nodeid: str
+    selector: str
+    classification: _FlakyTestClassification
+    same_commit_recovery_run_count: int
+    failed_run_count: int
+    failed_pr_count: int
+    master_failed_run_count: int
+    quarantined_failed_run_count: int
+    last_signal_at: str
+
+
+class _FlakyTests(TypedDict):
+    items: list[_FlakyTestItem]
+    truncated: bool
+    limit: int
+
+
+class _BranchPRMatch(TypedDict):
+    repo: str
+    number: int
+    title: str | None
+    state: str | None
+
+
+class _FailureLogLine(TypedDict):
+    original_line: int | None
+    text: str
+
+
+class _FailureLogJob(TypedDict):
+    job_id: int
+    run_id: int
+    conclusion: str
+    branch: str
+    original_total_lines: int
+    line_count: int
+    lines: list[_FailureLogLine]
+    truncated: bool
+
+
+class _RunFailureLogs(TypedDict):
+    run_id: int
+    logs_available: bool
+    jobs: list[_FailureLogJob]
+    truncated: bool
+
+
+def _invalid_payload(action: str, path: str, expected: str) -> NoReturn:
+    raise _ApiError(f"{action} returned an invalid payload: {path} must be {expected}.")
+
+
+def _validate_payload(value: object, expected: object, action: str, path: str = "response") -> None:
+    origin = get_origin(expected)
+    if is_typeddict(expected):
+        if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+            _invalid_payload(action, path, "an object")
+        payload = cast(dict[str, object], value)
+        fields: dict[str, object] = get_type_hints(expected)
+        required = cast(frozenset[str], expected.__required_keys__)
+        for key in required:
+            if key not in payload:
+                _invalid_payload(action, f"{path}.{key}", "present")
+        for key, field_type in fields.items():
+            if key in payload:
+                _validate_payload(payload[key], field_type, action, f"{path}.{key}")
+        return
+    if origin is list:
+        if not isinstance(value, list):
+            _invalid_payload(action, path, "an array")
+        item_type = get_args(expected)[0]
+        for index, item in enumerate(value):
+            _validate_payload(item, item_type, action, f"{path}[{index}]")
+        return
+    if origin in {Union, UnionType}:
+        choices = get_args(expected)
+        if value is None and NoneType in choices:
+            return
+        remaining = tuple(choice for choice in choices if choice is not NoneType)
+        if len(remaining) == 1:
+            _validate_payload(value, remaining[0], action, path)
+            return
+    if origin is Literal:
+        if value not in get_args(expected):
+            _invalid_payload(action, path, f"one of {get_args(expected)!r}")
+        return
+    if expected is int:
+        if type(value) is not int:
+            _invalid_payload(action, path, "an integer")
+        return
+    if expected is bool:
+        if type(value) is not bool:
+            _invalid_payload(action, path, "a boolean")
+        return
+    if expected is str:
+        if not isinstance(value, str):
+            _invalid_payload(action, path, "a string")
+        return
+    raise TypeError(f"Unsupported API payload annotation: {expected!r}")
+
+
+def _parse_sources(value: object, action: str) -> list[_GitHubSource]:
+    expected = list[_GitHubSource]
+    _validate_payload(value, expected, action)
+    return cast(list[_GitHubSource], value)
+
+
+def _parse_current_branch_health(value: object, action: str) -> _CurrentBranchHealth:
+    _validate_payload(value, _CurrentBranchHealth, action)
+    return cast(_CurrentBranchHealth, value)
+
+
+def _parse_master_failures(value: object, action: str) -> list[_MasterFailureGroup]:
+    expected = list[_MasterFailureGroup]
+    _validate_payload(value, expected, action)
+    return cast(list[_MasterFailureGroup], value)
+
+
+def _parse_broken_tests(value: object, action: str) -> _BrokenTests:
+    _validate_payload(value, _BrokenTests, action)
+    return cast(_BrokenTests, value)
+
+
+def _parse_flaky_tests(value: object, action: str) -> _FlakyTests:
+    _validate_payload(value, _FlakyTests, action)
+    return cast(_FlakyTests, value)
+
+
+def _parse_branch_matches(value: object, action: str) -> list[_BranchPRMatch]:
+    expected = list[_BranchPRMatch]
+    _validate_payload(value, expected, action)
+    return cast(list[_BranchPRMatch], value)
+
+
+def _parse_run_failure_logs(value: object, action: str) -> _RunFailureLogs:
+    _validate_payload(value, _RunFailureLogs, action)
+    return cast(_RunFailureLogs, value)
 
 
 def _terminal_text(value: object) -> str:
@@ -136,7 +374,7 @@ def _fail(error: _ApiError) -> NoReturn:
     raise SystemExit(error.exit_code)
 
 
-def _request(url: str, *, token: str, params: dict[str, Any], timeout: float) -> requests.Response:
+def _request(url: str, *, token: str, params: dict[str, str | int], timeout: float) -> requests.Response:
     """One authenticated GET, and the only HTTP call in the module, so tests replace it wholesale."""
     return requests.get(
         url,
@@ -146,9 +384,10 @@ def _request(url: str, *, token: str, params: dict[str, Any], timeout: float) ->
     )
 
 
-def _parse(response: requests.Response, action: str) -> Any:
+def _parse(response: requests.Response, action: str) -> object:
     try:
-        return response.json()
+        payload: object = response.json()
+        return payload
     except ValueError as exc:
         raise _ApiError(f"{action} returned a non-JSON body: {exc}") from exc
 
@@ -208,7 +447,7 @@ class _Api:
     def bound(self, *, source_id: str, repo: str) -> _Api:
         return replace(self, source_id=source_id, repo=repo)
 
-    def get(self, action: str, **params: Any) -> Any:
+    def _get(self, action: str, **params: str | int) -> object:
         url = f"{self.host}/api/projects/{self.project_id}/engineering_analytics/{action}/"
         query = {"source_id": self.source_id, "repo": self.repo, **params}
         try:
@@ -223,6 +462,34 @@ class _Api:
         if response.status_code == 200:
             return _parse(response, action)
         raise _explain(response, action, host=self.host, project_id=self.project_id)
+
+    def sources(self) -> list[_GitHubSource]:
+        action = "sources"
+        return _parse_sources(self._get(action), action)
+
+    def current_branch_health(self) -> _CurrentBranchHealth:
+        action = "current_branch_health"
+        return _parse_current_branch_health(self._get(action), action)
+
+    def broken_tests(self) -> _BrokenTests:
+        action = "broken_tests"
+        return _parse_broken_tests(self._get(action), action)
+
+    def master_failures(self) -> list[_MasterFailureGroup]:
+        action = "master_failures"
+        return _parse_master_failures(self._get(action, date_from="-24h"), action)
+
+    def flaky_tests(self, *, days: int) -> _FlakyTests:
+        action = "flaky_tests"
+        return _parse_flaky_tests(self._get(action, date_from=f"-{days}d", limit=_FLAKY_SCAN_LIMIT), action)
+
+    def resolve_branch(self, *, branch: str) -> list[_BranchPRMatch]:
+        action = "resolve_branch"
+        return _parse_branch_matches(self._get(action, branch=branch), action)
+
+    def run_failure_logs(self, *, run_id: int) -> _RunFailureLogs:
+        action = "run_failure_logs"
+        return _parse_run_failure_logs(self._get(action, run_id=run_id), action)
 
 
 def _git(*args: str) -> str | None:
@@ -253,14 +520,14 @@ def _current_branch() -> str | None:
 def _resolve_source(api: _Api, repo: str | None) -> _Api:
     """Bind to the synced source for ``repo``, so a fork or unrelated checkout cannot
     silently report another repository's CI as if it were yours."""
-    entries = [entry for entry in api.get("sources") if isinstance(entry, dict)]
+    entries = api.sources()
     wanted = (repo or _origin_repo() or "").lower()
     if not wanted:
         raise _ApiError("Could not read an 'owner/name' repo from the origin remote. Pass --repo.")
     for entry in entries:
-        if str(entry.get("repo", "")).lower() == wanted and entry.get("synced"):
-            return api.bound(source_id=str(entry["id"]), repo=str(entry["repo"]))
-    readable = ", ".join(sorted(str(entry.get("repo")) for entry in entries if entry.get("synced"))) or "none"
+        if entry["repo"].lower() == wanted and entry["synced"]:
+            return api.bound(source_id=entry["id"], repo=entry["repo"])
+    readable = ", ".join(sorted(entry["repo"] for entry in entries if entry["synced"])) or "none"
     raise _ApiError(f"No synced GitHub source for {wanted} in project {api.project_id}. Readable repos: {readable}.")
 
 
@@ -274,7 +541,7 @@ def _ref(fingerprint: str) -> str:
     return hashlib.blake2s(fingerprint.encode(), digest_size=4).hexdigest()
 
 
-def _resolve_ref(rows: list[dict[str, Any]], ref: str) -> dict[str, Any]:
+def _resolve_ref(rows: list[_BrokenTestRow], ref: str) -> _BrokenTestRow:
     """The one row ``ref`` names, from a handle, handle prefix, full fingerprint, or test-id
     substring. Matching several rows is an error, never a guess at which one was meant."""
     lowered = ref.lower()
@@ -282,14 +549,12 @@ def _resolve_ref(rows: list[dict[str, Any]], ref: str) -> dict[str, Any]:
     if not candidates and len(ref) >= _MIN_REF_PREFIX:
         candidates = [row for row in rows if _ref(row["fingerprint"]).startswith(lowered)]
     if not candidates:
-        candidates = [row for row in rows if lowered in str(row.get("test_id", "")).lower()]
+        candidates = [row for row in rows if lowered in row["test_id"].lower()]
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
         raise _ApiError(f"No current failure matches {ref!r}. Refs come from `hogli ci:insights` or `search`.")
-    listed = "\n".join(
-        f"  {_ref(row['fingerprint'])}  {row.get('test_id')}" for row in candidates[:_MAX_LISTED_CANDIDATES]
-    )
+    listed = "\n".join(f"  {_ref(row['fingerprint'])}  {row['test_id']}" for row in candidates[:_MAX_LISTED_CANDIDATES])
     raise _ApiError(f"{ref!r} matches {len(candidates)} failures:\n{listed}")
 
 
@@ -331,35 +596,53 @@ def _term_width() -> int:
     return max(80, min(shutil.get_terminal_size((100, 24)).columns, 140))
 
 
-def _summarize_row(row: dict[str, Any]) -> dict[str, Any]:
+def _summarize_row(row: _BrokenTestRow) -> _BrokenTestSummary:
     """A row as this command reports it: with its ref, and without the hourly sparkline that
     dominates the endpoint's bytes."""
-    return {"ref": _ref(row["fingerprint"]), **{key: value for key, value in row.items() if key != "trend_24h"}}
+    return _BrokenTestSummary(
+        ref=_ref(row["fingerprint"]),
+        fingerprint=row["fingerprint"],
+        test_id=row["test_id"],
+        error_signature=row["error_signature"],
+        job_name=row["job_name"],
+        repo=row["repo"],
+        state=row["state"],
+        first_seen=row["first_seen"],
+        last_seen=row["last_seen"],
+        occurrences=row["occurrences"],
+        branches=row["branches"],
+        master_hits=row["master_hits"],
+        latest_run_id=row["latest_run_id"],
+        latest_branch=row["latest_branch"],
+    )
 
 
-def _capped(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+_ItemT = TypeVar("_ItemT")
+
+
+def _capped(rows: list[_ItemT], limit: int) -> list[_ItemT]:
     """`--limit 0` asks for every row."""
     return rows if limit == 0 else rows[:limit]
 
 
-def _render_rows(rows: list[dict[str, Any]]) -> None:
+def _render_rows(rows: list[_BrokenTestRow]) -> None:
     """The failure table shared by the digest and search."""
     test_width = max(24, _term_width() - 74)
     click.echo(f"  {'REF':<10}{'STATE':<22}{'OCC':>4}{'BR':>4}{'MSTR':>6}{'LAST':>7}  {'24H':<24}  TEST")
     for row in rows:
-        state = _terminal_text(row.get("state", "-"))
+        state = _terminal_text(row["state"])
         click.echo(
             f"  {_ref(row['fingerprint']):<10}{state:<22}"
-            f"{row.get('occurrences', 0):>4}{row.get('branches', 0):>4}{row.get('master_hits', 0):>6}"
-            f"{_ago(row.get('last_seen')):>7}  {_spark(row.get('trend_24h') or []):<24}  "
-            f"{_short(str(row.get('test_id', '')), test_width)}"
+            f"{row['occurrences']:>4}{row['branches']:>4}{row['master_hits']:>6}"
+            f"{_ago(row['last_seen']):>7}  {_spark(row['trend_24h']):<24}  "
+            f"{_short(row['test_id'], test_width)}"
         )
 
 
-def _render_master(health: dict[str, Any]) -> None:
-    failing = health.get("failing_workflows") or 0
-    settled = health.get("settled_workflows") or 0
-    branch = _terminal_text(health.get("default_branch") or "default branch")
+def _render_master(health: _CurrentBranchHealth) -> None:
+    failing = health["failing_workflows"]
+    settled = health["settled_workflows"]
+    branch = _terminal_text(health["default_branch"])
     label = f"{branch:<20}"
     # A read that succeeded with nothing behind it is not a green default branch. Rendering it as
     # OK claims every workflow passed, when the truth is that none has settled to be counted.
@@ -368,13 +651,13 @@ def _render_master(health: dict[str, Any]) -> None:
         return
     verdict = click.style("RED", fg="red", bold=True) if failing else click.style("OK", fg="green", bold=True)
     click.echo(f"{label}{verdict}    {failing} of {settled} workflows failing on their latest run")
-    for name in health.get("failing_workflow_names") or []:
+    for name in health["failing_workflow_names"]:
         click.echo(f"{'':<20}  {_terminal_text(name)}")
 
 
-def _render_broken(broken: dict[str, Any], *, limit: int) -> None:
-    rows = broken.get("rows") or []
-    click.echo(f"{'broken tests':<20}{len(rows)} distinct failures over {broken.get('window_days')}d")
+def _render_broken(broken: _BrokenTests, *, limit: int) -> None:
+    rows = broken["rows"]
+    click.echo(f"{'broken tests':<20}{len(rows)} distinct failures over {broken['window_days']}d")
     for state, count in _state_counts(rows).items():
         if count:
             click.echo(f"{'':<20}{state:<22}{count:>4}")
@@ -382,98 +665,118 @@ def _render_broken(broken: dict[str, Any], *, limit: int) -> None:
     if shown:
         click.echo("")
         _render_rows(shown)
-    if len(shown) < len(rows) or broken.get("truncated"):
-        cap = " (endpoint cap reached)" if broken.get("truncated") else ""
+    if len(shown) < len(rows) or broken["truncated"]:
+        cap = " (endpoint cap reached)" if broken["truncated"] else ""
         click.echo(f"\n  Showing {len(shown)} of {len(rows)}{cap}. `hogli ci:insights view <REF>` shows one failure.")
-    jobs = broken.get("breaking_master_jobs") or []
+    jobs = broken["breaking_master_jobs"]
     if jobs:
         click.echo(f"\n  Jobs red on the default branch now: {', '.join(_terminal_text(job) for job in jobs[:4])}")
 
 
-def _render_master_failures(groups: list[dict[str, Any]]) -> None:
+def _render_master_failures(groups: list[_MasterFailureGroup]) -> None:
     click.echo(f"{'master failures':<20}grouped over 24h, including runners without fingerprinting")
     if not groups:
         click.echo(f"{'':<20}none")
         return
     for group in groups[:_DIGEST_ROWS]:
         click.echo(
-            f"  {group.get('run_count', 0):>4}  {_short(str(group.get('workflow_name') or '-'), 22):<24}"
-            f"{_short(str(group.get('failed_job') or '(workflow level)'), 34):<36}"
-            f"{_ago(group.get('last_seen')):>7}  {group.get('latest_run_id', '-')}"
+            f"  {group['run_count']:>4}  {_short(group['workflow_name'], 22):<24}"
+            f"{_short(group['failed_job'] or '(workflow level)', 34):<36}"
+            f"{_ago(group['last_seen']):>7}  {group['latest_run_id']}"
         )
 
 
-def _render_branch(branch: str, matches: list[dict[str, Any]]) -> None:
+def _render_branch(branch: str, matches: list[_BranchPRMatch]) -> None:
     click.echo(f"{'your branch':<20}{_terminal_text(branch)}")
     if not matches:
         click.echo(f"{'':<20}no open PR found: not pushed yet, no open PR, or a fork")
         return
     for match in matches[:3]:
-        number = _terminal_text(match.get("number"))
-        state = _terminal_text(match.get("state") or "unknown")
-        title = _terminal_text(match.get("title") or "")
+        number = _terminal_text(match["number"])
+        state = _terminal_text(match["state"] or "unknown")
+        title = _terminal_text(match["title"] or "")
         click.echo(f"{'':<20}PR #{number} ({state}) {title}")
 
 
-def _state_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
-    return {state: sum(1 for row in rows if row.get("state") == state) for state in _STATE_MEANINGS}
+def _state_counts(rows: list[_BrokenTestRow]) -> dict[str, int]:
+    return {state: sum(1 for row in rows if row["state"] == state) for state in _STATE_MEANINGS}
+
+
+_PayloadT_co = TypeVar("_PayloadT_co", covariant=True)
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Section:
+class _Section(Generic[_PayloadT_co]):
     """One endpoint read: its payload, or the error standing in for it."""
 
-    data: Any = None
+    data: _PayloadT_co | None = None
     error: _ApiError | None = None
 
 
-_Sections = dict[str, _Section]
+class _DigestSections(TypedDict):
+    master: _Section[_CurrentBranchHealth]
+    broken: _Section[_BrokenTests]
+    master_failures: _Section[list[_MasterFailureGroup]]
+    branch: NotRequired[_Section[list[_BranchPRMatch]]]
 
 
-def _read(calls: dict[str, Callable[[], Any]]) -> _Sections:
-    """Read every section concurrently, so the whole read costs the slowest call.
-
-    Each section's error is kept beside its slot rather than raised, because one failed read must
-    not take the rest with it: a read is worth most during the partial outage that broke it.
-    """
-    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-        futures = {name: pool.submit(call) for name, call in calls.items()}
-    settled: _Sections = {}
-    for name, future in futures.items():
-        try:
-            settled[name] = _Section(data=future.result())
-        except _ApiError as exc:
-            settled[name] = _Section(error=exc)
-    return settled
+class _SearchSections(TypedDict):
+    broken: _Section[_BrokenTests]
+    flaky: _Section[_FlakyTests]
 
 
-def _unavailable(sections: _Sections, keys: dict[str, str]) -> dict[str, str]:
+_PayloadT = TypeVar("_PayloadT")
+
+
+def _settle(future: Future[_PayloadT]) -> _Section[_PayloadT]:
+    """Keep a section's error beside its slot so one failed read does not discard the rest."""
+    try:
+        return _Section(data=future.result())
+    except _ApiError as exc:
+        return _Section(error=exc)
+
+
+def _unavailable(sections: dict[str, _Section[object]], keys: dict[str, str]) -> dict[str, str]:
     """The sections that failed, keyed by the payload key each lands under, so a consumer can join
     the failure to the section it is missing. The internal names would not do: `broken` names
     nothing in the payload, and `branch` collides with the branch name."""
     return {keys[name]: section.error.message for name, section in sections.items() if section.error is not None}
 
 
-def _gather(api: _Api, branch: str | None) -> _Sections:
-    calls: dict[str, Callable[[], Any]] = {
-        "master": lambda: api.get("current_branch_health"),
-        "broken": lambda: api.get("broken_tests"),
-        "master_failures": lambda: api.get("master_failures", date_from="-24h"),
-    }
-    if branch:
-        calls["branch"] = lambda: api.get("resolve_branch", branch=branch)
-    sections = _read(calls)
-    errors = [section.error for section in sections.values() if section.error is not None]
+def _gather(api: _Api, branch: str | None) -> _DigestSections:
+    """Read every digest section concurrently, so the whole read costs the slowest call."""
+    with ThreadPoolExecutor(max_workers=4 if branch else 3) as pool:
+        master_future = pool.submit(api.current_branch_health)
+        broken_future = pool.submit(api.broken_tests)
+        master_failures_future = pool.submit(api.master_failures)
+        branch_future = pool.submit(api.resolve_branch, branch=branch) if branch else None
+    sections = _DigestSections(
+        master=_settle(master_future),
+        broken=_settle(broken_future),
+        master_failures=_settle(master_failures_future),
+    )
+    if branch_future is not None:
+        sections["branch"] = _settle(branch_future)
+    all_sections: list[_Section[object]] = [
+        sections["master"],
+        sections["broken"],
+        sections["master_failures"],
+    ]
+    if "branch" in sections:
+        all_sections.append(sections["branch"])
+    errors = [section.error for section in all_sections if section.error is not None]
     # A credential or flag problem is global rather than one section's bad luck, so surface it whole.
     fatal = next((error for error in errors if error.exit_code == _EXIT_NOT_CONFIGURED), None)
     # Degradation is for a partial outage. When nothing came back there is no digest to render, and
     # exiting 0 over a page of "unavailable" would read as "CI is fine".
-    if fatal or len(errors) == len(sections):
-        raise fatal or errors[0]
+    if fatal is not None:
+        raise fatal
+    if len(errors) == len(all_sections):
+        raise errors[0]
     return sections
 
 
-def _emit_json(payload: Any) -> NoReturn:
+def _emit_json(payload: object) -> NoReturn:
     click.echo(json.dumps(payload, indent=2, default=str))
     raise SystemExit(0)
 
@@ -601,33 +904,48 @@ def ci_insights(ctx: click.Context, **kwargs: Any) -> None:
         _digest(options)
 
 
-def _digest_payload(api: _Api, branch: str | None, sections: _Sections, limit: int) -> dict[str, Any]:
+def _digest_payload(api: _Api, branch: str | None, sections: _DigestSections, limit: int) -> dict[str, object]:
     """The digest as `--json` reports it, summarized rather than passed through."""
-    broken = sections["broken"].data or {}
-    rows = broken.get("rows") or []
+    broken = sections["broken"].data
+    rows = broken["rows"] if broken is not None else []
     shown = _capped(rows, limit)
+    unavailable_sections: dict[str, _Section[object]] = {
+        "master": sections["master"],
+        "broken": sections["broken"],
+        "master_failures": sections["master_failures"],
+    }
+    if "branch" in sections:
+        unavailable_sections["branch"] = sections["branch"]
     return {
         "repo": api.repo,
         "source_id": api.source_id,
         "branch": branch,
-        "unavailable": _unavailable(sections, _SECTION_KEYS),
+        "unavailable": _unavailable(unavailable_sections, _SECTION_KEYS),
         "master": sections["master"].data,
         # None, never a zero-filled section: a failed read rendered as `total: 0` is a complete,
         # well-formed claim that nothing is broken, and JSON is the default for every non-tty caller.
         "broken_tests": None
         if sections["broken"].error is not None
         else {
-            "window_days": broken.get("window_days"),
+            "window_days": broken["window_days"] if broken is not None else None,
             "total": len(rows),
             "shown": len(shown),
-            "truncated": bool(broken.get("truncated")),
+            "truncated": broken["truncated"] if broken is not None else False,
             "state_counts": _state_counts(rows),
-            "breaking_master_jobs": broken.get("breaking_master_jobs") or [],
+            "breaking_master_jobs": broken["breaking_master_jobs"] if broken is not None else [],
             "rows": [_summarize_row(row) for row in shown],
         },
         "master_failures": sections["master_failures"].data,
         "branch_pull_requests": sections["branch"].data if "branch" in sections else None,
     }
+
+
+def _render_section(label: str, section: _Section[_PayloadT], render: Callable[[_PayloadT], None]) -> None:
+    click.echo("")
+    if section.error is not None:
+        click.secho(f"{label:<20}(unavailable: {section.error.message})", fg="yellow")
+    elif section.data is not None:
+        render(section.data)
 
 
 def _digest(options: _Options) -> NoReturn:
@@ -641,22 +959,14 @@ def _digest(options: _Options) -> NoReturn:
     if options.emits_json():
         _emit_json(_digest_payload(api, branch, sections, options.limit))
 
-    renderers: dict[str, Callable[[Any], None]] = {
-        "master": _render_master,
-        "broken": lambda data: _render_broken(data, limit=options.limit),
-        "master_failures": _render_master_failures,
-    }
-    if branch:
-        renderers["branch"] = lambda data: _render_branch(branch, data)
-
     click.secho(f"{api.repo} · CI insights · {options.host}", bold=True)
-    for name, render in renderers.items():
-        section = sections[name]
-        click.echo("")
-        if section.error is not None:
-            click.secho(f"{_SECTION_LABELS[name]:<20}(unavailable: {section.error.message})", fg="yellow")
-        else:
-            render(section.data)
+    _render_section(_SECTION_LABELS["master"], sections["master"], _render_master)
+    _render_section(
+        _SECTION_LABELS["broken"], sections["broken"], lambda data: _render_broken(data, limit=options.limit)
+    )
+    _render_section(_SECTION_LABELS["master_failures"], sections["master_failures"], _render_master_failures)
+    if branch and "branch" in sections:
+        _render_section(_SECTION_LABELS["branch"], sections["branch"], lambda data: _render_branch(branch, data))
     click.echo(f"\n{_CAVEATS}")
     raise SystemExit(0)
 
@@ -680,13 +990,11 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
     needle = query.lower()
     try:
         api = _resolve_source(options.api(), options.repo)
-        sections = _read(
-            {
-                "broken": lambda: api.get("broken_tests"),
-                "flaky": lambda: api.get("flaky_tests", date_from=f"-{days}d", limit=_FLAKY_SCAN_LIMIT),
-            }
-        )
-        errors = [section.error for section in sections.values() if section.error is not None]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            broken_future = pool.submit(api.broken_tests)
+            flaky_future = pool.submit(api.flaky_tests, days=days)
+        sections = _SearchSections(broken=_settle(broken_future), flaky=_settle(flaky_future))
+        errors = [error for error in (sections["broken"].error, sections["flaky"].error) if error is not None]
         # One section failing must not discard the other: they are independent reads, and the digest
         # already degrades this way. Both failing means there is nothing to show.
         if len(errors) == len(sections):
@@ -694,22 +1002,22 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
     except _ApiError as exc:
         _fail(exc)
 
-    broken_payload = sections["broken"].data or {}
-    flaky_payload = sections["flaky"].data or {}
+    broken_payload = sections["broken"].data
+    flaky_payload = sections["flaky"].data
     broken = [
         row
-        for row in broken_payload.get("rows") or []
-        if any(needle in str(row.get(field, "")).lower() for field in ("test_id", "error_signature", "job_name"))
+        for row in (broken_payload["rows"] if broken_payload is not None else [])
+        if any(needle in value.lower() for value in (row["test_id"], row["error_signature"], row["job_name"]))
     ]
     flaky = [
         item
-        for item in flaky_payload.get("items") or []
-        if any(needle in str(item.get(field, "")).lower() for field in ("nodeid", "selector"))
+        for item in (flaky_payload["items"] if flaky_payload is not None else [])
+        if any(needle in value.lower() for value in (item["nodeid"], item["selector"]))
     ]
     shown_broken, shown_flaky = _capped(broken, options.limit), _capped(flaky, options.limit)
     source_truncated = {
-        "broken_tests": bool(broken_payload.get("truncated")),
-        "flaky_tests": bool(flaky_payload.get("truncated")),
+        "broken_tests": broken_payload["truncated"] if broken_payload is not None else False,
+        "flaky_tests": flaky_payload["truncated"] if flaky_payload is not None else False,
     }
     truncated_sections = [
         name
@@ -722,7 +1030,9 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
         _emit_json(
             {
                 "query": query,
-                "unavailable": _unavailable(sections, _SEARCH_SECTION_KEYS),
+                "unavailable": _unavailable(
+                    {"broken": sections["broken"], "flaky": sections["flaky"]}, _SEARCH_SECTION_KEYS
+                ),
                 "broken_tests": None
                 if sections["broken"].error is not None
                 else [_summarize_row(row) for row in shown_broken],
@@ -772,13 +1082,13 @@ def _note_truncation(shown: int, total: int, *, source_truncated: bool) -> None:
         click.echo(f"{'':<20}Endpoint cap reached; more matches may exist.")
 
 
-def _render_flaky(items: list[dict[str, Any]]) -> None:
+def _render_flaky(items: list[_FlakyTestItem]) -> None:
     click.echo(f"  {'CLASSIFICATION':<24}{'RUNS':>5}{'PRS':>5}{'MSTR':>6}  TEST")
     for item in items:
         click.echo(
-            f"  {item.get('classification', '-'):<24}{item.get('failed_run_count', 0):>5}"
-            f"{item.get('failed_pr_count', 0):>5}{item.get('master_failed_run_count', 0):>6}  "
-            f"{_short(str(item.get('selector') or item.get('nodeid', '')), max(24, _term_width() - 46))}"
+            f"  {item['classification']:<24}{item['failed_run_count']:>5}"
+            f"{item['failed_pr_count']:>5}{item['master_failed_run_count']:>6}  "
+            f"{_short(item['selector'] or item['nodeid'], max(24, _term_width() - 46))}"
         )
 
 
@@ -791,59 +1101,60 @@ def view(ctx: click.Context, ref: str, with_logs: bool, **kwargs: Any) -> NoRetu
     options = _options(ctx, kwargs)
     try:
         api = _resolve_source(options.api(), options.repo)
-        row = _resolve_ref((api.get("broken_tests") or {}).get("rows") or [], ref)
+        row = _resolve_ref(api.broken_tests()["rows"], ref)
         # The endpoint writes `latest_run_id or 0`, so 0 is "no run id recorded" rather than a run.
-        run_id = row.get("latest_run_id") or 0
-        logs = api.get("run_failure_logs", run_id=run_id) if with_logs and run_id else None
+        run_id = row["latest_run_id"]
+        logs = api.run_failure_logs(run_id=run_id) if with_logs and run_id else None
     except _ApiError as exc:
         _fail(exc)
     if options.emits_json():
         _emit_json({**_summarize_row(row), "logs": logs})
 
-    state = _terminal_text(row.get("state", ""))
-    click.secho(f"{_ref(row['fingerprint'])}  {_terminal_text(row.get('test_id'))}", bold=True)
+    state = _terminal_text(row["state"])
+    click.secho(f"{_ref(row['fingerprint'])}  {_terminal_text(row['test_id'])}", bold=True)
     click.echo(f"\n  {'state':<18}{state}: {_STATE_MEANINGS.get(state, 'unclassified')}")
-    for label, key in (
-        ("error", "error_signature"),
-        ("job", "job_name"),
-        ("repo", "repo"),
-        ("occurrences", "occurrences"),
-        ("branches", "branches"),
-        ("master hits", "master_hits"),
-        ("first seen", "first_seen"),
-        ("last seen", "last_seen"),
-        ("latest run", "latest_run_id"),
-        ("latest branch", "latest_branch"),
+    for label, value in (
+        ("error", row["error_signature"]),
+        ("job", row["job_name"]),
+        ("repo", row["repo"]),
+        ("occurrences", row["occurrences"]),
+        ("branches", row["branches"]),
+        ("master hits", row["master_hits"]),
+        ("first seen", row["first_seen"]),
+        ("last seen", row["last_seen"]),
+        ("latest run", row["latest_run_id"]),
+        ("latest branch", row["latest_branch"]),
     ):
-        click.echo(f"  {label:<18}{_terminal_text(row.get(key))}")
-    trend = row.get("trend_24h") or []
+        click.echo(f"  {label:<18}{_terminal_text(value)}")
+    trend = row["trend_24h"]
     click.echo(f"  {'last 24h':<18}{_spark(trend)}  ({sum(trend)} failures, oldest hour first)")
     if with_logs:
         if not run_id:
             click.echo("\n  No failure logs: this failure has no run id recorded, so there is nothing to fetch.")
         else:
-            # An empty dict renders the same "no logs" note as an empty response, so asking for
-            # logs never silently prints nothing.
-            _render_logs(logs or {})
+            if logs is not None:
+                _render_logs(logs)
     click.echo(f"\n{_CAVEATS}")
     raise SystemExit(0)
 
 
-def _render_logs(logs: dict[str, Any]) -> None:
+def _render_logs(logs: _RunFailureLogs) -> None:
     """The thinned failure region per failed job. Jobs carry an id but no name, so the run
     id and branch are the only anchors back to GitHub."""
-    if not logs.get("logs_available"):
+    if not logs["logs_available"]:
         click.echo("\n  No failure logs: the run did not fail, or its logs aged out of the short Logs retention.")
         return
-    for job in logs.get("jobs") or []:
-        job_id = _terminal_text(job.get("job_id"))
-        run_id = _terminal_text(job.get("run_id"))
-        conclusion = _terminal_text(job.get("conclusion"))
-        branch = _terminal_text(job.get("branch"))
+    for job in logs["jobs"]:
+        job_id = _terminal_text(job["job_id"])
+        run_id = _terminal_text(job["run_id"])
+        conclusion = _terminal_text(job["conclusion"])
+        branch = _terminal_text(job["branch"])
         click.echo(f"\n  job {job_id} · run {run_id} · {conclusion} · {branch}")
-        for line in job.get("lines") or []:
-            number = line.get("original_line")
-            text = _terminal_text(line.get("text", ""))
+        for line in job["lines"]:
+            number = line["original_line"]
+            text = _terminal_text(line["text"])
             click.echo(f"    {str(number) if number else '·':>7}  {text}")
-        if job.get("truncated"):
-            click.echo("    (per-job line cap reached)")
+        if job["truncated"]:
+            click.echo("    (job log output truncated)")
+    if logs["truncated"]:
+        click.echo("\n  Run log cap reached; later lines or jobs may be missing.")

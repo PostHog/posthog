@@ -20,10 +20,11 @@ case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
 Always start with the `hogli ci:insights` digest. It aggregates across runs and
-branches — which `gh` cannot do cheaply — and tells you whether a failure is
-yours, trunk-borne, or a known flake. `gh` is authoritative for one run's
-current state. Use the digest to decide _what_ is broken and _whose_ it is; use
-`gh` to read _exactly_ what failed in a given run.
+branches, which `gh` cannot do cheaply, and tells you whether a failure is
+likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
+authoritative for one run's current state and attribution. Use the digest to
+decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
+what failed in a given run.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
@@ -73,19 +74,24 @@ hogli ci:insights view <ref> --logs              # ...plus the failing log lines
   failing lines from that failure's latest run, which is usually enough to
   classify without touching `gh`.
 
-Read each row's `state` as the verdict:
+Read each row's `state` as a triage ranking:
 
-| State                  | Means                                                                 |
-| ---------------------- | --------------------------------------------------------------------- |
-| `breaking_master`      | failing on the default branch and that job's latest run is still red  |
-| `blocking_merge_queue` | failing only on merge-queue gate branches, so it is holding landings  |
-| `novel_burst`          | new within a day, already spreading across branches, not on trunk yet |
-| `potentially_resolved` | hit trunk but that job's latest run is green again                    |
-| `flaky`                | sporadic across two or more branches over more than a day             |
-| `pr_only`              | confined to one branch — one PR's own problem                         |
+| State                  | Means                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `breaking_master`      | failing on the default branch and that job's latest run is still red         |
+| `blocking_merge_queue` | failed only on merge-queue gate branches in the window                       |
+| `novel_burst`          | new within a day, already spreading across branches, not on trunk yet        |
+| `potentially_resolved` | hit trunk but that job's latest run is green again                           |
+| `flaky`                | sporadic across two or more branches over more than a day                    |
+| `pr_only`              | limited branch spread; job status may be missing or behind the failure lines |
 
 `potentially_resolved` is a hint, not a conclusion: confirm from run data before
 reporting a failure as already fixed.
+
+`blocking_merge_queue` proves a gate failure happened in the window, not that it
+still blocks landings. Check the current queue run with `gh` before reporting it
+as active. Likewise, confirm `pr_only` from the current run before assigning the
+failure to a PR; it is also the fallback when job status is missing or stale.
 
 Caveats to carry into whatever you report:
 

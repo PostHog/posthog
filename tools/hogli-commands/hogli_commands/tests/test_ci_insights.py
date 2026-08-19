@@ -54,7 +54,13 @@ _ROWS = [
     _row("products/logs/test_query.py::test_severity", state="pr_only"),
 ]
 
-_BROKEN = {"rows": _ROWS, "breaking_master_jobs": ["ci-backend / Django tests"], "window_days": 2, "truncated": False}
+_BROKEN = {
+    "rows": _ROWS,
+    "breaking_master_jobs": ["ci-backend / Django tests"],
+    "window_days": 2,
+    "truncated": False,
+    "limit": 200,
+}
 
 _MASTER_FAILURES = [
     {
@@ -75,9 +81,12 @@ _FLAKY = {
             "nodeid": "posthog/api/test/test_capture.py::test_event",
             "selector": "posthog/api/test/test_capture.py::TestCapture::test_event",
             "classification": "confirmed_flake",
+            "same_commit_recovery_run_count": 2,
             "failed_run_count": 12,
             "failed_pr_count": 5,
             "master_failed_run_count": 1,
+            "quarantined_failed_run_count": 0,
+            "last_signal_at": "2026-08-04T13:00:00Z",
         }
     ],
     "truncated": False,
@@ -272,6 +281,18 @@ def test_http_failures_become_actionable_messages(
     assert "Traceback" not in result.output
 
 
+def test_api_payload_schema_drift_is_reported_before_rendering(runner: CliRunner) -> None:
+    broken = {**_BROKEN, "rows": [{**_ROWS[0], "occurrences": "four"}]}
+    result = _invoke(
+        runner,
+        ["view", "test_capture", "--format", "text"],
+        _Recorder(overrides={"broken_tests": broken}),
+    )
+    assert result.exit_code == 1
+    assert "broken_tests returned an invalid payload" in result.output
+    assert "response.rows[0].occurrences must be an integer" in result.output
+
+
 # Reading an unsynced or unrelated source would report another repo's CI as yours.
 @pytest.mark.parametrize(
     "repo, expected",
@@ -311,7 +332,12 @@ def test_digest_reports_every_row_state_and_discloses_the_cap(runner: CliRunner)
 # it as OK claims every workflow passed, which is the "CI is fine" misreport this digest exists to
 # avoid, and the skills tell agents to report master health from here.
 def test_digest_does_not_call_the_default_branch_green_without_data(runner: CliRunner) -> None:
-    empty = {"default_branch": "master", "settled_workflows": 0, "failing_workflows": 0}
+    empty = {
+        "default_branch": "master",
+        "settled_workflows": 0,
+        "failing_workflows": 0,
+        "failing_workflow_names": [],
+    }
     recorder = _Recorder(overrides={"current_branch_health": empty})
     result = _invoke(runner, ["--format", "text"], recorder)
     assert result.exit_code == 0
@@ -511,6 +537,23 @@ def test_view_logs_reads_the_rows_latest_run(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert recorder.params_for("run_failure_logs")["run_id"] == _ROWS[0]["latest_run_id"]
     assert "FAILED x::y" in result.output
+
+
+def test_view_logs_discloses_the_run_level_cap_without_mislabeling_the_job(runner: CliRunner) -> None:
+    logs = {
+        **_PAYLOADS["run_failure_logs"],
+        "truncated": True,
+        "jobs": [{**_PAYLOADS["run_failure_logs"]["jobs"][0], "truncated": True}],
+    }
+    result = _invoke(
+        runner,
+        ["view", "test_capture", "--logs", "--format", "text"],
+        _Recorder(overrides={"run_failure_logs": logs}),
+    )
+    assert result.exit_code == 0
+    assert "Run log cap reached; later lines or jobs may be missing." in result.output
+    assert "(job log output truncated)" in result.output
+    assert "per-job line cap" not in result.output
 
 
 def test_view_logs_strips_terminal_control_characters(runner: CliRunner) -> None:
