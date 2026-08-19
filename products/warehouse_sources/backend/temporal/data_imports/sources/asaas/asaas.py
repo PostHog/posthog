@@ -97,6 +97,9 @@ def asaas_source(
                 "location": "header",
             },
             "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path="totalCount"),
+            # Reject redirects: the `access_token` header must never be replayed onto
+            # a host other than the one it was issued for.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {
@@ -131,7 +134,9 @@ def asaas_source(
 
 
 def validate_credentials(api_key: str, environment: str) -> bool:
-    res = make_tracked_session(redact_values=(api_key,)).get(
+    # allow_redirects=False: a redirect would forward the access_token header off
+    # the validated Asaas host.
+    res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
         f"{base_url(environment)}{API_PATH}/customers?limit=1",
         headers={"access_token": api_key},
     )
