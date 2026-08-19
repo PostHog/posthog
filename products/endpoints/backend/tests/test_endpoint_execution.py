@@ -173,8 +173,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
-            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_emit_signal,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -186,6 +186,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+        # User-caused query errors surface as a clean 400; they must not be captured as faults or
+        # mint a failure signal, or error tracking fills with customer-caused noise.
+        mock_capture.assert_not_called()
+        mock_emit_signal.assert_not_called()
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

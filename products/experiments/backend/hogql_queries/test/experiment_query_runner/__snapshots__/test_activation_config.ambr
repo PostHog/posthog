@@ -4,7 +4,7 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             any(flag_exposures.variant) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDate(parseDateTime64BestEffortOrNull(toString(min(toTimeZone(events.timestamp, 'UTC'))), 6, 'UTC')) AS day
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

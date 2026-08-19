@@ -2920,6 +2920,27 @@ class TestPrinter(BaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            # An ISO 8601 literal with a `T`/`Z` used to compile to `toDateOrNull`, which parses only
+            # `YYYY-MM-DD` and silently returned NULL — crashing downstream date math. It now parses
+            # best-effort like `toDateTime`, then narrows to a Date.
+            ("iso_with_tz", "toDate('2024-01-01T00:00:00Z')", "toDate(parseDateTime64BestEffort("),
+            ("date_only", "toDate('2024-01-01')", "toDate(toDateTime("),
+            ("string_column", "toDate(event)", "toDate(parseDateTime64BestEffortOrNull(events.event, 6, "),
+        ]
+    )
+    def test_to_date_string_parses_best_effort(self, _name: str, expr: str, expected_fragment: str):
+        sql = self._select(f"SELECT {expr} FROM events")
+        self.assertIn(expected_fragment, sql)
+        self.assertNotIn("toDateOrNull", sql)
+
+    def test_to_date_datetime_column_stays_bare(self):
+        # A DateTime argument still narrows with a plain `toDate` (no best-effort parse, no timezone arg).
+        sql = self._select("SELECT toDate(timestamp) FROM events")
+        self.assertIn("toDate(toTimeZone(events.timestamp", sql)
+        self.assertNotIn("parseDateTime64BestEffort", sql)
+
     def test_print_timezone_custom(self):
         self.team.timezone = "Europe/Brussels"
         self.team.save()
@@ -4106,7 +4127,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDate(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDate(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDate(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDate(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s)), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,

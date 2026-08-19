@@ -131,6 +131,14 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+def _is_customer_query_error(error: BaseException) -> bool:
+    """Errors that execute() turns into a clean 4xx, so handlers must not capture them or mint a
+    failure signal: cost guardrails plus HogQL/ClickHouse errors already classified as user-safe
+    (for example an unparseable date reaching ClickHouse). Capturing them floods error tracking
+    with customer-caused noise."""
+    return _is_query_guardrail_error(error) or isinstance(error, (ExposedHogQLError, ExposedCHQueryError))
+
+
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
     # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
     for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
@@ -827,8 +835,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Customer-caused errors are not faults: skip capture and let execute() classify them.
+            if _is_customer_query_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -935,8 +943,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Customer-caused errors are not faults: skip capture and let execute() classify them.
+            if _is_customer_query_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",

@@ -214,6 +214,7 @@ class ClickHousePrinter(BasePrinter):
                 args.append(self.visit(suffix_arg))
 
         relevant_clickhouse_name = func_meta.clickhouse_name
+        first_arg_constant_type = None
         if func_meta.overloads:
             # Prefer concrete fields/calls: transforms can leave a call's
             # recorded arg_types stale after fields are rewritten.
@@ -222,7 +223,6 @@ class ClickHousePrinter(BasePrinter):
             while isinstance(first_arg, ast.Alias):
                 first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = None
             if (
                 first_arg is not None
                 and first_arg.type is not None
@@ -243,8 +243,19 @@ class ClickHousePrinter(BasePrinter):
                         relevant_clickhouse_name = overload_clickhouse_name
                         break  # Found an overload matching the first function org
 
-        if func_meta.tz_aware:
-            has_tz_override = len(node.args) == func_meta.max_args
+        # `toDateOrNull` only reads `YYYY-MM-DD`; an ISO 8601 string with a `T` separator or a `Z`
+        # suffix becomes NULL, which then crashes downstream date math. Parse the string best-effort
+        # like `toDateTime` does, then narrow the parsed value to a Date.
+        parse_string_to_date = (
+            node.name in ("toDate", "to_date")
+            and relevant_clickhouse_name == "toDateOrNull"
+            and isinstance(first_arg_constant_type, StringType)
+        )
+        if parse_string_to_date:
+            relevant_clickhouse_name = "parseDateTime64BestEffortOrNull"
+
+        if func_meta.tz_aware or parse_string_to_date:
+            has_tz_override = len(node.args) == func_meta.max_args and not parse_string_to_date
 
             if not has_tz_override:
                 args.append(self.visit(ast.Constant(value=self._get_timezone())))
@@ -299,7 +310,11 @@ class ClickHousePrinter(BasePrinter):
         order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
         args_part = f"({', '.join(args)}{order_by_part})"
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
-        return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+        result = f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+        if parse_string_to_date:
+            # The best-effort parser yields a DateTime; narrow it to the Date `toDate` promises.
+            result = f"toDate({result})"
+        return result
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]
