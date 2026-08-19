@@ -232,6 +232,8 @@ def start_process_vision_action_workflow(
     team_id: int,
     *,
     scheduled_at: datetime,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the per-action processing workflow on demand ("Run now"); never raises.
 
@@ -239,6 +241,8 @@ def start_process_vision_action_workflow(
     an already-running run (scheduled or manual) rather than double-charging — ALREADY_RUNNING is
     returned in that case. The workflow never advances next_run_at, so the recurring schedule is
     untouched; passing scheduled_at=now just anchors this run's observation window at the present.
+    A window_start/window_end override makes this a one-off period summary over exactly that window
+    instead of "everything since the last run".
     """
     # Deferred: importing this triggers the vision_actions package __init__, which pulls the whole
     # engine (workflows + activities + LLM clients). Keep that off the API module-load path — only
@@ -255,6 +259,8 @@ def start_process_vision_action_workflow(
                 team_id=team_id,
                 scheduled_at=scheduled_at,
                 mode="group_summary",
+                window_start=window_start,
+                window_end=window_end,
             ),
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,

@@ -67,6 +67,8 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     idempotency_key=str(wf.uuid4()),
                     temporal_workflow_id=wf.info().workflow_id,
                     scheduled_at=inputs.scheduled_at,
+                    window_start=inputs.window_start,
+                    window_end=inputs.window_end,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=_RECORD_RETRY,

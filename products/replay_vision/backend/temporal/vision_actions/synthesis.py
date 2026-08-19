@@ -335,7 +335,7 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     # AFTER prepending: the header carries the free-text scanner name, so a name with link/image
     # markdown must be neutralized too, not just the LLM body.
     markdown = strip_external_links_markdown(
-        _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
+        _summary_header(action, batch.window_start, len(batch.lines), batch.window_total, batch.window_end) + markdown
     )
     # Link the header's scanner name to this run's page. Added after the strip pass (like the citation
     # links) so the PostHog URL survives on non-posthog.com hosts.
@@ -361,10 +361,22 @@ def _window_start(team: Team, action: VisionAction, run: VisionActionRun) -> dat
     run — or the first after a gap of failures — looks back 24h. Anchoring on the last *completed* run
     (not merely the previous run) means a failed run's observations are picked up by the next success
     rather than dropped.
+
+    A run with an explicit window ("summarize a period") uses that instead, and never anchors later
+    cadence runs: a period rollup deliberately overlaps history, so letting it advance the anchor
+    would punch a hole in the tiled cadence windows (everything between the last cadence run and the
+    rollup's trigger time would go unsummarized).
     """
+    if run.window_start is not None:
+        return run.window_start
     previous_run_at = (
         VisionActionRun.objects.for_team(team.id)
-        .filter(vision_action_id=action.id, status=VisionActionRunStatus.COMPLETED, scheduled_at__isnull=False)
+        .filter(
+            vision_action_id=action.id,
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at__isnull=False,
+            window_start__isnull=True,
+        )
         .exclude(pk=run.pk)
         .order_by("-scheduled_at")
         .values_list("scheduled_at", flat=True)
@@ -380,9 +392,10 @@ def _window_end(run: VisionActionRun) -> datetime:
     the same value makes consecutive windows tile exactly: an observation created after a run's
     scheduled tick but before the run actually executes (the scheduling/queue lag) is deferred to the
     next run instead of being summarized by both. Falls back to now() when scheduled_at is unset
-    (non-scheduled runs), preserving the previous open-ended upper bound.
+    (non-scheduled runs), preserving the previous open-ended upper bound. An explicit window_end
+    ("summarize a period") takes precedence over both.
     """
-    return run.scheduled_at or datetime.now(UTC)
+    return run.window_end or run.scheduled_at or datetime.now(UTC)
 
 
 def apply_observation_predicate(
@@ -429,6 +442,9 @@ class _ObservationBatch(NamedTuple):
     lines: list[str]
     observation_ids: list[str]
     window_start: datetime | None
+    # Set only for explicit-window runs, where the header shows the full period ("from X to Y") rather
+    # than the open-ended "since X" a cadence run gets.
+    window_end: datetime | None
     # Total SUCCEEDED observations in the window before the cap. When it exceeds the number summarized,
     # the report only covers a sample — surfaced in the header so the reader knows it isn't exhaustive.
     window_total: int
@@ -460,15 +476,18 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
             readable=len(scanner_ids),
         )
     if not scanner_ids:
-        return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0, facts_by_index={})
+        return _ObservationBatch(
+            lines=[], observation_ids=[], window_start=None, window_end=None, window_total=0, facts_by_index={}
+        )
 
     window_start = _window_start(team, action, run)
+    window_end = _window_end(run)
     observations_qs = ReplayObservation.objects.filter(
         team_id=team.id,
         scanner_id__in=scanner_ids,
         status=ObservationStatus.SUCCEEDED,
         created_at__gte=window_start,
-        created_at__lt=_window_end(run),
+        created_at__lt=window_end,
     )
     # Targeting ("run this on…") narrows the window BEFORE the count/cap/sampling below, so the header's
     # totals and the sampled batch reflect only the observations the action targets.
@@ -532,6 +551,10 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         lines=lines,
         observation_ids=observation_ids,
         window_start=window_start,
+        # An explicit period states the end the fetch was actually capped at (a start-only request is
+        # capped at its trigger time), so the header never claims coverage past what was fetched.
+        # Cadence runs keep the open-ended "since X" header.
+        window_end=window_end if run.window_start is not None else None,
         window_total=window_total,
         facts_by_index=facts_by_index,
     )
@@ -548,31 +571,48 @@ def _clean_scanner_name(action: VisionAction) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()<>{}]", "", raw_name)).strip() or "your scanner"
 
 
-def _summary_header(action: VisionAction, window_start: datetime | None, count: int, window_total: int = 0) -> str:
+def _action_timezone(action: VisionAction) -> tzinfo:
+    tz_name = action.trigger_config.get("timezone") if isinstance(action.trigger_config, dict) else None
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            return UTC  # timezone is validated on write, but never let a bad value break synthesis
+    return UTC
+
+
+def _format_header_instant(instant: datetime, tz: tzinfo) -> str:
+    # e.g. "Jun 30, 2026 at 10:00 AM PDT". Avoid %-d/%-I (POSIX-only, ValueError on Windows) —
+    # build the no-leading-zero form portably instead.
+    local = instant.astimezone(tz)
+    return f"{local.strftime('%b')} {local.day}, {local.year} at {local.strftime('%I:%M %p %Z').lstrip('0')}"
+
+
+def _summary_header(
+    action: VisionAction,
+    window_start: datetime | None,
+    count: int,
+    window_total: int = 0,
+    window_end: datetime | None = None,
+) -> str:
     """A trusted one-line preface stating which scanner this summary is for, how many recordings it
-    covers, and the window's start — the "summary for scans since <prev run>" context the reader needs.
-    When the window held more observations than the cap, it says so ("sampled N of M") so the reader
-    knows the report covers only a sample of the period, not every observation."""
+    covers, and the window it spans — the "summary for scans since <prev run>" context the reader
+    needs. A cadence run's window is open-ended ("since X"); an explicit-window run states the full
+    period ("from X to Y"). When the window held more observations than the cap, it says so
+    ("sampled N of M") so the reader knows the report covers only a sample of the period, not every
+    observation."""
     scanner_name = _clean_scanner_name(action)
     noun = "recording" if count == 1 else "recordings"
     # When the period held more observations than the cap, only `count` were summarized — say so.
     coverage = f"sampled {count} of {window_total:,} {noun}" if window_total > count else f"{count} {noun}"
-    since = ""
+    period = ""
     if window_start is not None:
-        tz: tzinfo = UTC
-        tz_name = action.trigger_config.get("timezone") if isinstance(action.trigger_config, dict) else None
-        if tz_name:
-            try:
-                tz = ZoneInfo(tz_name)
-            except Exception:
-                tz = UTC  # timezone is validated on write, but never let a bad value break synthesis
-        # e.g. "since Jun 30, 2026 at 10:00 AM PDT". Avoid %-d/%-I (POSIX-only, ValueError on Windows) —
-        # build the no-leading-zero form portably instead.
-        local = window_start.astimezone(tz)
-        since = (
-            f" since {local.strftime('%b')} {local.day}, {local.year} at {local.strftime('%I:%M %p %Z').lstrip('0')}"
-        )
-    return f"**Summary for {scanner_name}** — {coverage}{since}\n\n"
+        tz = _action_timezone(action)
+        if window_end is not None:
+            period = f" from {_format_header_instant(window_start, tz)} to {_format_header_instant(window_end, tz)}"
+        else:
+            period = f" since {_format_header_instant(window_start, tz)}"
+    return f"**Summary for {scanner_name}** — {coverage}{period}\n\n"
 
 
 def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:

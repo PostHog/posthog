@@ -22,6 +22,7 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerDigestLogic } from '../scannerDigestLogic'
 import { resolveObservationCitations } from '../visionActionRunSceneLogic'
+import { SummarizePeriodModal } from './SummarizePeriodModal'
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -62,7 +63,8 @@ export function ScannerDigestCard({
         runningNow,
         runInProgress,
     } = useValues(logic)
-    const { createDigest, promoteDigest, toggleExpanded, toggleActionEnabled, runNow } = useActions(logic)
+    const { createDigest, promoteDigest, toggleExpanded, toggleActionEnabled, runNow, openPeriodModal } =
+        useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
     // Disable Run now while a run is actually processing (not just during the trigger request). A
@@ -186,6 +188,15 @@ export function ScannerDigestCard({
                         <LemonButton
                             type="secondary"
                             size="small"
+                            onClick={openPeriodModal}
+                            disabledReason={editDisabledReason}
+                            data-attr="vision-scanner-digest-summarize-period-empty"
+                        >
+                            Summarize a period
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
                             to={urls.replayVisionActionEdit(digest.id)}
                             data-attr="vision-scanner-digest-edit"
                         >
@@ -193,6 +204,7 @@ export function ScannerDigestCard({
                         </LemonButton>
                     </div>
                 </div>
+                <SummarizePeriodModal scannerId={scannerId} scannerName={scannerName} />
             </CardShell>
         )
     }
@@ -249,6 +261,15 @@ export function ScannerDigestCard({
                 >
                     {runInProgress ? 'Running…' : 'Run now'}
                 </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={openPeriodModal}
+                    disabledReason={editDisabledReason}
+                    data-attr="vision-scanner-digest-summarize-period"
+                >
+                    Summarize a period
+                </LemonButton>
                 {!delivers && (
                     <LemonButton
                         size="xsmall"
@@ -268,6 +289,7 @@ export function ScannerDigestCard({
                     View history
                 </LemonButton>
             </div>
+            <SummarizePeriodModal scannerId={scannerId} scannerName={scannerName} />
         </CardShell>
     )
 }

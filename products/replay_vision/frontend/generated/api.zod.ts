@@ -384,6 +384,31 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('A Replay Vision action: a scheduled \"and then…\" automation over a scanner\'s observations.')
 
 /**
+ * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+ * observations since the last summary (or the last 24h), or over an explicit window_start/window_end
+ * period when one is given in the body. The recurring schedule is untouched: the engine advances
+ * next_run_at only at scheduled claim time, never in the run itself.
+ */
+export const VisionActionsRunCreateBody = /* @__PURE__ */ zod
+    .object({
+        window_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Summarize observations recorded from this instant (inclusive) instead of since the last summary. ISO 8601 datetime.'
+            ),
+        window_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now.'
+            ),
+    })
+    .describe(
+        "Optional explicit observation window for POST \/vision\/actions\/{id}\/run\/. With no body the run\ncovers everything since the action's last summary (or the last 24h); with a window it becomes a\none-off period summary over exactly that range, leaving the recurring schedule and its windows\nuntouched."
+    )
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreateBodyFeedbackDefault = ``

@@ -43,6 +43,7 @@ import type {
     ReplayScannerBackfillApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
+    RunActionRequestApi,
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
@@ -192,17 +193,21 @@ export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
 
 /**
  * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
- * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
- * engine advances next_run_at only at scheduled claim time, never in the run itself.
+ * observations since the last summary (or the last 24h), or over an explicit window_start/window_end
+ * period when one is given in the body. The recurring schedule is untouched: the engine advances
+ * next_run_at only at scheduled claim time, never in the run itself.
  */
 export const visionActionsRunCreate = async (
     projectId: string,
     id: string,
+    runActionRequestApi?: RunActionRequestApi,
     options?: RequestInit
 ): Promise<RunActionResponseApi> => {
     return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(runActionRequestApi),
     })
 }
 

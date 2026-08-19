@@ -171,4 +171,58 @@ describe('scannerDigestLogic', () => {
         expect(posted).toBe(true)
         expect(logic.values.runningNow).toBe(false)
     })
+
+    it('summarizePeriod posts the resolved window and closes the modal on success', async () => {
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let body: any = null
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': async ({ request }: { request: Request }) => {
+                    body = await request.json()
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openPeriodModal()
+            logic.actions.setPeriodRange('-7d', null)
+            logic.actions.summarizePeriod()
+        })
+            .toDispatchActions(['summarizePeriodDone'])
+            .toFinishAllListeners()
+        // The DateFilter tokens must reach the API as concrete ISO instants; the backend takes no
+        // tokens. '-7d' anchors at the start of that day (relative_date_parse semantics), so pin the
+        // ballpark rather than an exact offset.
+        const dayMs = 24 * 60 * 60 * 1000
+        expect(Date.parse(body.window_start)).toBeGreaterThan(Date.now() - 8 * dayMs)
+        expect(Date.parse(body.window_start)).toBeLessThan(Date.now() - 6 * dayMs)
+        expect(Date.parse(body.window_end)).toBeCloseTo(Date.now(), -4)
+        expect(logic.values.periodModalOpen).toBe(false)
+        expect(logic.values.summarizingPeriod).toBe(false)
+    })
+
+    it('summarizePeriod keeps the modal open when the server coalesced onto a running digest', async () => {
+        // The requested period did not start in that case; closing the modal would misread as success.
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': () => [
+                    202,
+                    { workflow_id: 'wf-1', already_running: true },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openPeriodModal()
+            logic.actions.summarizePeriod()
+        })
+            .toDispatchActions(['summarizePeriodDone'])
+            .toFinishAllListeners()
+        expect(logic.values.periodModalOpen).toBe(true)
+        expect(logic.values.summarizingPeriod).toBe(false)
+    })
 })

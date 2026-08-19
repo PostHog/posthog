@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +18,7 @@ from products.replay_vision.backend.api.vision_actions import (
     MAX_DELIVERY_TARGETS,
     MAX_ENABLED_ALERTS_PER_SCANNER,
     DeliveryTargetSerializer,
+    RunActionRequestSerializer,
     _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
@@ -760,6 +763,9 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")
         self.assertIsNotNone(inputs.scheduled_at)  # anchors the window at "now"
+        # A body-less run keeps the derived window (backwards compatible with pre-window clients).
+        self.assertIsNone(inputs.window_start)
+        self.assertIsNone(inputs.window_end)
 
         # The run must not advance the recurring schedule — that only happens at scheduled claim time.
         action.refresh_from_db()
@@ -803,6 +809,69 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         start_workflow = mock_async_to_sync.return_value
         start_workflow.assert_not_called()
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_with_explicit_window_passes_it_into_the_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        action = self._summary()
+
+        resp = self.client.post(
+            self._run_url(str(action.id)),
+            {"window_start": "2026-06-01T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 202, resp.content)
+
+        inputs = start_workflow.call_args.args[1]
+        self.assertEqual(inputs.window_start, datetime(2026, 6, 1, tzinfo=UTC))
+        self.assertEqual(inputs.window_end, datetime(2026, 7, 1, tzinfo=UTC))
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_rejects_an_invalid_window_before_starting_anything(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Wiring guard for the endpoint; the validation matrix lives in TestRunActionRequestSerializer.
+        action = self._summary()
+        resp = self.client.post(self._run_url(str(action.id)), {"window_end": "2026-07-01T00:00:00Z"}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        mock_async_to_sync.return_value.assert_not_called()
+
+
+class TestRunActionRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_body", {}, True),
+            ("start_only", {"window_start": "2026-06-01T00:00:00Z"}, True),
+            ("full_window", {"window_start": "2026-06-01T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"}, True),
+            ("end_without_start", {"window_end": "2026-07-01T00:00:00Z"}, False),
+            (
+                "end_equal_to_start",
+                {"window_start": "2026-07-01T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"},
+                False,
+            ),
+            ("end_before_start", {"window_start": "2026-07-02T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"}, False),
+            ("not_a_datetime", {"window_start": "last month"}, False),
+            ("start_only_in_the_future", {"window_start": "2026-08-01T00:00:00Z"}, False),
+            (
+                "window_longer_than_the_cap",
+                {"window_start": "2025-06-01T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"},
+                False,
+            ),
+            ("start_only_longer_than_the_cap", {"window_start": "2025-06-01T00:00:00Z"}, False),
+        ]
+    )
+    @freeze_time("2026-07-15T00:00:00Z")
+    def test_window_shape(self, _label: str, body: dict[str, Any], expected_valid: bool) -> None:
+        # An inverted, half-specified, future-starting, or over-long window would silently synthesize
+        # an empty or unboundedly expensive summary; it must be rejected in-memory before any workflow
+        # is started. Time is frozen because a missing end defaults to now.
+        self.assertEqual(RunActionRequestSerializer(data=body).is_valid(), expected_valid)
 
 
 class TestDeliveryTargetSerializer(SimpleTestCase):

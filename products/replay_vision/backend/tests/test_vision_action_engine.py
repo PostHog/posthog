@@ -207,6 +207,26 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(first, second)
         self.assertEqual(VisionActionRun.all_teams.filter(idempotency_key="key-x").count(), 1)
 
+    def test_create_run_persists_the_explicit_window(self) -> None:
+        # Dropping the window on the run row would silently turn a period summary back into a
+        # "since the last run" digest; synthesis reads the window from the row, not the inputs.
+        action = _action(self.team)
+        window_start = timezone.now() - timedelta(days=30)
+        window_end = timezone.now()
+        run_id = act._create_run(
+            CreateVisionActionRunInputs(
+                vision_action_id=action.id,
+                team_id=self.team.id,
+                idempotency_key="key-w",
+                temporal_workflow_id="wf-1",
+                window_start=window_start,
+                window_end=window_end,
+            )
+        )
+        run = VisionActionRun.all_teams.get(pk=run_id)
+        self.assertEqual(run.window_start, window_start)
+        self.assertEqual(run.window_end, window_end)
+
     @parameterized.expand(
         [
             ("not_found",),

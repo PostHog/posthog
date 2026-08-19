@@ -48,6 +48,10 @@ class ProcessVisionActionInputs(BaseModel, frozen=True):
     scheduled_at: datetime | None = None
     # ActionMode value picking the evaluation step (group-summary synthesis vs alert condition).
     mode: str = "group_summary"
+    # Explicit observation window for a one-off "summarize a period" run; None derives the window
+    # from the previous completed run as usual.
+    window_start: datetime | None = None
+    window_end: datetime | None = None
 
 
 class AlertStatus(str, Enum):
@@ -76,6 +80,8 @@ class CreateVisionActionRunInputs(BaseModel, frozen=True):
     idempotency_key: str
     temporal_workflow_id: str
     scheduled_at: datetime | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
 
 
 class ValidateVisionActionInputs(BaseModel, frozen=True):
