@@ -8,17 +8,11 @@ export interface QueryRange {
 }
 
 /**
- * Split a multi-statement SQL input into individual queries by splitting on
- * semicolons that are outside of string literals, comments, and parenthesized
- * blocks (subqueries, CTEs, function calls).
+ * Offsets of the semicolons that separate top-level statements, skipping those inside string
+ * literals, comments, and parenthesized blocks (subqueries, CTEs, function calls).
  */
-export function splitQueries(input: string): QueryRange[] {
-    if (!input.trim()) {
-        return []
-    }
-
-    const ranges: QueryRange[] = []
-    let segmentStart = 0
+function findSeparatorOffsets(input: string): number[] {
+    const separators: number[] = []
     let i = 0
     let parenDepth = 0
 
@@ -97,27 +91,71 @@ export function splitQueries(input: string): QueryRange[] {
         }
 
         if (ch === ';' && parenDepth === 0) {
-            const segment = input.slice(segmentStart, i)
-            const trimmed = segment.trim()
-            if (trimmed) {
-                const trimStart = segmentStart + segment.indexOf(trimmed)
-                ranges.push({ query: trimmed, start: trimStart, end: trimStart + trimmed.length })
-            }
-            segmentStart = i + 1
+            separators.push(i)
         }
 
         i++
     }
 
-    // Remaining text after last semicolon
-    const segment = input.slice(segmentStart)
-    const trailing = segment.trim()
-    if (trailing) {
-        const trimStart = segmentStart + segment.indexOf(trailing)
-        ranges.push({ query: trailing, start: trimStart, end: trimStart + trailing.length })
+    return separators
+}
+
+/**
+ * Split a multi-statement SQL input into individual queries, one per top-level semicolon.
+ * Each range covers the trimmed statement text, so the whitespace around a statement sits
+ * outside it. Segments holding no statement text are dropped.
+ */
+export function splitQueries(input: string): QueryRange[] {
+    if (!input.trim()) {
+        return []
+    }
+
+    const ranges: QueryRange[] = []
+    for (const { start, end } of statementSegments(input)) {
+        const segment = input.slice(start, end)
+        const trimmed = segment.trim()
+        if (trimmed) {
+            const trimStart = start + segment.indexOf(trimmed)
+            ranges.push({ query: trimmed, start: trimStart, end: trimStart + trimmed.length })
+        }
     }
 
     return ranges
+}
+
+/**
+ * The half-open text spans between the top-level semicolons, including the whitespace around
+ * each statement. A cursor at `end` sits on the separator itself, which still belongs to the
+ * statement before it.
+ */
+function statementSegments(input: string): { start: number; end: number }[] {
+    const segments: { start: number; end: number }[] = []
+    let start = 0
+    for (const separator of findSeparatorOffsets(input)) {
+        segments.push({ start, end: separator })
+        start = separator + 1
+    }
+    segments.push({ start, end: input.length })
+
+    return segments
+}
+
+/**
+ * Find the statement the cursor is editing, as the raw text between the semicolons surrounding it.
+ * The whitespace around a statement belongs to it, so a cursor resting after a trailing space still
+ * resolves to the statement it follows. Offsets are not trimmed, which keeps a position measured
+ * against the full input valid once `start` is subtracted from it.
+ *
+ * Returns null when the cursor sits in a segment that holds no statement text yet, such as directly
+ * after a semicolon.
+ */
+export function findStatementAtOffset(input: string, cursorOffset: number): QueryRange | null {
+    const segment = statementSegments(input).find(({ start, end }) => cursorOffset >= start && cursorOffset <= end)
+    if (!segment || !input.slice(segment.start, segment.end).trim()) {
+        return null
+    }
+
+    return { query: input.slice(segment.start, segment.end), start: segment.start, end: segment.end }
 }
 
 /**
@@ -146,17 +184,4 @@ export function findQueryAtCursor(queries: QueryRange[], cursorOffset: number): 
     }
 
     return best ?? queries[0]
-}
-
-/**
- * Find the query that fully contains the given character range, without the
- * nearest-preceding fallback of `findQueryAtCursor`. Returns null when the range
- * straddles a statement boundary or sits in the whitespace between statements.
- */
-export function findQueryContainingRange(
-    queries: QueryRange[],
-    startOffset: number,
-    endOffset: number
-): QueryRange | null {
-    return queries.find((q) => startOffset >= q.start && endOffset <= q.end) ?? null
 }

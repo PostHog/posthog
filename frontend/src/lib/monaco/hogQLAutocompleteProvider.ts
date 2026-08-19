@@ -12,7 +12,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
-import { findQueryContainingRange, splitQueries } from './multiQueryUtils'
+import { findStatementAtOffset, splitQueries } from './multiQueryUtils'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
@@ -121,7 +121,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         // Send just the statement under the cursor, with the offsets rebased onto it.
         // Single-statement documents are still sent whole so a trailing `;` behaves as before.
         const statements = type === HogLanguage.hogQL ? splitQueries(queryText) : []
-        const statement = statements.length > 1 ? findQueryContainingRange(statements, startOffset, endOffset) : null
+        const statement = statements.length > 1 ? findStatementAtOffset(queryText, model.getOffsetAt(position)) : null
         const statementOffset = statement?.start ?? 0
 
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(

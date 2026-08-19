@@ -1,4 +1,4 @@
-import { findQueryAtCursor, findQueryContainingRange, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
+import { findQueryAtCursor, findStatementAtOffset, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 
 describe('multiQueryUtils', () => {
     describe('splitQueries', () => {
@@ -178,20 +178,26 @@ FROM persons`
         })
     })
 
-    describe('findQueryContainingRange', () => {
-        const queries: QueryRange[] = [
-            { query: 'SELECT 1', start: 0, end: 8 },
-            { query: 'SELECT 2', start: 10, end: 18 },
-        ]
+    describe('findStatementAtOffset', () => {
+        const input = 'SELECT 1;\n  SELECT 2 '
 
-        it.each<[string, number, number, number | null]>([
-            ['range inside a query', 14, 18, 1],
-            ['range in the gap between queries', 9, 9, null],
-            ['range straddling a boundary', 7, 11, null],
-        ])('%s', (_, startOffset, endOffset, expectedIndex) => {
-            expect(findQueryContainingRange(queries, startOffset, endOffset)).toBe(
-                expectedIndex === null ? null : queries[expectedIndex]
-            )
+        it.each<[string, number, string | null]>([
+            ['cursor inside a statement', 16, '\n  SELECT 2 '],
+            ['cursor after a trailing space', 21, '\n  SELECT 2 '],
+            ['cursor on the separator', 8, 'SELECT 1'],
+            ['cursor directly after the separator', 9, '\n  SELECT 2 '],
+        ])('%s', (_, cursorOffset, expected) => {
+            expect(findStatementAtOffset(input, cursorOffset)?.query ?? null).toBe(expected)
+        })
+
+        it('returns null when the segment holds no statement text', () => {
+            expect(findStatementAtOffset('SELECT 1;\n', 10)).toBeNull()
+        })
+
+        it('keeps offsets rebasable onto the returned statement', () => {
+            const statement = findStatementAtOffset(input, 21)!
+            expect(input.slice(statement.start, statement.end)).toBe(statement.query)
+            expect(21 - statement.start).toBe(statement.query.length)
         })
     })
 })
