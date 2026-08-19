@@ -2377,6 +2377,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -5766,6 +5767,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_export',
     'batch_import',
     'batch_import_support',
+    'billing',
     'business_knowledge',
     'canvas',
     'clickhouse_test_cluster_perf',
@@ -5964,15 +5966,15 @@ export type AccessControlResponseType = {
     inherited_access?: InheritedAccessType | null
 }
 
-export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
-
 export interface EffectiveAccessControlEntry {
+    /** The subject's own stored rule, if any — what the settings UI edits. */
     access_level: AccessControlLevel | null
+    /** What the subject actually gets, as enforced. */
     effective_access_level: AccessControlLevel | null
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_reason: InheritedAccessLevelReason | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
+    /** What the subject would get if their own rule were removed, with the rule that decides
+     * it — resolved by the same walker that enforces access. Null only when nothing sits above
+     * the object's own default (a project's default). */
+    inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }
