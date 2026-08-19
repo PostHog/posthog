@@ -37,9 +37,9 @@ logger = structlog.get_logger(__name__)
 
 @frozen
 class Budget:
-    """A bucket's shape: ``burst`` is the capacity, ``per_hour`` the refill rate."""
-
+    # Capacity: the most tokens the bucket can hold, so the biggest burst a caller gets.
     burst: int
+    # Refill rate, as tokens per hour.
     per_hour: int
 
     def __post_init__(self) -> None:
@@ -129,24 +129,32 @@ redis.call('HSET', KEYS[1], 'tokens', tokens)
 return math.floor(tokens)
 """
 
-_consume_script: Script | None = None
-_refund_script: Script | None = None
+
+@frozen
+class _Scripts:
+    consume: Script
+    refund: Script
 
 
-def _scripts() -> tuple[Script, Script]:
-    global _consume_script, _refund_script
-    if _consume_script is None or _refund_script is None:
+_registered_scripts: _Scripts | None = None
+
+
+def _scripts() -> _Scripts:
+    global _registered_scripts
+    if _registered_scripts is None:
         client = get_client()
-        _consume_script = client.register_script(_CONSUME_LUA)
-        _refund_script = client.register_script(_REFUND_LUA)
-    return _consume_script, _refund_script
+        _registered_scripts = _Scripts(
+            consume=client.register_script(_CONSUME_LUA),
+            refund=client.register_script(_REFUND_LUA),
+        )
+    return _registered_scripts
 
 
 def consume(key: str, budget: Budget, cost: int = 1) -> BucketDecision | BucketUnavailable:
     """Atomically refill the bucket and take ``cost`` tokens if available."""
     if cost < 1 or cost > budget.burst:
         raise ValueError(f"cost must be between 1 and burst ({budget.burst}), got {cost}")
-    consume_script, _ = _scripts()
+    consume_script = _scripts().consume
     try:
         allowed, remaining, retry_after_ms, reset_ms = consume_script(
             keys=[key],
@@ -168,7 +176,7 @@ def refund(key: str, budget: Budget, cost: int = 1) -> int | BucketUnavailable:
     """Give ``cost`` tokens back, capped at capacity. Returns the new whole-token count."""
     if cost < 1:
         raise ValueError(f"cost must be >= 1, got {cost}")
-    _, refund_script = _scripts()
+    refund_script = _scripts().refund
     try:
         return int(refund_script(keys=[key], args=[budget.burst, cost]))
     except RedisError as e:
@@ -206,6 +214,5 @@ def peek(key: str, budget: Budget) -> BucketDecision | BucketUnavailable:
 
 def TEST_reset_scripts() -> None:
     """Drop cached script bindings so tests that swap the redis client re-register."""
-    global _consume_script, _refund_script
-    _consume_script = None
-    _refund_script = None
+    global _registered_scripts
+    _registered_scripts = None
