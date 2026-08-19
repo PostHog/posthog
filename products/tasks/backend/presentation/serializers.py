@@ -2028,6 +2028,7 @@ class TaskUsageResponseSerializer(serializers.Serializer):
 
 
 class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team identifier used to scope attributed model generations.")
     task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
     task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
 
