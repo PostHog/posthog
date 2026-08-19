@@ -189,11 +189,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 : humanFriendlyDuration(durationMs / 1000)
             : null
 
-    // Filters carried over from the scanner's observations table; preserved on prev/next so
-    // navigation (and the server-computed neighbor ids) stay within the filtered list.
+    // Filters carried over from the scanner's observations table; the curated set drives the
+    // server-computed neighbor ids, while the full search params ride along on prev/next so the
+    // scanner breadcrumb can still restore the list's tab, page, and every filter afterwards.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
+    const observationUrl = (id: string): string => observationDetailUrl(id, searchParams)
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {

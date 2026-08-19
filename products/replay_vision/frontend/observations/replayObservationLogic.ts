@@ -39,7 +39,7 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
-export function observationDetailUrl(id: string, filterParams: Record<string, string | number>): string {
+export function observationDetailUrl(id: string, filterParams: Record<string, unknown>): string {
     return combineUrl(urls.replayVisionObservation(id), filterParams).url
 }
 

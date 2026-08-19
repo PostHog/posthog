@@ -1,6 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -19,7 +19,9 @@ import {
     ObservationTriggeredByValue,
     ObservationVerdictValue,
     replayScannerLogic,
+    scannerObservationsReturnUrl,
     shouldGuardScannerNavigation,
+    sortParamFromOrderBy,
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
@@ -1367,6 +1369,72 @@ describe('replayScannerLogic', () => {
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
                 expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
+        })
+    })
+
+    describe('sortParamFromOrderBy', () => {
+        // The detail URL carries the resolved order_by DB key; the list restores its sort from the
+        // column key. A drift between the forward and reverse maps would drop the sort on the way back.
+        it.each<[string, string | undefined]>([
+            ['created_at', 'created_at'],
+            ['-created_at', '-created_at'],
+            ['scanner_version', 'version'],
+            ['recording_subject_email', 'recording_subject'],
+            ['result_confidence', 'confidence'],
+            ['result_score', 'result'],
+            ['-result_verdict', '-result'],
+            ['unknown_key', undefined],
+            ['', undefined],
+        ])('translates order_by %p to sort %p', (orderBy, expected) => {
+            expect(sortParamFromOrderBy(orderBy)).toBe(expected)
+        })
+    })
+
+    describe('scannerObservationsReturnUrl', () => {
+        // The core triage-loop fix: returning from an observation must land back on the filtered
+        // Observations tab, not a blank Overview.
+        it('carries the tab, filters, page, and translated sort into the scanner URL', () => {
+            const { searchParams } = combineUrl(
+                scannerObservationsReturnUrl('sid', {
+                    status: 'failed',
+                    verdict: 'no',
+                    date_from: '-7d',
+                    backfill_id: 'bf-1',
+                    page: '3',
+                    order_by: '-result_score',
+                })
+            )
+            expect(searchParams).toEqual({
+                tab: 'observations',
+                status: 'failed',
+                verdict: 'no',
+                date_from: '-7d',
+                backfill_id: 'bf-1',
+                page: 3,
+                sort: '-result',
+            })
+        })
+
+        it('restores the list page, sort, and filters when pushed back to the scanner logic', async () => {
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                router.actions.push(
+                    scannerObservationsReturnUrl('sid', {
+                        status: 'failed',
+                        date_from: '2026-05-04',
+                        page: '2',
+                        order_by: '-scanner_version',
+                    })
+                )
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationsPage).toBe(2)
+                expect(sidLogic.values.observationStatusFilter).toEqual(['failed'])
+                expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
+                expect(sidLogic.values.observationsSort).toEqual({ columnKey: 'version', order: -1 })
             } finally {
                 sidLogic.unmount()
             }

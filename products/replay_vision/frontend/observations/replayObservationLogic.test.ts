@@ -1,5 +1,7 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -60,6 +62,21 @@ describe('replayObservationLogic', () => {
             expect(logic.values.retrying).toBe(false)
             // Staying put would poll a deleted id and toast an error per tick.
             expect(router.values.location.pathname).toContain('/replay-vision/scanner-9')
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it('scanner breadcrumb returns to the filtered observations tab, not a blank Overview', async () => {
+        router.actions.push(urls.replayVisionObservation('obs-1'), { status: 'failed', order_by: '-scanner_version' })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(sceneLogic).toDispatchActions(['setScannerContext'])
+            const crumb = sceneLogic.values.breadcrumbs.find((b) => b.key === 'scanner-scanner-9')
+            expect(crumb).toBeTruthy()
+            const { searchParams } = combineUrl(crumb!.path as string)
+            expect(searchParams).toEqual({ tab: 'observations', status: 'failed', sort: '-version' })
         } finally {
             logic.unmount()
         }

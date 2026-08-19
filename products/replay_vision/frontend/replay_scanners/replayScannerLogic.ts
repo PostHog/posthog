@@ -15,7 +15,7 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 
@@ -73,6 +73,7 @@ import {
     replaceExperimentExposureFilter,
 } from './experimentTargeting'
 import { consumeGoalDraftIntent } from './goalDraftIntent'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -177,6 +178,19 @@ export function resolveOrderByKey(columnKey: string, scannerType: ScannerType | 
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
     return STATIC_ORDER_KEYS[columnKey] ?? null
+}
+
+// Inverse of resolveOrderByKey. The detail URL carries the resolved `order_by` DB key, but the
+// list URL restores its sort from the column key. Derived from the forward maps so a new sort
+// column can never drift the two apart.
+const SORT_COLUMN_KEY_BY_ORDER_KEY: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(STATIC_ORDER_KEYS).map(([columnKey, orderKey]) => [orderKey, columnKey])),
+    ...Object.fromEntries(Object.values(RESULT_ORDER_KEY_BY_TYPE).map((orderKey) => [orderKey, 'result'])),
+}
+
+/** Translate a detail-URL `order_by` token back into the list URL's `sort` token, or undefined when unknown. */
+export function sortParamFromOrderBy(orderBy: unknown): string | undefined {
+    return serializeSortParam(parseSortParam(orderBy, (key) => SORT_COLUMN_KEY_BY_ORDER_KEY[key] ?? null))
 }
 
 interface ObservationFilterValues {
@@ -684,7 +698,8 @@ export interface replayScannerLogicMeta {
             observationDateTo: string | null,
             observationBackfillFilter: string | null,
             observationsSort: ObservationsSorting | null,
-            scanner: ScannerFormValues
+            scanner: ScannerFormValues,
+            observationsPage: number
         ) => Record<string, number | string>
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
         observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
@@ -1335,6 +1350,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationBackfillFilter,
                 s.observationsSort,
                 s.scanner,
+                s.observationsPage,
             ],
             (
                 observationStatusFilter: ObservationStatusValue[],
@@ -1348,9 +1364,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationDateTo: string | null,
                 observationBackfillFilter: string | null,
                 observationsSort: ObservationsSorting | null,
-                scanner: ReplayScanner | null
-            ): Record<string, string | number> =>
-                buildObservationListParams({
+                scanner: ReplayScanner | null,
+                observationsPage: number
+            ): Record<string, string | number> => {
+                const params = buildObservationListParams({
                     observationStatusFilter,
                     observationTriggeredByFilter,
                     observationVerdictFilter,
@@ -1363,7 +1380,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationBackfillFilter,
                     observationsSort,
                     scanner,
-                }) as Record<string, string | number>,
+                }) as Record<string, string | number>
+                // Carried so returning to the list lands back on the page the user drilled in from.
+                if (observationsPage > 1) {
+                    params.page = observationsPage
+                }
+                return params
+            },
         ],
         // Tag options for the observations-list Tag filter pill. Wrapped in an inline arrow with an
         // explicit return type so kea-typegen can infer it (it can't from bare function references).
@@ -2145,6 +2168,31 @@ const TABLE_URL_PARAM_KEYS = [
 
 /** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
 export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
+
+/**
+ * Rebuild the scanner's Observations-tab URL from an observation detail page's search params, so
+ * returning to the list lands on the same tab, page, sort, and filters the user drilled in from.
+ * The detail URL carries `order_by`, so it is translated back to the list's `sort` token.
+ */
+export function scannerObservationsReturnUrl(scannerId: string, detailSearchParams: Record<string, unknown>): string {
+    const params: Record<string, string> = { tab: ReplayScannerTab.Observations }
+    for (const key of TABLE_URL_PARAM_KEYS) {
+        if (key === 'sort') {
+            continue
+        }
+        const value = detailSearchParams[key]
+        if (typeof value === 'string' && value) {
+            params[key] = value
+        } else if (typeof value === 'number') {
+            params[key] = String(value)
+        }
+    }
+    const sort = sortParamFromOrderBy(detailSearchParams.order_by)
+    if (sort) {
+        params.sort = sort
+    }
+    return combineUrl(urls.replayVision(scannerId), params).url
+}
 
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
