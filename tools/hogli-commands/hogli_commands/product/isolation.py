@@ -480,10 +480,12 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 #
 # Keyed per class, not per product, so a product on the list can't quietly grow a new crossing: an
 # unlisted class is a leak again, and sanctioning it costs a doctrine amendment. The list only
-# shrinks. The bar for an entry, and why these five are load-bearing, live in
+# shrinks. The bar for an entry, and why these are load-bearing, live in
 # products/architecture.md § Wiring couplings.
 MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
+        ("product_analytics", "Insight"),
+        ("product_analytics", "InsightVariable"),
         ("warehouse_sources", "DataWarehouseCredential"),
         ("warehouse_sources", "DataWarehouseTable"),
         ("warehouse_sources", "ExternalDataJob"),

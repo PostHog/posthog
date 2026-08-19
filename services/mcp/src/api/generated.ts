@@ -13049,6 +13049,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface Billing {
+      /** @maxLength 100 */
+      plan: string;
+      billing_limit: number;
+    }
+
     /**
      * * `check` - Check
      * * `firing` - Firing
@@ -13455,6 +13461,60 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
+    export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
+
+    export interface BillingOverviewResponse {
+      /** @nullable */
+      customer_id?: string | null;
+      /** @nullable */
+      billing_plan?: string | null;
+      /** @nullable */
+      subscription_level?: string | null;
+      has_active_subscription?: boolean;
+      deactivated?: boolean;
+      is_annual_plan_customer?: boolean;
+      /** @nullable */
+      free_trial_until?: string | null;
+      /** @nullable */
+      current_total_amount_usd?: string | null;
+      /** @nullable */
+      current_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit_after_discount?: string | null;
+      /** @nullable */
+      discount_amount_usd?: string | null;
+      /** @nullable */
+      discount_percent?: number | null;
+      /** @nullable */
+      amount_off_expires_at?: string | null;
+      /** @nullable */
+      startup_program_label?: string | null;
+      /** @nullable */
+      startup_program_label_previous?: string | null;
+      /** @nullable */
+      stripe_portal_url?: string | null;
+      /** @nullable */
+      external_billing_provider_invoices_url?: string | null;
+      /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
+      products?: BillingOverviewResponseProductsItem[];
+      available_product_features?: string[];
+      usage_summary?: unknown;
+      billing_period?: unknown;
+      custom_limits_usd?: unknown;
+      next_period_custom_limits_usd?: unknown;
+      trial?: unknown;
+      license?: unknown;
+      account_owner?: unknown;
+      customer_trust_scores?: unknown;
+      never_drop_data?: boolean;
+    }
+
     /**
      * * `excluded` - Excluded
      * * `credited` - Credited
@@ -13466,6 +13526,19 @@ export namespace Schemas {
       Excluded: 'excluded',
       Credited: 'credited',
     } as const;
+
+    export interface BillingPeriodResponse {
+      /**
+         * Start of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_start: string | null;
+      /**
+         * End of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_end: string | null;
+    }
 
     /**
      * * `team_retention` - team_retention
@@ -40357,6 +40430,11 @@ export namespace Schemas {
       /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
       error_kind?: string[];
       /**
+         * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+         * @maxLength 200
+         */
+      error_message_contains?: string;
+      /**
          * Skip invocations that have already been attempted this many times or more.
          * @minimum 1
          * @maximum 255
@@ -40439,6 +40517,11 @@ export namespace Schemas {
       duration_ms: number | null;
       attempts: number;
       is_retry: boolean;
+    }
+
+    export interface HogInvocationResultsCount {
+      /** Number of invocations matching the filters, without the list endpoint's 500-row cap. */
+      count: number;
     }
 
     export type HogLanguage = typeof HogLanguage[keyof typeof HogLanguage];
@@ -56150,6 +56233,12 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    export interface PatchedBilling {
+      /** @maxLength 100 */
+      plan?: string;
+      billing_limit?: number;
+    }
+
     export interface PatchedBillingAlertConfiguration {
       /** Unique identifier for this billing alert. */
       readonly id?: string;
@@ -62935,14 +63024,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -78624,14 +78711,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -79787,14 +79872,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -88342,11 +88425,46 @@ export namespace Schemas {
      */
     distinct_id?: string;
     /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string;
+    /**
      * Maximum number of invocations to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
+    export type HogFlowsInvocationResultsCountRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string;
     /**
      * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
      * @minLength 1

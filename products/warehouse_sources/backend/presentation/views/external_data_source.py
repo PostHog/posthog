@@ -1793,7 +1793,7 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
-    payload: dict
+    payload: dict = dataclasses.field(repr=False)
     credential: PendingSourceCredential | None
     error_response: Response | None
 
@@ -2209,6 +2209,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.SELF_DRIVING: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
             # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
