@@ -843,7 +843,7 @@ class SetOperationColumnTypeMismatch:
         )
         if self.cast_hint is None:
             return message
-        return f"{message}. Cast the column in every branch, e.g. `{self.cast_hint}({self.column_name})`"
+        return f"{message}. Cast the column in every branch, e.g. `{self.cast_hint}(<expression>)`"
 
 
 def describe_set_operation_type_mismatch(

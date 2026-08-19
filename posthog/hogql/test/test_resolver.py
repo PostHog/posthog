@@ -574,13 +574,13 @@ class TestResolver(BaseTest):
             (
                 "select 1 as token union all select 'abc' as token",
                 "Cannot find a common type for column `token` between the branches of this UNION, of "
-                "type Integer and String. Cast the column in every branch, e.g. `toString(token)`",
+                "type Integer and String. Cast the column in every branch, e.g. `toString(<expression>)`",
                 "'abc' as token",
             ),
             (
                 "select now() as ts union all select 1 as ts",
                 "Cannot find a common type for column `ts` between the branches of this UNION, of type "
-                "DateTime and Integer. Cast the column in every branch, e.g. `toString(ts)`",
+                "DateTime and Integer. Cast the column in every branch, e.g. `toString(<expression>)`",
                 "1 as ts",
             ),
             # A container branch gets no cast example - stringifying an array would "work" but hides
