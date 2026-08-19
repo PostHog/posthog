@@ -5,12 +5,10 @@ import logging
 import binascii
 from datetime import datetime, timedelta
 from typing import Any, cast
-from zoneinfo import available_timezones
 
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
-from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
@@ -33,7 +31,6 @@ from products.tasks.backend.facade.contracts import (
     SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
-    TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
@@ -3212,94 +3209,6 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Zero-based offset into the filtered log entries",
     )
-
-
-class TaskAutomationSerializer(DataclassSerializer):
-    """Detail/create/update/run response for a task automation."""
-
-    class Meta:
-        dataclass = TaskAutomationDTO
-        fields = [
-            "id",
-            "name",
-            "prompt",
-            "repository",
-            "github_integration",
-            "cron_expression",
-            "timezone",
-            "template_id",
-            "enabled",
-            "last_run_at",
-            "last_run_status",
-            "last_task_id",
-            "last_task_run_id",
-            "last_error",
-            "created_at",
-            "updated_at",
-        ]
-
-
-class TaskAutomationWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task automation."""
-
-    name = serializers.CharField(max_length=255, help_text="Display name (stored as the backing task's title).")
-    prompt = serializers.CharField(help_text="The automation prompt (stored as the backing task's description).")
-    repository = serializers.CharField(
-        max_length=255, help_text="Target repository in the format organization/repository."
-    )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
-        required=False,
-        allow_null=True,
-        help_text="GitHub integration to run as. Defaults to the team's GitHub integration when omitted.",
-    )
-    cron_expression = serializers.CharField(
-        max_length=100, help_text="Standard 5-field cron expression (minute hour day month weekday)."
-    )
-    timezone = serializers.CharField(
-        max_length=128, required=False, default="UTC", help_text="IANA timezone the schedule runs in."
-    )
-    template_id = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional template identifier this automation was created from.",
-    )
-    enabled = serializers.BooleanField(
-        required=False, default=True, help_text="Whether the schedule is active; paused when false."
-    )
-
-    def validate_github_integration(self, value):
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
-    def validate_repository(self, value: str) -> str:
-        normalized = value.strip().lower()
-        parts = normalized.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-        return normalized
-
-    def validate_cron_expression(self, value: str) -> str:
-        normalized = value.strip()
-        parts = normalized.split()
-        if len(parts) != 5:
-            raise serializers.ValidationError(
-                "Only standard 5-field cron expressions are supported "
-                "(minute hour day month weekday). Example: '0 9 * * 1-5'."
-            )
-        if not croniter.is_valid(normalized):
-            raise serializers.ValidationError(
-                "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
-            )
-        return normalized
-
-    def validate_timezone(self, value: str) -> str:
-        if value not in available_timezones():
-            raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
-        return value
 
 
 class SandboxEnvironmentSerializer(DataclassSerializer):
