@@ -46,7 +46,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    buildSidebarColumnInsert,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -838,6 +842,13 @@ export interface sqlEditorLogicActions {
     insertTextAtCursor: (text: string) => {
         text: string
     }
+    insertColumnAtCursor: (
+        columnText: string,
+        tableName: string | null
+    ) => {
+        columnText: string
+        tableName: string | null
+    }
     loadUpstream: (modelId: string) => {
         modelId: string
     }
@@ -1412,6 +1423,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        insertColumnAtCursor: (columnText: string, tableName: string | null) => ({ columnText, tableName }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
@@ -1791,6 +1803,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lineNumber: position.lineNumber,
                     column: position.column + text.length,
                 })
+
+                editor.focus()
+            },
+            insertColumnAtCursor: ({ columnText, tableName }) => {
+                const editor = props.editor
+                if (!editor) {
+                    return
+                }
+
+                const model = editor.getModel()
+                const position = editor.getPosition()
+                if (!model || !position) {
+                    return
+                }
+
+                const lineContent = model.getLineContent(position.lineNumber)
+                const charBeforeCursor = position.column > 1 ? lineContent.charAt(position.column - 2) : ''
+                const { text, replaceWholeQuery, cursorColumn } = buildSidebarColumnInsert({
+                    columnText,
+                    tableName,
+                    fullText: model.getValue(),
+                    charBeforeCursor,
+                })
+
+                const range = replaceWholeQuery
+                    ? model.getFullModelRange()
+                    : {
+                          startLineNumber: position.lineNumber,
+                          startColumn: position.column,
+                          endLineNumber: position.lineNumber,
+                          endColumn: position.column,
+                      }
+                editor.executeEdits('insert-column', [{ range, text }])
+
+                if (replaceWholeQuery && cursorColumn) {
+                    editor.setPosition({ lineNumber: 1, column: cursorColumn })
+                } else {
+                    editor.setPosition({
+                        lineNumber: position.lineNumber,
+                        column: position.column + text.length,
+                    })
+                }
 
                 editor.focus()
             },

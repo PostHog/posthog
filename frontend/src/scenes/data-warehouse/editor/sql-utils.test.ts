@@ -1,6 +1,63 @@
-import { normalizeIdentifier, parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from './sql-utils'
+import {
+    buildSidebarColumnInsert,
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
+    describe('buildSidebarColumnInsert', () => {
+        test('a column click in a blank editor scaffolds a full SELECT ... FROM ...', () => {
+            expect(
+                buildSidebarColumnInsert({
+                    columnText: 'created_at',
+                    tableName: 'cable_riser',
+                    fullText: '',
+                    charBeforeCursor: '',
+                })
+            ).toEqual({ text: 'SELECT created_at\nFROM cable_riser', replaceWholeQuery: true, cursorColumn: 18 })
+        })
+
+        test('whitespace-only editor is still treated as blank', () => {
+            const result = buildSidebarColumnInsert({
+                columnText: 'id',
+                tableName: 'cable_riser',
+                fullText: '\n  \n',
+                charBeforeCursor: '',
+            })
+            expect(result.replaceWholeQuery).toBe(true)
+        })
+
+        test('a bare column with no table cannot scaffold, so it inserts as-is', () => {
+            expect(
+                buildSidebarColumnInsert({
+                    columnText: 'id',
+                    tableName: null,
+                    fullText: '',
+                    charBeforeCursor: '',
+                })
+            ).toEqual({ text: 'id', replaceWholeQuery: false })
+        })
+
+        test.each([
+            ['identifier char before cursor gets a comma so names do not fuse', 'd', ', created_at'],
+            ['backtick before cursor gets a comma', '`', ', created_at'],
+            ['dotted path before cursor gets a comma', '.', ', created_at'],
+            ['comma before cursor inserts without a leading comma', ',', 'created_at'],
+            ['space before cursor inserts without a leading comma', ' ', 'created_at'],
+            ['open paren before cursor inserts without a leading comma', '(', 'created_at'],
+        ])('%s', (_name, charBeforeCursor, expected) => {
+            expect(
+                buildSidebarColumnInsert({
+                    columnText: 'created_at',
+                    tableName: 'cable_riser',
+                    fullText: 'SELECT id FROM cable_riser',
+                    charBeforeCursor,
+                })
+            ).toEqual({ text: expected, replaceWholeQuery: false })
+        })
+    })
+
     describe('normalizeIdentifier', () => {
         test.each([
             ['plain identifier is lowercased', 'Events', 'events'],

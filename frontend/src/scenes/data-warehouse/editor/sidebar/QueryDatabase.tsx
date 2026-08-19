@@ -187,7 +187,7 @@ export const QueryDatabase = ({
         setActiveTab,
         setQueryInput,
         setSourceQuery,
-        insertTextAtCursor,
+        insertColumnAtCursor,
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
@@ -445,10 +445,13 @@ export const QueryDatabase = ({
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Insert the column at the cursor, preserving the rest of the query the user has typed
+                // Insert the column at the cursor, preserving the rest of the query the user has typed.
+                // A blank editor is scaffolded into a full SELECT ... FROM ... so a lone column name
+                // does not run as its own query and fail with "Unknown table".
                 const columnInsertText = isBIEditor ? null : getColumnInsertText(item?.record)
                 if (columnInsertText) {
-                    insertTextAtCursor(columnInsertText)
+                    const tableName = typeof item?.record?.table === 'string' ? item.record.table : null
+                    insertColumnAtCursor(columnInsertText, tableName)
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
