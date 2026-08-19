@@ -8,7 +8,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, Node, NodeKind, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    Node,
+    NodeKind,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {

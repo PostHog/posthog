@@ -1,8 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { teamLogic } from 'scenes/teamLogic'
-
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
