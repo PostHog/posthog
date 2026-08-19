@@ -5,7 +5,7 @@ import time
 import base64
 import hashlib
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -19,7 +19,6 @@ from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
-from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -182,15 +181,9 @@ POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
 
 
-@frozen
-class PosthogConnectTarget:
-    base_url: str
-    client_id: str
-    client_secret: str = field(repr=False)
-
-
-def _posthog_connect_target(region: str | None) -> PosthogConnectTarget:
-    """Resolve the remote target cell to connect to.
+# nosemgrep: tuple-return-prefer-dataclass -- private helper, both call sites a few lines below in this file
+def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
+    """Resolve (base_url, client_id, client_secret) for a remote target cell.
 
     Raises NotImplementedError for an unknown or unconfigured region so the connect/refresh
     paths fail closed (surfaced to the user as a reconnect error) rather than silently hitting
@@ -223,13 +216,14 @@ def _posthog_connect_target(region: str | None) -> PosthogConnectTarget:
     base_url, client_id, client_secret = targets[normalized]
     if not base_url or not client_id or not client_secret:
         raise NotImplementedError(f"PostHog connect app not configured for region {normalized}")
-    return PosthogConnectTarget(base_url=base_url.rstrip("/"), client_id=client_id, client_secret=client_secret)
+    return base_url.rstrip("/"), client_id, client_secret
 
 
 def posthog_connect_base_url(region: str | None) -> str:
     """Public base URL of a remote target cell (e.g. https://eu.posthog.com), for callers that
     need to reach its API with a `posthog` integration token. Raises for unknown/unconfigured regions."""
-    return _posthog_connect_target(region).base_url
+    base_url, _, _ = _posthog_connect_target(region)
+    return base_url
 
 
 class OauthIntegration:
@@ -284,15 +278,15 @@ class OauthIntegration:
     @classmethod
     def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
         if kind == "posthog":
-            target = _posthog_connect_target(region)
+            base_url, client_id, client_secret = _posthog_connect_target(region)
             return OauthConfig(
-                authorize_url=f"{target.base_url}/oauth/authorize",
-                token_url=f"{target.base_url}/oauth/token",
-                token_info_url=f"{target.base_url}/oauth/userinfo",
+                authorize_url=f"{base_url}/oauth/authorize",
+                token_url=f"{base_url}/oauth/token",
+                token_info_url=f"{base_url}/oauth/userinfo",
                 token_info_config_fields=["sub", "email"],
-                token_revoke_url=f"{target.base_url}/oauth/revoke",
-                client_id=target.client_id,
-                client_secret=target.client_secret,
+                token_revoke_url=f"{base_url}/oauth/revoke",
+                client_id=client_id,
+                client_secret=client_secret,
                 # Default only; authorize_url overrides with the user-selected scopes (plus the
                 # identity scopes). Token exchange/refresh don't send scope, so this is unused there.
                 scope=" ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES]),
