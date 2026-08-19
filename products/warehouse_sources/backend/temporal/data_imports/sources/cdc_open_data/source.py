@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
     DATASET_ID_PATTERN,
     INCREMENTAL_FIELDS,
+    MAX_DATASET_IDS,
     SOCRATA_ID_FIELD,
     parse_dataset_ids,
 )
@@ -82,6 +83,12 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
         dataset_ids = parse_dataset_ids(config.dataset_ids)
         if not dataset_ids:
             return False, "Enter at least one CDC dataset ID to sync."
+
+        if len(dataset_ids) > MAX_DATASET_IDS:
+            return (
+                False,
+                f"Enter at most {MAX_DATASET_IDS} CDC dataset IDs. You entered {len(dataset_ids)}.",
+            )
 
         invalid_dataset_id = next(
             (dataset_id for dataset_id in dataset_ids if not DATASET_ID_PATTERN.match(dataset_id)), None

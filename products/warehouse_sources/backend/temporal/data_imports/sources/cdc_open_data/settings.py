@@ -16,6 +16,11 @@ CDC_BASE_URL = "https://data.cdc.gov"
 # by a hyphen (e.g. "9bhg-hcku"), visible in the dataset's data.cdc.gov URL.
 DATASET_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}$")
 
+# Caps how many datasets a single source can fan out into. Each configured ID becomes its own
+# schema, database row, and Temporal schedule, so this bounds setup-time resource usage rather
+# than any vendor-side limit.
+MAX_DATASET_IDS = 50
+
 # Socrata system fields present on every dataset regardless of its own columns. Only returned
 # when `$$exclude_system_fields=false` is sent (see cdc_open_data.py).
 SOCRATA_ID_FIELD = ":id"

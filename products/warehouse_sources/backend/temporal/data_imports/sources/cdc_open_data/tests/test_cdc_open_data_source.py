@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
     CdcOpenDataResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
+    MAX_DATASET_IDS,
     SOCRATA_UPDATED_AT_FIELD,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.source import CdcOpenDataSource
@@ -95,6 +96,15 @@ class TestCdcOpenDataSource:
             valid, message = self.source.validate_credentials(config, team_id=1)
         assert valid is False
         assert message is not None and "not-a-valid-id-at-all" in message
+        mock_validate.assert_not_called()
+
+    def test_validate_credentials_rejects_too_many_dataset_ids_without_probing(self) -> None:
+        too_many_ids = ",".join(f"{i:04d}-{i:04d}" for i in range(MAX_DATASET_IDS + 1))
+        config = CdcOpenDataSourceConfig(dataset_ids=too_many_ids, app_token=None)
+        with mock.patch.object(source_module, "validate_cdc_open_data_credentials") as mock_validate:
+            valid, message = self.source.validate_credentials(config, team_id=1)
+        assert valid is False
+        assert message is not None and str(MAX_DATASET_IDS) in message
         mock_validate.assert_not_called()
 
     def test_validate_credentials_probes_first_dataset_at_source_create(self) -> None:
