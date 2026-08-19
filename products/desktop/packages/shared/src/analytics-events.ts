@@ -548,6 +548,15 @@ export interface OnboardingGithubConnectFailedProperties {
   error_type?: string;
 }
 
+export interface OnboardingGithubConnectPendingAdminProperties {
+  flow_type: OnboardingGithubConnectFlow;
+}
+
+export interface OnboardingGithubConnectAbandonedProperties {
+  flow_type: OnboardingGithubConnectFlow;
+  seconds_since_started: number;
+}
+
 export interface OnboardingAbandonedProperties {
   last_step_id: OnboardingStepId;
   duration_seconds: number;
@@ -1421,6 +1430,9 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
+  ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
+    "Onboarding github connect pending admin",
+  ONBOARDING_GITHUB_CONNECT_ABANDONED: "Onboarding github connect abandoned",
   ONBOARDING_GITHUB_CONNECTED: "Onboarding github connected",
   ONBOARDING_CLI_CHECK_COMPLETED: "Onboarding cli check completed",
   ONBOARDING_CLI_RUN_COMPLETED: "Onboarding cli run completed",
@@ -1604,6 +1616,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED]: OnboardingGithubConnectAbandonedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED]: never;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_CHECK_COMPLETED]: OnboardingCliCheckCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_RUN_COMPLETED]: OnboardingCliRunCompletedProperties;
