@@ -13,9 +13,13 @@ describe('sql-utils', () => {
                     columnText: 'created_at',
                     tableName: 'cable_riser',
                     fullText: '',
-                    charBeforeCursor: '',
+                    cursorOffset: 0,
                 })
-            ).toEqual({ text: 'SELECT created_at\nFROM cable_riser', replaceWholeQuery: true, cursorColumn: 18 })
+            ).toEqual({
+                text: 'SELECT created_at\nFROM cable_riser',
+                replaceWholeQuery: true,
+                cursorOffsetInText: 17,
+            })
         })
 
         test('whitespace-only editor is still treated as blank', () => {
@@ -23,7 +27,7 @@ describe('sql-utils', () => {
                 columnText: 'id',
                 tableName: 'cable_riser',
                 fullText: '\n  \n',
-                charBeforeCursor: '',
+                cursorOffset: 0,
             })
             expect(result.replaceWholeQuery).toBe(true)
         })
@@ -34,27 +38,34 @@ describe('sql-utils', () => {
                     columnText: 'id',
                     tableName: null,
                     fullText: '',
-                    charBeforeCursor: '',
+                    cursorOffset: 0,
                 })
-            ).toEqual({ text: 'id', replaceWholeQuery: false })
+            ).toEqual({ text: 'id', replaceWholeQuery: false, cursorOffsetInText: 2 })
         })
 
+        // The `|` in each query marks the cursor; it is stripped and its index becomes the offset.
+        // `expected` is the text inserted, so a comma separates two columns and a space keeps a
+        // clause keyword such as FROM from taking an invalid leading comma.
         test.each([
-            ['identifier char before cursor gets a comma so names do not fuse', 'd', ', created_at'],
-            ['backtick before cursor gets a comma', '`', ', created_at'],
-            ['dotted path before cursor gets a comma', '.', ', created_at'],
-            ['comma before cursor inserts without a leading comma', ',', 'created_at'],
-            ['space before cursor inserts without a leading comma', ' ', 'created_at'],
-            ['open paren before cursor inserts without a leading comma', '(', 'created_at'],
-        ])('%s', (_name, charBeforeCursor, expected) => {
-            expect(
-                buildSidebarColumnInsert({
-                    columnText: 'created_at',
-                    tableName: 'cable_riser',
-                    fullText: 'SELECT id FROM cable_riser',
-                    charBeforeCursor,
-                })
-            ).toEqual({ text: expected, replaceWholeQuery: false })
+            ['appending after a column adds a comma', 'SELECT id|', ', created_at'],
+            ['a following column keeps a comma on each side', 'SELECT id, |name FROM t', 'created_at, '],
+            ['a column before a keyword gets a comma before and a space after', 'SELECT id |FROM t', ', created_at '],
+            ['a column right after SELECT takes no comma but stays separated', 'SELECT |id FROM t', 'created_at, '],
+            ['no leading comma right after SELECT keyword', 'SELECT |', 'created_at'],
+            ['a following FROM is separated by a space, never a comma', 'SELECT |FROM t', 'created_at '],
+            ['an existing comma before the cursor is not doubled', 'SELECT id,| FROM t', 'created_at'],
+            ['inside a function call takes no separators', 'SELECT count(|) FROM t', 'created_at'],
+        ])('%s', (_name, query, expectedText) => {
+            const cursorOffset = query.indexOf('|')
+            const fullText = query.replace('|', '')
+            const result = buildSidebarColumnInsert({
+                columnText: 'created_at',
+                tableName: 'cable_riser',
+                fullText,
+                cursorOffset,
+            })
+            expect(result.text).toBe(expectedText)
+            expect(result.replaceWholeQuery).toBe(false)
         })
     })
 

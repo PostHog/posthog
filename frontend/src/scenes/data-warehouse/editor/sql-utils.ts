@@ -9,38 +9,119 @@ export interface SidebarColumnInsert {
     text: string
     /** Replace the whole query rather than inserting at the cursor. */
     replaceWholeQuery: boolean
-    /** Cursor column to leave after a scaffold, so the next column click extends the SELECT list. */
-    cursorColumn?: number
+    /** Offset within `text` where the cursor should land after the edit. */
+    cursorOffsetInText: number
+}
+
+// Clause keywords that must not be comma-separated from an adjacent column. A comma before `FROM`
+// is invalid SQL, so when one of these sits next to the cursor we separate with a space instead.
+const SQL_CLAUSE_KEYWORDS = new Set([
+    'select',
+    'from',
+    'where',
+    'group',
+    'by',
+    'having',
+    'order',
+    'limit',
+    'offset',
+    'join',
+    'left',
+    'right',
+    'inner',
+    'outer',
+    'full',
+    'cross',
+    'on',
+    'using',
+    'union',
+    'intersect',
+    'except',
+    'and',
+    'or',
+    'as',
+    'asc',
+    'desc',
+    'over',
+    'window',
+])
+
+const leadingSeparator = (before: string): string => {
+    const trimmed = before.replace(/\s+$/, '')
+    if (trimmed === '') {
+        return ''
+    }
+    const lastChar = trimmed[trimmed.length - 1]
+    if (lastChar === ',' || lastChar === '(') {
+        return ''
+    }
+    const word = trimmed.match(/[`"\w.]+$/)?.[0] ?? ''
+    const hadSpace = before.length > trimmed.length
+    if (word && SQL_CLAUSE_KEYWORDS.has(word.toLowerCase())) {
+        return hadSpace ? '' : ' '
+    }
+    if (word || lastChar === ')') {
+        return ', '
+    }
+    return hadSpace ? '' : ' '
+}
+
+const trailingSeparator = (after: string): string => {
+    const trimmed = after.replace(/^\s+/, '')
+    if (trimmed === '') {
+        return ''
+    }
+    const firstChar = trimmed[0]
+    if (firstChar === ',' || firstChar === ')') {
+        return ''
+    }
+    const word = trimmed.match(/^[`"\w.]+/)?.[0] ?? ''
+    const hadSpace = after.length > trimmed.length
+    if (word && SQL_CLAUSE_KEYWORDS.has(word.toLowerCase())) {
+        return hadSpace ? '' : ' '
+    }
+    if (word) {
+        return ', '
+    }
+    return hadSpace ? '' : ' '
 }
 
 /**
  * Decide what a column click in the schema sidebar writes into the SQL editor.
  *
  * A blank editor gets a runnable `SELECT <column> FROM <table>` scaffold. Without it a single
- * click drops a bare identifier that runs as its own query and fails with "Unknown table". Later
- * clicks add a comma before the column so two identifiers do not fuse into one (e.g. "idcreated_at").
+ * click drops a bare identifier that runs as its own query and fails with "Unknown table".
+ *
+ * An insert into an existing query separates the column from the text on both sides of the cursor,
+ * so two identifiers never fuse into one (e.g. "idcreated_at"). Adjacent columns get a comma;
+ * an adjacent clause keyword such as FROM gets a space, since a comma before it is invalid SQL.
  */
 export function buildSidebarColumnInsert({
     columnText,
     tableName,
     fullText,
-    charBeforeCursor,
+    cursorOffset,
 }: {
     columnText: string
     tableName: string | null
     fullText: string
-    charBeforeCursor: string
+    cursorOffset: number
 }): SidebarColumnInsert {
     if (tableName && fullText.trim() === '') {
-        const select = `SELECT ${columnText}`
+        const prefix = 'SELECT '
         return {
-            text: `${select}\nFROM ${escapePropertyAsHogQLIdentifier(tableName)}`,
+            text: `${prefix}${columnText}\nFROM ${escapePropertyAsHogQLIdentifier(tableName)}`,
             replaceWholeQuery: true,
-            cursorColumn: select.length + 1,
+            cursorOffsetInText: prefix.length + columnText.length,
         }
     }
-    const needsSeparator = /[\w`".]/.test(charBeforeCursor)
-    return { text: needsSeparator ? `, ${columnText}` : columnText, replaceWholeQuery: false }
+    const before = leadingSeparator(fullText.slice(0, cursorOffset))
+    const after = trailingSeparator(fullText.slice(cursorOffset))
+    return {
+        text: `${before}${columnText}${after}`,
+        replaceWholeQuery: false,
+        cursorOffsetInText: before.length + columnText.length,
+    }
 }
 
 export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {

@@ -1818,13 +1818,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
 
-                const lineContent = model.getLineContent(position.lineNumber)
-                const charBeforeCursor = position.column > 1 ? lineContent.charAt(position.column - 2) : ''
-                const { text, replaceWholeQuery, cursorColumn } = buildSidebarColumnInsert({
+                const insertOffset = model.getOffsetAt(position)
+                const { text, replaceWholeQuery, cursorOffsetInText } = buildSidebarColumnInsert({
                     columnText,
                     tableName,
                     fullText: model.getValue(),
-                    charBeforeCursor,
+                    cursorOffset: insertOffset,
                 })
 
                 const range = replaceWholeQuery
@@ -1837,14 +1836,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                       }
                 editor.executeEdits('insert-column', [{ range, text }])
 
-                if (replaceWholeQuery && cursorColumn) {
-                    editor.setPosition({ lineNumber: 1, column: cursorColumn })
-                } else {
-                    editor.setPosition({
-                        lineNumber: position.lineNumber,
-                        column: position.column + text.length,
-                    })
-                }
+                // A whole-query replace starts at offset 0; an insert leaves the text before the
+                // cursor untouched, so the new cursor sits at that base plus the offset in the text.
+                const baseOffset = replaceWholeQuery ? 0 : insertOffset
+                editor.setPosition(model.getPositionAt(baseOffset + cursorOffsetInText))
 
                 editor.focus()
             },
