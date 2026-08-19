@@ -424,4 +424,33 @@ describe('tracingDataLogic', () => {
             }
         })
     })
+
+    describe('deferred filter refresh', () => {
+        // The trace drawer's attribute buttons call addFilter, which sets skipQuery so the list
+        // doesn't reload behind the open drawer. Losing that gate means every attribute click
+        // would trigger a background re-query the user can't see.
+        it('does not run the query when addFilter defers it', async () => {
+            logic = mountWithSpans()
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.addFilter('http.method', 'GET')
+            }).toNotHaveDispatchedActions(['handleFilterChange', 'runQuery'])
+            expect(listSpansSpy).not.toHaveBeenCalled()
+
+            listSpansSpy.mockRestore()
+        })
+
+        it('runs the query once refreshDeferredFilters fires', async () => {
+            logic = mountWithSpans()
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.refreshDeferredFilters()
+            }).toDispatchActions(['handleFilterChange', 'runQuery', 'fetchSpansSuccess'])
+            expect(listSpansSpy).toHaveBeenCalled()
+
+            listSpansSpy.mockRestore()
+        })
+    })
 })

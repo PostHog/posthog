@@ -203,6 +203,30 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(response.json()["attr"], "filters")
         self.assertIn("managed through the alert API", response.json()["detail"])
 
+    def test_generic_api_can_create_and_list_legacy_insight_alert_destinations(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Insight alert destination",
+                "type": "internal_destination",
+                "template_id": template_slack.id,
+                "enabled": True,
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+                "filters": {"events": [{"id": "$insight_alert_firing", "type": "events"}]},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        function_id = response.json()["id"]
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertIn(function_id, listed_ids)
+
     def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
         ordinary = HogFunction.objects.create(
             team=self.team,

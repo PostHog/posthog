@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationAdminReadPermissions
+from posthog.permissions import OrganizationAdminReadPermissions, PostHogFeatureFlagPermission
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration
@@ -36,7 +36,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BillingAlertConfiguration.objects.all()
     serializer_class = BillingAlertConfigurationSerializer
     lookup_field = "id"
-    permission_classes = [OrganizationAdminReadPermissions]
+    # Server-side rollout boundary: gate the API behind the `billing-alerts` flag so the flag is a
+    # hard boundary, not just a UI toggle. Appended to the mixin's default permissions.
+    posthog_feature_flag = "billing-alerts"
+    permission_classes = [OrganizationAdminReadPermissions, PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(organization_id=self.organization.id).order_by("-created_at")
