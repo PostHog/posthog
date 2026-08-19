@@ -32,7 +32,7 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
-from products.stamphog.backend.logic.github_client import MAX_COMPARE_FILES, StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -530,8 +530,8 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     and the run already fixed, so neither can be aimed at content the PR is not actually on.
 
     False for everything ambiguous: no PR row, no standing approval, an approval already at this head
-    (a same-head re-review is deliberately allowed to void it), a run with no recorded base sha, a
-    compare at GitHub's file cap, or any unreadable payload.
+    (a same-head re-review is deliberately allowed to void it), a run with no recorded base sha, an
+    empty diff on either side, or any GitHub error, a diff too large for GitHub to render included.
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
@@ -582,9 +582,9 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     if standing.posted_review_id not in active_ids:
         return False
 
-    approved_files = client.compare_commits(repo_config.repository, approved_base_sha, standing.head_sha)
-    current_files = client.compare_commits(repo_config.repository, base_sha, head_sha)
-    if not approved_diff_unchanged(approved_files, current_files, max_files=MAX_COMPARE_FILES):
+    approved_diff = client.compare_diff(repo_config.repository, approved_base_sha, standing.head_sha)
+    current_diff = client.compare_diff(repo_config.repository, base_sha, head_sha)
+    if not approved_diff_unchanged(approved_diff, current_diff):
         return False
     _record_retained_head(standing, head_sha)
     return True

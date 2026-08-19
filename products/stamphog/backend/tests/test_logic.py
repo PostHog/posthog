@@ -517,59 +517,36 @@ class OwnedFileCountTests(SimpleTestCase):
         assert owned.owned_file_count == 200
 
 
-def _file(filename: str, sha: str, *, additions: int = 3, deletions: int = 1) -> dict:
-    return {"filename": filename, "sha": sha, "additions": additions, "deletions": deletions}
+_DIFF = """diff --git a/posthog/api/thing.py b/posthog/api/thing.py
+index aaa..bbb 100644
+--- a/posthog/api/thing.py
++++ b/posthog/api/thing.py
+@@ -1,2 +1,3 @@
+ keep
++added
+"""
+
+_DIFF_MODE_FLIPPED = _DIFF.replace("index aaa..bbb 100644", "old mode 100644\nnew mode 100755\nindex aaa..bbb 100755")
 
 
 class ApprovalRetentionTests(SimpleTestCase):
     def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
-        # Merging the base branch into a PR is the most common push on a long-lived PR. It leaves
-        # every blob in the PR's own diff alone, so there is nothing new to review and dismissing
-        # would drop the PR out of merge readiness for no reason.
-        approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
+        # Merging the base branch into a PR is the most common push on a long-lived PR. It leaves the
+        # PR's own diff alone, so there is nothing new to review and dismissing would drop the PR out
+        # of merge readiness for no reason.
+        assert approved_diff_unchanged(_DIFF, _DIFF) is True
 
-        assert approved_diff_unchanged(approved, list(approved), max_files=100) is True
+    def test_content_change_dismisses(self) -> None:
+        assert approved_diff_unchanged(_DIFF, _DIFF.replace("+added", "+something else")) is False
 
-    @parameterized.expand(
-        [
-            # A source file whose content moved is exactly what the approval no longer covers.
-            ("changed_source", [_file("posthog/api/thing.py", "zzz")]),
-            # A file added after the approval was never reviewed, even alongside untouched ones.
-            ("added_source", [_file("posthog/api/thing.py", "aaa"), _file("posthog/api/new.py", "ccc")]),
-            # A removed file changes what the approval covered just as much as an added one.
-            ("removed_file", []),
-            # No path is exempt. Markdown ships here: services/mcp imports .md templates and product
-            # tools.yaml files compile .md prompts into shipped tool definitions.
-            ("changed_markdown", [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "ccc")]),
-        ]
-    )
-    def test_any_content_change_dismisses(self, _name: str, current: list[dict]) -> None:
-        approved = [_file("posthog/api/thing.py", "aaa")] + (
-            [_file("docs/thing.md", "bbb")] if _name == "changed_markdown" else []
-        )
+    def test_mode_flip_dismisses(self) -> None:
+        # A blob sha covers a file's contents and not its tree mode, so a per-file sha comparison
+        # missed an executable-bit flip on a file the PR already edits. The unified diff carries the
+        # mode, which is why the comparison is over the diff text.
+        assert approved_diff_unchanged(_DIFF, _DIFF_MODE_FLIPPED) is False
 
-        assert approved_diff_unchanged(approved, current, max_files=100) is False
-
-    def test_missing_blob_sha_fails_closed(self) -> None:
-        # Two file objects with no sha would compare equal and retain an approval over a diff nobody
-        # checked, so an unreadable payload has to mean "cannot answer".
-        approved = [{"filename": "posthog/api/thing.py"}]
-        current = [{"filename": "posthog/api/thing.py"}]
-
-        assert approved_diff_unchanged(approved, current, max_files=100) is False
-
-    def test_entry_with_no_line_movement_fails_closed(self) -> None:
-        # A blob sha covers contents and not tree mode, and the compare payload carries no mode. An
-        # entry that moved no lines is what a mode flip looks like, so flipping the executable bit on
-        # a file already in the diff would otherwise leave every sha equal.
-        approved = [_file("bin/thing.sh", "aaa")]
-        current = [_file("bin/thing.sh", "aaa", additions=0, deletions=0)]
-
-        assert approved_diff_unchanged(approved, current, max_files=100) is False
-
-    def test_truncated_file_listing_fails_closed(self) -> None:
-        # get_pr_files stops at a page cap without saying so, and a listing at the cap is a prefix of
-        # the diff. A change past it would be invisible, so the whole comparison is unusable.
-        approved = [_file(f"docs/f{i}.md", "aaa") for i in range(3)]
-
-        assert approved_diff_unchanged(approved, list(approved), max_files=3) is False
+    @parameterized.expand([("both_empty", "", ""), ("approved_empty", "", _DIFF), ("current_empty", _DIFF, "")])
+    def test_empty_diff_fails_closed(self, _name: str, approved: str, current: str) -> None:
+        # Two blanks compare equal, and retaining an approval on the strength of that would treat an
+        # unreadable answer as "nothing changed".
+        assert approved_diff_unchanged(approved, current) is False

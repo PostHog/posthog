@@ -86,10 +86,6 @@ _MAX_PAGES = 20
 _PER_PAGE = 100
 
 
-# GitHub's compare endpoint returns at most this many file entries and does not say when it stopped,
-# so a response at the cap is a prefix rather than the diff.
-MAX_COMPARE_FILES = 300
-
 # Trim each inline review-thread comment body to bound the payload that rides in run.output. The
 # reviewer only needs the gist of a maintainer's "do not merge", not a novel.
 _REVIEW_THREAD_BODY_MAX = 4000
@@ -621,8 +617,8 @@ class StamphogGitHubClient:
                 break
         return files
 
-    def compare_commits(self, repo: str, base_sha: str, head_sha: str) -> list[dict]:
-        """The files differing between two commits, as raw GitHub file objects.
+    def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
+        """The unified diff between two commits, as text.
 
         Both ends are commit shas rather than refs, so the answer is a property of two immutable
         objects. That is what separates this from ``get_pr_files``, which answers for whichever head
@@ -630,22 +626,23 @@ class StamphogGitHubClient:
 
         Three-dot semantics: GitHub diffs from the merge base of the two commits, so passing a PR's
         base sha and its head sha returns the PR's own changes rather than everything the base gained
-        since. Each entry carries ``filename`` and ``sha``, the blob sha at ``head_sha``.
+        since. The text carries everything git records about the change, file modes and renames
+        included, which a per-file blob sha does not. GitHub answers 4xx for a diff too large to
+        render, which surfaces here as an error rather than a shorter diff.
         """
         path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
-        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}")
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            headers={"Accept": "application/vnd.github.diff"},
+        )
         if response.status_code != 200:
             raise StamphogGitHubError(
-                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                f"Failed to diff {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
                 status_code=response.status_code,
             )
-        payload = self._json(response, path)
-        if not isinstance(payload, dict):
-            raise StamphogGitHubError(f"Unexpected compare payload for {repo}")
-        files = payload.get("files") or []
-        if not isinstance(files, list):
-            raise StamphogGitHubError(f"Unexpected compare files payload for {repo}")
-        return [entry for entry in files if isinstance(entry, dict)]
+        return response.text
 
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.

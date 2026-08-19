@@ -102,7 +102,7 @@ def _run_task(
     app_slug: str = APP_SLUG,
     pr_files: list[dict[str, Any]] | None = None,
     active_approval_ids: list[int] | None = None,
-    compare_results: list[list[dict[str, Any]]] | None = None,
+    compare_diffs: list[str] | None = None,
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -117,11 +117,11 @@ def _run_task(
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
         mock_client.return_value.get_pr_files.return_value = pr_files or []
-        # Retention reads both sides of its comparison with compare_commits, approved head first.
-        if compare_results is None:
-            mock_client.return_value.compare_commits.return_value = []
+        # Retention reads both sides of its comparison with compare_diff, approved head first.
+        if compare_diffs is None:
+            mock_client.return_value.compare_diff.return_value = ""
         else:
-            mock_client.return_value.compare_commits.side_effect = list(compare_results)
+            mock_client.return_value.compare_diff.side_effect = list(compare_diffs)
         # Retention only trusts an approval GitHub still reports as active; default to the id the
         # retention tests post so the check passes unless a test deliberately empties it.
         mock_client.return_value.list_own_active_approvals.return_value = [
@@ -1264,7 +1264,14 @@ def test_inbox_receiver_leg_refuses_non_self_driving_prs(team, repo_config, pr_k
     mock_execute.assert_not_called()
 
 
-_APPROVED = [{"filename": "posthog/api/thing.py", "sha": "aaa", "additions": 3, "deletions": 1}]
+_APPROVED = """diff --git a/posthog/api/thing.py b/posthog/api/thing.py
+index aaa..bbb 100644
+--- a/posthog/api/thing.py
++++ b/posthog/api/thing.py
+@@ -1,2 +1,3 @@
+ keep
++added
+"""
 
 
 def _approved_run(team_id: int) -> None:
@@ -1278,11 +1285,11 @@ def _approved_run(team_id: int) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "current_sha,expect_retained",
-    [("aaa", True), ("bbb", False)],
-    ids=["identical_diff_retains", "changed_blob_dismisses"],
+    "same_diff,expect_retained",
+    [(True, True), (False, False)],
+    ids=["identical_diff_retains", "changed_diff_dismisses"],
 )
-def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, current_sha, expect_retained):
+def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
     # A merge of the base branch leaves every blob in the PR's own diff alone, so there is nothing new
     # to review and dismissing would drop the PR out of merge readiness. Any blob that moved is
     # content the approval no longer covers, which is the half that keeps the stale-approval
@@ -1290,18 +1297,16 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_co
     #
     # Delivery ids carry the case, because _mark_pr_event_processed writes to the process-wide cache
     # and a shared id would let the first case dedupe the second one's deliveries away.
-    _run_task(_pr_payload(), f"delivery-retention-approved-{current_sha}", team.id)
+    current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
+    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
     _approved_run(team.id)
 
     with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{current_sha}",
+            f"delivery-retention-push-{same_diff}",
             team.id,
-            compare_results=[
-                _APPROVED,
-                [{"filename": "posthog/api/thing.py", "sha": current_sha, "additions": 3, "deletions": 1}],
-            ],
+            compare_diffs=[_APPROVED, current_diff],
         )
 
     with team_scope(team.id):
@@ -1328,12 +1333,12 @@ def test_retention_reads_both_sides_from_pinned_commits(team, repo_config):
         _pr_payload(action="synchronize", head_sha="sha-2", base_sha="base-2"),
         "delivery-pinned-push",
         team.id,
-        compare_results=[_APPROVED, list(_APPROVED)],
+        compare_diffs=[_APPROVED, _APPROVED],
     )
 
     client = mock_execute.github
     client.get_pr_files.assert_not_called()
-    assert [call.args[1:] for call in client.compare_commits.call_args_list] == [
+    assert [call.args[1:] for call in client.compare_diff.call_args_list] == [
         ("base-1", "sha-1"),
         ("base-2", "sha-2"),
     ]
@@ -1351,7 +1356,7 @@ def test_manually_dismissed_approval_is_not_retained(team, repo_config):
         _pr_payload(action="synchronize", head_sha="sha-2"),
         "delivery-dismissed-push",
         team.id,
-        compare_results=[_APPROVED, list(_APPROVED)],
+        compare_diffs=[_APPROVED, _APPROVED],
         active_approval_ids=[],
     )
 
@@ -1375,7 +1380,7 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
         _pr_payload(action="synchronize", head_sha="sha-2"),
         "delivery-retain-merge-push",
         team.id,
-        compare_results=[_APPROVED, list(_APPROVED)],
+        compare_diffs=[_APPROVED, _APPROVED],
     )
     with team_scope(team.id):
         run = ReviewRun.objects.get(pull_request__pr_number=42)
@@ -1416,7 +1421,7 @@ def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
         _pr_payload(action="synchronize", head_sha="sha-2"),
         f"delivery-base-push-{list(output)}-{output}",
         team.id,
-        compare_results=[_APPROVED, list(_APPROVED)],
+        compare_diffs=[_APPROVED, _APPROVED],
     )
 
     mock_execute.assert_called_once()
