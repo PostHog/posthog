@@ -3,7 +3,11 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
-function ChannelSuffix({ channelName }: { channelName: string | null }) {
+function ChannelSuffix({
+  channelName,
+}: {
+  channelName: string | null;
+}): ReactNode {
   if (!channelName) return null;
   const label =
     channelName === "personal" ? "your personal space" : `#${channelName}`;

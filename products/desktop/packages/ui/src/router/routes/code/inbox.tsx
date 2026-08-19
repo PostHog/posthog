@@ -9,14 +9,14 @@ import {
   withRouteSkeleton,
 } from "@posthog/ui/router/routeSkeletons";
 import { createFileRoute, Navigate, useParams } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 
 export const Route = createFileRoute("/code/inbox")({
   component: InboxRoute,
   ...withRouteSkeleton(AppPageSkeleton),
 });
 
-function InboxRoute() {
+function InboxRoute(): ReactElement {
   const reportCanvasesEnabled = useFeatureFlag(
     REPORT_CANVAS_INBOX_FLAG,
     import.meta.env.DEV,
@@ -24,13 +24,17 @@ function InboxRoute() {
   return reportCanvasesEnabled ? <ReportCanvasRedirect /> : <InboxView />;
 }
 
-function ReportCanvasRedirect() {
+function ReportCanvasRedirect(): ReactElement {
   const { reportSpaceId } = useReportSpace();
   const { reportId } = useParams({ strict: false });
   const openReport = useOpenInboxReport();
+  const openedReportId = useRef<string | null>(null);
   useEffect(() => {
-    if (reportId) void openReport(reportId);
-  }, [openReport, reportId]);
+    if (reportId && reportSpaceId && openedReportId.current !== reportId) {
+      openedReportId.current = reportId;
+      void openReport(reportId);
+    }
+  }, [openReport, reportId, reportSpaceId]);
   if (!reportSpaceId) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -39,11 +43,7 @@ function ReportCanvasRedirect() {
     );
   }
   if (reportId) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <InboxView />;
   }
   return (
     <Navigate

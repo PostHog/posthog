@@ -89,7 +89,10 @@ vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ channelId: mocks.routeChannelId }),
 }));
 
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  REPORT_CANVAS_INBOX_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   showChannelList,
@@ -140,6 +143,14 @@ describe("ChannelsSidebar", () => {
       open: true,
       hasUserSetOpen: true,
     });
+  });
+
+  it("does not provision #general outside the report canvas rollout", () => {
+    mocks.featureFlags.set(REPORT_CANVAS_INBOX_FLAG, false);
+
+    renderSidebar();
+
+    expect(mocks.createChannel).not.toHaveBeenCalled();
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're
