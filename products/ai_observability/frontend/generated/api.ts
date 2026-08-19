@@ -37,8 +37,6 @@ import type {
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
-    EvaluationSummaryRequestApi,
-    EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMModelsListResponseApi,
     LLMPromptApi,
@@ -1211,39 +1209,6 @@ export const llmAnalyticsEvaluationReportsRunsList = async (
             method: 'GET',
         }
     )
-}
-
-export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/evaluation_summary/`
-}
-
-/**
- *
- * Generate an AI-powered summary of evaluation results.
- *
- * This endpoint analyzes evaluation runs and identifies patterns in passing
- * and failing evaluations, providing actionable recommendations.
- *
- * Data is fetched server-side by evaluation ID to ensure data integrity.
- *
- * **Use Cases:**
- * - Understand why evaluations are passing or failing
- * - Identify systematic issues in LLM responses
- * - Get recommendations for improving response quality
- * - Review patterns across many evaluation runs at once
- *
- */
-export const llmAnalyticsEvaluationSummaryCreate = async (
-    projectId: string,
-    evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
-    options?: RequestInit
-): Promise<EvaluationSummaryResponseApi> => {
-    return apiMutator<EvaluationSummaryResponseApi>(getLlmAnalyticsEvaluationSummaryCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationSummaryRequestApi),
-    })
 }
 
 export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {

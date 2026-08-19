@@ -250,7 +250,6 @@ bin/migrate --scope=clickhouse
 log "running rust-driven migrations"
 # Same connection URLs bin/start derives for these scopes; the rust/bin migrators
 # otherwise default to localhost with per-store host/user envs.
-export CYCLOTRON_DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron}"
 export CYCLOTRON_NODE_DATABASE_URL="${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@db:5432/cyclotron_node}"
 export BEHAVIORAL_COHORTS_DATABASE_URL="${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@db:5432/behavioral_cohorts}"
 export FLAGS_READ_STORE_DATABASE_URL="${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@db:5432/flags_read_store}"
