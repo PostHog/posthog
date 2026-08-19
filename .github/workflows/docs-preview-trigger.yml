@@ -21,7 +21,10 @@ jobs:
         # all continue-on-error, so they never blocked a merge anyway.
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Trigger posthog.com preview build
-        runs-on: ubuntu-latest
+        # Depot runners start in seconds, so this ~20s job stops queueing minutes
+        # for a shared GitHub runner. Forks fall back to ubuntu-latest, as we keep
+        # fork code off Depot.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         steps:
             - name: Checkout
