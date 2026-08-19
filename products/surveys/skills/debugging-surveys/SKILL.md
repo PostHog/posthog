@@ -173,7 +173,7 @@ have no survey JSON, unroll `$survey_questions`, which carries the question text
 answer. Formats and templates: [references/reading-responses.md](references/reading-responses.md),
 [references/diagnostic-queries.md](references/diagnostic-queries.md).
 
-**Sanity check the mapping before trusting the numbers:** if a column you labelled as a
+**Sanity check the mapping before trusting the numbers:** if a column you labeled as a
 single-choice question contains free text, the mapping is wrong.
 
 ## Debugging workflow
@@ -228,7 +228,7 @@ Ordered roughly by how often they're the answer.
 
 ### "Responses are incomplete — only the first question has a value"
 
-Usually not a bug — see [How a response actually gets stored](#how-a-response-actually-gets-stored). Work these four first; only then is the completion condition genuinely not being honoured.
+Usually not a bug — see [How a response actually gets stored](#how-a-response-actually-gets-stored). Work these four first; only then is the completion condition genuinely not being honored.
 
 - **Branching skipped the blank questions.** Map it from `questions[].branching` yourself. Customers describe their intent, which may not be what's saved, and a rating bucket absent from `responseValues` falls through to the next index.
 - **The blank questions are `optional: true`** and the respondent clicked past them. A rating plus two skipped optional open-text questions is a _complete_ submission with one value in it.
