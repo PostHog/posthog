@@ -1,13 +1,11 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
-import {
-  isGeneralChannel,
-  isPersonalChannel,
-} from "@posthog/core/canvas/channelName";
+import { isGeneralChannel } from "@posthog/core/canvas/channelName";
+import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 type StartupLocationClient = Pick<
   PostHogAPIClient,
-  "getTaskChannels" | "provisionDefaultTaskChannels"
+  "provisionDefaultTaskChannels"
 >;
 
 const storageKey = (identity: string): string => `startup-location:${identity}`;
@@ -18,32 +16,42 @@ interface StartupLocation {
   firstRun: { generalChannelId: string } | null;
 }
 
+let primedProvision: ProvisionedTaskChannels | null = null;
+
+/**
+ * Hand a provisioning result to the startup resolver. Whoever provisions first
+ * consumes the created flags, so a flow that provisions before the main app
+ * mounts (onboarding completion) must pass its result along for the first-run
+ * decision instead of letting startup re-provision and read false flags.
+ */
+export function primeStartupProvision(result: ProvisionedTaskChannels): void {
+  primedProvision = result;
+}
+
 export async function resolveStartupLocation(
   identity: string,
   client: StartupLocationClient,
 ): Promise<StartupLocation> {
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: saved, firstRun: null };
-  // Listing is a pure read; a first run (or a pre-#general team) provisions
-  // the default spaces explicitly and lands on the fresh list.
-  let channels = await client.getTaskChannels();
-  if (
-    !channels.some((channel) => isPersonalChannel(channel)) ||
-    !channels.some((channel) => isGeneralChannel(channel))
-  ) {
-    channels = (await client.provisionDefaultTaskChannels()).channels;
-  }
-  const general = channels.find((channel) => isGeneralChannel(channel));
-  if (general) {
-    return {
-      href: `/website/${general.id}`,
-      firstRun: { generalChannelId: general.id },
-    };
-  }
-  // Defensive: land somewhere sensible even if provisioning returned no #general.
-  const personal = channels.find((channel) => isPersonalChannel(channel));
-  if (!personal) throw new Error("Personal channel was not provisioned");
-  return { href: `/website/${personal.id}/new`, firstRun: null };
+
+  const provisioned =
+    primedProvision ?? (await client.provisionDefaultTaskChannels());
+  primedProvision = null;
+  const general = provisioned.channels.find((channel) =>
+    isGeneralChannel(channel),
+  );
+  if (!general) throw new Error("#general was not provisioned");
+
+  // First run means the user's default spaces did not exist until now, as
+  // reported by the server. A reinstall or new machine only loses the saved
+  // location, so it lands on #general without the first-run treatment.
+  const isFirstRun =
+    provisioned.personal_created || provisioned.general_created;
+  return {
+    href: `/website/${general.id}`,
+    firstRun: isFirstRun ? { generalChannelId: general.id } : null,
+  };
 }
 
 export function rememberStartupLocation(identity: string, href: string): void {
