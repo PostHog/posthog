@@ -5370,13 +5370,15 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         legacy.refresh_from_db()
         self.assertTrue(legacy.filters["filter_test_accounts"])
 
-    def test_leaves_insights_in_other_projects_alone(self) -> None:
+    @parameterized.expand([("another project",), ("a sibling environment",)])
+    def test_leaves_insights_outside_this_environment_alone(self, scope: str) -> None:
         mine = self._create_query_insight(filter_test_accounts=False)
-        _, other_project_team = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        if scope == "another project":
+            _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        else:
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
         theirs = Insight.objects.create(
-            team=other_project_team,
+            team=other_team,
             name="Theirs",
             saved=True,
             query={

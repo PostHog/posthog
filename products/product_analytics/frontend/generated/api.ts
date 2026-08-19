@@ -842,7 +842,7 @@ export const getInsightsBulkSetTestAccountFilterCreateUrl = (
 }
 
 /**
- * Turn 'filter out internal and test users' on or off for every existing insight in the project. The project setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ * Turn 'filter out internal and test users' on or off for every existing insight in the environment the request is scoped to. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Insights in sibling environments of the same project are not touched: the filters this toggle applies are defined per environment. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
  */
 export const insightsBulkSetTestAccountFilterCreate = async (
     projectId: string,

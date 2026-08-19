@@ -2762,21 +2762,24 @@ When set, the specified dashboard's filters and date range override will be appl
         request_serializer=InsightBulkSetTestAccountFilterRequestSerializer,
         responses={200: OpenApiResponse(response=InsightBulkSetTestAccountFilterResponseSerializer)},
         description=(
-            "Turn 'filter out internal and test users' on or off for every existing insight in the project. The "
-            "project setting of the same name only decides the default for new insights; this applies it to the "
-            "insights that already exist. Insights with nowhere to put the toggle, such as SQL insights, are left "
-            "alone, as are insights the requester cannot edit. Dashboards follow their insights unless the "
-            "dashboard sets its own override. Insights are updated in batches, so a failure part way through "
-            "leaves the finished batches applied. Retrying is safe and picks up the rest."
+            "Turn 'filter out internal and test users' on or off for every existing insight in the environment "
+            "the request is scoped to. The setting of the same name only decides the default for new insights; "
+            "this applies it to the insights that already exist. Insights in sibling environments of the same "
+            "project are not touched: the filters this toggle applies are defined per environment. Insights with "
+            "nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester "
+            "cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights "
+            "are updated in batches, so a failure part way through leaves the finished batches applied. "
+            "Retrying is safe and picks up the rest."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def bulk_set_test_account_filter(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         enabled: bool = request.validated_data["enabled"]
+        # Scoped to the environment in the URL, not the whole project. `self.user_access_control` resolves
+        # access-control rows under that one team, so an insight from a sibling environment would be checked
+        # against the wrong team's rows and fall through to the permissive default.
         insight_ids = list(
-            Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
-            .order_by("id")
-            .values_list("id", flat=True)
+            Insight.objects.filter(team_id=self.team.id, saved=True).order_by("id").values_list("id", flat=True)
         )
 
         totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
@@ -2806,7 +2809,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
     def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
         counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
-        insights = list(Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id))
+        insights = list(Insight.objects.filter(id__in=insight_ids, team_id=self.team.id))
         if self.user_access_control:
             self.user_access_control.preload_object_access_controls(cast(list, insights))
 
