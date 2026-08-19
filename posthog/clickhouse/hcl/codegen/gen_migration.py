@@ -53,7 +53,15 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
 # if/when they are uncommented there.
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops"]
+ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium"]
+
+# Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
+# For most roles the member name is that value uppercased; the ingestion members are not.
+NODE_ROLE_MEMBERS = {
+    "events": "INGESTION_EVENTS",
+    "small": "INGESTION_SMALL",
+    "medium": "INGESTION_MEDIUM",
+}
 
 # Manifest roles that are modeled for drift detection but are NOT migration targets:
 # they have no NodeRole member, so run_sql_with_exceptions cannot address them. A
@@ -99,12 +107,19 @@ def manifest_roles(env: str) -> list[str]:
 
 
 def golden_name(role: str) -> str:
-    """Windows-safe on-disk basename for a role's golden/sql files (mirrors lib.sh).
+    """On-disk basename for a role's golden/sql files (mirrors lib.sh).
 
     `aux` is a reserved DOS device name that can't be a path component on Windows, so
-    its files are stored as `auxiliary`. The role identity itself is unchanged.
+    its files are stored as `auxiliary`. The ingestion roles are named after their
+    hostClusterRole macro, which is too terse to read as a filename. The role identity
+    itself is unchanged in both cases.
     """
-    return {"aux": "auxiliary"}.get(role, role)
+    return {
+        "aux": "auxiliary",
+        "events": "ingestion_events",
+        "small": "ingestion_small",
+        "medium": "ingestion_medium",
+    }.get(role, role)
 
 
 def golden_at_ref(ref: str, env: str, role: str) -> str:
@@ -225,7 +240,7 @@ def main() -> None:
         # Env-specific if the statement is absent from some env that hosts these roles.
         full_envs = set().union(*(envs_for_role.get(r, set()) for r in roles))
         gate = "" if envs >= full_envs else f"  # NOTE: only {sorted(envs)} — gate with settings.CLOUD_DEPLOYMENT"
-        roles_src = "[" + ", ".join(f"NodeRole.{r.upper()}" for r in node_roles) + "]"
+        roles_src = "[" + ", ".join(f"NodeRole.{NODE_ROLE_MEMBERS.get(r, r.upper())}" for r in node_roles) + "]"
         operations.append(
             "    run_sql_with_exceptions(\n"
             f"        {sql!r},\n"
