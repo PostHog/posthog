@@ -124,8 +124,13 @@ def _build_pr_data(context: dict) -> PRData:
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
-    base_sha = context.get("base_sha") or (pr.get("base") or {}).get("sha") or ""
+    base = pr.get("base") or {}
+    base_sha = context.get("base_sha") or base.get("sha") or ""
     head_sha = context.get("head_sha") or (pr.get("head") or {}).get("sha") or ""
+    # Both feed PRData.stacked (the stacked-PR prompt note). A lean context without them reads as
+    # non-stacked, matching the Action's default.
+    default_branch = (base.get("repo") or {}).get("default_branch") or "master"
+    base_ref = base.get("ref") or default_branch
 
     files = _git_diff_files(base_sha, head_sha, REPO_ROOT)
     if not files:
@@ -198,6 +203,7 @@ def _build_pr_data(context: dict) -> PRData:
         mergeable_state=pr.get("mergeable_state") or "unknown",
         author=user.get("login") or "",
         labels=[label.get("name", "") for label in pr.get("labels") or []],
+        base_ref=base_ref,
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
@@ -208,6 +214,7 @@ def _build_pr_data(context: dict) -> PRData:
         pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
+        default_branch=default_branch,
     )
 
 
@@ -315,7 +322,11 @@ def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
     # Inbox implementation run. Action contexts never carry it, so bot authors are refused as before.
-    pipeline = Pipeline(0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")))
+    # head_checkout: the sandbox clones and checks out the PR head before this runs (see the server's
+    # _clone_pr), so parent-PR symbols already resolve for stacked PRs and no worktree is needed.
+    pipeline = Pipeline(
+        0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")), head_checkout=True
+    )
     pipeline.pr = _build_pr_data(context)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:

@@ -475,7 +475,7 @@ def check_free_tier_model_access(
 MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
     "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
-    "zai-org/glm-5.3": "tasks-glm-baseten-inference",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
 }
 
 

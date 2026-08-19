@@ -24391,6 +24391,10 @@ class AccountsQuery(BaseModel):
             " the overview tile click-to-filter affordance."
         ),
     )
+    includeIgnored: bool | None = Field(
+        default=None,
+        description="Include ignored accounts. Ignored accounts are hidden by default.",
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
     metrics: list[str] | None = Field(
@@ -24448,6 +24452,10 @@ class AccountsTableQuery(BaseModel):
     includeChurned: bool | None = Field(
         default=None,
         description="Include churned accounts. Churned accounts are hidden by default.",
+    )
+    includeIgnored: bool | None = Field(
+        default=None,
+        description="Include ignored accounts. Ignored accounts are hidden by default.",
     )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
