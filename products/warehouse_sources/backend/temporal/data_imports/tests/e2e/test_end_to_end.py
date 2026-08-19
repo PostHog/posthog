@@ -141,12 +141,6 @@ def pipeline_mode(request, _clean_sourcebatch_tables):
     _current_pipeline_mode = "non_dlt"
 
 
-# TODO: remove _KafkaMessageCapture once Postgres producer is fully validated
-# class _KafkaMessageCapture:
-#     ...
-# _kafka_capture = _KafkaMessageCapture()
-
-
 def _get_test_database_url() -> str:
     """Build a psycopg-compatible DSN from Django's active test database connection."""
     from django.db import connection
@@ -4074,9 +4068,8 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
-    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
-    # module instead of a per-instance `_get_kafka_producer` method; patch the async
-    # context manager at its import site.
+    # CDPProducer takes its producer from `async_producer_scope(profile=CYCLOTRON)` in the routing
+    # module, so patch that async context manager at its import site rather than the producer class.
     @contextlib.asynccontextmanager
     async def _fake_scope(*args, **kwargs):
         yield mock_kafka_producer
