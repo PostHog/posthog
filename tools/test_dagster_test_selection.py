@@ -109,6 +109,11 @@ class TestDagsterTestSelection(unittest.TestCase):
         selection = self._select(["products/web_analytics/dags/tests/conftest.py"])
         self.assertEqual(selection.tests, ["products/web_analytics/dags/tests/test_cache_warming.py"])
 
+    def test_a_deleted_dags_tree_forces_full_mode(self) -> None:
+        selection = self._select(["products/removed_product/dags/some_dag.py"])
+        self.assertEqual(selection.mode, "full")
+        self.assertTrue(any("no longer exists" in reason for reason in selection.reasons))
+
     def test_markdown_changes_in_a_dags_tree_select_nothing(self) -> None:
         selection = self._select(["posthog/dags/README.md"])
         self.assertEqual(selection.mode, "none")

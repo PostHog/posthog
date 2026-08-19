@@ -28,6 +28,7 @@ non-zero exit or empty output as full mode (fail-open to today's behavior).
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import math
@@ -41,6 +42,7 @@ DURATIONS_PATH = REPO_ROOT / ".test_durations"
 
 # Mirrors the pytest invocation in ci-dagster.yml: posthog/dags products/*/dags.
 DAGS_TREE_GLOBS = ("posthog/dags", "products/*/dags")
+DAGS_TREE_PATTERN = re.compile(r"^(posthog/dags|products/[^/]+/dags)/")
 
 # Changes to these force a full run: they alter how every dagster test executes.
 FULL_RUN_PATTERNS = (
@@ -102,8 +104,11 @@ def test_universe(trees: list[str]) -> set[str]:
     return universe
 
 
-def tree_of(path: str, trees: list[str]) -> str | None:
-    return next((tree for tree in trees if path.startswith(tree + "/")), None)
+def tree_of(path: str) -> str | None:
+    """The dags tree a path belongs to, by shape — not by directory existence,
+    so files of a deleted tree still classify as dag changes."""
+    match = DAGS_TREE_PATTERN.match(path)
+    return match.group(1) if match else None
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:
@@ -153,6 +158,14 @@ def estimate_seconds(test_files: set[str], durations: dict[str, float]) -> float
     return total
 
 
+def removed_tree_reasons(changed_files: list[str], trees: list[str]) -> list[str]:
+    """A deleted dags tree leaves no modules for snob to resolve reverse
+    dependencies against, so cross-tree import breakage is invisible to
+    selection — only a full run can catch it before the merge queue."""
+    removed = {tree_of(path) for path in changed_files} - {None} - set(trees)
+    return sorted(f"dags tree {tree} no longer exists; forcing a full run" for tree in removed)
+
+
 def full_run_reasons(changed_files: list[str]) -> list[str]:
     reasons = [
         f"{path} matches full-run pattern {pattern}"
@@ -183,7 +196,7 @@ def select_tests(
     outside_py: list[str] = []
 
     for path in changed_files:
-        tree = tree_of(path, trees)
+        tree = tree_of(path)
         if tree is None:
             if path.endswith(".py"):
                 outside_py.append(path)
@@ -229,7 +242,7 @@ def build_selection(changed_files: list[str], snob_fn=snob_tests) -> Selection:
     durations = load_durations()
     suite_seconds = round(estimate_seconds(universe, durations))
 
-    reasons = full_run_reasons(changed_files)
+    reasons = full_run_reasons(changed_files) + removed_tree_reasons(changed_files, trees)
     if reasons:
         return Selection(
             mode="full",
