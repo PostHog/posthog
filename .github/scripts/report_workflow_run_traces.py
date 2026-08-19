@@ -32,11 +32,11 @@ re-run are not traced. The trace ID folds in run_attempt, so the attempts that
 are traced never collide.
 
 Exit status is the watermark's only feedback channel. A tick that traced everything
-it found exits 0; a tick that lost anything — a scan that errored, a run whose jobs
-would not load, an export that raised — exits non-zero so the run is recorded as
-failed and the next tick re-covers the window. Re-emitting is free: span IDs are
-deterministic, so an overlapping window is idempotent. Nothing gates on this
-workflow, so a red tick costs a notification rather than a blocked merge.
+it found exits 0. A tick that lost anything exits non-zero, so GitHub records the
+run as failed and the next tick re-covers the window: an errored scan, a run whose
+jobs would not load, or a batch the endpoint rejected. Re-emitting is free, because
+span IDs are deterministic and an overlapping window is idempotent. Nothing gates on
+this workflow, so a red tick costs a notification rather than a blocked merge.
 """
 
 from __future__ import annotations

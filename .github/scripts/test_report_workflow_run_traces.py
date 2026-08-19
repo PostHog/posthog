@@ -509,7 +509,7 @@ class TestExitStatus:
         assert reporter.main(["--run-id", "999"]) == reporter.EXIT_INCOMPLETE
 
     def test_a_run_reporting_zero_jobs_advances_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # A cancelled run really can report zero jobs — nothing was lost, so the tick is clean.
+        # A cancelled run really can report zero jobs, and nothing was lost, so the tick is clean.
         monkeypatch.setenv("GITHUB_TOKEN", "t")
         monkeypatch.setattr(
             reporter.urllib.request,
