@@ -52,6 +52,8 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'posthog-java':
         case 'analytics-java':
             return 'java'
+        case 'posthog-kmp':
+            return 'kotlin'
         default:
             return 'unknown'
     }
