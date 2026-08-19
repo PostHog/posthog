@@ -3,6 +3,7 @@ import {
   computeOrderedVisibleTaskIds,
   computePriorTaskIds,
   formatArchiveResult,
+  formatBulkResult,
 } from "@posthog/core/sidebar/selection";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
@@ -416,13 +417,26 @@ function SidebarMenuComponent() {
   // One request for the batch rather than a toggle per row: pinning is a scoped
   // mutation, so a row-at-a-time batch waits out a round trip for each one.
   const handleTasksSetPinned = useCallback(
-    (taskIds: string[], pinned: boolean) => {
+    async (taskIds: string[], pinned: boolean) => {
       const archiving = useArchivingTasksStore.getState();
       const eligible = taskIds.filter((id) => !archiving.isArchiving(id));
       if (eligible.length === 0) return;
-      setPinnedMany(eligible, pinned).catch(() => {
+      try {
+        // setPinnedMany settles every request itself and reports the failures
+        // in `failed` rather than rejecting, so surface them the same way the
+        // bulk action bar does — a bare .catch() never sees a partial failure.
+        const { succeeded, failed } = await setPinnedMany(eligible, pinned);
+        if (failed.length > 0) {
+          const { message } = formatBulkResult(pinned ? "pinned" : "unpinned", {
+            succeeded: succeeded.length,
+            failed: failed.length,
+          });
+          toast.error(message);
+        }
+      } catch (error) {
+        log.error("Failed to set pinned sessions", error);
         toast.error(`Couldn't ${pinned ? "pin" : "unpin"} the sessions`);
-      });
+      }
     },
     [setPinnedMany],
   );
