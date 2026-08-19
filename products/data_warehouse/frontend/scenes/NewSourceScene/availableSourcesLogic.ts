@@ -47,7 +47,10 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
             cachedAvailableSources as Record<string, SourceConfig> | null,
             {
                 load: async () => {
-                    if (cachedAvailableSources !== null && Date.now() - cachedAvailableSourcesAt < MANIFEST_CACHE_TTL_MS) {
+                    if (
+                        cachedAvailableSources !== null &&
+                        Date.now() - cachedAvailableSourcesAt < MANIFEST_CACHE_TTL_MS
+                    ) {
                         return cachedAvailableSources
                     }
                     try {
