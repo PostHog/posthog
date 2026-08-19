@@ -1155,6 +1155,7 @@ def _render_logs(logs: _RunFailureLogs) -> None:
             text = _terminal_text(line["text"])
             click.echo(f"    {str(number) if number else '·':>7}  {text}")
         if job["truncated"]:
+            # A run-level cap also sets this flag on the last job, so the exact cap is unknown.
             click.echo("    (job log output truncated)")
     if logs["truncated"]:
         click.echo("\n  Run log cap reached; later lines or jobs may be missing.")
