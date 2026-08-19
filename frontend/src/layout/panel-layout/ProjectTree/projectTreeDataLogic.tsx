@@ -917,6 +917,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                   }
                                                   // Signal non-sidebar consumers (the dashboards tree) to refetch.
                                                   actions.restoredItems()
+                                                  // The delete pushed these items out of the recents and pinned
+                                                  // dashboards caches, so the undo has to push them back by
+                                                  // refetching. Otherwise a restored dashboard or recent stays
+                                                  // missing from the sidebar until the next full reload.
+                                                  recentItemsModel.findMounted()?.actions.loadRecents()
+                                                  if (undoableEntries.some((entry) => entry.type === 'dashboard')) {
+                                                      dashboardsModel.findMounted()?.actions.loadDashboards()
+                                                  }
                                                   const restoreCountsByType = new Map<string, number>()
                                                   for (const entry of undoableEntries) {
                                                       restoreCountsByType.set(

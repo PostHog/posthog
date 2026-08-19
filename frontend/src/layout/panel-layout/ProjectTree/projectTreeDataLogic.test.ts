@@ -249,4 +249,76 @@ describe('projectTreeDataLogic', () => {
 
         expect(model.values.pinnedDashboards).toEqual([])
     })
+
+    it('restores dropped items to the caches when the delete is undone', async () => {
+        const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        jest.spyOn(api.fileSystem, 'delete').mockResolvedValue({
+            deleted: [{ type: 'dashboard', ref: '9', path: 'Marketing/Pinned', can_undo: true }],
+        } as any)
+        jest.spyOn(api.fileSystem, 'undoDelete').mockResolvedValue(undefined)
+        jest.spyOn(api, 'get').mockResolvedValue({ count: 0, results: [], next: null })
+
+        const recents = recentItemsModel()
+        recents.mount()
+        recents.actions.loadRecentsSuccess([
+            {
+                id: 'fs-1',
+                type: 'dashboard',
+                ref: '9',
+                path: 'Marketing/Pinned',
+                href: '/dashboard/9',
+            } as FileSystemEntry,
+        ])
+        const model = dashboardsModel()
+        model.mount()
+        model.actions.loadDashboardsSuccess({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ id: 9, name: 'Pinned', pinned: true } as DashboardBasicType],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.queueAction(
+                {
+                    type: 'delete',
+                    item: { id: 'fs-folder', type: 'folder', path: 'Marketing' } as any,
+                    path: 'Marketing',
+                },
+                'test'
+            )
+        }).toFinishAllListeners()
+
+        // The delete emptied both caches; the undo must repopulate them from the backend.
+        expect(recents.values.recents).toEqual([])
+        expect(model.values.pinnedDashboards).toEqual([])
+
+        jest.mocked(api.fileSystem.list).mockResolvedValue({
+            count: 1,
+            results: [
+                {
+                    id: 'fs-1',
+                    type: 'dashboard',
+                    ref: '9',
+                    path: 'Marketing/Pinned',
+                    href: '/dashboard/9',
+                } as FileSystemEntry,
+            ],
+            users: [],
+        })
+        jest.mocked(api.get).mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ id: 9, name: 'Pinned', pinned: true } as DashboardBasicType],
+        })
+
+        const undo = success.mock.calls.find((call) => call[1]?.button?.label === 'Undo')?.[1]?.button?.action
+        await undo?.()
+        await expectLogic(recents).toFinishAllListeners()
+        await expectLogic(model).toFinishAllListeners()
+
+        expect(recents.values.recents).toEqual([expect.objectContaining({ ref: '9' })])
+        expect(model.values.pinnedDashboards).toEqual([expect.objectContaining({ id: 9 })])
+    })
 })
