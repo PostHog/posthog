@@ -263,6 +263,12 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_GRPC_PORT", default = "6739")]
     pub ingestion_worker_grpc_port: u16,
 
+    /// When non-zero, override the fixed gRPC port: each worker's stream
+    /// address becomes its HTTP port plus this offset. For single-host setups
+    /// (local dev) where workers share an IP and differ only by port.
+    #[envconfig(from = "INGESTION_WORKER_GRPC_PORT_OFFSET", default = "0")]
+    pub ingestion_worker_grpc_port_offset: u16,
+
     /// Fence a lane (fail its un-acked and queued sub-batches into the
     /// deferral path, reconnect, re-route) when un-acked work sees no ack for
     /// this long (milliseconds). The stream has no per-send timeout, so this

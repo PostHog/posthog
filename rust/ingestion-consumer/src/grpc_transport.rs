@@ -72,12 +72,24 @@ struct Lane {
     task: tokio::task::JoinHandle<()>,
 }
 
+/// How a worker's gRPC address is derived from its HTTP URL.
+#[derive(Clone, Copy, Debug)]
+pub enum GrpcPort {
+    /// Every worker serves gRPC on this port — the production shape, where
+    /// workers are distinct pod IPs sharing one containerPort.
+    Fixed(u16),
+    /// gRPC port = the worker URL's HTTP port plus this offset — for
+    /// single-host setups (local dev, tests) where workers share an IP and
+    /// differ only by port.
+    OffsetFromHttp(u16),
+}
+
 /// Sends sub-batches over one ordered `WorkerIngest` stream per worker.
 pub struct GrpcTransport {
     lanes: DashMap<String, Arc<Lane>>,
     consumer_id: String,
-    /// Worker gRPC port; lane addresses are the worker URL's host plus this.
-    grpc_port: u16,
+    /// How each worker's stream address is derived from its HTTP URL.
+    grpc_port: GrpcPort,
     /// Max un-acked sub-batches per lane (aligned with the worker's
     /// `concurrentBatches`, like the HTTP semaphore it replaces).
     max_unacked: usize,
@@ -91,7 +103,7 @@ pub struct GrpcTransport {
 }
 
 impl GrpcTransport {
-    pub fn new(grpc_port: u16, max_unacked: usize, ack_timeout: Duration) -> Self {
+    pub fn new(grpc_port: GrpcPort, max_unacked: usize, ack_timeout: Duration) -> Self {
         assert!(max_unacked > 0, "max_unacked must be > 0");
         Self {
             lanes: DashMap::new(),
@@ -547,17 +559,24 @@ fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {
 
 /// Derive the worker's gRPC address from its HTTP URL: same host, gRPC port.
 /// Worker URLs are `http://<host-or-ip>:<port>` (see `discovery::addr_to_worker`).
-fn grpc_url(worker_url: &str, grpc_port: u16) -> String {
+fn grpc_url(worker_url: &str, grpc_port: GrpcPort) -> String {
     let without_scheme = worker_url
         .strip_prefix("http://")
         .or_else(|| worker_url.strip_prefix("https://"))
         .unwrap_or(worker_url);
-    let host = match without_scheme.rfind(':') {
+    let (host, http_port) = match without_scheme.rfind(':') {
         // Don't split inside an unbracketed IPv6 literal.
-        Some(idx) if !without_scheme[idx + 1..].contains(']') => &without_scheme[..idx],
-        _ => without_scheme,
+        Some(idx) if !without_scheme[idx + 1..].contains(']') => (
+            &without_scheme[..idx],
+            without_scheme[idx + 1..].parse::<u16>().unwrap_or(0),
+        ),
+        _ => (without_scheme, 0),
     };
-    format!("http://{host}:{grpc_port}")
+    let port = match grpc_port {
+        GrpcPort::Fixed(port) => port,
+        GrpcPort::OffsetFromHttp(offset) => http_port.saturating_add(offset),
+    };
+    format!("http://{host}:{port}")
 }
 
 fn jittered(base: Duration) -> Duration {

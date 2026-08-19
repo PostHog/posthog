@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ingestion_consumer::grpc_transport::GrpcTransport;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::transport::TransportError;
 use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
@@ -183,7 +183,11 @@ fn worker_url(addr: SocketAddr) -> String {
 #[tokio::test]
 async fn sub_batches_reach_the_worker_in_enqueue_order() {
     let mock = start_mock(AckMode::Immediate, None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
     let url = worker_url(mock.addr);
 
     // Enqueue three sub-batches back to back — more than the un-acked cap, so
@@ -207,7 +211,11 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
 async fn out_of_order_acks_resolve_the_right_sends() {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
@@ -236,7 +244,11 @@ async fn a_nack_fences_everything_outstanding_in_order() {
     // nothing may be silently retried on the next stream — a later sub-batch
     // surviving the fence would leapfrog the failed one and reorder its keys.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 1, Duration::from_secs(30));
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        1,
+        Duration::from_secs(30),
+    );
     let url = worker_url(mock.addr);
 
     // With max_unacked=1, the second and third wait in the queue behind the
@@ -272,7 +284,11 @@ async fn a_nack_fences_everything_outstanding_in_order() {
 #[tokio::test]
 async fn the_lane_reconnects_with_a_new_stream_epoch_after_a_fence() {
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
@@ -303,7 +319,7 @@ async fn a_dead_worker_fences_instead_of_hanging() {
     // Connect failure (nothing listening): the send must resolve with its
     // messages rather than waiting forever — the caller's deferral path owns
     // the retry pacing.
-    let transport = GrpcTransport::new(1, 1, Duration::from_secs(30));
+    let transport = GrpcTransport::new(GrpcPort::Fixed(1), 1, Duration::from_secs(30));
     let pending = transport.begin_send(
         "http://127.0.0.1:9001",
         "batch-1",
@@ -325,7 +341,11 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
     // hand the messages back so the deferral path re-routes them.
     let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_millis(200));
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_millis(200),
+    );
     let url = worker_url(mock.addr);
 
     let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);

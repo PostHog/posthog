@@ -25,7 +25,7 @@ use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
 use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::grpc_transport::GrpcTransport;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::transports::{Transport, TransportMode};
@@ -258,11 +258,18 @@ async fn async_main(config: Config) -> Result<()> {
             }
             Transport::Http(Arc::new(transport))
         }
-        TransportMode::Grpc => Transport::Grpc(Arc::new(GrpcTransport::new(
-            config.ingestion_worker_grpc_port,
-            config.ingestion_worker_concurrent_batches,
-            Duration::from_millis(config.ingestion_lane_ack_timeout_ms),
-        ))),
+        TransportMode::Grpc => {
+            let grpc_port = if config.ingestion_worker_grpc_port_offset > 0 {
+                GrpcPort::OffsetFromHttp(config.ingestion_worker_grpc_port_offset)
+            } else {
+                GrpcPort::Fixed(config.ingestion_worker_grpc_port)
+            };
+            Transport::Grpc(Arc::new(GrpcTransport::new(
+                grpc_port,
+                config.ingestion_worker_concurrent_batches,
+                Duration::from_millis(config.ingestion_lane_ack_timeout_ms),
+            )))
+        }
     };
     info!(
         transport = config.ingestion_transport.as_str(),
