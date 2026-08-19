@@ -6,12 +6,17 @@
 //! Supports:
 //! - gzip compression/decompression
 //! - Base64 encoding/decoding
+//! - lz-string ("lz64") decompression with a capped output
 
 use base64::{engine::general_purpose, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use std::io::{Read, Write};
 use thiserror::Error;
 use zstd::{Decoder, Encoder};
+
+mod lz64;
+
+pub use lz64::decompress_lz64_capped;
 
 /// Gzip streams start with the two-byte magic `1f 8b` (ID1, ID2), followed by
 /// compression method `08` (deflate). All three bytes are checked together so
@@ -32,6 +37,12 @@ pub enum CompressionError {
 
     #[error("decompressed output exceeded limit ({decompressed} > {limit} bytes)")]
     OutputTooLarge { decompressed: usize, limit: usize },
+
+    #[error("lz-string data could not be decompressed")]
+    Lz64Invalid,
+
+    #[error("lz-string output exceeded limit ({units} > {limit} UTF-16 code units)")]
+    Lz64OutputTooLarge { units: usize, limit: usize },
 }
 
 /// Gzip decompression with **no output cap**.

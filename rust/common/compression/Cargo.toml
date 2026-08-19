@@ -9,3 +9,7 @@ base64 = { workspace = true }
 thiserror = { workspace = true }
 zstd = "0.13"
 
+[dev-dependencies]
+# Reference implementation the capped lz64 decoder is checked against.
+lz-str = { workspace = true }
+
