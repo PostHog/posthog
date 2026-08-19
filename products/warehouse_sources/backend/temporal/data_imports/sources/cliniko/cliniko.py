@@ -109,6 +109,10 @@ def _client_config(api_key: str) -> ClientConfig:
         # as base_url only" and also pins paginator and resume URLs.
         "allowed_hosts": [],
         "allow_redirects": False,
+        # `capture=False`: rows carry clinical PII (patient records, treatment notes, invoices)
+        # the name-based sample scrubbers aren't built to catch, so keep them out of HTTP
+        # diagnostic sample storage entirely, same as the other PII/free-text sources.
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
     }
 
 

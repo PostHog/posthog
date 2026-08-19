@@ -112,8 +112,11 @@ class TestClinikoSourceResumeBehavior:
             sent_params.append(dict(request.params or {}))
             return next(response_iter)
 
+        # `_client_config` now passes an explicit `capture=False` session (see the module docstring
+        # on why), so the session comes from cliniko's own `make_tracked_session` import rather than
+        # `RESTClient`'s internal default.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
