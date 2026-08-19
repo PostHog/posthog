@@ -39,6 +39,13 @@ export interface recentItemsModelActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
+    itemDeleted: (
+        type: string,
+        ref: string
+    ) => {
+        ref: string
+        type: string
+    }
     loadRecents: () => any
     loadRecentsFailure: (
         error: string,
@@ -68,13 +75,6 @@ export interface recentItemsModelActions {
     ) => {
         sceneLogViewsByRef: Record<string, string>
         payload?: any
-    }
-    itemDeleted: (
-        type: string,
-        ref: string
-    ) => {
-        ref: string
-        type: string
     }
     recordView: (
         type: string,
