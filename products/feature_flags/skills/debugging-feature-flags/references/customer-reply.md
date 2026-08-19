@@ -14,19 +14,20 @@ clear, no jargon.
 - **Use the labels the customer sees in the UI, never internal field names or reason enums.** Common
   mappings:
 
-  | Internal / code term                   | What the customer sees                                                   |
-  | -------------------------------------- | ------------------------------------------------------------------------ |
-  | release condition / `filters.groups[]` | a **release condition**                                                  |
-  | `rollout_percentage`                   | the **rollout percentage**                                               |
-  | `no_condition_match`                   | **none of your release conditions matched this user**                    |
-  | `out_of_rollout_bound`                 | the user is **outside the rolled-out percentage**                        |
-  | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group |
-  | `super_condition_value`                | the user's **early access feature** enrollment decided it                |
-  | `holdout_condition_value`              | the user is in the **holdout**                                           |
-  | `missing_dependency`                   | this flag **depends on another flag** that isn't available               |
-  | `disabled` / `flag_not_found`          | the flag is **turned off** in your project                               |
-  | multivariate `variant`                 | a **variant**                                                            |
-  | `$feature_flag_called`                 | the flag being **called / evaluated** in your app                        |
+  | Internal / code term                   | What the customer sees                                                                   |
+  | -------------------------------------- | ---------------------------------------------------------------------------------------- |
+  | release condition / `filters.groups[]` | a **release condition**                                                                  |
+  | `rollout_percentage`                   | the **rollout percentage**                                                               |
+  | `no_condition_match`                   | **none of your release conditions matched this user**                                    |
+  | `out_of_rollout_bound`                 | the user is **outside the rolled-out percentage**                                        |
+  | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group                 |
+  | `super_condition_value`                | the user's **early access feature** enrollment decided it                                |
+  | `holdout_condition_value`              | the user is in the **holdout**                                                           |
+  | `missing_dependency`                   | this flag **depends on another flag** that isn't available                               |
+  | `disabled`                             | the flag is **turned off** in your project                                               |
+  | `flag_not_found`                       | resolve the cause first: either **turned off**, or **not available to that kind of SDK** |
+  | multivariate `variant`                 | a **variant**                                                                            |
+  | `$feature_flag_called`                 | the flag being **called / evaluated** in your app                                        |
 
 - **Link the flag by ID for the right instance** (US vs EU — match the customer's):
   `https://<us|eu>.posthog.com/project/<id>/feature_flags/<flag_id>`.
@@ -54,6 +55,8 @@ Hi <name>,
 
 Once you <fix>, that user should get <expected value> going forward.
 
+Here's the flag: https://<us|eu>.posthog.com/project/<id>/feature_flags/<flag_id>
+
 We're always here if you need a follow-up.
 ```
 
@@ -80,6 +83,8 @@ isn't random, so retrying or clearing cookies won't change it for that specific 
 
 Once you raise the rollout or add a targeted condition, that user will start getting the flag on
 their next evaluation.
+
+Here's the flag: https://us.posthog.com/project/1234/feature_flags/5678
 
 We're always here if you need a follow-up.
 ```
