@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { toast, type ToastOptions } from 'react-toastify'
+import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
@@ -24,7 +24,7 @@ export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): J
     )
 }
 
-interface ToastButton {
+export interface ToastButton {
     label: string
     action: (() => void) | (() => Promise<void>)
     dataAttr?: string
@@ -52,6 +52,8 @@ export const EMAIL_SUPPORT_BUTTON: ToastButton = {
     },
 }
 
+const successIcon = (): JSX.Element => (isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />)
+
 export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
@@ -59,24 +61,36 @@ export interface ToastContentProps {
     id?: number | string
 }
 
+export function ToastActionButton({
+    button,
+    toastId,
+}: {
+    button: ToastButton
+    toastId?: number | string
+}): JSX.Element {
+    return (
+        <LemonButton
+            onClick={() => {
+                void button.action()
+                // Not lemonToast.dismiss: that marks the id cancelled so the next toast reusing it
+                // is swallowed, and ids are a hash of the message, so the same error would go quiet.
+                toast.dismiss(toastId)
+            }}
+            type="secondary"
+            size="small"
+            data-attr={button.dataAttr}
+            className={button.className}
+        >
+            {button.label}
+        </LemonButton>
+    )
+}
+
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
             <span className="grow overflow-hidden text-ellipsis">{message}</span>
-            {button && (
-                <LemonButton
-                    onClick={() => {
-                        void button.action()
-                        toast.dismiss(id)
-                    }}
-                    type="secondary"
-                    size="small"
-                    data-attr={button.dataAttr}
-                    className={button.className}
-                >
-                    {button.label}
-                </LemonButton>
-            )}
+            {button && <ToastActionButton button={button} toastId={id} />}
         </div>
     )
 }
@@ -160,7 +174,7 @@ export const lemonToast = {
                 return
             }
             toast.success(<ToastContent type="success" message={message} button={button} id={id} />, {
-                icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                icon: successIcon(),
                 ...options,
             })
         })
@@ -220,25 +234,31 @@ export const lemonToast = {
     },
     promise(
         promise: Promise<any>,
-        messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
+        messages: {
+            pending: string | JSX.Element
+            /** A function is called when the promise settles, so it can read state that changed while it ran. */
+            success: string | JSX.Element | ((data?: string) => string | JSX.Element)
+            error: string | JSX.Element
+        },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
-        // Promise toasts always get random IDs (unless explicitly provided) because
-        // different operations often share identical pending text like "Saving..."
         const options = ensureToastId(toastOptions, 'promise')
+        const id = options.toastId
         // see https://fkhadra.github.io/react-toastify/promise
         return toast.promise<string | undefined, ToastError>(
             promise,
             {
                 pending: {
-                    render: <ToastContent type="info" message={messages.pending} button={button} />,
+                    render: <ToastContent type="info" message={messages.pending} button={button} id={id} />,
                     icon: <Spinner />,
                 },
                 success: {
                     render: ({ data }) => {
-                        return <ToastContent type="success" message={data || messages.success} button={button} />
+                        const success =
+                            typeof messages.success === 'function' ? messages.success(data) : data || messages.success
+                        return <ToastContent type="success" message={success} button={button} id={id} />
                     },
-                    icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                    icon: successIcon(),
                 },
                 error: {
                     render: ({ data }) => {
@@ -247,6 +267,7 @@ export const lemonToast = {
                                 type="error"
                                 message={withIncidentNote(data?.message || messages.error)}
                                 button={button}
+                                id={id}
                             />
                         )
                     },
@@ -255,6 +276,28 @@ export const lemonToast = {
             },
             options
         )
+    },
+    updateToSuccess(
+        id: number | string,
+        message: string | JSX.Element,
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
+    ): void {
+        toast.update(id, {
+            render: <ToastContent type="success" message={message} button={button} id={id} />,
+            type: 'success',
+            icon: successIcon(),
+            // react-toastify drops null props so the container's defaults apply again. This is the
+            // same reset its own promise() resolver does when leaving the loading state.
+            isLoading: null,
+            autoClose: null,
+            closeOnClick: null,
+            closeButton: null,
+            draggable: null,
+            ...toastOptions,
+        } as UpdateOptions)
+    },
+    isActive(id: number | string): boolean {
+        return toast.isActive(id)
     },
     dismiss(id?: number | string): void {
         // If a toast was created in this tick but hasn't been registered yet (due to

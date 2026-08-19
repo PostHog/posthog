@@ -72,7 +72,7 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error
+from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -110,6 +110,7 @@ from products.tasks.backend.models import (
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
+    TaskWorkflowDispatch,
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
@@ -209,6 +210,8 @@ __all__ = [
     "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_terminal_prewarmed_task_run_ids",
     "get_stale_queued_task_run_ids",
+    "filter_uncovered_workflow_dispatch_run_ids",
+    "maintain_workflow_dispatch_outbox",
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
@@ -1012,6 +1015,7 @@ def get_stale_queued_task_run_ids(
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
     environment: str | None = None,
+    exclude_covered_dispatches: bool = False,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
@@ -1031,7 +1035,82 @@ def get_stale_queued_task_run_ids(
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
     if environment is not None:
         queryset = queryset.filter(environment=environment)
+    if exclude_covered_dispatches:
+        queryset = queryset.exclude(
+            workflow_dispatches__status__in=(TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED)
+        )
+    elif environment == TaskRun.Environment.CLOUD:
+        queryset = queryset.exclude(
+            workflow_dispatches__status__in=("pending", "claimed"),
+            workflow_dispatches__enqueued_at__gte=now
+            - timedelta(seconds=settings.TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS),
+        )
     return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
+
+
+def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> list[UUID]:
+    from products.tasks.backend.metrics import WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL  # noqa: PLC0415
+
+    live_dispatch_run_ids = set(
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(
+            task_run_id__in=candidate_ids,
+            status__in=(TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED),
+        )
+        .values_list("task_run_id", flat=True)
+    )
+    uncovered_ids = [run_id for run_id in candidate_ids if run_id not in live_dispatch_run_ids]
+    if not is_workflow_dispatch_shadow_enabled():
+        return uncovered_ids
+    runs = {
+        run.id: run
+        for run in TaskRun.objects.filter(id__in=uncovered_ids)  # nosemgrep: celery-task-team-scope-audit
+    }
+    dispatch_run_ids = set(
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(task_run_id__in=uncovered_ids)
+        .values_list("task_run_id", flat=True)
+    )
+    for run_id in uncovered_ids:
+        run = runs.get(run_id)
+        has_legacy_intent = bool(run and isinstance(run.state, dict) and run.state.get("pending_dispatch"))
+        if run_id not in dispatch_run_ids and not has_legacy_intent:
+            WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
+    return uncovered_ids
+
+
+def maintain_workflow_dispatch_outbox() -> None:
+    now = django_timezone.now()
+    TaskWorkflowDispatch.objects.unscoped().filter(
+        status=TaskWorkflowDispatch.Status.PENDING,
+    ).exclude(task_run__status=TaskRun.Status.QUEUED).update(
+        status=TaskWorkflowDispatch.Status.ACCEPTED,
+        accepted_at=now,
+        last_error="resolved: run left QUEUED",
+    )
+    TaskWorkflowDispatch.objects.unscoped().filter(
+        status=TaskWorkflowDispatch.Status.CLAIMED,
+        lease_expires_at__lt=now - timedelta(minutes=10),
+    ).update(
+        status=TaskWorkflowDispatch.Status.PENDING,
+        claimed_by="",
+        lease_expires_at=None,
+        next_attempt_at=now,
+    )
+    accepted_ids = list(
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(status=TaskWorkflowDispatch.Status.ACCEPTED, accepted_at__lt=now - timedelta(days=14))
+        .order_by("accepted_at")
+        .values_list("id", flat=True)[:1000]
+    )
+    TaskWorkflowDispatch.objects.unscoped().filter(id__in=accepted_ids).delete()
+    dead_ids = list(
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(status=TaskWorkflowDispatch.Status.DEAD, updated_at__lt=now - timedelta(days=30))
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:1000]
+    )
+    TaskWorkflowDispatch.objects.unscoped().filter(id__in=dead_ids).delete()
 
 
 def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
@@ -4118,6 +4197,19 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+
+    from products.tasks.backend.feature_flags import is_workflow_dispatch_restart_enabled  # noqa: PLC0415
+    from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+        RestartSnapshot,
+        build_restart_payload,
+        create_dispatch,
+    )
+    from products.tasks.backend.models import TaskWorkflowDispatch  # noqa: PLC0415
+
+    distinct_id = run.task.created_by.distinct_id if run.task.created_by else str(run.id)
+    restart_dispatch_enabled = is_workflow_dispatch_restart_enabled(
+        str(run.task.team.organization_id), distinct_id or str(run.id)
+    )
     logger.info(
         "resume_in_cloud_called",
         extra={
@@ -4169,6 +4261,24 @@ def resume_task_run_in_cloud(
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_handoff()
+
+        if restart_dispatch_enabled:
+            snapshot = RestartSnapshot(
+                status=prior_status,
+                environment=prior_environment,
+                completed_at=prior_completed_at.isoformat() if prior_completed_at else None,
+                queued_at=prior_queued_at.isoformat() if prior_queued_at else None,
+                state=prior_state,
+            )
+            create_dispatch(
+                run,
+                TaskWorkflowDispatch.Kind.RESTART,
+                build_restart_payload(user_id, snapshot),
+                run.workflow_id,
+            )
+
+    if restart_dispatch_enabled:
+        return "resumed", _task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)), None
 
     logger.info("Resuming task run in cloud", extra={"task_run_id": str(run.id), "task_id": str(run.task_id)})
 
