@@ -436,8 +436,6 @@ INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 # it can't be self-granted. Used to pick the budget, never to grant access.
 INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 
-SIGNALS_PRODUCT: Final[str] = "signals"
-
 # Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
@@ -510,11 +508,16 @@ def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     Their volume has different owners — ours and the customer's — so they get separate budgets,
     resolved from the token's own provenance marker rather than from the product the caller
     declared, which a sandbox is free to choose.
+
+    The marker decides alone, without also requiring the declared product to be `signals`: a run
+    whose token still comes from the Array app (the fallback while a region has no Signals app
+    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
+    that choice move the run off the interactive budget and out of the per-run spend ceiling.
+    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
     """
-    resolved = resolve_product_alias(product)
-    if resolved == SIGNALS_PRODUCT and INTERACTIVE_RUN_SCOPE in (scopes or []):
+    if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
-    return resolved
+    return resolve_product_alias(product)
 
 
 def check_product_access(
