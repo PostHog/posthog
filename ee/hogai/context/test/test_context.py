@@ -71,6 +71,9 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("Description: Daily active users", result)
         self.assertIn("TrendsQuery", result)
         self.assertIn("Trend results: 100 users", result)
+        # A UI-attached insight is saved, so Max gets a real link rather than the unsaved-artifact warning
+        self.assertIn(f"Insight URL: /project/{self.team.id}/insights/123", result)
+        self.assertNotIn("cannot be accessed via a URL", result)
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
