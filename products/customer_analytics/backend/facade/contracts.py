@@ -590,6 +590,7 @@ class FeatureRequestAccountLinkView:
     id: UUID | None = None
     account: FeatureRequestAccountView | None = None
     evidence: list[FeatureRequestEvidenceView] = field(default_factory=list)
+    evidence_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -605,6 +606,7 @@ class FeatureRequestView:
     archived_at: datetime | None = None
     archived_by: int | None = None
     version: int = 1
+    can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)

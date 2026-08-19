@@ -175,7 +175,7 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-requested_on", "-created_at", "-id"]
+        ordering = [models.F("requested_on").desc(nulls_last=True), "-created_at", "-id"]
 
 
 class FeatureRequestProductAreaLink(TeamScopedRootMixin, UUIDModel):

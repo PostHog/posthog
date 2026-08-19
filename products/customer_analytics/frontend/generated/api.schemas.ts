@@ -1627,8 +1627,13 @@ export interface FeatureRequestAccountLinkApi {
     readonly id: string
     /** Affected Customer Analytics account. */
     readonly account: FeatureRequestAccountApi
-    /** Evidence recorded for this account and request. */
+    /** Evidence recorded for this account and request. List responses omit these items. */
     readonly evidence: readonly FeatureRequestEvidenceApi[]
+    /**
+     * Total evidence items recorded for this account and request.
+     * @minimum 0
+     */
+    readonly evidence_count: number
     /** When the account was first linked. */
     readonly created_at: string
     /**
@@ -1676,6 +1681,8 @@ export interface FeatureRequestApi {
      * @minimum 1
      */
     readonly version: number
+    /** Whether the caller can update this request and all its active account links. */
+    readonly can_update: boolean
     /** First visible account retained for client compatibility. Use account_links for the complete list. */
     readonly account: FeatureRequestAccountApi
     /** Active account links visible to the caller, with account-specific evidence. */

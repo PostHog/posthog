@@ -221,7 +221,12 @@ class FeatureRequestAccountLinkSerializer(DataclassSerializer):
     evidence = FeatureRequestEvidenceSerializer(
         many=True,
         read_only=True,
-        help_text="Evidence recorded for this account and request.",
+        help_text="Evidence recorded for this account and request. List responses omit these items.",
+    )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded for this account and request.",
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the account was first linked.")
     updated_at = serializers.DateTimeField(
@@ -233,7 +238,7 @@ class FeatureRequestAccountLinkSerializer(DataclassSerializer):
     class Meta:
         dataclass = FeatureRequestAccountLinkView
         ref_name = "FeatureRequestAccountLink"
-        fields = ["id", "account", "evidence", "created_at", "updated_at"]
+        fields = ["id", "account", "evidence", "evidence_count", "created_at", "updated_at"]
 
 
 class FeatureRequestSerializer(DataclassSerializer):
@@ -266,6 +271,10 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         min_value=1,
         help_text="Version required for optimistic concurrency on mutations.",
+    )
+    can_update = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the caller can update this request and all its active account links.",
     )
     account = FeatureRequestAccountSerializer(
         read_only=True,
@@ -303,6 +312,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "archived_at",
             "archived_by",
             "version",
+            "can_update",
             "account",
             "account_links",
             "product_areas",

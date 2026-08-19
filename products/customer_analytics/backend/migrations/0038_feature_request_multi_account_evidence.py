@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0036_custompropertysyncrun_saved_query_id"),
+        ("customer_analytics", "0037_account_ignored_at"),
         ("posthog", "1304_organization_has_active_subscription"),
     ]
 
@@ -77,7 +77,7 @@ class Migration(migrations.Migration):
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
-                "ordering": ["-requested_on", "-created_at", "-id"],
+                "ordering": [models.F("requested_on").desc(nulls_last=True), "-created_at", "-id"],
             },
         ),
         migrations.AddField(

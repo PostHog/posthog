@@ -5,8 +5,8 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInputSelect,
     LemonModal,
-    LemonSelect,
     LemonTable,
     LemonTableColumns,
     Link,
@@ -18,22 +18,32 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi } from '../../generated/api.schemas'
-import { accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
+import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
 export function AccountFeatureRequestsExpansion({ accountId }: { accountId: string }): JSX.Element {
     const logic = accountFeatureRequestsLogic({ accountId })
     const {
         accountRequests,
+        accountRequestsPage,
         accountRequestsLoading,
         accountRequestsError,
         requestPickerOpen,
         selectedRequestId,
         candidateOptions,
         availableRequestsLoading,
+        availableRequestsError,
         linkingRequest,
     } = useValues(logic)
-    const { loadAccountRequests, openRequestPicker, closeRequestPicker, setSelectedRequestId, linkSelectedRequest } =
-        useActions(logic)
+    const {
+        loadAccountRequests,
+        loadAvailableRequests,
+        openRequestPicker,
+        closeRequestPicker,
+        setSelectedRequestId,
+        setAccountRequestsPage,
+        setRequestSearch,
+        linkSelectedRequest,
+    } = useActions(logic)
 
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -55,7 +65,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
             key: 'evidence',
             render: (_, request) => {
                 const accountLink = request.account_links.find((link) => link.account.id === accountId)
-                const count = accountLink?.evidence.length ?? 0
+                const count = accountLink?.evidence_count ?? 0
                 return `${count} ${count === 1 ? 'item' : 'items'}`
             },
         },
@@ -101,12 +111,20 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
             <LemonTable
                 size="small"
                 embedded
-                dataSource={accountRequests}
+                dataSource={accountRequests.results}
                 columns={columns}
                 rowKey="id"
                 loading={accountRequestsLoading}
                 emptyState="No feature requests linked to this account."
-                pagination={{ pageSize: 20, useUrl: false }}
+                pagination={{
+                    controlled: true,
+                    pageSize: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
+                    currentPage: accountRequestsPage,
+                    useUrl: false,
+                    entryCount: accountRequests.count,
+                    onForward: () => setAccountRequestsPage(accountRequestsPage + 1),
+                    onBackward: () => setAccountRequestsPage(accountRequestsPage - 1),
+                }}
             />
             <LemonModal
                 isOpen={requestPickerOpen}
@@ -129,14 +147,23 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                     </>
                 }
             >
-                <LemonSelect
-                    value={selectedRequestId}
-                    onChange={setSelectedRequestId}
-                    options={candidateOptions}
-                    loading={availableRequestsLoading}
-                    placeholder="Select a feature request"
-                    fullWidth
-                />
+                <div className="flex flex-col gap-3">
+                    {availableRequestsError && (
+                        <LemonBanner type="error" action={{ children: 'Try again', onClick: loadAvailableRequests }}>
+                            {availableRequestsError}
+                        </LemonBanner>
+                    )}
+                    <LemonInputSelect
+                        mode="single"
+                        value={selectedRequestId ? [selectedRequestId] : []}
+                        onChange={(values) => setSelectedRequestId(values[0] ?? null)}
+                        onInputChange={setRequestSearch}
+                        options={candidateOptions}
+                        loading={availableRequestsLoading}
+                        placeholder="Search for a feature request"
+                        fullWidth
+                    />
+                </div>
             </LemonModal>
         </div>
     )

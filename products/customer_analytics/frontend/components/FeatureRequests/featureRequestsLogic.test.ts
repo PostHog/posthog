@@ -38,12 +38,14 @@ const createdRequest: FeatureRequestApi = {
     archived_at: null,
     archived_by: null,
     version: 1,
+    can_update: true,
     account: { id: 'account-1', name: 'Acme' },
     account_links: [
         {
             id: 'account-link-1',
             account: { id: 'account-1', name: 'Acme' },
             evidence: [],
+            evidence_count: 0,
             created_at: '2026-01-01T00:00:00Z',
             updated_at: '2026-01-01T00:00:00Z',
         },
@@ -362,6 +364,7 @@ describe('featureRequestsLogic', () => {
                             updated_at: '2026-01-03T00:00:00Z',
                         },
                     ],
+                    evidence_count: 1,
                     created_at: '2026-01-03T00:00:00Z',
                     updated_at: '2026-01-03T00:00:00Z',
                 },

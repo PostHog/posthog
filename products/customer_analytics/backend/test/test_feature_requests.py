@@ -31,6 +31,7 @@ class _EvidenceResponse(TypedDict):
 class _AccountLinkResponse(TypedDict):
     id: str
     evidence: list[_EvidenceResponse]
+    evidence_count: int
 
 
 class _FeatureRequestResponse(TypedDict):
@@ -125,7 +126,9 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(repeated.json()["id"], created.json()["id"])
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(listed.json()["count"], 1)
+        self.assertTrue(listed.json()["results"][0]["can_update"])
         self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertTrue(retrieved.json()["can_update"])
         self.assertEqual(retrieved.json()["account_links"][0]["account"]["name"], "Acme")
         self.assertEqual(
             {area["name"] for area in retrieved.json()["product_areas"]},
@@ -234,10 +237,92 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertFalse(retrieved.json()["can_update"])
         self.assertEqual(create_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(update_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(archive_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(evidence_attempt.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_account_viewer_cannot_mutate_request_or_evidence_as_customer_analytics_editor(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        with_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=created["version"],
+            account_link_id=created["account_links"][0]["id"],
+            summary="Original evidence",
+        )
+        evidence_id = with_evidence["account_links"][0]["evidence"][0]["id"]
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        account_viewer = User.objects.create_and_join(
+            self.organization,
+            "account-viewer-feature-request-editor@example.com",
+            "testtest",
+        )
+        self._set_access_level(account_viewer, "editor")
+        membership = OrganizationMembership.objects.get(user=account_viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(account_viewer)
+
+        update_attempt = self.client.patch(
+            f"{self.requests_url}{created['id']}/",
+            {"expected_version": with_evidence["version"], "request_status": "planned"},
+            format="json",
+        )
+        add_account_attempt = self.client.post(
+            f"{self.requests_url}{created['id']}/add_account/",
+            {
+                "expected_version": with_evidence["version"],
+                "account_id": str(other_account.id),
+            },
+            format="json",
+        )
+        add_evidence_attempt = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": with_evidence["version"],
+                "account_link_id": created["account_links"][0]["id"],
+                "summary": "Unauthorized evidence",
+                "evidence_source": "conversation",
+            },
+            format="json",
+        )
+        update_evidence_attempt = self.client.post(
+            f"{self.requests_url}{created['id']}/update_evidence/",
+            {
+                "expected_version": with_evidence["version"],
+                "evidence_id": evidence_id,
+                "summary": "Unauthorized update",
+                "evidence_source": "conversation",
+            },
+            format="json",
+        )
+        remove_evidence_attempt = self.client.post(
+            f"{self.requests_url}{created['id']}/remove_evidence/",
+            {"expected_version": with_evidence["version"], "evidence_id": evidence_id},
+            format="json",
+        )
+
+        self.assertEqual(
+            [
+                response.status_code
+                for response in (
+                    update_attempt,
+                    add_account_attempt,
+                    add_evidence_attempt,
+                    update_evidence_attempt,
+                    remove_evidence_attempt,
+                )
+            ],
+            [status.HTTP_403_FORBIDDEN] * 5,
+        )
+        evidence = FeatureRequestEvidence.objects.for_team(self.team.id).get(id=evidence_id)
+        self.assertEqual(evidence.summary, "Original evidence")
 
     def test_editor_groups_tracked_changes_once_and_stale_writes_fail(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
@@ -434,6 +519,13 @@ class TestFeatureRequestsAPI(APIBaseTest):
             account_link_id=links_by_account_id[str(other_account.id)]["id"],
             summary="Aardvark needs a weekly export.",
         )
+        listed = self.client.get(self.requests_url).json()["results"][0]
+
+        self.assertTrue(all(not link["evidence"] for link in listed["account_links"]))
+        self.assertEqual(
+            {link["account"]["name"]: link["evidence_count"] for link in listed["account_links"]},
+            {"Acme": 2, "Aardvark": 1},
+        )
 
         unlinked = self.client.patch(
             request_url,
@@ -499,6 +591,38 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(links_by_account[str(other_account.id)]["evidence"][0]["evidence_source"], "productboard")
         history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
         self.assertEqual([change["field"] for change in history[0]["changes"]], ["accounts", "evidence"])
+
+    def test_dated_evidence_sorts_before_undated_evidence(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        account_link_id = created["account_links"][0]["id"]
+        undated = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": created["version"],
+                "account_link_id": account_link_id,
+                "summary": "Undated evidence",
+                "evidence_source": "conversation",
+                "requested_on": None,
+            },
+            format="json",
+        ).json()
+        dated = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": undated["version"],
+                "account_link_id": account_link_id,
+                "summary": "Dated evidence",
+                "evidence_source": "conversation",
+                "requested_on": "2026-01-01",
+            },
+            format="json",
+        )
+
+        self.assertEqual(dated.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["summary"] for item in dated.json()["account_links"][0]["evidence"]],
+            ["Dated evidence", "Undated evidence"],
+        )
 
     def test_evidence_updates_and_deletes_with_request_version_checks(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
@@ -599,8 +723,10 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(response.json()["account_links"][0]["evidence"][0]["summary"], "Visible account evidence")
         self.assertNotIn("Restricted account evidence", str(response.json()))
         self.assertNotIn("Restricted account evidence", str(history.json()))
+        self.assertTrue(all(entry["changes"] for entry in history.json()))
         self.assertEqual(restricted_filter.json()["count"], 0)
         self.assertEqual(visible_filter.json()["count"], 1)
+        self.assertFalse(response.json()["can_update"])
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
