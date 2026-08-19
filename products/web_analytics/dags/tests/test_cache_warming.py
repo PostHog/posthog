@@ -671,20 +671,25 @@ class TestWarmQueriesOp(BaseTest):
             # gone — other models raise it too (a cohort filter whose cohort was
             # deleted) — so for a live team it must still report, as must any
             # other error.
-            ("churned_team_does_not_exist", Team.DoesNotExist, False, 0),
-            ("live_team_other_model_does_not_exist", Team.DoesNotExist, True, 1),
-            ("genuine_failure", RuntimeError, True, 1),
-            # A database blip makes every worker raise OperationalError at once.
-            # That is one shared transient event, not one broken shape per report,
-            # so it must not fire error tracking — even for a live team.
-            ("db_blip_not_reported", OperationalError, True, 0),
+            ("churned_team_does_not_exist", Team.DoesNotExist("boom"), False, 0),
+            ("live_team_other_model_does_not_exist", Team.DoesNotExist("boom"), True, 1),
+            ("genuine_failure", RuntimeError("boom"), True, 1),
+            # A database blip drops every worker's connection at once. That is one
+            # shared transient event, not one broken shape per report, so it must
+            # not fire error tracking — even for a live team.
+            ("transient_db_blip_not_reported", OperationalError("server closed the connection unexpectedly"), True, 0),
+            # A persistent DB failure the warmer can cause itself (the pool
+            # exhausting connections) must still report — narrowing the swallow to
+            # transient errors is the point, so guard against a revert to a blanket
+            # OperationalError catch.
+            ("persistent_db_error_reported", OperationalError("FATAL: too many connections for role"), True, 1),
         ]
     )
     def test_churned_team_skipped_but_real_failure_reported(
-        self, _name: str, raised: type[Exception], team_exists: bool, expected_capture_calls: int
+        self, _name: str, raised: Exception, team_exists: bool, expected_capture_calls: int
     ) -> None:
         runner = MagicMock()
-        runner.get_cache_key.side_effect = raised("boom")
+        runner.get_cache_key.side_effect = raised
         with (
             patch(
                 "products.web_analytics.dags.cache_warming.build_replay_runner",
