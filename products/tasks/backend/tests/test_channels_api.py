@@ -199,6 +199,25 @@ class ChannelsAPITestCase(TestCase):
         response = self.client.post(self._channels_url(), {"name": "###"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_finding_the_general_space_never_provisions_one(self):
+        # Products that file work into #general gate on it existing, so a lookup that
+        # created one would put a space in every team that never asked for Desktop.
+        self.assertIsNone(tasks_facade.find_general_channel_id(self.team.id))
+
+        provisioned = self._provision()
+        general = next(c for c in provisioned["channels"] if c["system_role"] == "general")
+        self.assertEqual(str(tasks_facade.find_general_channel_id(self.team.id)), general["id"])
+
+    def test_finding_the_general_space_matches_an_unstamped_row(self):
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        self.assertEqual(tasks_facade.find_general_channel_id(self.team.id), legacy.id)
+
     def test_creating_a_space_named_general_resolves_the_system_space(self):
         created = self.client.post(self._channels_url(), {"name": "General"})
         self.assertEqual(created.status_code, status.HTTP_200_OK)
