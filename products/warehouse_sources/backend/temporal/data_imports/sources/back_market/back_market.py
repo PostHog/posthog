@@ -1,8 +1,9 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import PreparedRequest, Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.settings import (
     BACK_MARKET_ENDPOINTS,
@@ -24,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 BASE_URL = "https://www.backmarket.com/ws"
 
 
-@dataclasses.dataclass
+@frozen
 class BackMarketResumeConfig:
     next_page: int
 

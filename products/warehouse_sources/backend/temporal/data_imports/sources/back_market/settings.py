@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -7,7 +9,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DATA_SELECTOR = "results"
 
 
-@dataclass
+@frozen
 class BackMarketEndpointConfig:
     name: str
     path: str  # Path under https://www.backmarket.com/ws
