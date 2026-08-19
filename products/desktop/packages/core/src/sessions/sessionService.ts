@@ -100,6 +100,7 @@ import {
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
+  collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
   createUserShellExecuteEvent,
   extractPromptText,
@@ -2773,7 +2774,10 @@ export class SessionService {
     const batches = this.pendingSessionEvents;
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
-      this.applySessionEventBatch(taskRunId, events);
+      this.applySessionEventBatch(
+        taskRunId,
+        collapseSupersededToolCallUpdates(events),
+      );
     }
   }
 
@@ -2783,7 +2787,10 @@ export class SessionService {
     const events = this.pendingSessionEvents.get(taskRunId);
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
-    this.applySessionEventBatch(taskRunId, events);
+    this.applySessionEventBatch(
+      taskRunId,
+      collapseSupersededToolCallUpdates(events),
+    );
   }
 
   /**
