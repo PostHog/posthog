@@ -135,9 +135,6 @@ jobs:
                       "common-s3": 31,
                       "cohort-core": 45,
                       "cohort-seeder": 60,
-                      "cyclotron-core": 17,
-                      "cyclotron-janitor": 139,
-                      "cyclotron-node": 31,
                       "cymbal": 168,
                       # Compile-heavy (deltalake dependency tree), light tests.
                       "deltalite-core": 180,
