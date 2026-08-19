@@ -178,7 +178,9 @@ export default defineConfig({
     await cp("src/extensions/mcp/skills", "dist/extensions/mcp/skills", {
       recursive: true,
     });
-    await copyOmnibusSkills("dist/extensions/product-engineer/skills");
+    if (process.env.SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD !== "1") {
+      await copyOmnibusSkills("dist/extensions/product-engineer/skills");
+    }
     await cp(
       "src/extensions/product-engineer/prompts",
       "dist/extensions/product-engineer/prompts",
