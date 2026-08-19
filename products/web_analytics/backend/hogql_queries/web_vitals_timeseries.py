@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQuery, TrendsQueryResponse, WebVitalsQuery
 
@@ -54,6 +54,21 @@ class WebVitalsQueryRunner(TrendsQueryRunner):
         payload["web_vitals_wrapper_properties"] = wrapper.get("properties")
         payload["web_vitals_wrapper_do_path_cleaning"] = wrapper.get("doPathCleaning")
         return payload
+
+    def enqueue_async_calculation(self, *args: Any, **kwargs: Any) -> Any:
+        # The async payload is `self.query.model_dump()`, which here is the
+        # bare source; a worker rebuilding from that would run plain trends
+        # under this runner's cache key. Serialize the wrapper instead so
+        # dispatch routes the worker back to this runner.
+        original = self.query
+        # Deliberate type lie for the duration of the enqueue: the base method
+        # only calls model_dump() on it, and the worker validates the payload
+        # back into a WebVitalsQuery at dispatch.
+        self.query = cast(TrendsQuery, self.vitals_query)
+        try:
+            return super().enqueue_async_calculation(*args, **kwargs)
+        finally:
+            self.query = original
 
     def _calculate(self) -> TrendsQueryResponse:
         results = execute_lazy_precomputed_vitals_timeseries(self)

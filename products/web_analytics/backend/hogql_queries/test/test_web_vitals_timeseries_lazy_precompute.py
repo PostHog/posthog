@@ -65,10 +65,11 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
         "filterTestAccounts": False,
     }
     source_kwargs.update(overrides.pop("source_overrides", {}))
+    wrapper_kwargs: dict[str, Any] = {"properties": []}
+    wrapper_kwargs.update(overrides)
     return WebVitalsQuery(
         source=TrendsQuery(**source_kwargs),
-        properties=[],
-        **overrides,
+        **wrapper_kwargs,
     )
 
 

@@ -123,7 +123,7 @@ def is_vitals_precompute_enabled_for_team(team: Team) -> bool:
         return False
 
 
-def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
+def vitals_timeseries_percentile(query: WebVitalsQuery, source: Optional[TrendsQuery] = None) -> Optional[str]:
     """Return the shared percentile math ('p75'/'p90'/'p99') when the query is
     the canonical Web Vitals tab shape, or None when the shape can't be served
     from the daily vitals buckets (caller falls back to the live trends path).
@@ -132,8 +132,9 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
     source with one `$web_vitals` EventsNode per metric, all carrying the same
     percentile math over `$web_vitals_<METRIC>_value`.
     """
-    source = query.source
-    if not isinstance(source, TrendsQuery):
+    if source is None:
+        source = query.source if isinstance(query.source, TrendsQuery) else None
+    if source is None:
         return None
     if query.conversionGoal is not None:
         return None
@@ -196,17 +197,17 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
 
 
 def _build_inner_path_breakdown_query(
-    query: WebVitalsQuery, percentile: WebVitalsPercentile
+    query: WebVitalsQuery, source: TrendsQuery, percentile: WebVitalsPercentile
 ) -> WebVitalsPathBreakdownQuery:
     """Build the sibling path-breakdown tile's query for the same filters, so
     the ensure hashes to the same bucket family and both vitals tiles share
     one set of precomputed jobs. `metric` and `thresholds` only shape the
-    sibling's read, not the insert, so constants are safe here."""
-    source = query.source
-    assert isinstance(source, TrendsQuery)
+    sibling's read, not the insert, so constants are safe here. Filters come
+    from the runner's effective source: dashboard filters mutate that copy,
+    and building from the pristine wrapper would serve unfiltered buckets."""
     return WebVitalsPathBreakdownQuery(
         dateRange=source.dateRange,
-        properties=list(query.properties or []),
+        properties=list(source.properties or []),
         filterTestAccounts=source.filterTestAccounts,
         doPathCleaning=query.doPathCleaning,
         metric=WebVitalsMetric.INP,
@@ -312,13 +313,15 @@ def execute_lazy_precomputed_vitals_timeseries(runner: "WebVitalsQueryRunner") -
     team = runner.team
     overall_started = time.perf_counter()
     try:
-        shared_math = vitals_timeseries_percentile(runner.vitals_query)
+        shared_math = vitals_timeseries_percentile(runner.vitals_query, runner.query)
         if shared_math is None:
             return None
         if not is_vitals_precompute_enabled_for_team(team):
             return None
 
-        inner_query = _build_inner_path_breakdown_query(runner.vitals_query, _MATH_TO_PERCENTILE[shared_math])
+        inner_query = _build_inner_path_breakdown_query(
+            runner.vitals_query, runner.query, _MATH_TO_PERCENTILE[shared_math]
+        )
         inner_runner = WebVitalsPathBreakdownQueryRunner(query=inner_query, team=team, modifiers=runner.modifiers)
         if not can_use_vitals_paths_lazy_precompute(inner_runner):
             return None
