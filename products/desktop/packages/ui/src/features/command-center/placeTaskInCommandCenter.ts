@@ -55,12 +55,27 @@ export function placeTasksInCommandCenter(
   };
 }
 
-/** Grows the grid by one column or row and puts the task in the slot picked. */
-export function expandCommandCenterInto(
+export function placeTasksInCommandCenterCell(
+  taskIds: string[],
+  cellIndex: number,
+): void {
+  const [firstTaskId, ...remainingTaskIds] = taskIds;
+  if (!firstTaskId) return;
+
+  useCommandCenterStore.getState().assignTask(cellIndex, firstTaskId);
+  if (remainingTaskIds.length > 0) {
+    placeTasksInCommandCenter(remainingTaskIds, null);
+  }
+}
+
+export function expandTasksInCommandCenterInto(
   direction: ExpandDirection,
   slot: number,
-  taskId: string,
+  taskIds: string[],
 ): void {
+  const [firstTaskId, ...remainingTaskIds] = taskIds;
+  if (!firstTaskId) return;
+
   const state = useCommandCenterStore.getState();
   const expanded = getExpandedLayout(state.layout, direction);
   if (!expanded) return;
@@ -68,5 +83,8 @@ export function expandCommandCenterInto(
   state.setLayout(expanded);
   useCommandCenterStore
     .getState()
-    .assignTask(getExpansionCellIndex(expanded, direction, slot), taskId);
+    .assignTask(getExpansionCellIndex(expanded, direction, slot), firstTaskId);
+  if (remainingTaskIds.length > 0) {
+    placeTasksInCommandCenter(remainingTaskIds, null);
+  }
 }
