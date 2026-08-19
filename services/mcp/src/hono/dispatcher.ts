@@ -202,15 +202,10 @@ class McpDispatcher {
             singleModern = isModernRequest(protocolHeaders, protocolMeta)
             if (singleModern) {
                 // Before header validation, so header-dropping bridges fall back to
-                // `initialize` instead of dying on HeaderMismatch.
+                // `initialize` instead of dying on HeaderMismatch. HTTP 200, not the
+                // spec's 404: mcp-remote's transport treats any non-2xx as fatal.
                 if (message.method === Method.Discover && isLegacyDialectOnlyClient(protocolMeta.clientName)) {
-                    return jsonRpcErrorResponse(
-                        message.id ?? null,
-                        ErrorCode.MethodNotFound,
-                        'Method not found',
-                        undefined,
-                        404
-                    )
+                    return jsonRpcErrorResponse(message.id ?? null, ErrorCode.MethodNotFound, 'Method not found')
                 }
                 const validationError = validateModernRequest(protocolHeaders, message)
                 if (validationError) {

@@ -1991,7 +1991,8 @@ export function defineStatelessProtocolTests(
         })
 
         // The headerless variant is how stdio bridges (mcp-remote) forward the
-        // probe; it must get the fallback 404, not a fatal HeaderMismatch 400.
+        // probe. HTTP 200 in both, not the spec's 404: mcp-remote's transport
+        // treats any non-2xx as fatal instead of falling back.
         it.each([
             ['with SEP-2243 headers', {}],
             ['without SEP-2243 headers', { [VERSION_HEADER]: null, [METHOD_HEADER]: null }],
@@ -2007,7 +2008,7 @@ export function defineStatelessProtocolTests(
                     extraHeaders
                 )
 
-                expect(response.status).toBe(404)
+                expect(response.status).toBe(200)
                 expect(json.error?.code).toBe(-32601)
                 expect(response.headers.get('mcp-session-id')).toBeNull()
             }
