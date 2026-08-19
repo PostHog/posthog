@@ -39,7 +39,8 @@ class SigmaAuthError(Exception):
 class SigmaComputingResumeConfig:
     # Opaque framework checkpoint: `{"cursor": ...}` for a top-level endpoint's
     # JSONResponseCursorPaginator, or the fan-out manager's combined state for a workbook-scoped
-    # child endpoint - round-tripped into `initial_paginator_state` on resume.
+    # child endpoint - round-tripped into `initial_paginator_state` on resume. Frozen since it's
+    # only ever constructed fresh and handed to `resumable_source_manager.save_state`.
     paginator_state: dict[str, Any]
 
 
