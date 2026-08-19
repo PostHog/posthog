@@ -10,7 +10,7 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
         !impactedTargets.every((target) => typeof target === 'string')
     ) {
         return {
-            status: 'warn',
+            status: 'alert',
             summary: 'universal lane',
             body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
         }
