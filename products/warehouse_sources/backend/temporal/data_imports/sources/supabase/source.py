@@ -117,6 +117,7 @@ class SupabaseSource(PostgresSource):
         names: list[str] | None = None,
         force_refresh: bool = False,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> list[SourceSchema]:
         schemas = super().get_schemas(
             config,
@@ -125,6 +126,7 @@ class SupabaseSource(PostgresSource):
             names=names,
             force_refresh=force_refresh,
             api_version=api_version,
+            require_ssl=require_ssl,
         )
 
         # Vault tables must never be sync-enabled by default. They stay listed rather than
