@@ -410,9 +410,9 @@ jobs:
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact merge-base SHA key.
-                  key: force-cache-miss-${{ github.run_id }}
+                  key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
-                      force-cache-miss-nothing-is-saved-under-this-
+                      ${{ needs.changes.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
