@@ -662,6 +662,21 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+def _contains_behavioral_property(filters: dict) -> bool:
+    """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
+    history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
+    can never evaluate."""
+    entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
+    property_lists = [filters.get("properties") or []] + [
+        entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
+    ]
+    return any(
+        isinstance(prop, dict) and prop.get("type") == "behavioral"
+        for property_list in property_lists
+        for prop in property_list
+    )
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
         choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
@@ -686,6 +701,12 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        if _contains_behavioral_property(data):
+            raise serializers.ValidationError(
+                "Behavioral (performed event) filters can't be evaluated in realtime functions. "
+                "Use a cohort to filter on past behavior."
+            )
 
         if function_type == "transformation_log":
             # Filter bytecode is compiled against event-shaped globals, which log records
