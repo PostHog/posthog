@@ -45,6 +45,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
         partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
         isTeamEnabled: buildIntegerMatcher(options.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST, true),
     }
+    const isMergeTombstoneTeam = buildIntegerMatcher(options.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST, true)
+
     return async function processPersonsStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {
@@ -69,7 +71,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_PROPERTIES_UPDATE_ALL,
             shouldUpdateLastSeenAt,
             mergeEventsConfig,
-            input.mergeFold.type === 'planned' ? input.mergeFold.plan : undefined
+            input.mergeFold.type === 'planned' ? input.mergeFold.plan : undefined,
+            isMergeTombstoneTeam(team.id)
         )
 
         const processor = new PersonEventProcessor(

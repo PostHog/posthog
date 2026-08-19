@@ -1,1 +1,1 @@
-1298_user_stripped_alias_index
+1309_integration_kind_ext_idx

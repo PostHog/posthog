@@ -4,6 +4,7 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
@@ -57,6 +58,8 @@ interface TaskItemProps {
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onArchive?: () => void;
   onTogglePin?: () => void;
   onEditSubmit?: (newTitle: string) => void;
@@ -130,6 +133,8 @@ export function TaskItem({
   onClick,
   onDoubleClick,
   onContextMenu,
+  onDragStart,
+  onDragEnd,
   onArchive,
   onTogglePin,
   onEditSubmit,
@@ -189,9 +194,13 @@ export function TaskItem({
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       e.dataTransfer.setData("text/x-task-id", taskId);
-      e.dataTransfer.effectAllowed = "copy";
+      // Both, always. Command Center tiles ask for `copy` and the pinned run
+      // asks for `move`; a source that permits only one resolves the other
+      // pairing to no drop, and the tile silently stops accepting the row.
+      e.dataTransfer.effectAllowed = "copyMove";
+      onDragStart?.(e);
     },
-    [taskId],
+    [onDragStart, taskId],
   );
 
   if (isEditing) {
@@ -214,9 +223,12 @@ export function TaskItem({
       label={label}
       isActive={isActive}
       isSelected={isSelected}
+      // Lets a drag-selection find the row and the session it stands for.
+      {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
       isDimmed={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}

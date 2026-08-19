@@ -131,6 +131,28 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
             ),
+            # Graph API code 200: "Requires business_management permission to manage the object."
+            # Distinct from the generic re-authorize message above — re-authorizing can never grant
+            # this scope, since the Meta OAuth consent only requests `ads_read` (see
+            # `AD_ACCOUNT_FIELDS` in meta_ads.py). Only the account owner granting
+            # `business_management`, or PostHog dropping the field that needs it, fixes this.
+            "Requires business_management permission": (
+                "Meta rejected part of this request because it needs the business_management "
+                "permission, which this integration does not request and cannot request without "
+                "widening OAuth consent for every customer. Re-authorizing will not fix this — "
+                "contact PostHog support if this table keeps failing."
+            ),
+            # Graph API code 100: the source's "Attribution windows for insights" setting (a
+            # free-text field, see `SourceFieldInputConfig` above) contains a value Meta's
+            # Insights API doesn't recognise. Retrying resends the same invalid parameter, so
+            # only editing the source config fixes it. Matches the message regardless of which
+            # array index Meta reports as invalid.
+            "action_attribution_windows[": (
+                'Meta rejected the "Attribution windows for insights" setting on this source — one '
+                "of the configured values isn't a window Meta supports (e.g. 1d_click, 7d_click, "
+                "28d_click, 1d_view, 7d_view, 28d_view). Fix it in your Meta Ads source settings, "
+                "then run the sync again."
+            ),
             # Meta returns this 500 when the requested query is too large for their backend to
             # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those

@@ -42,11 +42,71 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, kw_only=True)
-class IssueEventsWindow:
+class _IssueEventsWindow:
     """The observed issue-event range's edges as scalar subquery strings."""
 
     start: str
     end: str
+
+
+_READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReadyToMergeSql:
+    """The SQL for reading per-PR ready-to-merge seconds (SPEC §6), in the three pieces a query
+    substitutes. They are only valid together: ``cte`` belongs in the query's ``WITH`` list, ``join``
+    in its ``FROM`` clause with the PR source aliased ``pr``, and ``expr`` reads the joined row.
+
+    When the optional issue-events table isn't synced ``expr`` degrades to a constant NULL and the
+    other two are empty, so a caller substitutes all three unconditionally rather than branching on
+    whether the measure is observable.
+    """
+
+    cte: str
+    join: str
+    expr: str
+
+    @property
+    def observable(self) -> bool:
+        """False when ``expr`` is the constant NULL, so a query whose only output is this measure
+        can skip a scan that could return nothing else."""
+        return bool(self.cte)
+
+    @property
+    def with_clause(self) -> str:
+        """``cte`` as a whole ``WITH`` clause, for a query that has no other CTE."""
+        return f"WITH {self.cte} " if self.cte else ""
+
+    def median(self, *, scope: str) -> str:
+        """The measure's p50 over the rows matching ``scope``. Unobservable degrades to the NULL
+        expression itself, not a percentile over it: an aggregate needs a column type to work on,
+        and a bare NULL literal has none."""
+        return f"quantileIf(0.5)({self.expr}, {scope})" if self.observable else self.expr
+
+
+_READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
+
+
+def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
+    """Per-PR ready-to-merge seconds, read off the ``ready_by_pr`` join.
+
+    Last transition is a ready -> merged_at minus it; no transition rows and the PR's whole
+    open-to-merge life inside the observed window -> never left ready, so open-to-merge IS
+    ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
+    bearing: created_at before the window means pre-window flips are possible, and merged_at past
+    the window means the transitions may simply not have synced yet (every merge lands a `merged`
+    issue event, so an in-range merge with no transition rows is proof of never drafting). The
+    coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
+    """
+    return f"""multiIf(
+            pr.merged_at IS NULL, NULL,
+            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
+            coalesce(re.pr_number, 0) = 0
+                AND pr.created_at >= {window.start}
+                AND pr.merged_at <= {window.end}, pr.open_to_merge_seconds,
+            NULL
+        )"""
 
 
 class CuratedGitHubSource:
@@ -126,19 +186,29 @@ class CuratedGitHubSource:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
 
-    def issue_events_window(self) -> "IssueEventsWindow | None":
+    def ready_to_merge_sql(self) -> ReadyToMergeSql:
+        """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to
+        a constant NULL when the optional issue-events table isn't synced, so every consumer reads
+        the measure the same way."""
+        window = self._issue_events_window()
+        cte = self._ready_by_pr_cte()
+        if window is None or cte is None:
+            return _READY_TO_MERGE_UNOBSERVABLE
+        return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
+
+    def _issue_events_window(self) -> "_IssueEventsWindow | None":
         """Scalar subqueries bounding the observed issue-event range, or None when the table
         isn't synced. The desc walk lands a contiguous range, so the min and max landed
         timestamps are its edges; both are NULL over an empty table, so comparisons against
         them are never-true."""
         if not self._tables.issue_events:
             return None
-        return IssueEventsWindow(
+        return _IssueEventsWindow(
             start=f"({issue_events.build_window_start_query(self._tables.issue_events)})",
             end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
         )
 
-    def ready_by_pr_cte(self) -> str | None:
+    def _ready_by_pr_cte(self) -> str | None:
         """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
 
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
@@ -268,12 +338,11 @@ class CuratedGitHubSource:
         """
 
     def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup and, when the issue-events table is
-        synced, the ``ready_by_pr`` rollup; reference it only when ``issue_events_source()``
-        is non-None."""
+        """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
+        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads."""
         ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
-        ready_cte = self.ready_by_pr_cte()
-        if ready_cte is not None:
+        ready_cte = self.ready_to_merge_sql().cte
+        if ready_cte:
             ctes.append(ready_cte)
         return self._compose_pr_query(ctes, select)
 

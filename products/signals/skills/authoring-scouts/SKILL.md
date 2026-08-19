@@ -33,10 +33,6 @@ A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
 The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
 **The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
 
-> **Not everything phrased as a scout is a scout.**
-> If the ask is to deliver the key numbers from an **existing dashboard or insight** to a channel on a fixed schedule ("set up a scout to post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
-> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
-
 ## The job before the writing
 
 Don't write a scout in the abstract.
@@ -139,6 +135,8 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The channel also requires `emit`: a dry-run scout has nowhere to record to, so `scout-record-output` fails closed for it.
   Reach for this when the scout's job is a recurring **measurement** (judge each sampled report good/bad/unsure with a reason, score accounts, classify sessions) rather than surfacing anomalies; keep enums small and add a free-text reason field so the series is breakdown-friendly _and_ auditable.
   The skill body should say what to sample, how to judge, and what `subject` to stamp on each record; the schema owns the record shape.
+  Because the records are ordinary events, anything that consumes events can **act** on one — a workflow or CDP destination triggered on `$scout_structured_output`, filtered to your `skill_name` and an `output_<key>` value, turns a measuring scout into the front half of an automation (route the verdict to a channel, a task, a CRM) with no human in between.
+  The measurement pattern in [`references/scout-patterns.md`](references/scout-patterns.md) covers the shape end to end: the rubric, why the unremarkable verdicts have to be recorded too, and what changes once a grade is a routing decision.
 
 ## Steering with notes (no authoring needed)
 

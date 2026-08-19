@@ -69,5 +69,6 @@ class TestMentionCommandActivity:
 
         assert result.status == "done"
         client.chat_postMessage.assert_called_once()
-        assert client.chat_postMessage.call_args.kwargs["thread_ts"] == expected_thread_ts
+        # A channel-root reply carries no anchor at all rather than an empty one.
+        assert client.chat_postMessage.call_args.kwargs.get("thread_ts", "") == expected_thread_ts
         assert command_prefix in client.chat_postMessage.call_args.kwargs["text"]

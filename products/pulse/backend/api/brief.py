@@ -292,6 +292,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "pulse config created",
             {"config_id": str(instance.id)},
             team=self.team,
+            request=self.request,
         )
 
     def perform_destroy(self, instance: BriefConfig) -> None:
@@ -302,6 +303,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "pulse config deleted",
             {"config_id": str(instance.id)},
             team=self.team,
+            request=self.request,
         )
 
 
@@ -425,6 +427,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 "pulse brief generation contended",
                 {"config_id": str(config.id) if config else None},
                 team=self.team,
+                request=request,
             )
             try:
                 brief.delete()
@@ -455,5 +458,6 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             "pulse brief generated",
             {"config_id": str(config.id) if config else None, "period": period, "trigger": "on_demand"},
             team=self.team,
+            request=request,
         )
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)

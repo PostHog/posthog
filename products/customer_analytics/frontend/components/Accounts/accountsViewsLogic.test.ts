@@ -2,8 +2,6 @@ import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -82,7 +80,15 @@ describe('accountsViewsLogic', () => {
                 tags: ['enterprise'],
                 unassigned: false,
                 assignedTo: [1, 2, 3],
-                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                tileFilter: {
+                    tileId: 't1',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: '11111111-2222-3333-4444-555555555555',
+                        operator: 'gt',
+                        values: [100],
+                    },
+                },
             },
         })
         await expectLogic(logic, () => logic.actions.applyView(view)).toFinishAllListeners()
@@ -96,15 +102,20 @@ describe('accountsViewsLogic', () => {
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
             { id: 't1', label: 'Accounts', metric: { type: 'count' } },
         ])
-        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({ tileId: 't1', expression: 'mrr > 100' })
+        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({
+            tileId: 't1',
+            filter: {
+                kind: 'custom_property',
+                definitionId: '11111111-2222-3333-4444-555555555555',
+                operator: 'gt',
+                values: [100],
+            },
+        })
         expect(logic.values.currentViewId).toEqual('view-1')
     })
 
     it('translates an applied saved view into the Postgres query', async () => {
         useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
-            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
-        })
         mountAll()
         await expectLogic(logic, () =>
             logic.actions.applyView(

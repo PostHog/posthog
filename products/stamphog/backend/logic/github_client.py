@@ -27,6 +27,8 @@ from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
+
 logger = structlog.get_logger(__name__)
 
 # Per-subsystem attribution on the shared GitHub egress metrics.
@@ -156,15 +158,6 @@ def _parse_review_thread_comments(comment_nodes: list) -> list[dict]:
         for comment in comment_nodes
         if isinstance(comment, dict)
     ]
-
-
-class StamphogGitHubError(Exception):
-    """A Stamphog GitHub API call failed for a non-rate-limit reason (auth failure, unexpected status,
-    malformed response). Rate limits raise ``GitHubRateLimitError`` from the egress layer instead."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
 
 
 def _app_private_key() -> str:

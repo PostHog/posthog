@@ -6,25 +6,19 @@ import {
 import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
-import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
-import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
-import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import {
-  AgentStatusLine,
-  ThreadLoadingState,
-  ThreadReplyComposer,
-} from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
+  ActivityPanelBody,
+  type ActivityTab,
+} from "@posthog/ui/features/canvas/components/ActivityPanelBody";
+import { TaskSummaryRow } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type ActivityTab = "timeline" | "artifacts" | "comments";
+import { useCallback, useEffect, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -32,19 +26,16 @@ const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "comments", label: "Comments" },
 ] as const;
 
-/** The 32px row this panel leads with: the tabs are the header, so the strip
- *  lines up with the tab bar of the pane on its left (TabbedPanel) and the
- *  review toolbar, which are the same fixed height and border. */
+/** The tabs are this panel's header, so the strip matches the fixed height and border of
+ *  the tab bar on its left (TabbedPanel) and of the review toolbar. */
 function ActivityHeader({
   tab,
-  commentsEnabled,
   onTabChange,
   onClose,
   onToggleCollapsed,
   onOpenFull,
 }: {
   tab: ActivityTab;
-  commentsEnabled: boolean;
   onTabChange: (tab: ActivityTab) => void;
   onClose?: () => void;
   onToggleCollapsed?: () => void;
@@ -59,15 +50,19 @@ function ActivityHeader({
         {/* Nothing spells out "Activity" any more, so the strip carries the name.
             The list fills the row's 32px and drops quill's 3px inset so the
             line-variant indicator (bottom: 0 of the list) lands on the row's
-            bottom border, the way the left pane's tabs underline does. */}
+            bottom border, the way the left pane's tabs underline does.
+            The z-10 lifts the indicator above the active trigger, whose
+            opaque rounded background (quill: trigger z-1, indicator z-0)
+            otherwise covers the underline's top edge and leaves its ends
+            poking out as rounded-looking nubs. The underscores are escaped
+            because Tailwind turns bare underscores in arbitrary variants
+            into spaces, so the unescaped form matches nothing. */}
         <TabsList
           variant="line"
           aria-label="Activity"
-          className="h-[31px] gap-0.5 p-0"
+          className="h-[31px] gap-0.5 p-0 [&_.quill-tabs\_\_indicator]:z-10"
         >
-          {ACTIVITY_TABS.filter(
-            (candidate) => commentsEnabled || candidate.key !== "comments",
-          ).map((t) => (
+          {ACTIVITY_TABS.map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="px-2.5">
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
@@ -128,26 +123,6 @@ function ActivityConversation({
   canOpenInPlace?: boolean;
 }) {
   const taskId = task.id;
-  const commentsEnabled = useCommentsEnabled();
-  const {
-    timeline,
-    agentStatus,
-    events,
-    isPromptPending,
-    isReady,
-    members,
-    currentUser,
-    isTaskAuthor,
-    canForward,
-    draft,
-    setDraft,
-    isSubmitDisabled,
-    submit,
-    sendMessageToAgent,
-    deleteMessage,
-    onMentionInsert,
-  } = useThreadConversation(task, { surface: "activity_panel" });
-
   const [tab, setTab] = useState<ActivityTab>("timeline");
   const handleTabChange = useCallback(
     (next: ActivityTab) => {
@@ -162,129 +137,45 @@ function ActivityConversation({
     [taskId],
   );
 
-  const conversationItems = useMemo(
-    () =>
-      tab === "timeline"
-        ? buildConversationItems(events, isPromptPending).items
-        : [],
-    [tab, events, isPromptPending],
-  );
+  // Not handleTabChange: a programmatic switch isn't a user tab change.
+  useCommentFocusRequest(taskId, () => setTab("comments"));
 
-  // A thread picked on the artifact itself lives in the Comments tab, so the
-  // pick has to bring the tab with it. Only a fresh request switches tabs: a
-  // focus left over from an earlier visit must not hijack the panel on mount.
-  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
-  const commentFocus = focusByTask[taskId];
-  const acknowledgeCommentsTabOpen = useCommentNavigationStore(
-    (state) => state.acknowledgeCommentsTabOpen,
+  // A caller can open the panel pointed at a tab (the feed's comment chip
+  // lands on Comments, its "+N files" rows on Artifacts). Applied once, then
+  // consumed in the store — a local ref would reset when the panel remounts
+  // (collapse/expand) and replay the stale request over the user's tab pick.
+  const tabRequest = useThreadPanelStore(
+    (state) => state.tabRequestByTask[taskId],
   );
-  // Seed requests that predate this panel, but leave later requests for other
-  // tasks pending until the reused panel switches to that task.
-  const seenFocus = useRef(
-    new Map(
-      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
-        focusTaskId,
-        focus?.nonce ?? null,
-      ]),
-    ),
+  const consumeTabRequest = useThreadPanelStore(
+    (state) => state.consumeTabRequest,
   );
   useEffect(() => {
-    if (
-      commentsEnabled &&
-      commentFocus?.openCommentsTab &&
-      commentFocus.nonce !== seenFocus.current.get(taskId)
-    ) {
-      seenFocus.current.set(taskId, commentFocus.nonce);
-      // Not handleTabChange: a programmatic switch isn't a user tab change.
-      setTab("comments");
-    }
-  }, [commentFocus, commentsEnabled, taskId]);
-  useEffect(() => {
-    if (!commentsEnabled && tab === "comments") setTab("timeline");
-  }, [commentsEnabled, tab]);
-  useEffect(() => {
-    if (tab === "comments" && commentFocus?.openCommentsTab) {
-      acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
-    }
-  }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
-  useEffect(() => {
-    // Only the timeline reads bottom-up; the other tabs put what matters on top.
-    if (tab !== "timeline") return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [timeline, events.length, agentStatus?.phase, tab]);
-
-  const showComposer = tab === "timeline";
-
-  const body = () => {
-    if (tab === "comments") {
-      return <TaskCommentsList task={task} timeline={timeline} />;
-    }
-    if (tab === "artifacts") {
-      return (
-        <TaskArtifactsList
-          task={task}
-          timeline={timeline}
-          canOpenInPlace={canOpenInPlace}
-        />
-      );
-    }
-    if (!isReady) return <ThreadLoadingState />;
-    return (
-      <ActivityTimeline
-        task={task}
-        timeline={timeline}
-        conversationItems={conversationItems}
-        currentUserUuid={currentUser?.uuid}
-        currentUserEmail={currentUser?.email}
-        isTaskAuthor={isTaskAuthor}
-        canForward={canForward}
-        canOpenInPlace={canOpenInPlace}
-        onSendToAgent={sendMessageToAgent}
-        onDelete={deleteMessage}
-      />
-    );
-  };
+    if (!tabRequest) return;
+    setTab(tabRequest.tab);
+    consumeTabRequest(taskId, tabRequest.nonce);
+  }, [tabRequest, consumeTabRequest, taskId]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ActivityHeader
         tab={tab}
-        commentsEnabled={commentsEnabled}
         onTabChange={handleTabChange}
         onOpenFull={onOpenFull}
         onToggleCollapsed={onToggleCollapsed}
         onClose={onClose}
       />
 
-      {showTaskSummary && (
-        <div className="z-10 px-2">
-          <TaskCard task={task} channelId={channelId} inThread />
-        </div>
-      )}
-      <div
-        ref={scrollRef}
-        aria-busy={!isReady}
-        className="flex-1 overflow-y-auto"
-      >
-        {body()}
-      </div>
-
-      {showComposer && agentStatus && <AgentStatusLine status={agentStatus} />}
-
-      {showComposer && (
-        <ThreadReplyComposer
-          draft={draft}
-          onDraftChange={setDraft}
-          onSubmit={submit}
-          members={members}
-          allowAgentMention={isTaskAuthor && canForward}
-          onMentionInsert={onMentionInsert}
-          disabled={isSubmitDisabled}
-        />
-      )}
+      {showTaskSummary && <TaskSummaryRow task={task} channelId={channelId} />}
+      {/* Keyed by session: the body latches "the timeline has drawn" so it
+          never blinks back to a loader, and the dock reuses one body across
+          tasks, which would carry that latch onto a session still loading. */}
+      <ActivityPanelBody
+        key={taskId}
+        task={task}
+        tab={tab}
+        canOpenInPlace={canOpenInPlace}
+      />
     </div>
   );
 }
@@ -315,6 +206,10 @@ export function ActivityPanel({
     enabled: !taskProp && !collapsed,
   });
   const task = taskProp ?? fetchedTask;
+
+  // Warmed from the id alone so it doesn't queue behind the task itself, which can take
+  // seconds to arrive. Same query key as the panel's own hook, so this shares one fetch.
+  useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
 
   if (collapsed) {
     return (

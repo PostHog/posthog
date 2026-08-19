@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
+import { EventOps } from './person-update'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -40,6 +41,15 @@ export interface PersonsStoreTransactionForBatch {
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]>
+
+    /** Claims the persons in the lifecycle mark table until commit; conflicts throw. */
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[], distinctId: string): Promise<void>
+
+    /** Releases a merge's lifecycle marks; same transaction as the claim. */
+    releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void>
+
+    /** Whether the person is live; only meaningful while holding its lifecycle mark. */
+    isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -97,6 +107,7 @@ export type PersonsStoreForBatch = Omit<
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'fetchPersonsForUpdateByDistinctIds'
+    | 'applyEventOps'
     | 'createPerson'
     | 'updatePersonForMerge'
     | 'updatePersonWithPropertiesDiffForUpdate'
@@ -111,6 +122,7 @@ export type PersonsStoreForBatch = Omit<
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null>
     fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null>
     fetchPersonsForUpdateByDistinctIds(teamId: number, distinctIds: string[]): Promise<InternalPersonWithDistinctId[]>
+    applyEventOps(person: InternalPerson, ops: EventOps, distinctId: string): Promise<[InternalPerson, PersonMessage[]]>
     moveDistinctIdsFromPersons(
         sources: InternalPerson[],
         target: InternalPerson,
@@ -221,6 +233,23 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         return this.tx.deletePerson(person, distinctId)
     }
 
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string
+    ): Promise<void> {
+        return this.tx.claimLifecycleMarks(opId, teamId, persons, distinctId)
+    }
+
+    releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return this.tx.releaseLifecycleMarks(opId, teamId, distinctId)
+    }
+
+    isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
+        return this.tx.isPersonLive(person, distinctId)
+    }
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return this.tx.addDistinctId(person, distinctId, version, this.batchId)
     }
@@ -285,6 +314,14 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
 
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null> {
         return this.store.fetchForChecking(teamId, distinctId, this.batchId)
+    }
+
+    applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        return this.store.applyEventOps(person, ops, distinctId, this.batchId)
     }
 
     fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null> {
@@ -428,6 +465,29 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
         return this.store.deletePerson(person, distinctId, tx)
+    }
+
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        return this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
+    }
+
+    releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        return this.store.releaseLifecycleMarks(opId, teamId, distinctId, tx)
+    }
+
+    isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
+        return this.store.isPersonLive(person, distinctId, tx)
     }
 
     updateCohortsAndFeatureFlagsForMerge(

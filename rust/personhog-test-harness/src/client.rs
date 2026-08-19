@@ -7,6 +7,10 @@ use personhog_proto::personhog::{
         person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
         GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
     },
+    lifecycle::v1::{
+        person_hog_lifecycle_client::PersonHogLifecycleClient, DeletePersonOutcome,
+        DeletePersonsRequest,
+    },
     types::v1::{
         ConsistencyLevel, FencePersonRequest, FencePersonResponse, LifecycleOpType, Person,
         ReleaseFenceRequest, ReleaseOutcome, UpdatePersonPropertiesRequest,
@@ -27,7 +31,16 @@ pub struct HarnessClient {
 
 impl HarnessClient {
     pub async fn connect(url: &str) -> Result<Self> {
-        let inner = RouterClient::new(url, REQUEST_TIMEOUT).context("invalid router URL")?;
+        Self::connect_with_channels(url, 1).await
+    }
+
+    /// Connect over `channels` router connections, selected round-robin.
+    /// Load-driving scenarios pass more than one so an instance spreads
+    /// across router pods instead of pinning to whichever pod its single
+    /// connection landed on.
+    pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
+        let inner = RouterClient::with_channels(url, REQUEST_TIMEOUT, channels)
+            .context("invalid router URL")?;
         Ok(Self { inner })
     }
 
@@ -141,5 +154,54 @@ impl IdentityClient {
             .await
             .context("GetOrCreatePersonsByDistinctIds failed")?;
         Ok(resp.into_inner().results)
+    }
+}
+
+/// Client for the lifecycle saga service, co-served on the identity
+/// server's address.
+#[derive(Clone)]
+pub struct LifecycleClient {
+    inner: PersonHogLifecycleClient<Channel>,
+}
+
+impl LifecycleClient {
+    pub async fn connect(url: &str) -> Result<Self> {
+        let channel = Channel::from_shared(url.to_string())
+            .context("invalid lifecycle URL")?
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(Duration::from_secs(5))
+            .tcp_nodelay(true)
+            .connect_lazy();
+
+        Ok(Self {
+            inner: PersonHogLifecycleClient::new(channel),
+        })
+    }
+
+    /// Destroy persons through the durable delete saga, returning each
+    /// person's outcome. The op id is scoped to this attempt — never
+    /// derived from the rows, which revive with the same id.
+    pub async fn delete_persons(
+        &self,
+        team_id: i64,
+        person_ids: Vec<i64>,
+        op_id: &uuid::Uuid,
+    ) -> Result<Vec<(i64, DeletePersonOutcome)>> {
+        let resp = self
+            .inner
+            .clone()
+            .delete_persons(Request::new(DeletePersonsRequest {
+                team_id,
+                person_ids,
+                op_id: op_id.to_string(),
+            }))
+            .await
+            .context("DeletePersons failed")?;
+        Ok(resp
+            .into_inner()
+            .results
+            .into_iter()
+            .map(|result| (result.person_id, result.outcome()))
+            .collect())
     }
 }

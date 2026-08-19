@@ -3,11 +3,11 @@ from datetime import timedelta
 from typing import Any
 
 from django.apps import apps
+from django.db import connections
 
 import structlog
 
 from posthog.cache_utils import cache_for
-from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
@@ -37,6 +37,18 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
+# The retired session-summary tables. products/replay/backend/migrations/0002_remove_session_summary_models.py
+# dropped their models from Django state only, so both the tables and their foreign keys on
+# posthog_team still exist in Postgres. Django's cascade cannot see them any more, and the
+# constraints are DEFERRABLE INITIALLY DEFERRED, so a leftover row fails the team delete at COMMIT
+# with an IntegrityError instead of at the DELETE statement. All three tables are dead: no Django
+# model reads or writes them. This list goes away with the migration that drops them.
+RETIRED_SESSION_SUMMARY_TABLES = (
+    "ee_group_session_summary",
+    "ee_single_session_summary",
+    "ee_teamsessionsummariesconfig",
+)
+
 actions_that_require_current_team = [
     "rotate_secret_token",
     "delete_secret_token_backup",
@@ -55,7 +67,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
-    _delete_personless_distinct_ids_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
     _delete_group_type_mappings_for_teams(team_ids)
@@ -88,6 +99,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
+    _delete_retired_session_summaries_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -104,6 +116,32 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
     Evaluation.objects.filter(team_id__in=team_ids).delete()
+
+
+def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    """Batch-delete the teams' rows in the retired session-summary tables.
+
+    A table is skipped when it no longer exists, so team deletion keeps working once the migration
+    that drops these tables lands.
+    """
+    if not team_ids:
+        return
+
+    db_connection = connections["default"]
+    for table in RETIRED_SESSION_SUMMARY_TABLES:
+        # The table name is a module constant, never user input, so interpolating it is safe.
+        statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s)", [table])
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                continue
+
+            while True:
+                cursor.execute(statement, [team_ids, batch_size])
+                if cursor.rowcount < batch_size:
+                    break
+                time.sleep(0.1)
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
@@ -134,34 +172,6 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
         _fn,
         caller_tag="team-delete/hash-key-overrides",
     )
-
-
-def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
-    """Delete posthog_personlessdistinctid rows for teams via personhog RPC."""
-    from functools import partial
-
-    from posthog.personhog_client.client import personhog_call
-
-    for team_id in team_ids:
-        personhog_call(
-            "delete_personless_distinct_ids_for_team",
-            partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
-        )
-
-
-def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
-    from posthog.personhog_client.client import require_personhog_client
-    from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
-
-    client = require_personhog_client()
-
-    while True:
-        resp = client.delete_personless_distinct_ids_batch_for_team(
-            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
-            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
-        )
-        if resp.deleted_count == 0:
-            break
 
 
 def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
@@ -323,44 +333,6 @@ def delete_batch_exports(team_ids: list[int]):
                 "Schedule not found during team deletion",
                 schedule_id=e.schedule_id,
             )
-
-
-def delete_data_modeling_schedules(team_ids: list[int]) -> None:
-    """Delete Temporal schedules for data modeling saved queries in deleted teams.
-
-    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
-    call revert_materialization(), leaving orphaned Temporal schedules.
-    """
-    import temporalio.service
-
-    from posthog.temporal.common.schedule import delete_schedule
-
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-    saved_queries = list(
-        DataWarehouseSavedQuery.objects.filter(
-            team_id__in=team_ids,
-            sync_frequency_interval__isnull=False,
-        ).exclude(deleted=True)  # as it's nullable
-    )
-
-    if not saved_queries:
-        return
-
-    temporal = sync_connect()
-
-    for saved_query in saved_queries:
-        try:
-            delete_schedule(temporal, schedule_id=str(saved_query.id))
-        except temporalio.service.RPCError as e:
-            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                logger.warning(
-                    "Data modeling schedule not found during team deletion",
-                    schedule_id=str(saved_query.id),
-                    team_id=saved_query.team_id,
-                )
-                continue
-            capture_exception(e)
 
 
 def delete_team_records(team_ids: list[int]) -> None:

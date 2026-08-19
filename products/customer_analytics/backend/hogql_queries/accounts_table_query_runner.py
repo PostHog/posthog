@@ -6,7 +6,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     AccountsTableAccountFieldColumn,
     AccountsTableAccountIdFilter,
+    AccountsTableAggregateMetric,
     AccountsTableAssignedToFilter,
+    AccountsTableCountMetric,
+    AccountsTableCountThresholdMetric,
     AccountsTableCustomPropertyColumn,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
@@ -34,6 +37,7 @@ from products.customer_analytics.backend.facade import api, contracts
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
 ACCOUNTS_TABLE_MAX_FILTERS = 50
 ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
+ACCOUNTS_TABLE_MAX_METRICS = 5
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
 ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 
@@ -178,6 +182,36 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         except ValueError as error:
             raise ValidationError("Account table sort definition IDs must be valid UUIDs.") from error
 
+    def _metrics(self) -> tuple[contracts.AccountTableMetric, ...]:
+        query_metrics = self.query.metrics or []
+        if len(query_metrics) > ACCOUNTS_TABLE_MAX_METRICS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_METRICS} metrics.")
+
+        metrics: list[contracts.AccountTableMetric] = []
+        try:
+            for metric in query_metrics:
+                if isinstance(metric, AccountsTableCountMetric):
+                    metrics.append(contracts.AccountTableCountMetric())
+                elif isinstance(metric, AccountsTableAggregateMetric):
+                    metrics.append(
+                        contracts.AccountTableAggregateMetric(
+                            aggregation=contracts.AccountTableAggregation(metric.aggregation.value),
+                            definition_id=UUID(metric.column.definitionId),
+                            scale=metric.scale,
+                        )
+                    )
+                elif isinstance(metric, AccountsTableCountThresholdMetric):
+                    metrics.append(
+                        contracts.AccountTableCountThresholdMetric(
+                            definition_id=UUID(metric.column.definitionId),
+                            operator=contracts.AccountTableThresholdOperator(metric.operator.value),
+                            value=metric.value,
+                        )
+                    )
+        except ValueError as error:
+            raise ValidationError("Account table metric definition IDs must be valid UUIDs.") from error
+        return tuple(metrics)
+
     def _calculate(self) -> AccountsTableQueryResponse:
         user_access_control = self.user_access_control
         if user_access_control is None:
@@ -189,16 +223,33 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             ACCOUNTS_TABLE_MAX_PAGE_SIZE,
         )
         offset = max(self.query.offset or 0, 0)
+        filters = self._filters()
 
         try:
+            if self.query.metrics is not None:
+                metrics_results = api.query_accounts_metrics(
+                    team_id=self.team.id,
+                    user_access_control=user_access_control,
+                    filters=filters,
+                    metrics=self._metrics(),
+                    include_churned=bool(self.query.includeChurned),
+                )
+                return AccountsTableQueryResponse(
+                    results=[],
+                    hasMore=False,
+                    limit=limit,
+                    offset=offset,
+                    metricsResults=metrics_results,
+                )
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=user_access_control,
                 selection=self._column_selection(),
-                filters=self._filters(),
+                filters=filters,
                 sort=self._sort(),
                 offset=offset,
                 limit=limit,
+                include_churned=bool(self.query.includeChurned),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error

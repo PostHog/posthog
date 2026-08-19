@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
     LeadfeederSourceConfig,
@@ -11,7 +12,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
     LeadfeederResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
+    ENDPOINTS,
+    LEADFEEDER_API_2026_08_07,
+    LEADFEEDER_API_LEGACY,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -42,6 +47,13 @@ class TestLeadfeederSource:
         assert token_field.type == SourceFieldInputConfigType.PASSWORD
         assert token_field.secret is True
         assert token_field.required is True
+
+    def test_version_metadata_defaults_to_unified_and_deprecates_legacy(self) -> None:
+        # New sources land on the unified Dealfront API; the legacy Token API is advisory-deprecated
+        # (no announced sunset), which is why existing pins are not migrated automatically.
+        assert self.source.supported_versions == (LEADFEEDER_API_LEGACY, LEADFEEDER_API_2026_08_07)
+        assert self.source.default_version == LEADFEEDER_API_2026_08_07
+        assert self.source.deprecated_versions == (VersionDeprecation(version=LEADFEEDER_API_LEGACY, sunset_at=None),)
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
@@ -105,7 +117,21 @@ class TestLeadfeederSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("token")
+        # No pin at creation time resolves to the default (unified) version.
+        mock_validate.assert_called_once_with("token", LEADFEEDER_API_2026_08_07)
+
+    @parameterized.expand([(None, LEADFEEDER_API_2026_08_07), (LEADFEEDER_API_LEGACY, LEADFEEDER_API_LEGACY)])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.validate_leadfeeder_credentials"
+    )
+    def test_validate_credentials_probes_under_the_pinned_version(
+        self, pin: str | None, expected_version: str, mock_validate: mock.MagicMock
+    ) -> None:
+        # A legacy-pinned source must probe the legacy API, not the resolved default — otherwise a
+        # valid legacy token would fail validation against the unified endpoint.
+        mock_validate.return_value = True
+        self.source.validate_credentials(self.config, self.team_id, api_version=pin)
+        mock_validate.assert_called_once_with("token", expected_version)
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -118,6 +144,7 @@ class TestLeadfeederSource:
         inputs.schema_name = "leads"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-06-01"
+        inputs.api_version = LEADFEEDER_API_LEGACY
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -128,6 +155,8 @@ class TestLeadfeederSource:
         assert kwargs["start_date_config"] == "2024-01-01"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2024-06-01"
+        # The resolved source pin reaches the request layer so it builds the right generation's client.
+        assert kwargs["api_version"] == LEADFEEDER_API_LEGACY
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.leadfeeder_source")
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:

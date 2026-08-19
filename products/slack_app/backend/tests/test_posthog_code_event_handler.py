@@ -20,6 +20,33 @@ from products.slack_app.backend.models import SlackSettings, SlackUserProfileCac
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
+class TestLinkSharedUrlRegion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("us_host", ["https://us.posthog.com/project/2/insights/abc"], "US"),
+            ("legacy_app_host", ["https://app.posthog.com/i/abc"], "US"),
+            ("eu_host", ["https://eu.posthog.com/project/2/insights/abc"], "EU"),
+            ("bare_domain_names_no_region", ["https://posthog.com/i/abc"], None),
+            (
+                "conflicting_regions",
+                ["https://us.posthog.com/i/abc", "https://eu.posthog.com/i/def"],
+                None,
+            ),
+            # A replay link can never unfurl, so it must not speak for the event's region either.
+            (
+                "unfurlable_links_only",
+                ["https://eu.posthog.com/project/2/replay/abc", "https://us.posthog.com/i/abc"],
+                "US",
+            ),
+        ]
+    )
+    def test_region_from_link_hosts(self, _name: str, urls: list[str], expected: str | None) -> None:
+        from products.slack_app.backend.api import _link_shared_url_region
+
+        event = {"type": "link_shared", "links": [{"url": url} for url in urls]}
+        assert _link_shared_url_region(event) == expected
+
+
 class TestPostHogCodeEventHandler(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
@@ -817,16 +844,15 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=None)
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_link_shared_for_local_project_ignores_inconclusive_region_probe(self, mock_claims, mock_unfurl):
-        # The link names a project this region holds, which settles ownership on its own. Deferring
-        # to the other region on an inconclusive probe would hand the event to a region with no row
-        # for the workspace, where it is dropped and the unfurl is lost.
+    def test_link_shared_for_this_region_skips_precedence_probe(self, mock_claims, mock_unfurl):
+        # A link whose host names this region belongs here. Deferring to the other region on an
+        # inconclusive probe would hand it to a region that cannot resolve it, and the unfurl is lost.
         event = {
             "type": "link_shared",
             "channel": "C001",
             "user": "U123",
             "message_ts": "1234.5678",
-            "links": [{"url": f"https://eu.posthog.com/project/{self.team.pk}/insights/abc123"}],
+            "links": [{"url": f"https://us.posthog.com/project/{self.team.pk}/insights/abc123"}],
         }
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
@@ -837,6 +863,55 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_claims.assert_not_called()
         mock_unfurl.assert_called_once_with(event, self.posthog_code_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_for_other_region_forwards_before_resolving(self, mock_proxy, mock_unfurl):
+        # Project ids are issued per region, so this region holding a project of the same number
+        # means nothing for an eu.posthog.com link. Resolving it locally looks the resource up in an
+        # unrelated project, finds nothing, and stays silent — the event has to cross first.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": f"https://eu.posthog.com/project/{self.team.pk}/insights/abc123"}],
+        }
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == "proxied"
+        mock_proxy.assert_called_once()
+        mock_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_without_region_in_host_yields_to_workspace_owner(self, mock_claims, mock_proxy, mock_unfurl):
+        # A bare posthog.com link names no region, so ownership falls back to the workspace-level
+        # precedence every other surface uses. Asking per-project instead compares team ids across
+        # two independent numbering spaces, which answers "no" and pins the event to this region.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": "https://posthog.com/i/abc123"}],
+        }
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == "proxied"
+        assert "team_id" not in mock_claims.call_args.kwargs
+        mock_unfurl.assert_not_called()
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -1436,7 +1511,7 @@ class TestAssistantEvents(TestCase):
                     "ts": "111.222",
                 }
             )
-            slack_cls.return_value.client.assistant_threads_setStatus.assert_called_once()
+            slack_cls.return_value.client.assistant_threads_setStatus.assert_not_called()
             mock_start.assert_called_once()
 
     def test_dm_message_ignores_bot_and_non_im(self):

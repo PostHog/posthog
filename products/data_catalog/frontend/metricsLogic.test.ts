@@ -1,5 +1,8 @@
+import { router } from 'kea-router'
+
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -115,6 +118,26 @@ describe('metricsLogic', () => {
         expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
     })
 
+    it('creates a markdown metric as a stub and routes to the metric page to author it', async () => {
+        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ id: 'metric-4', name: 'mrr', definition_kind: null })
+        )
+
+        logic.actions.openNewMetricModal()
+        logic.actions.setNewMetricForm({
+            name: 'mrr',
+            description: 'Monthly recurring revenue',
+            definitionType: 'markdown',
+        })
+        logic.actions.createMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
+        expect(body.definition).toBeUndefined()
+        expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
+        expect(router.values.searchParams.edit).toEqual('definition')
+    })
+
     it('does not create a SQL metric from the modal', async () => {
         logic.actions.openNewMetricModal()
         logic.actions.setNewMetricForm({
@@ -129,6 +152,36 @@ describe('metricsLogic', () => {
         expect(dataCatalogMetricsCreate).not.toHaveBeenCalled()
         expect(lemonToast.error).toHaveBeenCalledWith('Create SQL metrics from the SQL editor.')
         expect(logic.values.newMetricModalOpen).toEqual(true)
+    })
+
+    it.each([
+        [
+            'carries the typed values into the SQL editor URL',
+            {
+                name: 'monthly_active_users',
+                display_name: 'Monthly active users',
+                description: 'Unique users seen in the last 30 days',
+                unit: 'users',
+            },
+            {
+                name: 'monthly_active_users',
+                display_name: 'Monthly active users',
+                description: 'Unique users seen in the last 30 days',
+                unit: 'users',
+            },
+        ],
+        ['omits the prefill from the SQL editor URL when nothing was typed', {}, undefined],
+    ])('%s', async (_case, formValues, expectedPrefill) => {
+        logic.actions.openNewMetricModal()
+        logic.actions.setNewMetricForm(formValues)
+
+        logic.actions.openSqlEditorForNewMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.newMetricModalOpen).toEqual(false)
+        expect(router.values.location.pathname).toContain(urls.sqlEditor())
+        expect(router.values.searchParams.source).toEqual('metric')
+        expect(router.values.searchParams.metric_prefill).toEqual(expectedPrefill)
     })
 
     it('removes the row when delete succeeds', async () => {

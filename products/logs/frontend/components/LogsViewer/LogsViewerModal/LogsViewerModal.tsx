@@ -12,7 +12,7 @@ import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
 export function LogsViewerModal(): JSX.Element | null {
-    const { isOpen, viewerId, fullScreen, initialFilters } = useValues(logsViewerModalLogic)
+    const { isOpen, viewerId, fullScreen, initialFilters, pinnedFilters, personId } = useValues(logsViewerModalLogic)
     const { closeLogsViewerModal } = useActions(logsViewerModalLogic)
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
@@ -45,6 +45,8 @@ export function LogsViewerModal(): JSX.Element | null {
                             id={viewerId}
                             showFullScreenButton={false}
                             initialFilters={initialFilters ?? undefined}
+                            pinnedFilters={pinnedFilters ?? undefined}
+                            personId={personId ?? undefined}
                         />
                     </div>
                 </LemonModal.Content>

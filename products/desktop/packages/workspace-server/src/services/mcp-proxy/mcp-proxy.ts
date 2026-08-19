@@ -30,12 +30,27 @@ function truncateRequestBody(body: RequestInit["body"]): string | undefined {
  * before forwarding, but any local process can still use it to issue requests
  * on the user's behalf — acceptable for a single-user desktop app.
  */
+/**
+ * Whose credential an auth failure from a target is about.
+ *
+ * `posthog` targets answer for the user's PostHog token, so a stale one is worth
+ * refreshing and retrying. An `installation` target proxies a connected third-party
+ * server, and its auth failures are about that vendor's token — refreshing the PostHog
+ * token cannot fix one, and retrying buries the real reason.
+ */
+export type McpProxyCredentialOwner = "posthog" | "installation";
+
+interface McpProxyTarget {
+  url: string;
+  credentialOwner: McpProxyCredentialOwner;
+}
+
 @injectable()
 export class McpProxyService {
   private server: http.Server | null = null;
   private port: number | null = null;
   private startPromise: Promise<void> | null = null;
-  private targets = new Map<string, string>();
+  private targets = new Map<string, McpProxyTarget>();
 
   private readonly log: ScopedLogger;
 
@@ -88,11 +103,18 @@ export class McpProxyService {
    * should be passed to the MCP transport. Subsequent registrations with the
    * same ID overwrite the target.
    */
-  register(id: string, targetUrl: string): string {
+  register(
+    id: string,
+    targetUrl: string,
+    options: { credentialOwner?: McpProxyCredentialOwner } = {},
+  ): string {
     if (!this.port) {
       throw new Error("MCP proxy not started");
     }
-    this.targets.set(id, targetUrl);
+    this.targets.set(id, {
+      url: targetUrl,
+      credentialOwner: options.credentialOwner ?? "posthog",
+    });
     return `http://127.0.0.1:${this.port}/${encodeURIComponent(id)}`;
   }
 
@@ -136,7 +158,7 @@ export class McpProxyService {
     }
 
     const suffix = rest.join("/");
-    const targetBase = target.replace(/\/+$/, "");
+    const targetBase = target.url.replace(/\/+$/, "");
     const targetUrl =
       (suffix ? `${targetBase}/${suffix}` : targetBase) + incoming.search;
 
@@ -181,10 +203,10 @@ export class McpProxyService {
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
       req.on("end", () => {
         fetchOptions.body = Buffer.concat(chunks);
-        this.forwardRequest(id, targetUrl, fetchOptions, res);
+        this.forwardRequest(id, targetUrl, fetchOptions, res, target);
       });
     } else {
-      this.forwardRequest(id, targetUrl, fetchOptions, res);
+      this.forwardRequest(id, targetUrl, fetchOptions, res, target);
     }
   }
 
@@ -193,6 +215,7 @@ export class McpProxyService {
     url: string,
     options: RequestInit,
     res: http.ServerResponse,
+    target: McpProxyTarget,
   ): Promise<void> {
     this.log.debug("MCP proxy forwarding request", {
       id,
@@ -214,6 +237,19 @@ export class McpProxyService {
         const bodyText = buf.toString("utf8");
 
         if (this.isAuthErrorBody(bodyText, response.status)) {
+          if (target.credentialOwner === "installation") {
+            this.log.warn(
+              "Connected MCP server rejected the request; its stored credential needs reconnecting in PostHog",
+              {
+                id,
+                url,
+                status: response.status,
+                body: bodyText.slice(0, 2000),
+              },
+            );
+            this.writeBufferedResponse(response, buf, res);
+            return;
+          }
           this.log.warn("MCP auth failure — refreshing token and retrying", {
             id,
             url,

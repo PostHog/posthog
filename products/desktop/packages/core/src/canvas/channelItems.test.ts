@@ -4,9 +4,11 @@ import {
   buildChannelItems,
   type ChannelItemFilters,
   type ChannelItemModel,
+  type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
   filterChannelItems,
+  groupChannelItems,
   sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
@@ -34,6 +36,8 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     id: "d1",
     channelId: "c1",
     name: "Canvas",
+    kind: "freeform" as const,
+    description: "",
     templateId: "freeform",
     context: "",
     createdAt: 0,
@@ -99,6 +103,33 @@ describe("buildChannelItems", () => {
       feedTasks: [task({ title: "" })],
     });
     expect(item.title).toBe("Untitled task");
+  });
+
+  it("ranks a session by its activity, not by when its row was last written", () => {
+    const items = build({
+      feedTasks: [
+        task({
+          id: "still-running",
+          created_at: new Date(1_000).toISOString(),
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(9_000).toISOString(),
+        }),
+        task({
+          id: "filed-later",
+          created_at: new Date(5_000).toISOString(),
+          updated_at: new Date(5_000).toISOString(),
+          last_activity_at: new Date(5_000).toISOString(),
+        }),
+      ],
+    });
+    expect(sortChannelItems(items, "recent").map((i) => i.id)).toEqual([
+      "still-running",
+      "filed-later",
+    ]);
+    expect(sortChannelItems(items, "created").map((i) => i.id)).toEqual([
+      "filed-later",
+      "still-running",
+    ]);
   });
 
   it("treats an unparseable updated_at as epoch rather than NaN", () => {
@@ -186,6 +217,26 @@ describe("buildChannelItems", () => {
       ["unread", false, true],
       ["quiet", false, false],
     ]);
+  });
+
+  it("marks a session unread from activity its row write time didn't capture", () => {
+    const [item] = build({
+      feedTasks: [
+        task({
+          id: "streamed",
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(3_000).toISOString(),
+        }),
+      ],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {
+          streamed: { lastViewedAt: 2_000, lastActivityAt: null },
+        },
+        workspaceModeByTaskId: new Map(),
+      },
+    });
+    expect(item.unread).toBe(true);
   });
 
   it("returns everything when the owner is unknown", () => {
@@ -385,5 +436,84 @@ describe("sortChannelItems", () => {
     for (const sort of ["recent", "created", "alpha"] as const) {
       expect(sortChannelItems(pinnedLast, sort)[0]?.id).toBe("pin");
     }
+  });
+});
+
+describe("groupChannelItems", () => {
+  const NOW = new Date(2026, 6, 29, 12);
+  const at = (day: number, hour: number) =>
+    new Date(2026, 6, day, hour).getTime();
+
+  function group(items: ChannelItemModel[], sort: ChannelItemSort = "recent") {
+    return groupChannelItems(sortChannelItems(items, sort), sort, NOW).map(
+      (section) => [section.label, ...section.items.map((i) => i.id)],
+    );
+  }
+
+  it("runs a day's items under one header", () => {
+    expect(
+      group([
+        model({ id: "morning", ts: at(29, 9) }),
+        model({ id: "earlier", ts: at(29, 8) }),
+        model({ id: "last-night", ts: at(28, 22) }),
+      ]),
+    ).toEqual([
+      ["Today", "morning", "earlier"],
+      ["Yesterday", "last-night"],
+    ]);
+  });
+
+  // The pin is what lifted it out of its day; leaving it in both places would
+  // list one session twice.
+  it("lists a pin under the pins and nowhere else", () => {
+    expect(
+      group([
+        model({ id: "today", ts: at(29, 9) }),
+        model({ id: "kept", ts: at(20, 9), pinned: true }),
+      ]),
+    ).toEqual([
+      ["Pinned", "kept"],
+      ["Today", "today"],
+    ]);
+  });
+
+  // Dating a created-first list by last activity would reopen a day the list
+  // had already passed, splitting one day across two headers.
+  it("dates a created-first list by when each session started", () => {
+    expect(
+      group(
+        [
+          model({ id: "started-today", createdAt: at(29, 9), ts: at(20, 9) }),
+          model({ id: "started-friday", createdAt: at(24, 9), ts: at(29, 11) }),
+        ],
+        "created",
+      ),
+    ).toEqual([
+      ["Today", "started-today"],
+      ["Friday", "started-friday"],
+    ]);
+  });
+
+  // A row can be stamped ahead of this client's clock (skew between whoever
+  // wrote it and whoever reads it). Dated on its own it opens a second "Today".
+  it("keeps a row stamped in the future under today", () => {
+    expect(
+      group([
+        model({ id: "ahead", ts: at(29, 14) }),
+        model({ id: "earlier", ts: at(29, 9) }),
+      ]),
+    ).toEqual([["Today", "ahead", "earlier"]]);
+  });
+
+  it("leaves an alphabetical list undated", () => {
+    expect(
+      group(
+        [
+          model({ id: "a", title: "A", ts: at(29, 9) }),
+          model({ id: "b", title: "B", ts: at(20, 9) }),
+        ],
+        "alpha",
+      ),
+    ).toEqual([[null, "a", "b"]]);
   });
 });

@@ -878,6 +878,7 @@ def _test_hog_over_sessions(
             "condition_count": len(conditions),
         },
         team=team,
+        request=request,
     )
 
     if not results:

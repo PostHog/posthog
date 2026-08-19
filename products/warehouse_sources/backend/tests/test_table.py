@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
@@ -16,6 +17,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 
 from posthog.exceptions import ClickHouseAtCapacity
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
@@ -165,6 +167,21 @@ class TestSafeExposeChError:
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize(
+        "raw_message,expected_action",
+        [
+            ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
+            ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+        ],
+    )
+    def test_native_s3_access_denials_name_the_iam_action_to_check(
+        self, raw_message: str, expected_action: str
+    ) -> None:
+        # A self-managed S3 source reads and lists the customer's own bucket, so an access denial
+        # is theirs to fix — name the exact IAM action rather than dead-ending on "access denied".
+        with pytest.raises(Exception, match=expected_action):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=499))
+
     def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
         # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
         # blips as delta-rs (e.g. a dropped connection to our own data-warehouse bucket), just
@@ -226,3 +243,130 @@ class TestGetHogqlFieldForColumn(SimpleTestCase):
 
         assert type(field) is expected_type
         assert field.is_nullable()
+
+
+class TestUrlPatternChangeGuard(BaseTest):
+    # A table with no credential is read by ClickHouse under the node's own S3 role, so its
+    # url_pattern is only safe to trust because PostHog computed it. This guards that invariant at
+    # the model layer so any writer (not just the REST API) is refused by default.
+    def _credential_less_table(
+        self, url_pattern: str = "https://posthog-owned.example/team_1/x.csv"
+    ) -> DataWarehouseTable:
+        table = DataWarehouseTable(name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern)
+        table.save(internally_computed_url_pattern=True)
+        return table
+
+    def _credentialed_table(self, url_pattern: str = "https://customer-bucket.example/x.csv") -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern, credential=credential
+        )
+        table.save()
+        return table
+
+    def test_creating_a_credential_less_table_does_not_require_the_flag(self) -> None:
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern="https://x.example/a.csv"
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://x.example/a.csv"
+
+    def test_changing_url_pattern_without_the_flag_is_rejected(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_changing_url_pattern_with_the_flag_is_allowed(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        table.save(internally_computed_url_pattern=True)
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/y.csv"
+
+    def test_changing_url_pattern_on_a_credentialed_table_does_not_require_the_flag(self) -> None:
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://customer-bucket.example/renamed.csv"
+
+    def test_resaving_the_same_url_pattern_does_not_require_the_flag(self) -> None:
+        table = self._credential_less_table()
+
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save()
+
+        table.refresh_from_db()
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_update_fields_scoped_save_skips_the_check_when_url_pattern_is_excluded(self) -> None:
+        # Mirrors ExternalDataSchema._sync_teardown_kind: a save scoped away from url_pattern via
+        # update_fields can't have changed it, so the extra DB read to compare prior state is skipped.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"  # not persisted below
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save(update_fields=["columns"])
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_attaching_a_credential_in_the_same_call_still_requires_the_flag(self) -> None:
+        # The guard reads the row's prior DB state, not the value being assigned in this call, so
+        # attaching a real credential here doesn't retroactively make the prior state trusted -
+        # writers computing url_pattern from something other than request input (like the demo and
+        # seed-data table registration) still have to declare that explicitly.
+        table = self._credential_less_table()
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+
+        table.credential = credential
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_full_clean_rejects_the_same_way_save_does(self) -> None:
+        # Django admin validates via full_clean() (form.is_valid() -> clean()) before ever calling
+        # save(), and ModelAdmin.save_model() doesn't translate a save()-raised ValidationError into
+        # a form error - so the same check has to be reachable from clean() too, for admin to show a
+        # normal field error instead of an unhandled 500.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.full_clean()
+
+    def test_clean_allows_a_credentialed_table_to_change_url_pattern(self) -> None:
+        # Calls clean() directly rather than full_clean(): other required fields (row_count,
+        # size_in_s3_mib) are legitimately blank on a freshly built table and full_clean() would
+        # reject those regardless, which isn't what this test is checking.
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.clean()  # must not raise
+
+    def test_soft_delete_on_a_credential_less_table_does_not_trip_the_guard(self) -> None:
+        table = self._credential_less_table()
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True

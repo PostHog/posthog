@@ -1276,7 +1276,7 @@ impl FeatureFlagMatcher {
                     evaluation_tags: None,
                     bucketing_identifier: None,
                 };
-                (stub, Err(FlagError::BatchEvaluationPanicked))
+                (stub, Err(FlagError::batch_evaluation_panicked()))
             })
             .collect()
     }
@@ -1678,9 +1678,9 @@ impl FeatureFlagMatcher {
                     // so an absent key there genuinely means the person lacks the property.
                     // This is defense in depth: in the batch flow a prep failure errors those
                     // flags out before evaluation, so the guard protects any path that reaches
-                    // evaluation with the state still Pending. Cohort filters (evaluated
-                    // separately below) don't get this guard; under Pending they're currently
-                    // safe only because cohorts are never loaded when person prep hasn't run.
+                    // evaluation with the state still Pending. Cohort filters get the same
+                    // treatment below, refusing to evaluate outright since cohort membership
+                    // is unknowable under Pending.
                     let partial_props = filter.prop_type != PropertyType::Group
                         && self.flag_evaluation_state.person_properties_pending();
                     if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
@@ -1692,6 +1692,31 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters using person properties (cohorts are person-level).
             if !cohort_filters.is_empty() {
+                // Cohort evaluation reads the same person-property map as direct filters, and
+                // both the property-level `negation` inside a cohort definition and cohort-level
+                // NOT_IN would turn a missing key into a match. Membership is unknowable under
+                // Pending either way, so refuse to evaluate rather than guess. Today no prep path
+                // loads cohorts without fetching person properties, so this should be unreachable
+                // — hence the error log, which flags a broken invariant rather than normal traffic.
+                if self.flag_evaluation_state.person_properties_pending() {
+                    inc(
+                        PROPERTY_CACHE_MISSES_COUNTER,
+                        &[
+                            ("type".to_string(), "cohort_filters".to_string()),
+                            ("reason".to_string(), "db_prep_never_ran".to_string()),
+                        ],
+                        1,
+                    );
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
+                    tracing::error!(
+                        "Cohort filters not evaluated — DB prep never ran, so the condition fails closed"
+                    );
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
+
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
@@ -2276,7 +2301,7 @@ impl FeatureFlagMatcher {
                 tracing::debug!(
                     "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
                 );
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
             PersonPropertyState::Pending => {
                 inc(
@@ -2292,7 +2317,7 @@ impl FeatureFlagMatcher {
                     log.eval.person_properties_not_cached = true;
                 });
                 tracing::error!("Person properties not found — DB prep never ran");
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
         }
     }
@@ -2535,19 +2560,37 @@ mod tests {
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
         assert_eq!(stub_a.version, Some(3));
-        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_a,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
-        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_b,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
         assert_eq!(stub_c.version, Some(1));
-        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_c,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);

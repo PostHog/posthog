@@ -75,6 +75,7 @@ async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = la
         dispatch=dispatch,
         team_id=1,
         metric_labels=_LABELS,
+        trace_id="trace-1",
     )
 
 
@@ -350,6 +351,7 @@ class TestStepConfig:
         assert config.tools is not None
         assert config.cached_content is None
         assert config.response_json_schema is not None
+        assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
         config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name="caches/abc")

@@ -136,3 +136,27 @@ class TestBackfillWarehouseQueueState:
 
         assert "Mismatched rows: 1" in out
         assert _columns(queue_conn, bid)[0] == "pending"
+
+    def test_reconcile_backfills_superseded_flag_on_pre_flag_failed_rows(self, queue_conn):
+        # The deploy plan depends on this: rows failed before the superseded
+        # column existed read false, and get_failed_runs holds them back via a
+        # per-row status re-check until reconcile stamps the flag.
+        pre_flag = _insert_batch(queue_conn, batch_index=0)
+        queue_conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, error_response, created_at) "
+            "VALUES (%s, 'failed', 0, %s, now())",
+            (pre_flag, '{"error": "superseded by newer attempt", "superseded": true}'),
+        )
+        # Pre-flag dual-writes set state_changed_at to exactly the status row's
+        # created_at; a newer clock would (correctly) fail the monotonic guard.
+        queue_conn.execute(
+            f"UPDATE {BATCH_TABLE} SET latest_state = 'failed', "
+            f"state_changed_at = (SELECT created_at FROM {STATUS_TABLE} WHERE batch_id = {BATCH_TABLE}.id) "
+            "WHERE id = %s",
+            (pre_flag,),
+        )
+
+        _run("reconcile", "--live-run")
+
+        row = queue_conn.execute(f"SELECT superseded FROM {BATCH_TABLE} WHERE id = %s", (pre_flag,)).fetchone()
+        assert row is not None and row[0] is True

@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -164,12 +164,19 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
 
         assert flag.call_count == 1
 
-    def test_the_flag_is_grouped_on_the_organization(self):
-        # Every other marketing-analytics flag is org-grouped; a team-only evaluation
-        # here would let one project disagree with the rest of its org.
+    def test_the_flag_is_evaluated_for_the_requesting_person(self):
+        # The flag targets people, and the frontend renders the Setup tab off that same
+        # per-person answer. Evaluating it against the team instead answers for nobody, so
+        # the tab lands on an endpoint that 404s. Two people to also catch an answer
+        # cached somewhere that outlives one request.
+        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
+
         with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
             self.client.get(self.url)
+            self.client.force_login(other_user)
+            self.client.get(self.url)
 
+        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
         assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
 
 
@@ -192,6 +199,9 @@ class TestSetupPlanCaching(APIBaseTest):
         # locmem persists across tests in a process; a leaked entry would make these
         # pass or fail depending on ordering.
         cache.clear()
+        # Two of these invalidate through apply_setup_ops, which requires project admin.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         flag = patch(_FLAG_TARGET, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
@@ -226,6 +236,25 @@ class TestSetupPlanCaching(APIBaseTest):
 
         assert build.call_count == 2
 
+    def test_applying_ops_invalidates_the_cache(self):
+        # Otherwise applying a change and reloading serves the pre-change plan, with the
+        # suggestion you just fixed still sitting there — which reads as a failed apply.
+        with patch(_PLAN_TARGET, return_value=_clean_plan()) as build:
+            self.client.get(self.url)
+
+            self.client.post(
+                f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops",
+                {
+                    "ops": [{"op": "add_custom_source_mapping", "integration": "MetaAds", "raw_utm_source": "fb-ads"}],
+                    "source": "setup_tab",
+                },
+                format="json",
+            )
+
+            self.client.get(self.url)
+
+        assert build.call_count == 2
+
     def test_one_users_plan_is_not_served_to_another(self):
         """The plan is built from HogQL run as the caller, and `execute_hogql_query`
         applies warehouse access control from that user — so a shared entry would serve
@@ -239,6 +268,30 @@ class TestSetupPlanCaching(APIBaseTest):
             self.client.get(self.url)
 
         assert build.call_count == 2
+
+    def test_one_teams_invalidation_does_not_evict_another(self):
+        other = Team.objects.create(organization=self.organization, name="second")
+        other_url = f"/api/projects/{other.pk}/marketing_analytics/setup_plan"
+
+        with patch(_PLAN_TARGET, return_value=_clean_plan()) as build:
+            self.client.get(self.url)
+            self.client.get(other_url)
+            assert build.call_count == 2
+
+            self.client.post(
+                f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops",
+                {
+                    "ops": [{"op": "add_custom_source_mapping", "integration": "MetaAds", "raw_utm_source": "fb-ads"}],
+                    "source": "setup_tab",
+                },
+                format="json",
+            )
+
+            self.client.get(self.url)
+            self.client.get(other_url)
+
+        # Only this team rebuilt; the other team's entry was untouched.
+        assert build.call_count == 3
 
     def test_one_teams_plan_is_not_served_to_another(self):
         other = Team.objects.create(organization=self.organization, name="second")

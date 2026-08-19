@@ -124,6 +124,9 @@ class TestTransientRPCRetry:
             # tonic cancels a call that outruns the client's RPC deadline with status CANCELLED and
             # message "Timeout expired" — a client-side timeout that must be ridden out, not raised.
             ("Timeout expired", RPCStatusCode.CANCELLED),
+            # A transport connection closed mid-request also surfaces as CANCELLED, with message
+            # "operation was canceled" — a connection blip, not a real cancellation.
+            ("operation was canceled", RPCStatusCode.CANCELLED),
             # A DNS resolution blip surfaces as UNAVAILABLE — a connection-level failure that must
             # be ridden out rather than failing the whole import activity.
             ("dns error", RPCStatusCode.UNAVAILABLE),
@@ -177,7 +180,8 @@ class TestTransientRPCRetry:
             ("workflow execution not found for", RPCStatusCode.NOT_FOUND),
             # UNKNOWN alone must not be retried — only UNKNOWN carrying a transport signature is.
             ("internal server error", RPCStatusCode.UNKNOWN),
-            # CANCELLED alone must not be retried — only the "Timeout expired" phrase qualifies.
+            # CANCELLED alone must not be retried — only the "Timeout expired" and "operation was
+            # canceled" phrases qualify.
             ("Cancelled by caller", RPCStatusCode.CANCELLED),
         ],
     )

@@ -1,6 +1,11 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { RetentionRulesCache } from './retention-rules-cache'
+import { RetentionRulesCache, logsRetentionRulesDroppedCounter } from './retention-rules-cache'
+
+async function droppedCount(teamId: string): Promise<number> {
+    const metric = await logsRetentionRulesDroppedCounter.get()
+    return metric.values.find((v) => v.labels.team_id === teamId)?.value ?? 0
+}
 
 describe('RetentionRulesCache', () => {
     let query: jest.Mock
@@ -23,6 +28,16 @@ describe('RetentionRulesCache', () => {
         query.mockResolvedValueOnce(rows(30))
         const compiled = await cache.getCompiledRuleSet(1)
         expect(compiled.rules).toEqual([{ id: 'r1', filterGroup: null, retentionDays: 30 }])
+    })
+
+    it('surfaces rules discarded at compile via the dropped counter', async () => {
+        // 45 is not a valid retention tier, so compile discards the row: the rule is enabled and
+        // fetched but never stamped — the counter is the only signal of that silent drop.
+        query.mockResolvedValueOnce(rows(45))
+        const before = await droppedCount('7')
+        const compiled = await cache.getCompiledRuleSet(7)
+        expect(compiled.rules).toEqual([])
+        expect((await droppedCount('7')) - before).toBe(1)
     })
 
     it('fails open to no rules when the fetch throws and nothing is cached', async () => {

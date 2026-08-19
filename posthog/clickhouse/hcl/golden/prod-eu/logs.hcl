@@ -777,9 +777,9 @@ database "posthog" {
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "bucket_start", "generation", "service_name", "namespace", "environment", "severity_text"]
-    partition_by = "toDate(bucket_start)"
-    ttl          = "bucket_start + toIntervalDay(42)"
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -787,12 +787,9 @@ database "posthog" {
     column "team_id" {
       type = "Int32"
     }
-    column "bucket_start" {
+    column "time_bucket" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
-    }
-    column "generation" {
-      type = "UInt64"
     }
     column "service_name" {
       type = "LowCardinality(String)"
@@ -807,9 +804,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "log_count" {
-      type = "UInt64"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
-    engine "replicated_merge_tree" {
+    engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs_volume_buckets"
       replica_name = "{replica}-{shard}"
     }
@@ -819,12 +816,9 @@ database "posthog" {
     column "team_id" {
       type = "Int32"
     }
-    column "bucket_start" {
+    column "time_bucket" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
-    }
-    column "generation" {
-      type = "UInt64"
     }
     column "service_name" {
       type = "LowCardinality(String)"
@@ -839,10 +833,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "log_count" {
-      type = "UInt64"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     engine "distributed" {
-      cluster_name    = "posthog_single_shard"
+      cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "logs_volume_buckets"
     }
@@ -2232,7 +2226,18 @@ database "posthog" {
     to_table = "posthog.logs34"
     query    = <<SQL
 SELECT
-  kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
+  uuid,
+  trace_id,
+  span_id,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,

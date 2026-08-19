@@ -17,6 +17,7 @@ from ..logic.drift import compute_drift
 from ..logic.execution import run_metric
 from ..logic.metrics import (
     approve_metric,
+    approved_metric_names_for_team,
     metrics_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
@@ -24,15 +25,17 @@ from ..logic.metrics import (
     upsert_metric,
 )
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
-from ..logic.validation import validate_metric_definition
+from ..logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
+    "MAX_DESCRIPTION_LENGTH",
     "Metric",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",
     "approve_metric",
+    "approved_metric_names_for_team",
     "certifications_for_team",
     "certify",
     "compute_drift",

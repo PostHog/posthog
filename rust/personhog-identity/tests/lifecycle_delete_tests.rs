@@ -6,11 +6,13 @@ mod common;
 use std::sync::Arc;
 
 use chrono::Utc;
+use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
-use tonic::Request;
+use tonic::{Request, Status};
 use uuid::Uuid;
 
-use personhog_identity::lifecycle::delete::SEAL_VERSION_MARGIN;
+use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
+use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
@@ -19,7 +21,12 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
-        PersonHogLifecycleService::new(Arc::new(self.engine()), self.tables.clone())
+        let engine = Arc::new(self.engine());
+        let leader = Arc::new(SimLeader::new(
+            self.pool.clone(),
+            self.tables.person.clone(),
+        ));
+        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -187,10 +194,11 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         vec![(person_id, DeletePersonOutcome::Deleted)]
     );
 
-    // The person: tombstoned at sealed + 1 (version 0 at seal time), scrubbed.
+    // The person: tombstoned at sealed + 1 (the fence sealed version 0),
+    // scrubbed.
     let (is_deleted, version, properties) = ctx.person_state(person_id).await;
     assert!(is_deleted);
-    assert_eq!(version, SEAL_VERSION_MARGIN + 1);
+    assert_eq!(version, 1);
     assert_eq!(properties, "{}");
 
     // The mappings: tombstoned one version above their previous one.
@@ -530,6 +538,304 @@ async fn a_recreated_distinct_id_revives_above_the_death_version() {
     ctx.cleanup().await.expect("cleanup");
 }
 
+/// Fenced-mode walkthrough harness: the delete driver wired to a
+/// [`SimLeader`], driven through the engine directly so tests can stop at
+/// step boundaries and probe the leader's state in between.
+struct FencedHarness {
+    ctx: TestContext,
+    engine: Engine,
+    leader: Arc<SimLeader>,
+    driver: DeleteDriver,
+}
+
+impl FencedHarness {
+    async fn new() -> Self {
+        let ctx = TestContext::new().await;
+        let engine = ctx.engine();
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
+        let driver = DeleteDriver::new(leader.clone(), ctx.tables.clone());
+        Self {
+            ctx,
+            engine,
+            leader,
+            driver,
+        }
+    }
+
+    fn request(person_ids: &[i64]) -> serde_json::Value {
+        serde_json::json!({ "person_ids": person_ids })
+    }
+
+    async fn execute(&self, op_id: Uuid, person_ids: &[i64]) -> Result<OpRow, SagaError> {
+        self.engine
+            .execute(
+                &self.driver,
+                op_id,
+                self.ctx.team_id,
+                &Self::request(person_ids),
+            )
+            .await
+    }
+
+    async fn step(&self, op_id: Uuid) -> Result<OpRow, SagaError> {
+        self.engine
+            .step_once(&self.driver, op_id, self.ctx.team_id)
+            .await
+    }
+
+    fn outcome(row: &OpRow) -> DeleteOutcome {
+        serde_json::from_value(row.outcome.clone().expect("terminal outcome"))
+            .expect("outcome parses")
+    }
+}
+
+#[tokio::test]
+async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-victim-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].outcome, "deleted");
+
+    // The fence sealed the stub's exact version (0), so the tombstone and
+    // the death document land at 1 — no margin.
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1, "fenced seal must not add the pre-fence margin");
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].person_id, person_id);
+    assert_eq!(docs[0].version, 1);
+
+    // The fence is gone, and it was installed before the release ran.
+    assert!(h.leader.fence_for(person_id).is_none());
+    let calls = h.leader.calls();
+    let fence_at = calls
+        .iter()
+        .position(|c| matches!(c, LeaderCall::Fence { .. }))
+        .expect("a fence call");
+    let release_at = calls
+        .iter()
+        .position(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+        .expect("a committed release call");
+    assert!(fence_at < release_at);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_fenced_victim_rejects_writes_until_the_op_completes() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-frozen-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    let row = h.step(op_id).await.expect("marked -> sealed");
+    assert_eq!(row.step, "sealed");
+
+    // Sealed means fenced: an ordinary write is rejected with the leader's
+    // typed fence metadata until the op finishes.
+    let rejection = h
+        .leader
+        .admit_write(h.ctx.team_id, person_id)
+        .await
+        .expect_err("a sealed victim must reject writes");
+    assert!(rejection.metadata().contains_key(FENCED_METADATA_KEY));
+
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    // The fence is released; the person now answers destroyed, not fenced.
+    assert!(h.leader.fence_for(person_id).is_none());
+    let destroyed = h
+        .leader
+        .admit_write(h.ctx.team_id, person_id)
+        .await
+        .expect_err("a destroyed person rejects writes");
+    assert_eq!(destroyed.code(), tonic::Code::NotFound);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_transient_fence_failure_leaves_the_op_retryable() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-retry-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    h.leader
+        .fail_next(Rpc::Fence, person_id, Status::unavailable("leader down"));
+    let op_id = Uuid::now_v7();
+    let err = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect_err("the fence failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("retry completes");
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert_eq!(h.leader.death_documents().len(), 1);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_transient_release_failure_leaves_the_op_retryable() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-release-retry-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    h.leader
+        .fail_next(Rpc::Release, person_id, Status::unavailable("leader down"));
+    let op_id = Uuid::now_v7();
+    let err = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect_err("the release failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+
+    // The op parked on unmapped with its sync-plane work done; the retry
+    // re-releases and the duplicate-absorbing leader still produces exactly
+    // one death document.
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("retry completes");
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert_eq!(h.leader.death_documents().len(), 1);
+    assert!(h.leader.fence_for(person_id).is_none());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_op_sealed_by_a_pre_fence_build_completes_without_release_calls() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("pre-fence-upgrade-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    // Recreate the state a pre-fence build leaves behind at a deploy
+    // boundary: victims sealed with the margin folded into the version and
+    // no created_at in the sealed jsonb. The new build must finish the op
+    // without inventing release calls for victims it never fenced.
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    sqlx::query(
+        r#"
+        UPDATE lifecycle_op_person
+        SET status = 'sealed', sealed = jsonb_build_object('version', 100)
+        WHERE op_id = $1 AND person_id = $2
+        "#,
+    )
+    .bind(op_id)
+    .bind(person_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("seal like a pre-fence build");
+    sqlx::query("UPDATE lifecycle_op SET step = 'sealed' WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("advance like a pre-fence build");
+
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert!(
+        h.leader.calls().is_empty(),
+        "a margin-sealed op must not reach the leader"
+    );
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 101, "the old margin stays folded into the version");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_victim_destroyed_before_its_fence_settles_as_not_found() {
+    let h = FencedHarness::new().await;
+    let keep = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-keep-{}", Uuid::now_v7()))
+        .await;
+    let gone = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-gone-{}", Uuid::now_v7()))
+        .await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[keep, gone]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    // Destroy one victim behind its mark — the anomaly the seal absorbs by
+    // settling it as not_found instead of failing the whole op.
+    sqlx::query("UPDATE posthog_person SET is_deleted = true WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(gone)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("tombstone the victim");
+
+    let row = h.execute(op_id, &[keep, gone]).await.expect("op completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(
+        outcome
+            .results
+            .iter()
+            .map(|r| (r.person_id, r.outcome.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(keep, "deleted"), (gone, "not_found")]
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1, "only the live victim gets a death document");
+    assert_eq!(docs[0].person_id, keep);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn full_flow_works_on_a_configured_person_table() {
     // Runs create, resolve, and the whole delete saga against
@@ -614,7 +920,9 @@ async fn full_flow_works_on_a_configured_person_table() {
     .await
     .expect("tombstone row exists");
     assert!(is_deleted);
-    assert!(version > SEAL_VERSION_MARGIN);
+    // The fence sealed the stub's exact version (0), so the tombstone
+    // lands at 1 — no margin.
+    assert_eq!(version, 1);
 
     let resolved = ctx
         .storage

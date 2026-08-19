@@ -320,15 +320,6 @@ def _wire_authenticated_user(mock_db_pool, distinct_id: str):
 
 
 class TestFreeTierModelListing:
-    @pytest.fixture(autouse=True)
-    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
-        get_settings.cache_clear()
-        yield
-        get_settings.cache_clear()
-
     def test_anonymous_caller_gets_full_unrestricted_list(self, client: TestClient):
         # an unidentifiable caller may be a billed org; never mark for those
         response = client.get("/posthog_code/v1/models")
@@ -337,7 +328,6 @@ class TestFreeTierModelListing:
         assert "claude-opus-4-5" in {m["id"] for m in models}
         assert all(m["allowed"] for m in models)
 
-    @pytest.mark.parametrize("gate_flag", ["true", "false"], ids=["gate_on", "gate_off"])
     @pytest.mark.parametrize(
         "error,expected_status",
         [
@@ -351,12 +341,7 @@ class TestFreeTierModelListing:
         monkeypatch: pytest.MonkeyPatch,
         error: Exception,
         expected_status: int,
-        gate_flag: str,
     ):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", gate_flag)
-        get_settings.cache_clear()
         auth_service = MagicMock()
         auth_service.authenticate_request = AsyncMock(side_effect=error)
 
@@ -380,23 +365,6 @@ class TestFreeTierModelListing:
 
         assert response.status_code == 403
 
-    def test_gate_off_valid_project_scope_returns_unrestricted_list(self, app, monkeypatch: pytest.MonkeyPatch):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "false")
-        get_settings.cache_clear()
-        auth_service = MagicMock()
-        auth_service.authenticate_request = AsyncMock(return_value=MagicMock(team_id=123, is_staff=False))
-
-        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
-            response = client.get(
-                "/posthog_code/v1/models",
-                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
-            )
-
-        assert response.status_code == 200
-        assert all(m["allowed"] for m in response.json()["data"])
-
     def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
@@ -418,7 +386,10 @@ class TestFreeTierModelListing:
         assert premium["restriction_reason"] == "paid_plan_required"
         # exact, not subset: the default free model must survive the allowlist
         # and the annotation, or free-tier callers have no usable model
-        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {
+            "@cf/zai-org/glm-5.2",
+            "deepseek-ai/deepseek-v4-flash-0731",
+        }
         # codex reads the `models` mirror; the marks must be there too
         assert body["models"] == body["data"]
 

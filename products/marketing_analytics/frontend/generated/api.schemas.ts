@@ -8,6 +8,39 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `setup_tab` - setup_tab
+ * * `apply_all_safe` - apply_all_safe
+ * * `mcp` - mcp
+ */
+export type ApplySetupOpsSourceEnumApi = (typeof ApplySetupOpsSourceEnumApi)[keyof typeof ApplySetupOpsSourceEnumApi]
+
+export const ApplySetupOpsSourceEnumApi = {
+    SetupTab: 'setup_tab',
+    ApplyAllSafe: 'apply_all_safe',
+    Mcp: 'mcp',
+} as const
+
+export interface ApplySetupOpsApi {
+    /** Operations to apply, in order. Send `apply` payloads returned verbatim by setup_plan — never hand-craft one. Navigate-only ops (open_oauth, open_source_wizard, open_settings, fix_platform_urls) are rejected: they describe something a browser or a human does. */
+    ops: unknown[]
+    /** Where the request came from, recorded in the activity log
+     *
+     * * `setup_tab` - setup_tab
+     * * `apply_all_safe` - apply_all_safe
+     * * `mcp` - mcp */
+    source?: ApplySetupOpsSourceEnumApi
+}
+
+export interface ApplySetupOpsResponseApi {
+    /** The operations that were applied */
+    applied: unknown[]
+    /** Operations that reverse this batch, in the order they should be sent. Computed server-side from the pre-change state — POST them back to undo. */
+    undo_ops: unknown[]
+    /** The config as it now stands */
+    marketing_analytics_config: unknown
+}
+
+/**
  * * `EventsNode` - EventsNode
  * * `ActionsNode` - ActionsNode
  * * `DataWarehouseNode` - DataWarehouseNode
@@ -21,8 +54,8 @@ export const ConversionGoalKindEnumApi = {
 } as const
 
 export interface ConversionGoalSummaryApi {
-    /** Unique id of the goal (event name, action id, or DW goal id) */
-    id: string
+    /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+    conversion_goal_id: string
     /** Display name of the conversion goal */
     name: string
     /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -404,6 +437,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -646,9 +687,9 @@ export interface ConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -742,9 +783,9 @@ export interface ConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -839,9 +880,9 @@ export interface ConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -957,9 +998,9 @@ export interface PartialConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1050,9 +1091,9 @@ export interface PartialConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1145,9 +1186,9 @@ export interface PartialConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1407,8 +1448,8 @@ export interface GoalEventSampleApi {
 }
 
 export interface GoalExplanationApi {
-    /** Id of the explained conversion goal */
-    goal_id: string
+    /** conversion_goal_id of the explained goal */
+    conversion_goal_id: string
     /** Display name of the conversion goal */
     goal_name: string
     /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -1480,7 +1521,7 @@ export interface SuggestionApi {
     title: string
     /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
     evidence: string
-    /** Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel */
+    /** Capabilities this unblocks: cost, attribution, roas, cac */
     unlocks: string[]
     /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
     apply: unknown
@@ -1512,7 +1553,7 @@ export interface SuggestionApi {
 }
 
 export interface CapabilityReadinessApi {
-    /** cost/attribution/roas/cac/retention_by_channel/ltv_by_channel */
+    /** cost/attribution/roas/cac */
     capability: string
     /** unlocked/partial/blocked */
     status: string
@@ -1850,6 +1891,11 @@ export type MarketingAnalyticsDiagnoseRetrieveParams = {
 
 export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -1859,11 +1905,6 @@ export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
      * @nullable
      */
     date_to?: string | null
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string
 }
 
 export type MarketingAnalyticsSetupPlanRetrieveParams = {

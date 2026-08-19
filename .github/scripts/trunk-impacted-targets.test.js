@@ -21,6 +21,7 @@ const {
     isProductDirectory,
     isTripwire,
     parseCrateDependencies,
+    parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
@@ -30,6 +31,8 @@ const {
     ALL,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
+    NODE,
+    PROTO_TREES,
     PYTHON,
     REPO_ROOT,
     RUNTIME_SPAWN_EDGES,
@@ -94,6 +97,32 @@ layer = "modules"
         tachDependents,
     },
 }
+
+// PROTO_TREES names the crates that compile each tree, so the crate half of
+// this graph has to carry their real names. The dependent and the bystander are
+// synthetic, which is what keeps the closure assertions off the real crate
+// graph.
+const PROTO_CONTEXT = {
+    ...CONTEXT,
+    rustGraph: {
+        dependsOn: new Map([
+            ['cymbal-proto', []],
+            ['kafka-assigner-proto', []],
+            ['personhog-proto', []],
+            ['personhog-consumer', ['personhog-proto']],
+            ['unrelated', []],
+        ]),
+        byDir: [
+            { dir: 'cymbal-proto', name: 'cymbal-proto' },
+            { dir: 'kafka-assigner-proto', name: 'kafka-assigner-proto' },
+            { dir: 'personhog-proto', name: 'personhog-proto' },
+            { dir: 'personhog-consumer', name: 'personhog-consumer' },
+            { dir: 'unrelated', name: 'unrelated' },
+        ],
+    },
+}
+
+const PROTO_EVERYTHING = allKnownTargets(PROTO_CONTEXT)
 
 // gamma vendors its own pnpm workspace; alpha and beta keep the conventional
 // backend/ + frontend/ layout, so the cases above stay on the old behavior.
@@ -169,16 +198,23 @@ test('a lockfile claims its own toolchain rather than every lane', () => {
 })
 
 // Every consumer of a proto commits the stubs generated from it, so the set is
-// enumerable rather than open-ended: tonic for the crates, and checked-in
-// personhog stubs for python and nodejs. The frontend and services lanes are
-// the ones this buys, and a new consumer tree has to fail here.
-test('a proto claims its three consumer toolchains rather than every lane', () => {
-    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], CONTEXT)
-    for (const target of ['py:core', 'py:product:alpha', 'rust:crate:shared', 'node:ingestion']) {
+// enumerable rather than open-ended: tonic for the crate, and checked-in
+// personhog stubs for python and nodejs. The rust half is the crate that
+// compiles the tree plus the dependents the closure adds, not every crate.
+test('a proto claims the consumers that generate from it rather than every lane', () => {
+    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], PROTO_CONTEXT)
+    for (const target of [
+        'py:core',
+        'py:product:alpha',
+        'node:ingestion',
+        'rust:crate:personhog-proto',
+        'rust:crate:personhog-consumer',
+    ]) {
         assert.equal(targets.includes(target), true, target)
     }
-    assert.equal(targets.includes('fe:core'), false)
-    assert.equal(targets.includes('svc:mcp'), false)
+    for (const target of ['fe:core', 'svc:mcp', 'rust:crate:cymbal-proto', 'rust:crate:unrelated']) {
+        assert.equal(targets.includes(target), false, target)
+    }
 
     const generatedDirs = [
         'posthog/personhog_client/proto/generated',
@@ -187,6 +223,125 @@ test('a proto claims its three consumer toolchains rather than every lane', () =
     ]
     for (const dir of generatedDirs) {
         assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
+    }
+})
+
+// The narrowing the per-tree table buys: a tree nothing outside rust/ generates
+// from used to serialize against every python lane in the repo.
+test('a proto tree with no stubs outside rust claims neither python nor nodejs', () => {
+    assert.deepEqual(computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], PROTO_CONTEXT), [
+        'rust:crate:cymbal-proto',
+    ])
+    assert.deepEqual(computeTargets(['proto/kafka_assigner/v1/service.proto'], PROTO_CONTEXT), [
+        'rust:crate:kafka-assigner-proto',
+    ])
+})
+
+// buf's lint and breaking-change settings sit at the root and govern every
+// tree, so a file there can break any consumer of any of them.
+test('proto configuration at the root claims every tree', () => {
+    const union = new Set()
+    for (const file of [
+        'proto/personhog/types/v1/person.proto',
+        'proto/cymbal/resolution/v1/resolution.proto',
+        'proto/kafka_assigner/v1/service.proto',
+    ]) {
+        for (const target of computeTargets([file], PROTO_CONTEXT)) {
+            union.add(target)
+        }
+    }
+    assert.deepEqual(computeTargets(['proto/buf.yaml'], PROTO_CONTEXT), [...union].sort())
+})
+
+// The two ways the table can go stale. Both are the under-reporting direction —
+// a tree whose consumers are unknown, and a crate the table can no longer
+// find — so both widen rather than claiming the lanes they can still name.
+test('an undeclared proto tree or a renamed proto crate widens', () => {
+    assert.deepEqual(computeTargets(['proto/newthing/v1/service.proto'], PROTO_CONTEXT), PROTO_EVERYTHING)
+
+    const renamed = {
+        ...PROTO_CONTEXT,
+        rustGraph: {
+            ...PROTO_CONTEXT.rustGraph,
+            dependsOn: new Map([...PROTO_CONTEXT.rustGraph.dependsOn].filter(([crate]) => crate !== 'personhog-proto')),
+        },
+    }
+    assert.deepEqual(computeTargets(['proto/personhog/types/v1/person.proto'], renamed), allKnownTargets(renamed))
+})
+
+// The table is declared rather than derived, so the tree it describes has to
+// fail here when it moves. Reads the real repo for that reason: the crate half
+// comes from the build.rs that compiles each tree, which is the same file tonic
+// reads, so a tree compiled by a second crate or by a renamed one shows up.
+test('every proto tree is declared, with the crate that compiles it', () => {
+    const trees = fs
+        .readdirSync(path.join(REPO_ROOT, 'proto'), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    assert.deepEqual(trees.sort(), [...PROTO_TREES.keys()].sort())
+
+    const compiledBy = new Map()
+    const walk = (dir, depth) => {
+        if (depth > 3) {
+            return
+        }
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name)
+            if (entry.isDirectory() && entry.name !== 'target' && !entry.name.startsWith('.')) {
+                walk(full, depth + 1)
+                continue
+            }
+            if (entry.name !== 'build.rs') {
+                continue
+            }
+            const text = fs.readFileSync(full, 'utf8')
+            const referenced = [...text.matchAll(/\{proto_root\}\/([A-Za-z0-9_]+)\//g)].map((match) => match[1])
+            if (referenced.length === 0) {
+                // The three build scripts share the {proto_root}/<tree>/ idiom
+                // the regex above keys on. One that compiles protos some other
+                // way would read as compiling none, so it fails here rather
+                // than leaving its tree looking unclaimed by any crate.
+                assert.equal(
+                    text.includes('compile_protos'),
+                    false,
+                    `${full} compiles protos the derivation cannot see`
+                )
+                continue
+            }
+            const crate = parseCrateName(fs.readFileSync(path.join(dir, 'Cargo.toml'), 'utf8'))
+            for (const tree of referenced) {
+                compiledBy.set(tree, [...new Set([...(compiledBy.get(tree) || []), crate])].sort())
+            }
+        }
+    }
+    walk(path.join(REPO_ROOT, 'rust'), 0)
+
+    for (const [tree, { crates }] of PROTO_TREES) {
+        assert.deepEqual(compiledBy.get(tree), [...crates].sort(), `crates compiling proto/${tree}`)
+    }
+})
+
+// The other half of the same guard. It reads the two roots the checked-in stubs
+// land in today, so a tree that starts generating into one of them without
+// declaring the domain fails here. A consumer that generates into a root
+// neither of these names is still only caught by review.
+test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
+    const stubRoots = [
+        ['posthog/personhog_client/proto/generated', PYTHON],
+        ['nodejs/src/common/generated', NODE],
+    ]
+    for (const [root, domain] of stubRoots) {
+        const generated = fs
+            .readdirSync(path.join(REPO_ROOT, root), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+        for (const [tree, { domains }] of PROTO_TREES) {
+            assert.equal(
+                generated.includes(tree),
+                domains.includes(domain),
+                `proto/${tree} stubs in ${root} must match its declared ${domain} consumer`
+            )
+        }
     }
 })
 

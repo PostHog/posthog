@@ -349,6 +349,11 @@ export const getBranchChangedFilesInput = z.object({
   branch: z.string(),
 });
 
+export const getCommitChangedFilesInput = z.object({
+  repo: z.string(),
+  sha: z.string(),
+});
+
 export const getLocalBranchChangedFilesInput = z.object({
   directoryPath: z.string(),
   branch: z.string(),

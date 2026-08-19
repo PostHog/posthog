@@ -1,3 +1,4 @@
+import { Badge } from "@posthog/quill";
 import LogosLandscape from "@posthog/ui/primitives/Logo";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -52,6 +53,16 @@ export function MissionControlOverlay() {
       <p className="font-semibold text-(--gray-12) text-[clamp(16px,2.2vw,28px)] leading-none tracking-tight">
         PostHog Desktop
       </p>
+      {import.meta.env.DEV && (
+        // Sized off the viewport like the rest of the overlay so it stays
+        // readable in the Mission Control thumbnail.
+        <Badge
+          variant="destructive"
+          className="-rotate-3 h-auto rounded-(--radius-3) border-4 border-current/40 border-dashed px-[clamp(20px,3.2vw,44px)] py-[clamp(10px,1.4vw,20px)] font-bold font-mono text-[clamp(22px,4vw,52px)] uppercase leading-none tracking-widest"
+        >
+          Development
+        </Badge>
+      )}
     </div>,
     container,
   );

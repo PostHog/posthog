@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 import {
     captureInboxQueryChanged,
     captureInboxReportAction,
+    captureInboxReportClosed,
+    captureInboxReportScrolled,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
     captureInboxViewed,
@@ -157,6 +159,24 @@ describe('inboxAnalytics', () => {
         })
     })
 
+    it('carries the dwell before a detail-pane scroll, without the report title', () => {
+        captureInboxReportScrolled({
+            report: makeReport({ id: 'r9' }),
+            rank: 3,
+            listSize: 20,
+            timeSinceOpenMs: 6200,
+        })
+        const props = lastCapture(INBOX_EVENTS.REPORT_SCROLLED)
+        expect(props).toMatchObject({
+            report_id: 'r9',
+            rank: 3,
+            list_size: 20,
+            time_since_open_ms: 6200,
+        })
+        expect(props?.report_title).toBeUndefined()
+        expect(JSON.stringify(props)).not.toContain('Something broke')
+    })
+
     it('records how the query moved without shipping what was typed into the search box', () => {
         captureInboxQueryChanged({
             change: 'search',
@@ -217,6 +237,16 @@ describe('inboxAnalytics', () => {
             success: true,
         })
         expect(JSON.stringify(props)).not.toContain('acme-alerts')
+    })
+
+    it('sends an unload close instantly so the dwell time leaves before the page does', () => {
+        captureInboxReportClosed(
+            { report: makeReport(), timeSpentMs: 4200, closeMethod: 'page_unload' },
+            { send_instantly: true }
+        )
+        const call = (posthog.capture as jest.Mock).mock.calls.find(([name]) => name === INBOX_EVENTS.REPORT_CLOSED)
+        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200 })
+        expect(call?.[2]).toEqual({ send_instantly: true })
     })
 
     it('records a connected source with first-connection and wizard flags', () => {

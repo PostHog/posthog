@@ -149,6 +149,8 @@ const dashboardActionsMapping: Record<
     data_color_theme_id: () => null,
     last_accessed_at: () => null,
     folder: () => null,
+    file_system_id: () => null,
+    file_system_path: () => null,
     is_shared: () => null,
     creation_mode: () => null,
     user_access_level: () => null,

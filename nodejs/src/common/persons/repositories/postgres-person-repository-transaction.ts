@@ -6,6 +6,7 @@ import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
+import { LifecycleMarkPerson } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
@@ -56,6 +57,18 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
 
     async deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]> {
         return await this.repository.deletePersons(persons, this.transaction)
+    }
+
+    async claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void> {
+        return await this.repository.claimLifecycleMarks(opId, teamId, persons, this.transaction)
+    }
+
+    async releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return await this.repository.releaseLifecycleMarks(opId, teamId, this.transaction)
+    }
+
+    async isPersonLive(person: InternalPerson): Promise<boolean> {
+        return await this.repository.isPersonLive(person, this.transaction)
     }
 
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

@@ -9,7 +9,6 @@ from ee.hogai.chat_agent.executables import (
     ChatAgentToolsExecutable,
 )
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
-from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.tools.todo_write import TodoWriteExample
 
 from ..factory import AgentModeDefinition
@@ -54,7 +53,6 @@ The assistant used the todo list because:
 1. Session summarization requires filtering first (can't summarize without identifying relevant sessions)
 2. The filtering requires discovering event properties through read_taxonomy
 3. Complex event-based filters need validation before being used
-4. The summarize_sessions tool requires filter_session_recordings to be called first
 5. This is a multi-step analysis requiring systematic progression through discovery, filtering, and summarization
 """.strip()
 
@@ -123,7 +121,6 @@ class SessionReplayAgentToolkit(AgentToolkit):
 
         tools: list[type[MaxTool]] = [
             FilterSessionRecordingsTool,
-            SummarizeSessionsTool,
             SearchReplayVisionObservationsTool,
             ScanReplayVisionSessionsTool,
             RetryReplayVisionObservationTool,
