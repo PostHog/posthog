@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
+import { waitForCondition } from 'kea-waitfor'
 
 import { urls } from 'scenes/urls'
 
@@ -36,6 +37,7 @@ export interface duplicateDashboardLogicValues {
     duplicateDashboardTouched: boolean
     duplicateDashboardTouches: Record<string, boolean>
     duplicateDashboardValidationErrors: DeepPartialMap<DuplicateDashboardForm, ValidationErrorType>
+    duplicateError: string | null
     isDuplicateDashboardSubmitting: boolean
     isDuplicateDashboardValid: boolean
     showDuplicateDashboardErrors: boolean
@@ -118,19 +120,42 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
                 hideDuplicateDashboardModal: () => false,
             },
         ],
+        duplicateError: [
+            null as string | null,
+            {
+                showDuplicateDashboardModal: () => null,
+                hideDuplicateDashboardModal: () => null,
+                submitDuplicateDashboardRequest: () => null,
+                submitDuplicateDashboardFailure: (_, { error }: { error?: Error }) => error?.message ?? null,
+            },
+        ],
     }),
     forms(() => ({
         duplicateDashboard: {
             defaults: defaultFormValues,
             errors: () => ({}),
             submit: async ({ dashboardId, dashboardName, show, duplicateTiles }) => {
-                if (dashboardId) {
-                    dashboardsModel.actions.duplicateDashboard({
-                        id: dashboardId,
-                        name: dashboardName,
-                        show,
-                        duplicateTiles,
-                    })
+                if (!dashboardId) {
+                    return
+                }
+                dashboardsModel.actions.duplicateDashboard({
+                    id: dashboardId,
+                    name: dashboardName,
+                    show,
+                    duplicateTiles,
+                })
+                // Wait for the create to settle so the button keeps its spinner and the modal
+                // stays open until then. Throwing on failure lets kea-forms surface the error.
+                const outcome = (await waitForCondition(
+                    (action) =>
+                        action.type === dashboardsModel.actionTypes.duplicateDashboardSuccess ||
+                        action.type === dashboardsModel.actionTypes.duplicateDashboardFailure
+                )) as { error?: string; errorObject?: { detail?: string } }
+                // Only the failure action carries an error payload; success carries the dashboard.
+                if (outcome.errorObject || outcome.error) {
+                    throw new Error(
+                        outcome.errorObject?.detail || outcome.error || 'Could not duplicate the dashboard. Try again.'
+                    )
                 }
             },
         },

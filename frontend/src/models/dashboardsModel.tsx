@@ -533,7 +533,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
                 return getQueryBasedDashboard(response)!
             },
-            duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
+            duplicateDashboard: async ({ id, name, duplicateTiles }) => {
+                // Navigation on `show` is handled once by duplicateDashboardLogic's success
+                // listener, so the new dashboard scene mounts a single time.
                 const result = await api.create<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
@@ -542,9 +544,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         duplicate_tiles: duplicateTiles,
                     }
                 )
-                if (show) {
-                    router.actions.push(urls.dashboard(result.id))
-                }
                 return getQueryBasedDashboard(result)!
             },
         },
