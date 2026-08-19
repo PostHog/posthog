@@ -247,15 +247,26 @@ describe('CdpCyclotronWorker', () => {
             ])
         })
 
-        it('should dequeue an invocation if the hog function cannot be found', async () => {
+        it('should dequeue an invocation and write a terminal row if the hog function cannot be found', async () => {
             const dequeueInvocationsSpy = jest
                 .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
                 .mockResolvedValue(undefined)
+            const lifecycleRowSpy = jest.spyOn(
+                processor['invocationResultsService'].invocationResultsRowsService,
+                'queueLifecycleRow'
+            )
             const invocation = createExampleInvocation(fn, globals)
             invocation.functionId = new UUIDT().toString()
             const results = await processor.processInvocations([invocation])
             expect(results).toEqual([])
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
+            // A deleted destination resolves to null here too. Without a terminal row the run
+            // stays stranded at `running` and can never be rerun.
+            expect(lifecycleRowSpy).toHaveBeenCalledWith(
+                invocation,
+                'failed',
+                expect.objectContaining({ errorKind: 'function_missing' })
+            )
         })
 
         it.each([['project'], ['event']] as const)(

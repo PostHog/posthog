@@ -78,6 +78,16 @@ export class CdpCyclotronWorker<
                         id: item.functionId,
                     })
 
+                    // A deleted destination resolves to null here — the manager filters
+                    // `deleted = FALSE`, so the `hogFunction.deleted` check below is never reached
+                    // for it. Write a terminal lifecycle row so the run resolves to a real end
+                    // state instead of staying stranded at `running` (which the UI can never rerun).
+                    counterInvocationsSkippedDisabled.inc()
+                    this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(item, 'failed', {
+                        error: 'Skipped because the destination is missing or deleted',
+                        errorKind: 'function_missing',
+                    })
+
                     failedInvocations.push(item)
 
                     return
