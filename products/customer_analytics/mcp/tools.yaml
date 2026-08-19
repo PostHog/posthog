@@ -904,6 +904,9 @@ tools:
     feature-request-product-areas-update:
         operation: feature_request_product_areas_update
         enabled: false
+    feature-requests-add-account-create:
+        operation: feature_requests_add_account_create
+        enabled: false
     feature-requests-add-evidence-create:
         operation: feature_requests_add_evidence_create
         enabled: false
