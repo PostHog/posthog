@@ -31,9 +31,6 @@ def remove_deleted_experiment_file_system_entries(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Commit each batch instead of holding one transaction open for the whole cleanup.
-    atomic = False
-
     dependencies = [
         ("experiments", "0032_teamexperimentsconfig_flag_cleanup_repository"),
         ("posthog", "0733_file_system_shortcut"),
