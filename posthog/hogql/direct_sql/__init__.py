@@ -1,4 +1,9 @@
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, DirectSQLAdapter
+from posthog.hogql.direct_sql.adapter import (
+    DirectQueryPrincipal,
+    DirectQueryRequest,
+    DirectQueryResult,
+    DirectSQLAdapter,
+)
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.clickhouse_adapter import ClickHouseAdapter
 from posthog.hogql.direct_sql.duckgres_adapter import DuckgresRawAdapter
@@ -10,7 +15,8 @@ from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 from posthog.hogql.direct_sql.snowflake_adapter import SnowflakeAdapter
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 register_adapter(PostgresAdapter())
 register_adapter(MySQLAdapter())
@@ -34,6 +40,7 @@ def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter |
 
 __all__ = [
     "DirectQueryRequest",
+    "DirectQueryPrincipal",
     "DirectQueryResult",
     "DirectSQLAdapter",
     "ClickHouseAdapter",

@@ -195,7 +195,7 @@ class SandboxedEvalHarness:
 
         if Infra.LLM_GATEWAY in required:
             assert self._live_server is not None
-            self._stack.callback(start_llm_gateway(self._live_server.url))
+            self._stack.callback(start_llm_gateway(self._live_server.url, self.options.agent_model))
         if Infra.MCP_SERVER in required:
             assert self._live_server is not None
             self._stack.callback(start_mcp_server(self._live_server.url))

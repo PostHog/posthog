@@ -67,6 +67,10 @@ MAX_PAGES_PER_RUN = 50_000
 # worth, far beyond any legitimate workspace's tracing-project count.
 MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
 
+# Same cumulative-memory guard as MAX_SESSION_IDS_BYTES, applied to the dataset ids collected to
+# scope the examples query. A user-controlled host could otherwise stream unbounded dataset ids.
+MAX_DATASET_IDS_BYTES = 2 * 1024 * 1024
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -113,7 +117,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     return bytes(buffer)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # mutability is unused (always constructed fresh); explicit per house convention
 class LangSmithResumeConfig:
     # runs/query body cursor for the page to fetch next; None for offset-paginated endpoints.
     cursor: str | None = None
@@ -123,6 +127,9 @@ class LangSmithResumeConfig:
     # resumed run keeps paging the same window (a recomputed bound would shift what each
     # cursor/offset points at).
     window_start: str | None = None
+    # Dataset being paged when an examples run was interrupted; examples are fetched per dataset,
+    # so the resume needs both which dataset and the offset within it. None for every other endpoint.
+    dataset_id: str | None = None
 
 
 def normalize_base_url(raw: str) -> str:
@@ -377,6 +384,50 @@ def _list_session_ids(
     return ids
 
 
+def _list_dataset_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    """Collect every dataset id in the workspace.
+
+    GET /examples requires a `dataset` filter (a 400 otherwise); this sync pulls examples across
+    every dataset, so it lists dataset ids and pages each dataset's examples in turn.
+    """
+    config = LANGSMITH_ENDPOINTS["datasets"]
+    ids: list[str] = []
+    ids_bytes = 0
+    offset = 0
+    pages = 0
+    while True:
+        url = f"{base_url}{config.path}?{urlencode({'limit': config.page_size, 'offset': offset})}"
+        data = _fetch_page(session, url, headers, logger)
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            break
+        for row in rows:
+            row_id = row.get("id")
+            if not row_id:
+                continue
+            ids.append(row_id)
+            ids_bytes += len(row_id.encode())
+            if ids_bytes > MAX_DATASET_IDS_BYTES:
+                raise LangSmithResponseTooLargeError(
+                    f"LangSmith returned an oversized set of dataset ids "
+                    f"(> {MAX_DATASET_IDS_BYTES} bytes) while scoping the examples query"
+                )
+        if len(rows) < config.page_size:
+            break
+        offset += config.page_size
+        pages += 1
+        if pages >= MAX_PAGES_PER_RUN:
+            raise LangSmithPageLimitError(
+                f"LangSmith dataset listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the examples query"
+            )
+    return ids
+
+
 def _get_runs_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -550,6 +601,97 @@ def _get_offset_rows(
             )
 
 
+def _get_examples_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: LangSmithEndpointConfig,
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[Any]:
+    """Page GET /examples for every dataset in the workspace.
+
+    Examples belong to a dataset, and GET /examples rejects a request that doesn't scope to one
+    (a 400 otherwise), so this walks each dataset id and pages that dataset's examples with a
+    `dataset` filter. Examples are full-refresh only (no server-side window), so there's no
+    incremental watermark to pin — the resume tracks which dataset and offset an interrupted run
+    was on."""
+    dataset_ids = _list_dataset_ids(session, headers, base_url, logger)
+    if not dataset_ids:
+        logger.debug("LangSmith: no datasets in workspace, nothing to sync for examples")
+        return
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only resume into a dataset that still exists; a deleted one restarts the sweep from the top
+    # so no dataset is silently skipped.
+    resume_into_dataset = resume.dataset_id if resume is not None and resume.dataset_id in dataset_ids else None
+    resume_offset = resume.offset if resume is not None else None
+    start_index = dataset_ids.index(resume_into_dataset) if resume_into_dataset is not None else 0
+    if resume_into_dataset is not None:
+        logger.debug(f"LangSmith: resuming examples from dataset={resume_into_dataset} offset={resume_offset}")
+
+    pages = 0
+    for index in range(start_index, len(dataset_ids)):
+        dataset_id = dataset_ids[index]
+        is_last_dataset = index == len(dataset_ids) - 1
+        if index == start_index and resume_into_dataset is not None:
+            offset = resume_offset or 0
+        else:
+            offset = 0
+            # Checkpoint the dataset boundary before reading it, so a crash resumes at this dataset
+            # rather than re-reading the previous one.
+            resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=dataset_id, offset=0))
+
+        while True:
+            page_offset = offset
+            url = f"{base_url}{config.path}?{urlencode({'dataset': dataset_id, 'limit': config.page_size, 'offset': page_offset})}"
+            data = _fetch_page(session, url, headers, logger)
+            # Count every request, including a short first page, against the per-run limit. A
+            # dataset whose examples fit on one page must still cost one request — otherwise a
+            # host serving many datasets (bounded only by MAX_DATASET_IDS_BYTES) each with a
+            # single short page pages forever without ever tripping MAX_PAGES_PER_RUN.
+            pages += 1
+
+            rows = data if isinstance(data, list) else []
+            is_last_page = not rows or len(rows) < config.page_size
+
+            for item in rows:
+                batcher.batch(item)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    # Save AFTER yielding so a crash re-reads this page rather than skipping it.
+                    # Skip only on the final page of the final dataset — the run is finishing.
+                    if not (is_last_page and is_last_dataset):
+                        resumable_source_manager.save_state(
+                            LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset)
+                        )
+
+            run_is_finished = is_last_page and is_last_dataset
+            if pages >= MAX_PAGES_PER_RUN and not run_is_finished:
+                # Flush any batched-but-unyielded items before checkpointing where to resume —
+                # resuming skips this page, so an unflushed partial batch is lost.
+                if batcher.should_yield(include_incomplete_chunk=True):
+                    yield batcher.get_table()
+                if is_last_page:
+                    # This dataset is exhausted; resume picks up at the start of the next one.
+                    next_dataset_id = dataset_ids[index + 1]
+                    resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=next_dataset_id, offset=0))
+                else:
+                    resumable_source_manager.save_state(
+                        LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset + config.page_size)
+                    )
+                raise LangSmithPageLimitError(
+                    f"LangSmith examples import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+                )
+
+            if is_last_page:
+                break
+            offset = page_offset + config.page_size
+
+
 def get_rows(
     api_key: str,
     base_url: str,
@@ -573,7 +715,12 @@ def get_rows(
     # carry secrets or personal data the name-based scrubber won't recognize.
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
-    pager = _get_runs_rows if config.pagination == "cursor" else _get_offset_rows
+    if config.scoped_by_dataset:
+        pager = _get_examples_rows
+    elif config.pagination == "cursor":
+        pager = _get_runs_rows
+    else:
+        pager = _get_offset_rows
     yield from pager(
         session,
         headers,

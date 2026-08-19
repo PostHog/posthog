@@ -2107,6 +2107,35 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers, promptly for parked runs (delays and waits) and at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreateBodyInvocationIdsMax = 10000
+
+export const hogFlowsInvocationsCancelCreateBodyAllDefault = false
+
+export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
+    .object({
+        invocation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(hogFlowsInvocationsCancelCreateBodyInvocationIdsMax)
+            .optional()
+            .describe(
+                'Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.'
+            ),
+        all: zod
+            .boolean()
+            .default(hogFlowsInvocationsCancelCreateBodyAllDefault)
+            .describe('Cancel every in-flight invocation of this workflow, including parked delays and waits.'),
+    })
+    .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
+
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
@@ -2135,6 +2164,8 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_flow:write`.
  */
+export const hogFlowsRerunCreateBodyFilterOneErrorMessageContainsMax = 200
+
 export const hogFlowsRerunCreateBodyFilterOneMaxAttemptsMax = 255
 
 export const hogFlowsRerunCreateBodyFilterOneMaxCountMax = 10000
@@ -2154,8 +2185,10 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed'])
-                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                            .enum(['running', 'succeeded', 'failed', 'canceled'])
+                            .describe(
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `canceled` - canceled'
+                            )
                     )
                     .optional()
                     .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
@@ -2164,6 +2197,13 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                error_message_contains: zod
+                    .string()
+                    .max(hogFlowsRerunCreateBodyFilterOneErrorMessageContainsMax)
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind)."
                     ),
                 max_attempts: zod
                     .number()

@@ -19,6 +19,10 @@ from django.conf import settings
 
 CANVAS_BUILDER_DIR = Path(settings.CANVAS_BUILDER_DIR)
 
+GRID_COLUMN_CHOICES = (4, 6, 8, 10, 12)
+MAX_COMPONENT_WIDTH = max(GRID_COLUMN_CHOICES)
+MAX_COMPONENT_HEIGHT = 40
+
 # A public DNS name is one or more dot-separated labels of ASCII letters, digits,
 # and hyphens (IDNA names stay in this set), with an optional trailing dot. Any
 # other character is rejected because urlsplit keeps CSP delimiters such as ";"

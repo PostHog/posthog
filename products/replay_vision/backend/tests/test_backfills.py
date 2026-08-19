@@ -11,6 +11,11 @@ from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.redis import get_client
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    STUCK_SESSION_THRESHOLD,
+    _stuck_key,
+)
 
 from products.replay_vision.backend.api.backfills import (
     MAX_BACKFILL_WINDOW_DAYS,
@@ -56,6 +61,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -103,11 +110,12 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
 @pytest.mark.parametrize(
     "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
     [
-        # One case per cap that can win, plus the fully-saturated floor.
+        # One case per cap that can win, plus the fully-saturated floor. Scheduled dispatch caps
+        # exclude the slots reserved for on-demand admission.
         (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
         (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
-        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, 0, 0, 10),
+        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5, 0, 5),
     ],
 )
 def test_backfill_dispatch_budget_takes_the_tightest_cap(
@@ -518,6 +526,30 @@ class TestBackfillTickActivities:
         assert [c.session_id for c in result.candidates] == ["keep"]
         # walked past the excluded row, not stopped at the survivor
         assert result.next_cursor_session_id == "blocked"
+
+    def test_stuck_sessions_are_walked_over_not_dispatched(self) -> None:
+        # A session quarantined by the rasterizer's stuck counter cannot render; dispatching it from
+        # a backfill burns retry envelopes the same way the live sweep's filter prevents.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        fetched = [
+            CandidateSession(session_id="keep", session_end=timezone.now() - dt.timedelta(hours=2)),
+            CandidateSession(session_id="wedged", session_end=timezone.now() - dt.timedelta(hours=1)),
+        ]
+        redis_client = get_client()
+        for _ in range(STUCK_SESSION_THRESHOLD):
+            redis_client.incr(_stuck_key(backfill.team_id, "wedged"))
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value=set()),
+        ):
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+
+        assert [c.session_id for c in result.candidates] == ["keep"]
+        assert result.next_cursor_session_id == "wedged"
 
     def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
         # In-query blocklists are off by this point, so swallowing would dispatch unfiltered.

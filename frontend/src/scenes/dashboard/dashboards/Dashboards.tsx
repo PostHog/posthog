@@ -26,8 +26,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DashboardsContent } from 'products/dashboards/frontend/components/DashboardsContent'
-
+import { DashboardsTableContainer } from './DashboardsTable'
 import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
 
 const HedgehogChart = pngHoggie(chartPng)
@@ -110,7 +109,7 @@ export function Dashboards(): JSX.Element {
                 {currentTab === DashboardsTab.Templates ? (
                     <DashboardTemplatesTable />
                 ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsContent />
+                    <DashboardsTableContainer />
                 ) : (
                     <ProductIntroduction
                         productName="Dashboards"

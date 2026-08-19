@@ -13,16 +13,18 @@ from prometheus_client import Counter, Gauge, Histogram
 # merely slow one — p95 sat "pinned at 5s" while real polls took minutes.
 POLL_DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 150.0, 300.0)
 
+# Deliberately not labeled by team/schema: every (team, schema) combo mints
+# series forever (12 per combo on the histogram), and no dashboard or alert
+# reads them. Per-team debugging belongs in the structured logs.
 BATCHES_PROCESSED_TOTAL = Counter(
     "warehouse_pg_consumer_batches_processed_total",
     "Total batches processed by the Postgres consumer",
-    labelnames=["team_id", "schema_id", "status"],
+    labelnames=["status"],
 )
 
 BATCH_PROCESSING_DURATION_SECONDS = Histogram(
     "warehouse_pg_consumer_batch_processing_duration_seconds",
     "Duration of individual batch processing",
-    labelnames=["team_id", "schema_id"],
     buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
 )
 
@@ -209,12 +211,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
         batches_processed_total=Counter(
             f"{p}_batches_processed_total",
             f"Total batches processed by the {prefix} Postgres consumer",
-            labelnames=["team_id", "schema_id", "status"],
+            labelnames=["status"],
         ),
         batch_processing_duration_seconds=Histogram(
             f"{p}_batch_processing_duration_seconds",
             "Duration of individual batch processing",
-            labelnames=["team_id", "schema_id"],
             buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
         ),
         batch_retry_total=Counter(

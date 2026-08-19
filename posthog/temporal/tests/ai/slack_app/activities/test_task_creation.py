@@ -475,6 +475,7 @@ class TestDeriveMentionWorkflowId:
             "integration_id": 1,
             "slack_team_id": "T_SLACK",
             "slack_event_id": "Ev123",
+            "user_id": 1,
             **overrides,
         }
         return PostHogCodeSlackMentionWorkflowInputs(**fields)

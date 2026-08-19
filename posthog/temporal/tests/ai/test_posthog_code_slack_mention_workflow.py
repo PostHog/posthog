@@ -13,8 +13,8 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
         ("", True, False),
         # Replies with text still face the classifier even when files are attached.
         ("nice weather today", True, True),
-        # Replays of histories recorded before the patch keep the old always-classify sequence.
-        ("", False, True),
+        # Replays of histories recorded before the confirmation patch skip the prompt.
+        ("", False, False),
     ],
 )
 async def test_untagged_followup_with_files_classifier_gating(
@@ -51,6 +51,8 @@ async def test_untagged_followup_with_files_classifier_gating(
 
     with (
         patch.object(posthog_code_slack_mention.workflow, "patched", return_value=patched),
+        # Runs outside a workflow context, where the real marker call would raise.
+        patch.object(posthog_code_slack_mention.workflow, "deprecate_patch"),
         patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
     ):
         await workflow.run(inputs)

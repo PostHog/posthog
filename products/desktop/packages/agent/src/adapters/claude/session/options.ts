@@ -12,7 +12,10 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildPosthogPropertyHeaderLines } from "@posthog/shared/posthog-property-headers";
+import {
+  buildPosthogProjectHeaderLines,
+  buildPosthogPropertyHeaderLines,
+} from "@posthog/shared/posthog-property-headers";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
@@ -57,11 +60,11 @@ export type GatewayEnv = {
   /**
    * Same task-metadata attribution headers as {@link anthropicCustomHeaders},
    * in record form for the codex/OpenAI path (which sets provider
-   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Includes `team_id`,
-   * which the Claude path instead appends in {@link buildEnvironment}.
+   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Project authorization
+   * uses the separate `X-PostHog-Project-Id` header.
    */
   openaiCustomHeaders?: Record<string, string>;
-  /** PostHog project ID for per-team attribution headers. */
+  /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
 };
 
@@ -169,15 +172,11 @@ function buildEnvironment(
   if (existingCustomHeaders) {
     headerLines.push(existingCustomHeaders);
   }
-  // Attribute every captured $ai_generation event to the customer's team. The
-  // gateway authenticates with a shared key, so without this the spend lands on
-  // the key owner's team. The gateway lifts `x-posthog-property-*` headers onto
-  // the event; both entrypoints export POSTHOG_PROJECT_ID before this runs
-  // (workspace-server auth-adapter.ts, server/agent-server.ts). Mirrors django's
-  // get_llm_client(team_id=...).
+  // Scope OAuth requests to the selected project so the gateway can authorize
+  // and derive billing attribution from it.
   const projectId = gateway?.posthogProjectId ?? process.env.POSTHOG_PROJECT_ID;
   if (projectId) {
-    headerLines.push(buildPosthogPropertyHeaderLines({ team_id: projectId }));
+    headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
   if (sessionId) {
     headerLines.push(

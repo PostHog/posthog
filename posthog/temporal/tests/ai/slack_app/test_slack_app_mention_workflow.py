@@ -64,7 +64,7 @@ class _Recorder:
         # a deleted trigger message reads as.
         self.thread_messages: dict[str, list[dict[str, str]]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
-        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
@@ -128,7 +128,11 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, event_text: str, user_id: int | None = None
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        event_text: str,
+        user_id: int | None = None,
+        thread_messages: list[dict[str, str]] | None = None,
+        mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
@@ -212,12 +216,6 @@ def _fake_activities(rec: _Recorder) -> list:
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         rec.internal_errors.append(inputs.event["ts"])
 
-    @activity.defn(name="resolve_posthog_code_slack_user_activity")
-    async def resolve_user(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
-    ) -> int | None:
-        return 42
-
     @activity.defn(name="mark_slack_app_message_processing_activity")
     async def mark_processing(input: SlackAppMessageReactionInput) -> None:
         rec.processing_marked.append(input.message_ts)
@@ -243,7 +241,6 @@ def _fake_activities(rec: _Recorder) -> list:
         create_task,
         picker_timeout,
         internal_error,
-        resolve_user,
     ]
 
 
