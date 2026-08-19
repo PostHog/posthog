@@ -393,7 +393,7 @@ class TestOauthIntegrationModel(BaseTest):
             url = OauthIntegration.authorize_url("google-calendar", token="state_token", next="/projects/test")
             assert (
                 url
-                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -1125,6 +1125,30 @@ class TestOauthIntegrationModel(BaseTest):
             ),
             ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
             ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
+            (
+                "meta_dead_token",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating access token: The session has been invalidated because the user changed their password.",
+                        "type": "OAuthException",
+                        "code": 190,
+                        "error_subcode": 460,
+                    }
+                },
+                "meta-ads",
+                "invalid_grant",
+            ),
+            (
+                "instagram_dead_token",
+                400,
+                {"error": {"type": "OAuthException", "code": 190}},
+                "instagram",
+                "invalid_grant",
+            ),
+            ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
+            ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
+            ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -4741,9 +4765,11 @@ class TestInstagramIntegrationModel(BaseTest):
     def test_oauth_config(self):
         config = OauthIntegration.oauth_config_for_kind("instagram")
 
-        assert config.authorize_url == "https://www.facebook.com/v23.0/dialog/oauth"
-        assert config.token_url == "https://graph.facebook.com/v23.0/oauth/access_token"
-        assert config.token_info_url == "https://graph.facebook.com/v23.0/me"
+        # Same Graph version as the other Meta kinds: an older pin here makes the OAuth dialog
+        # reject the permission set before anyone reaches a consent screen.
+        assert config.authorize_url == "https://www.facebook.com/v25.0/dialog/oauth"
+        assert config.token_url == "https://graph.facebook.com/v25.0/oauth/access_token"
+        assert config.token_info_url == "https://graph.facebook.com/v25.0/me"
         assert config.client_id == "instagram-client-id"
         assert config.client_secret == "instagram-client-secret"
         assert config.id_path == "id"
@@ -4751,9 +4777,9 @@ class TestInstagramIntegrationModel(BaseTest):
         # Instagram is reached through the Facebook page it is linked to, so the page scopes
         # are as load-bearing as the Instagram ones.
         assert set(config.scope.split(" ")) == {
-            "instagram_basic",
-            "instagram_manage_insights",
-            "instagram_manage_comments",
+            "instagram_business_basic",
+            "instagram_business_manage_insights",
+            "instagram_business_manage_comments",
             "pages_show_list",
             "pages_read_engagement",
         }
