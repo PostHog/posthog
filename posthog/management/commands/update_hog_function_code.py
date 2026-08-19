@@ -58,12 +58,20 @@ class Command(BaseCommand):
             # bumping them would abruptly revive dormant-but-enabled destinations and resume
             # conversions into customers' LinkedIn Ads accounts without warning. Reviving those is
             # handled separately with customer awareness.
+            #
+            # 202607 also enforces firstName and lastName within userInfo, so the version bump alone
+            # would turn the 426 into a 422 for any event lacking a name. Both replacements have to
+            # land together for a destination to send successfully.
             "linkedin-api-version-update-202607": {
                 "template_id": "template-linkedin-ads",
                 "replacements": [
                     {
                         "from_string": "'LinkedIn-Version': '202508'",
                         "to_string": "'LinkedIn-Version': '202607'",
+                    },
+                    {
+                        "from_string": "if (length(keys(userInfo)) >= 1) {",
+                        "to_string": "if (not empty(userInfo['firstName']) and not empty(userInfo['lastName'])) {",
                     },
                 ],
             },
