@@ -2,35 +2,27 @@ from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
-# Per-5-minute log volume rollup for anomaly detection. One row per
-# (team, bucket, series) where the series identity is (service_name, namespace,
-# environment, severity_text). Evidence dimensions (service.version,
-# instrumentation_scope, host/pod) are deliberately excluded: they multiply
-# rows 5-30x and belong on the filed issue record, not the rollup.
+# Log volume rollup on a 5-minute UTC bucket grid, for anomaly detection.
+# Higher-cardinality evidence dimensions (service.version, instrumentation
+# scope, host/pod) are deliberately excluded to keep the series count low;
+# they belong on the detection output, not the rollup.
 #
-# Fed by the logs34_to_volume_buckets materialized view, which counts each
-# inserted block. Blocks arrive per insert, so the table holds partial counts
-# until merges collapse rows with equal keys. Readers must therefore always
-# aggregate: GROUP BY the key columns and sum(log_count), never read rows raw.
-# The SimpleAggregateFunction(sum, ...) column type is what makes merges sum
-# instead of keeping one arbitrary row, matching logs_billing_metrics.
-#
-# A Kafka block that is consumed twice after a commit failure inserts twice and
-# the duplicate survives as inflated counts. logs_billing_metrics accepts the
-# same exposure, and the anomaly detector tolerates small inflation better than
+# The table holds partial counts: every insert lands as its own rows and only
+# merges collapse equal keys by summing, so readers must always GROUP BY the
+# key columns and sum(log_count), never read rows raw. There is no dedup: a
+# writer that inserts the same block twice (for example a replayed Kafka
+# batch) inflates the count, which is accepted because small inflation beats
 # a missed bucket.
 #
-# Buckets are fixed wall-clock windows on a 5-minute UTC grid, never sliding.
+# ORDER BY is time-early (unlike logs34's dims-early tail) because the dominant
+# read is one team over a bucket window with no dim predicate, and rows per
+# series per day are few enough that a dims-early key would make every granule
+# span the whole day.
 #
-# ORDER BY is time-early (unlike logs34's dims-early tail): the dominant read is
-# team + scattered bucket windows with no dim predicate, and with only ~288
-# buckets/series/day a dims-early key makes every granule span the whole day.
-#
-# TTL is 42 days (6 weekly samples per time-of-week slot), decoupled from raw
-# log retention and deliberately capped: longer dilutes the recent picture.
+# TTL is 42 days (6 weekly samples per time-of-week slot), independent of raw
+# log retention.
 
 TABLE_NAME = "logs_volume_buckets"
-DISTRIBUTED_TABLE_NAME = "logs_volume_buckets_distributed"
 
 
 def LOGS_VOLUME_BUCKETS_TABLE_SQL():
@@ -55,13 +47,12 @@ SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 
 def LOGS_VOLUME_BUCKETS_DISTRIBUTED_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {database}.{distributed_table_name} AS {database}.{table_name} ENGINE = {engine}
+CREATE TABLE IF NOT EXISTS {database}.logs_volume_buckets_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
             data_table=TABLE_NAME,
             cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
         ),
         database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-        distributed_table_name=DISTRIBUTED_TABLE_NAME,
         table_name=TABLE_NAME,
     )

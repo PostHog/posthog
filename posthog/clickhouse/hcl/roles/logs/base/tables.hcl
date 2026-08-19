@@ -726,6 +726,7 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
+
   table "logs_volume_buckets_distributed" {
     column "team_id" {
       type = "Int32"
