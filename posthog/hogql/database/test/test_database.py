@@ -2876,11 +2876,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # Reading through the tree directly does not resolve via get_table, so it never arms the build.
         activitylog_before = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_before, Table)
         assert activitylog_before.fields.get("team") is None
 
         # Accessing a core (non-warehouse) table must not pay for warehouse foreign keys.
         database.get_table("events")
-        assert database.get_table_node("postgres.ph3.posthog_activitylog").get().fields.get("team") is None
+        activitylog_after_events = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_after_events, Table)
+        assert activitylog_after_events.fields.get("team") is None
 
         # The first warehouse-table access wires the whole graph — forward and reverse joins.
         activitylog = database.get_table("postgres.ph3.posthog_activitylog")
