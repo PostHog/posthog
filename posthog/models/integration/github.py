@@ -3,7 +3,7 @@
 import re
 import time
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -71,8 +71,8 @@ class GitHubUserAuthorization:
 
     gh_id: int
     gh_login: str
-    access_token: str
-    refresh_token: str | None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
 
@@ -83,7 +83,7 @@ class GitHubInstallationAccess:
 
     installation_id: str
     installation_info: dict[str, Any]
-    access_token: str
+    access_token: str = field(repr=False)
     token_expires_at: str  # ISO datetime returned by GitHub, e.g. "2024-01-01T14:00:00Z"
     repository_selection: str
 

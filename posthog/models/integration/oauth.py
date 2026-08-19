@@ -5,7 +5,7 @@ import time
 import base64
 import hashlib
 import secrets
-from dataclasses import dataclass
+from dataclasses import field, replace
 from datetime import timedelta
 from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -19,6 +19,7 @@ from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
+from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -87,13 +88,12 @@ INSTAGRAM_OAUTH_SCOPE = (
 )
 
 
-# nosemgrep: prefer-frozen-dataclasses -- mutated in place: oauth_config_for_kind sets client_id_fallback/client_secret_fallback on the instance after construction
-@dataclass
+@frozen
 class OauthConfig:
     authorize_url: str
     token_url: str
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
     scope: str
     id_path: str
     name_path: str
@@ -102,7 +102,7 @@ class OauthConfig:
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
     client_id_fallback: str | None = None
-    client_secret_fallback: str | None = None
+    client_secret_fallback: str | None = field(default=None, repr=False)
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -272,8 +272,11 @@ class OauthIntegration:
         config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
-            config.client_secret_fallback = fallback["client_secret"]
-            config.client_id_fallback = fallback.get("client_id") or config.client_id
+            config = replace(
+                config,
+                client_secret_fallback=fallback["client_secret"],
+                client_id_fallback=fallback.get("client_id") or config.client_id,
+            )
         return config
 
     @classmethod
