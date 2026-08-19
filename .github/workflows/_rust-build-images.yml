@@ -147,7 +147,12 @@ jobs:
               env:
                   IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  # Key the sccache namespace on the build recipe, not on
+                  # Cargo.lock. sccache already hashes each crate's own inputs,
+                  # so an unchanged crate still hits the cache after a dependency
+                  # edit. Keying on Cargo.lock rotated the whole namespace on
+                  # every lockfile touch and forced a cold rebuild.
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Dockerfile', 'rust/Dockerfile.sqlx-migrate') }}" >> "$GITHUB_OUTPUT"
                   if [ "$IS_FORK_PR" = "true" ]; then
                       echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
                       exit 0
