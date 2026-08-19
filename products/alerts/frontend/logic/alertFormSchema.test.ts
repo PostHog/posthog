@@ -183,18 +183,24 @@ describe('a target alert whose date has passed', () => {
     }
     const finishedAlert: AlertFormType = { ...baseAlert, forecast_config: savedForecastConfig }
 
-    it('saves when nothing about the forecast changed, so it can still be renamed or turned off', () => {
-        expect(getAlertFormValidationErrors({ ...finishedAlert, name: 'Renamed' }, { savedForecastConfig })).toEqual({})
-    })
+    const savedTargetDate = savedForecastConfig.target_date
 
     it.each([
-        ['the target', { target: 250 }],
-        ['the direction', { target_direction: ForecastTargetDirection.AT_MOST }],
-        ['the sensitivity', { interval_width: 0.8 }],
-    ] as const)('blocks when %s changed, because the server will re-check the date', (_n, patch) => {
+        ['nothing about the forecast changed', {}],
+        ['only the target changed', { target: 250 }],
+        ['only the direction changed', { target_direction: ForecastTargetDirection.AT_MOST }],
+    ] as const)('saves when %s, so it can still be renamed or turned off', (_n, patch) => {
         const errors = getAlertFormValidationErrors(
-            { ...finishedAlert, forecast_config: { ...savedForecastConfig, ...patch } },
-            { savedForecastConfig }
+            { ...finishedAlert, name: 'Renamed', forecast_config: { ...savedForecastConfig, ...patch } },
+            { savedTargetDate }
+        )
+        expect(errors).toEqual({})
+    })
+
+    it('blocks when the edit moves the date into the past, which the server also rejects', () => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: '2021-01-01' } },
+            { savedTargetDate }
         )
         expect(errors.forecast_config).toBe('The target date must be in the future.')
     })

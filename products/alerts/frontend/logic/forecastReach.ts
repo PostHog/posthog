@@ -49,39 +49,19 @@ export function forecastTargetValueError(target: number | null | undefined): str
     return target != null && Number.isFinite(target) ? null : 'Enter a target value'
 }
 
-/** Mirrors _INTERVAL_DAYS in products/alerts/backend/forecasting/engine.py, which is the source of
- *  truth. Not derived from INSIGHT_INTERVAL_DURATION_MINUTES: that puts a month at 30 days and the
- *  backend at 30.4, which moves the anchor below by a day and lets the editor accept a monthly
- *  target the server then rejects. */
-const INTERVAL_DAYS: Partial<Record<IntervalType, number>> = {
-    hour: 1 / 24,
-    day: 1,
-    week: 7,
-    month: 30.4,
-}
-
-/** Mirrors save_time_anchor in products/alerts/backend/forecasting/engine.py. Evaluation counts
- *  intervals from the last completed bucket, one interval behind today, so the editor has to measure
- *  reach from there too or it accepts dates the first check rejects. */
-function saveTimeAnchor(interval: IntervalType | null | undefined, today: dayjs.Dayjs): dayjs.Dayjs {
-    return today.startOf('day').subtract(Math.ceil(INTERVAL_DAYS[interval ?? 'day'] ?? 1) - 1, 'day')
-}
-
-/** Why a target date cannot be forecast, or null when it can. Mirrors horizon_for_target_date in
- *  products/alerts/backend/forecasting/engine.py so the editor and the server agree on the wording. */
-export function forecastTargetDateError(
-    targetDate: string | undefined,
-    today: dayjs.Dayjs,
-    interval?: IntervalType | null
-): string | null {
+/** Why a target date cannot be forecast, or null when it can. Reach is measured from today and does
+ *  not vary by interval: save is the only place that enforces the cap, and evaluation derives its own
+ *  horizon from the last completed bucket without re-checking it. Mirrors horizon_for_target_date in
+ *  products/alerts/backend/forecasting/engine.py, including the wording. */
+export function forecastTargetDateError(targetDate: string | undefined, today: dayjs.Dayjs): string | null {
     if (!targetDate) {
         return null
     }
-    const target = dayjs(targetDate).startOf('day')
-    if (target.diff(today.startOf('day'), 'day') <= 0) {
+    const days = dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day')
+    if (days <= 0) {
         return 'The target date must be in the future.'
     }
-    if (target.diff(saveTimeAnchor(interval, today), 'day') > MAX_FORECAST_REACH_DAYS) {
+    if (days > MAX_FORECAST_REACH_DAYS) {
         return 'A forecast target must be within 6 months. Move the date closer.'
     }
     return null

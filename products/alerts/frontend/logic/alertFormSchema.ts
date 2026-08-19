@@ -2,10 +2,8 @@ import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
 import { dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils/objects'
 
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
-import type { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
@@ -121,11 +119,10 @@ const alertFormSchema = z
  *  one that was legitimate when it was saved must keep saving, or a target alert whose date has
  *  arrived can no longer be renamed or turned off. The server draws the same line. */
 export interface AlertValidationContext {
-    /** The forecast config already stored on the alert, when there is one. The server re-checks the
-     *  target date whenever a request carries a forecast config at all, so the editor has to use the
-     *  same trigger, or editing just the target sends an old date the server then rejects. */
-    savedForecastConfig?: AlertFormType['forecast_config']
-    insightInterval?: IntervalType | null
+    /** The target date already stored on the alert. The server requires a future date only when the
+     *  submitted one differs from this, so an unchanged date keeps saving and a finished alert can
+     *  still be renamed or turned off. Keyed on the same thing here. */
+    savedTargetDate?: string
 }
 
 export function getAlertFormValidationErrors(
@@ -135,13 +132,12 @@ export function getAlertFormValidationErrors(
     const errors: Record<string, ValidationErrorType> = {}
 
     const forecast = alert.forecast_config
-    const forecastConfigWillBeSent = !objectsEqual(forecast ?? null, context.savedForecastConfig ?? null)
     if (
         forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
         forecast.target_date &&
-        forecastConfigWillBeSent
+        forecast.target_date !== context.savedTargetDate
     ) {
-        const dateError = forecastTargetDateError(forecast.target_date, dayjs(), context.insightInterval)
+        const dateError = forecastTargetDateError(forecast.target_date, dayjs())
         if (dateError) {
             errors.forecast_config = dateError
         }

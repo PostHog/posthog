@@ -643,8 +643,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                   })(),
             errors: (alert: AlertFormType) =>
                 getAlertFormValidationErrors(alert, {
-                    savedForecastConfig: props.alert?.forecast_config,
-                    insightInterval: props.insightInterval,
+                    savedTargetDate: props.alert?.forecast_config?.target_date,
                 }),
             submit: async (alert) => {
                 const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {

@@ -78,35 +78,17 @@ describe('intervalSupportsForecast', () => {
     })
 })
 
-describe('forecastTargetDateError anchors on the last completed bucket', () => {
+describe('forecastTargetDateError measures reach from today', () => {
     const today = dayjs('2026-06-01')
 
-    // Mirrors save_time_anchor on the backend. Measuring from today instead would accept a date the
-    // first scheduled check then rejects, which auto-disables the alert and emails its subscribers.
-    it.each([
-        ['daily keeps the full reach', 'day', 183, null],
-        [
-            'daily rejects one day past it',
-            'day',
-            184,
-            'A forecast target must be within 6 months. Move the date closer.',
-        ],
-        ['weekly loses the six days the bucket occupies', 'week', 177, null],
-        [
-            'weekly rejects one day past that',
-            'week',
-            179,
-            'A forecast target must be within 6 months. Move the date closer.',
-        ],
-        ['monthly loses a month', 'month', 153, null],
-        [
-            'monthly rejects one day past that',
-            'month',
-            154,
-            'A forecast target must be within 6 months. Move the date closer.',
-        ],
-    ] as const)('%s', (_n, interval, daysAhead, expected) => {
-        const target = today.add(daysAhead, 'day').format('YYYY-MM-DD')
-        expect(forecastTargetDateError(target, today, interval)).toBe(expected)
+    // Reach does not vary by interval. Save is the only place that enforces the cap, and evaluation
+    // derives its own horizon from the last completed bucket without re-checking it, so an
+    // interval-aware cap here could only disagree with the server, never help it.
+    it.each(['hour', 'day', 'week', 'month'] as const)('%s allows the full six months', (interval) => {
+        void interval
+        expect(forecastTargetDateError(today.add(183, 'day').format('YYYY-MM-DD'), today)).toBeNull()
+        expect(forecastTargetDateError(today.add(184, 'day').format('YYYY-MM-DD'), today)).toBe(
+            'A forecast target must be within 6 months. Move the date closer.'
+        )
     })
 })

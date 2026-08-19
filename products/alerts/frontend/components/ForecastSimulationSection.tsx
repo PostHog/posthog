@@ -35,7 +35,7 @@ export function ForecastSimulationSection({
 }: ForecastSimulationSectionProps): JSX.Element {
     // The endpoint rejects an out-of-range target, so block the request rather than spending a round
     // trip to surface an error the editor already knows about.
-    const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, dayjs(), insightInterval)
+    const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, dayjs())
     // Offering a range too short to fit is offering a guaranteed "Not enough history" error.
     const rangeOptions = usableSimulationRanges(
         getSimulationRangeOptions(alertForm.calculation_interval),

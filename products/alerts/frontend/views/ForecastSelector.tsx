@@ -104,7 +104,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
     const unit = HORIZON_UNIT[insightInterval ?? 'day'] ?? 'intervals'
     // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
     const maxHorizon = maxHorizonForInterval(insightInterval)
-    const targetDateError = forecastTargetDateError(config.target_date, dayjs(), insightInterval)
+    const targetDateError = forecastTargetDateError(config.target_date, dayjs())
     // The save blocks on this, so the field it names has to show it.
     const targetValueError =
         config.condition === ForecastConditionType.TARGET_BY_DATE ? forecastTargetValueError(config.target) : null
