@@ -1,8 +1,9 @@
 import datetime
-import dataclasses
 from typing import Any, Optional
 
 from requests import PreparedRequest
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -55,7 +56,7 @@ class _PathTokenAuth(AuthConfigBase):
         return (self._token,)
 
 
-@dataclasses.dataclass
+@frozen
 class WorkizResumeConfig:
     offset: int
 
