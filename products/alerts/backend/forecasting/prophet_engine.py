@@ -28,6 +28,13 @@ _UNCERTAINTY_SEED = 20260818
 # seeded. The lock is correctness, not throughput tuning.
 _FIT_LOCK = threading.Lock()
 
+# cmdstanpy shells out to a Stan subprocess with no deadline of its own, so a pathological series
+# could hold both a worker thread and the lock above indefinitely. Measured worst case under the
+# training bound is well under a second, so this never fires in normal operation; it exists so a
+# stuck fit fails instead of hanging. cmdstanpy kills the subprocess and raises, which unwinds the
+# lock through the with-block rather than leaking it.
+_FIT_TIMEOUT_SECONDS = 60
+
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
     IntervalType.DAY: "D",
@@ -64,7 +71,7 @@ class ProphetEngine:
             rng_state = np.random.get_state()
             try:
                 np.random.seed(_UNCERTAINTY_SEED)
-                model.fit(df)
+                model.fit(df, timeout=_FIT_TIMEOUT_SECONDS)
                 freq = _FREQ.get(interval or IntervalType.DAY, "D")
                 future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
                 prediction = model.predict(future)

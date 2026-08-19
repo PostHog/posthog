@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from math import ceil
 from typing import Protocol
 
@@ -54,18 +54,14 @@ def forecast_reach_days(horizon: int, interval: IntervalType | None) -> float:
     return horizon * _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)
 
 
-def save_time_anchor(interval: IntervalType | None, today: date) -> date:
-    """The point a saved target date is measured from, so save and evaluation agree.
-
-    Evaluation counts intervals from the last completed bucket, which the extractor puts one
-    interval behind today. Validating from today would accept a date that the first check then
-    rejects as out of range, auto-disabling the alert and emailing its subscribers.
-    """
-    return today - timedelta(days=ceil(_INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)) - 1)
-
-
 def horizon_for_target_date(target_date: date, interval: IntervalType | None, today: date) -> int:
-    """Intervals between today and the target date, for a forecast that must reach a fixed date."""
+    """Save-time check: how far ahead a target date asks the forecast to reach, measured from today.
+
+    Only the save path enforces the reach cap. Evaluation derives its own horizon from the last
+    completed bucket and never re-checks the cap, because the two anchors cannot be kept in step:
+    a calendar-aligned bucket start sits a varying distance from today, so any constant offset is
+    right on one day of the cycle and wrong on the rest.
+    """
     days = (target_date - today).days
     if days <= 0:
         raise ValueError("The target date must be in the future.")
@@ -74,16 +70,31 @@ def horizon_for_target_date(target_date: date, interval: IntervalType | None, to
             "A forecast target must be within 6 months. Move the date closer, or use an insight "
             "with a coarser interval."
         )
+    return intervals_between(today, target_date, interval)
+
+
+def intervals_between(start: date, end: date, interval: IntervalType | None) -> int:
+    """Whole intervals from start to end, at least one. No cap: the caller decides what is too far."""
+    days = (end - start).days
     return max(1, ceil(days / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)))
 
 
-def validate_forecast_horizon_and_width(parsed: ForecastConfig, interval: IntervalType | None = None) -> None:
+def max_evaluable_horizon(interval: IntervalType | None) -> int:
+    """Ceiling on predicted points at evaluation. A healthy insight needs the reach cap plus a
+    bucket; anything beyond twice that means the insight stopped receiving data, not that the
+    target is unreasonable."""
+    return ceil(2 * MAX_FORECAST_REACH_DAYS / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1))
+
+
+def validate_forecast_horizon_and_width(
+    parsed: ForecastConfig, interval: IntervalType | None = None, *, check_horizon: bool = True
+) -> None:
     """Shared by the save path and the simulate_forecast endpoint so their bounds can't drift.
 
     The horizon is a count of intervals, so how far it reaches depends on the insight. Callers that
     know the interval should pass it; without one the check assumes daily.
     """
-    if parsed.horizon is not None:
+    if check_horizon and parsed.horizon is not None:
         if parsed.horizon < 1:
             raise ValueError("Forecast horizon must be at least 1 interval")
         if forecast_reach_days(parsed.horizon, interval) > MAX_FORECAST_REACH_DAYS:
