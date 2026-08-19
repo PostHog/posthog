@@ -7,6 +7,7 @@ import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
+from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
@@ -407,10 +408,26 @@ async def send_slack_ai_subscription_report(
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(
-        subscription, markdown, delivery_id=delivery_id, integration=integration, charts=charts
-    )
-    return await deliver_slack_message_data(integration, subscription, message_data)
+    def build(with_charts: list[dict] | None) -> SlackMessage:
+        return _build_ai_slack_message(
+            subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
+        )
+
+    try:
+        return await deliver_slack_message_data(integration, subscription, build(charts))
+    except SlackApiError as exc:
+        # Slack rejects an image block whose url its fetchers cannot reach — an asset past its TTL,
+        # or any install whose SITE_URL is not publicly resolvable. `invalid_blocks` is retryable and
+        # not a user-config error, so it would otherwise retry the identical payload, fail the
+        # activity, and send the recipient nothing. A chart must never cost the report.
+        if not charts or exc.response.get("error") != "invalid_blocks":
+            raise
+        logger.warning(
+            "ai_report.slack_charts_rejected_resending_without_them",
+            subscription_id=subscription.id,
+            chart_count=len(charts),
+        )
+        return await deliver_slack_message_data(integration, subscription, build(None))
 
 
 __all__ = [

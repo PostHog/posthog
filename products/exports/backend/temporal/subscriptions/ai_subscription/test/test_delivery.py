@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
@@ -262,6 +263,46 @@ class TestChartsOnSlackMessages:
         message = _build_message("A short report.")
 
         assert all(block["type"] != "image" for block in message.blocks)
+
+    async def test_a_chart_slack_rejects_costs_the_chart_not_the_report(self) -> None:
+        # invalid_blocks is retryable and not a user-config error, so an unreachable image url used
+        # to retry the identical payload, fail the activity, and send the recipient nothing.
+        sent: list[list[dict]] = []
+
+        async def _deliver(_integration, _subscription, message_data):
+            sent.append(message_data.blocks)
+            if any(block["type"] == "image" for block in message_data.blocks):
+                raise SlackApiError("bad blocks", response={"error": "invalid_blocks"})
+            return MagicMock()
+
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(),
+                markdown="A short report.",
+                integration=MagicMock(),
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
+
+        assert len(sent) == 2
+        assert any(block["type"] == "image" for block in sent[0])
+        # The retry drops the images and keeps the report text.
+        assert all(block["type"] != "image" for block in sent[1])
+        assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
+
+    async def test_a_slack_error_that_is_not_about_blocks_still_raises(self) -> None:
+        with patch(
+            f"{_DELIVERY}.deliver_slack_message_data",
+            side_effect=SlackApiError("nope", response={"error": "channel_not_found"}),
+        ):
+            with pytest.raises(SlackApiError):
+                await send_slack_ai_subscription_report(
+                    subscription=_mock_subscription(),
+                    markdown="A short report.",
+                    integration=MagicMock(),
+                    delivery_id=_DELIVERY_ID,
+                    charts=[_CHART],
+                )
 
     async def test_the_slack_sender_never_touches_the_orm(self) -> None:
         # deliver_slack awaits this sender directly on the event loop, so a sync ORM read inside it
