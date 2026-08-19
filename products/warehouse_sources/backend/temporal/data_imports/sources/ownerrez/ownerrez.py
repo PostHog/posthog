@@ -1,7 +1,8 @@
 import base64
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -26,7 +27,7 @@ BASE_URL = "https://api.ownerrez.com"
 USER_AGENT = "PostHog Data Warehouse (+https://posthog.com)"
 
 
-@dataclasses.dataclass
+@frozen
 class OwnerRezResumeConfig:
     next_url: str
 

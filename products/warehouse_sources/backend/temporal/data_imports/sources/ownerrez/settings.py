@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -24,7 +26,7 @@ def _updated_utc_incremental_field() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class OwnerRezEndpointConfig:
     name: str
     path: str  # under /v2
