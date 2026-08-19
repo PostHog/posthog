@@ -11,7 +11,6 @@ import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { RootErrorBoundary } from '~/RootErrorBoundary'
 
 import { ErrorBoundary } from '../layout/ErrorBoundary'
 
@@ -83,19 +82,16 @@ function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         createRoot(root).render(
-            // Terminal boundary stack mirroring the main app (index.tsx). ChunkLoadErrorBoundary
-            // auto-reloads once on a stale-deploy chunk failure; the shared ErrorBoundary shows its
-            // panel for normal errors and rethrows chunk errors. A chunk error that survives the
-            // reload guard (a second failure within the guard window) is rethrown by both inner
-            // boundaries, so RootErrorBoundary catches it here and offers a manual reload instead of
-            // leaving a blank frame.
-            <RootErrorBoundary>
-                <ErrorBoundary>
-                    <ChunkLoadErrorBoundary>
-                        <Exporter {...exportedData} />
-                    </ChunkLoadErrorBoundary>
-                </ErrorBoundary>
-            </RootErrorBoundary>
+            // This standalone root has no ChunkLoadErrorBoundary above it, so nest one here: a
+            // stale-deploy chunk failure reloads once instead of escaping to a blank page. A
+            // terminal RootErrorBoundary is deliberately not used: its boot-failure beacon posts the
+            // raw URL, which on interview export pages carries the sharing access token that this
+            // file's redaction hooks exist to keep out of every capture surface.
+            <ErrorBoundary>
+                <ChunkLoadErrorBoundary>
+                    <Exporter {...exportedData} />
+                </ChunkLoadErrorBoundary>
+            </ErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
