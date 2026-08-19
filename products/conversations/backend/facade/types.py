@@ -31,3 +31,52 @@ class TicketSummary:
     last_message_at: datetime | None
     last_message_text: str | None
     deep_link: str
+
+
+@dataclass(frozen=True)
+class EmailThreadAccountLinkInput:
+    account_id: str
+    account_external_id: str | None
+    match_source: str
+
+
+@dataclass(frozen=True)
+class EmailThreadForAccountMatching:
+    id: str
+    participant_emails: list[str]
+
+
+@dataclass(frozen=True)
+class EmailThreadParticipantSummary:
+    email: str
+    display_name: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class AccountEmailThreadSummary:
+    id: str
+    subject: str
+    preview: str
+    first_message_at: datetime | None
+    last_message_at: datetime | None
+    message_count: int
+    participants: list[EmailThreadParticipantSummary]
+
+
+@dataclass(frozen=True)
+class EmailThreadAddress:
+    name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class AccountEmailThreadMessage:
+    id: str
+    sent_at: datetime
+    sender: EmailThreadAddress
+    to_recipients: list[EmailThreadAddress]
+    cc_recipients: list[EmailThreadAddress]
+    sender_authenticated: bool
+    direction: str
+    content: str

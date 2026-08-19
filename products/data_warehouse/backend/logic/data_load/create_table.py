@@ -139,7 +139,7 @@ async def create_table_from_saved_query(
                 logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
                 job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
-                await job.asave()
+                await job.asave(update_fields=["storage_delta_mib", "updated_at"])
 
                 storage_delta_mib = job.storage_delta_mib
                 total_storage_mib = table_created.size_in_s3_mib

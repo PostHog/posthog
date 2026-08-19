@@ -126,7 +126,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: true,
         }),
       )
@@ -136,7 +135,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: false,
         });
         toast.error(
@@ -167,7 +165,6 @@ function FreeformEditControls({
       surface: "canvas",
       channel_id: channelId,
       dashboard_id: dashboardId,
-      kind: "freeform",
     });
     void queryClient.invalidateQueries({ queryKey: [CANVAS_QUERY_KEY] });
     remountFrame(dashboardId);
@@ -266,7 +263,6 @@ function FreeformEditControls({
             surface: "canvas",
             channel_id: channelId,
             dashboard_id: dashboardId,
-            kind: "freeform",
             editing: !editing,
           });
           if (!editing) openChat();
@@ -409,7 +405,7 @@ export function WebsiteLayout() {
           and skipped entirely when there is neither a title nor a session's
           actions to carry. */}
       {!showToolbar && (headerContent || channelTask) && (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b px-3">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b pr-2 pl-1">
           <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
             {headerContent}
           </div>

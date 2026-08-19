@@ -46,8 +46,8 @@ export async function cleanupCodexHome(
  * codex scans `$CODEX_HOME/skills` plus `$HOME/.agents/skills`. By pointing
  * CODEX_HOME at this app-private dir we feed our skills through the former while
  * the user's own Codex skills still load from the latter (it is keyed off
- * `$HOME`, not `$CODEX_HOME`). The user's real `~/.codex/config.toml` is
- * symlinked in so their Codex configuration still applies.
+ * `$HOME`, not `$CODEX_HOME`). The user's real `~/.codex/config.toml` is copied
+ * in so their Codex configuration still applies without Windows symlink privileges.
  *
  * Returns the CODEX_HOME path to hand to the spawned process.
  */
@@ -76,17 +76,14 @@ export async function prepareCodexHome(options: {
     for (const name of ok) linked.add(name);
   }
 
-  const configLink = path.join(codexHome, "config.toml");
-  await fs.promises.rm(configLink, { force: true });
+  const privateConfig = path.join(codexHome, "config.toml");
+  await fs.promises.rm(privateConfig, { force: true });
   const userConfig = path.join(os.homedir(), ".codex", "config.toml");
   if (fs.existsSync(userConfig)) {
     try {
-      await fs.promises.symlink(
-        await fs.promises.realpath(userConfig),
-        configLink,
-      );
+      await fs.promises.copyFile(userConfig, privateConfig);
     } catch (err) {
-      options.log.warn("Failed to link codex config into codex home", {
+      options.log.warn("Failed to copy codex config into codex home", {
         error: err instanceof Error ? err.message : String(err),
       });
     }

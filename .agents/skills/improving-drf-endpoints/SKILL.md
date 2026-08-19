@@ -169,7 +169,7 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 
 - **JSONField + @extend_schema_field:** `products/alerts/backend/api/alert.py`
 - **@validated_request:** `products/tasks/backend/presentation/views/api.py`
-- **help_text + typed responses:** `products/ai_observability/backend/api/evaluation_summary.py`
+- **help_text + typed responses:** `products/ai_observability/backend/api/summarization.py`
 - **Facade product:** `products/visual_review/backend/presentation/views.py`
 
 ## Related

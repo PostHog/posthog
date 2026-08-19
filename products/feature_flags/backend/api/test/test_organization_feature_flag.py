@@ -469,10 +469,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],
                 "aggregation_group_type_index": None,
+                # A copy replaces the target's filters, so the keys the source doesn't carry
+                # are cleared explicitly instead of being inherited from the overwritten flag.
+                "multivariate": None,
+                "payloads": None,
+                "holdout": None,
+                "feature_enrollment": None,
+                "early_exit": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -595,10 +603,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],
                 "aggregation_group_type_index": None,
+                # A copy replaces the target's filters, so the keys the source doesn't carry
+                # are cleared explicitly instead of being inherited from the overwritten flag.
+                "multivariate": None,
+                "payloads": None,
+                "holdout": None,
+                "feature_enrollment": None,
+                "early_exit": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
@@ -782,10 +798,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": self.rollout_percentage_to_copy,
+                        "properties": [],
                         "aggregation_group_type_index": None,
                     }
                 ],
                 "aggregation_group_type_index": None,
+                # A copy replaces the target's filters, so the keys the source doesn't carry
+                # are cleared explicitly instead of being inherited from the overwritten flag.
+                "multivariate": None,
+                "payloads": None,
+                "holdout": None,
+                "feature_enrollment": None,
+                "early_exit": None,
             },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,

@@ -1,20 +1,41 @@
 import { forwardRef, useEffect, useState, type HTMLAttributes } from 'react'
 
-import { IconPause, IconShield, IconUnlock } from '@posthog/icons'
+import { IconEye, IconLock, IconPause, IconPencil, IconShield, IconUnlock } from '@posthog/icons'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill-primitives'
 
-import { getModeOption, MODE_OPTIONS, type PermissionMode } from 'products/posthog_ai/frontend/utils/composerModes'
-import { InitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    getModeOption,
+    getModesForRuntimeAdapter,
+    MODE_OPTIONS,
+    type PermissionMode,
+} from 'products/posthog_ai/frontend/utils/composerModes'
+import {
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    InitialPermissionModeEnumApi,
+    RuntimeAdapterEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 interface ModeStyle {
     icon: JSX.Element
     className: string
 }
 
+// Keyed by how much the agent may do unattended, so the same colour means the same freedom on both
+// runtimes: read-only/plan warn, ask-first is neutral, unattended edits pass, never-ask is danger.
 const MODE_STYLES: Record<PermissionMode, ModeStyle> = {
+    [InitialPermissionModeEnumApi.Default]: { icon: <IconLock />, className: 'text-secondary' },
+    [InitialPermissionModeEnumApi.AcceptEdits]: { icon: <IconPencil />, className: 'text-success' },
+    [InitialPermissionModeEnumApi.Plan]: { icon: <IconPause />, className: 'text-warning' },
+    [CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.ReadOnly]: {
+        icon: <IconEye />,
+        className: 'text-warning',
+    },
     [InitialPermissionModeEnumApi.Auto]: { icon: <IconShield />, className: 'text-success' },
     [InitialPermissionModeEnumApi.BypassPermissions]: { icon: <IconUnlock />, className: 'text-danger' },
-    [InitialPermissionModeEnumApi.Plan]: { icon: <IconPause />, className: 'text-warning' },
+    [CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess]: {
+        icon: <IconUnlock />,
+        className: 'text-danger',
+    },
 }
 
 interface ModeItemRowProps extends HTMLAttributes<HTMLDivElement> {
@@ -44,7 +65,10 @@ const ModeItemRow = forwardRef<HTMLDivElement, ModeItemRowProps>(function ModeIt
 export interface ComposerModePickerProps {
     selectedMode: PermissionMode
     onModeChange: (mode: PermissionMode) => void
-    /** Restrict the picker to a subset of modes, such as the modes a plan approval offers. */
+    /**
+     * The modes to offer, in order — normally the runtime's own set via `getModesForRuntimeAdapter`, or a
+     * narrower list such as the modes a plan approval offers. Defaults to Claude's, the default harness.
+     */
     modes?: PermissionMode[]
 }
 
@@ -57,7 +81,9 @@ export interface ComposerModePickerProps {
  * a footer strip pinned to two lines of height, so the menu never jumps while moving between modes.
  */
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
-    const options = modes ? MODE_OPTIONS.filter((option) => modes.includes(option.value)) : MODE_OPTIONS
+    // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
+    const offered = modes ?? getModesForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)
+    const options = offered.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedOption = getModeOption(selectedMode)
     // The mode whose description the footer shows. Base UI highlights the selected item on open, which
     // seeds this; reset on open so a hover from the previous open can't leak into the next one.

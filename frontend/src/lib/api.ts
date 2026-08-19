@@ -391,6 +391,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -681,6 +686,10 @@ export class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -3889,6 +3898,15 @@ const api = {
         },
     },
 
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
+        },
+    },
+
     pluginConfigs: {
         async get(id: PluginConfigTypeNew['id']): Promise<PluginConfigWithPluginInfoNew> {
             return await new ApiRequest().pluginConfig(id).get()
@@ -5156,9 +5174,6 @@ const api = {
             scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
-        },
-        async analyzeSessions(): Promise<Record<string, any>> {
-            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
         },
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()

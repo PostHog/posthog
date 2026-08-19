@@ -4034,6 +4034,7 @@ export const IntegrationKindApi = {
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -7268,6 +7269,7 @@ export const AccountsTableAccountFieldApi = {
     ExternalId: 'external_id',
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -7484,6 +7486,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -7715,6 +7719,8 @@ export const XScaleApi = {
 } as const
 
 export interface ScatterChartSettingsApi {
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean | null
     /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
     xScale?: XScaleApi | null
     /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */

@@ -421,16 +421,18 @@ export default {
     title: 'Scenes-App/Logs',
     decorators: [
         // mocks used by all stories in this file
+        // Endpoint prefix follows the caller: the generated client is project-scoped,
+        // while the handwritten ApiRequest helpers are environment-scoped.
         mswDecorator({
             get: {
-                '/api/environments/:team_id/logs/attributes': attributesMock,
+                '/api/projects/:team_id/logs/attributes': attributesMock,
                 '/api/environments/:team_id/logs/values': valuesMock,
                 '/api/environments/:team_id/logs/has_logs': () => [200, { hasLogs: true }],
             },
             post: {
                 '/api/environments/:team_id/logs/query': queryMock,
                 '/api/environments/:team_id/logs/sparkline': sparklineMock,
-                '/api/environments/:team_id/logs/services': servicesMock,
+                '/api/projects/:team_id/logs/services': servicesMock,
             },
         }),
     ],
@@ -462,9 +464,25 @@ export function LogsSceneServicesTab(): JSX.Element {
     }, [])
     return <App />
 }
+// Story parameters replace the meta's rather than merging, so each list is complete.
 LogsSceneServicesTab.parameters = {
     featureFlags: [FEATURE_FLAGS.LOGS_SERVICES_VIEW],
     testOptions: {
         waitForSelector: '.LemonTable',
+    },
+}
+
+export function LogsSceneServicesTabV2(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(combineUrl(urls.logs(), { activeTab: 'services' }).url)
+    }, [])
+    return <App />
+}
+LogsSceneServicesTabV2.parameters = {
+    featureFlags: [FEATURE_FLAGS.LOGS_SERVICES_VIEW, FEATURE_FLAGS.LOGS_SERVICES_VIEW_V2],
+    testOptions: {
+        // v2-specific, so this fails rather than passes if the gate falls through to the v1 table.
+        // A rendered row also means the virtualized list measured its container.
+        waitForSelector: '[data-attr="logs-services-row"]',
     },
 }

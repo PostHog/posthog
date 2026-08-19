@@ -601,7 +601,7 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
         .unknown()
         .optional()
         .describe(
-            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it."
+            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it."
         ),
 })
 
@@ -734,6 +734,8 @@ export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.objec
 
 export const hogFlowsInvocationResultsRetrieveQueryAfterDefault = `-7d`
 
+export const hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax = 200
+
 export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
 export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
 
@@ -755,6 +757,14 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.
         .min(1)
         .optional()
         .describe('Only return invocations triggered for this distinct_id (the person the run executed for).'),
+    error_message_contains: zod
+        .string()
+        .min(1)
+        .max(hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax)
+        .optional()
+        .describe(
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+        ),
     limit: zod
         .number()
         .min(1)
