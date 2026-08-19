@@ -10,6 +10,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     AppStoreConnectResumeConfig,
     app_store_connect_source,
     check_credentials,
@@ -116,7 +119,15 @@ Sales and subscription reports also need your vendor number (App Store Connect â
         # Match the stable status text plus the base host, not the per-request path and cursor.
         return {
             "401 Client Error: Unauthorized for url: https://api.appstoreconnect.apple.com": "App Store Connect rejected your API key. Check the issuer ID, key ID and private key, or generate a new key, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": "Your App Store Connect API key does not have access to this data. Give the key a role that can read it (Finance or Sales for reports), then reconnect.",
+            # A 403 on the analytics report request create. Apple gates it on Admin, not the read
+            # roles. Kept before the read message so the create case never inherits the read wording.
+            APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR: APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+            # A 403 on the create where the app's ongoing request had stopped for inactivity.
+            APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR: APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            # A 403 on a read. The key's role genuinely can't read this table.
+            APP_STORE_CONNECT_READ_FORBIDDEN_ERROR: APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+            # Any 403 that didn't come through the custom raises still fails fast with the read message.
+            "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
