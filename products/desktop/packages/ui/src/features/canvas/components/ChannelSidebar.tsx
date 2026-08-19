@@ -21,6 +21,7 @@ import {
 import { computeEffectiveBulkIds } from "@posthog/core/sidebar/selection";
 import {
   Button,
+  cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -38,6 +39,7 @@ import { LOOPS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
+import { ChannelItemDragPreview } from "@posthog/ui/features/canvas/components/ChannelItemDragPreview";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { cnHeaderButton } from "@posthog/ui/features/canvas/components/channelHeaderButton";
@@ -60,10 +62,12 @@ import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
 import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { motion, useReducedMotion } from "framer-motion";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 const RECENTS_CAP = 30;
@@ -378,6 +382,17 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     [recentItems, sort, dayStart],
   );
 
+  const pinnedSection = sections.find(
+    (section) => section.key === PINNED_SECTION_KEY,
+  );
+  const datedSections = sections.filter(
+    (section) => section.key !== PINNED_SECTION_KEY,
+  );
+  // Under "Pinned" every row wears the same badge, so the header says it once
+  // instead, but only while a header below marks where the pins stop. An
+  // alphabetical run carries no header, so there the badges stay.
+  const showPinnedBadges = datedSections[0]?.label == null;
+
   const narrowed = filtersActive || searchOpen;
   const listState = listStateOf({
     channelMissing,
@@ -405,6 +420,11 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
   const marquee = useMarqueeSelection(listAnchorRef);
+  const prefersReducedMotion = useReducedMotion();
+  const pinDrag = usePinDrag<ChannelItemModel>({
+    isPinned: (item) => item.pinned,
+    togglePin: actions.togglePin,
+  });
 
   useEffect(() => {
     pruneSelection(selectableTaskIds);
@@ -458,51 +478,122 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
     placeTaskInCommandCenter(taskId, taskTitle);
 
+  const rowTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : {
+        layout: { type: "spring" as const, stiffness: 520, damping: 42 },
+        height: { duration: 0.16, ease: "easeOut" as const },
+        opacity: { duration: 0.1 },
+      };
+
+  /**
+   * The pinned run, doubling as the box that decides pin from unpin. Always
+   * rendered, empty or not, and it opens on a drag rather than appearing. See
+   * below for why nothing here may jump into place.
+   */
+  const pinnedRun = () => {
+    const drag = pinDrag.drag;
+    const pinnedItems = pinnedSection?.items ?? [];
+    return (
+      <div
+        key={PINNED_SECTION_KEY}
+        ref={pinDrag.pinnedZoneRef}
+        className={cn(
+          // `min-h-0` is the resting end of the transition. min-height starts at
+          // `auto`, which is not interpolable, so without it the run snaps open.
+          "flex min-h-0 flex-col gap-px rounded-md transition-[min-height,background-color] duration-150 ease-out motion-reduce:transition-none",
+          // A floor, not a height, so a taller run keeps its own.
+          drag && "min-h-[100px]",
+          drag?.overPinned &&
+            !drag.sourcePinned &&
+            "bg-accent-2 ring-1 ring-accent-6",
+        )}
+      >
+        {/* Opened by a transition rather than by appearing: a drag dies at
+            birth if anything above its source jumps in the same frame as
+            `dragstart`. Grid rows, so the label keeps its own height. */}
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none",
+            pinnedItems.length > 0 || drag
+              ? "grid-rows-[1fr]"
+              : "grid-rows-[0fr]",
+          )}
+        >
+          <div className="overflow-hidden">
+            <MenuLabel>Pinned</MenuLabel>
+          </div>
+        </div>
+        {pinnedItems.map((item) => taskRow(item, showPinnedBadges))}
+      </div>
+    );
+  };
+
+  // Every row gets the wrapper, not just the dragged one. Swapping a row
+  // between wrapped and bare remounts it, and Chromium ends a native drag the
+  // moment its source leaves the DOM.
   const taskRow = (item: (typeof items)[number], showPinBadge: boolean) => (
-    <ChannelItemRow
+    <motion.div
       key={item.key}
-      item={item}
-      channelId={channelId}
-      isActive={item.key === activeKey}
-      isSelected={item.kind === "task" && effectiveBulkIds.includes(item.id)}
-      showPinBadge={showPinBadge}
-      actions={actions}
-      onClick={(e) => handleRowClick(item, e)}
-      isEditing={item.kind === "task" && editingTaskId === item.id}
-      onRename={
-        item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
+      initial={false}
+      animate={
+        item.key === pinDrag.drag?.item.key
+          ? { height: 0, opacity: 0 }
+          : { height: "auto", opacity: 1 }
       }
-      // Undefined disables the menu item: a full command centre has nowhere to
-      // put the task, and an action that silently does nothing is worse than a
-      // greyed-out one.
-      onAddToCommandCenter={
-        item.kind === "task" && !commandCenterCells.includes(item.id)
-          ? commandCenterAssigner(item.id, item.title)
-          : undefined
-      }
-      onEditSubmit={
-        item.kind === "task"
-          ? async (newTitle) => {
-              setEditingTaskId(null);
-              try {
-                await renameTask({
-                  taskId: item.id,
-                  currentTitle: item.title,
-                  newTitle,
-                });
-              } catch (error) {
-                log.error("Failed to rename task", error);
+      transition={rowTransition}
+      className="overflow-hidden"
+    >
+      <ChannelItemRow
+        item={item}
+        channelId={channelId}
+        isActive={item.key === activeKey}
+        isSelected={item.kind === "task" && effectiveBulkIds.includes(item.id)}
+        showPinBadge={showPinBadge}
+        actions={actions}
+        onClick={(e) => handleRowClick(item, e)}
+        isEditing={item.kind === "task" && editingTaskId === item.id}
+        onRename={
+          item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
+        }
+        // Undefined disables the menu item: a full command centre has nowhere to
+        // put the task, and an action that silently does nothing is worse than a
+        // greyed-out one.
+        onAddToCommandCenter={
+          item.kind === "task" && !commandCenterCells.includes(item.id)
+            ? commandCenterAssigner(item.id, item.title)
+            : undefined
+        }
+        onEditSubmit={
+          item.kind === "task"
+            ? async (newTitle) => {
+                setEditingTaskId(null);
+                try {
+                  await renameTask({
+                    taskId: item.id,
+                    currentTitle: item.title,
+                    newTitle,
+                  });
+                } catch (error) {
+                  log.error("Failed to rename task", error);
+                }
               }
-            }
-          : undefined
-      }
-      onEditCancel={() => setEditingTaskId(null)}
-    />
+            : undefined
+        }
+        onEditCancel={() => setEditingTaskId(null)}
+        onDragStart={
+          item.kind === "task"
+            ? (event) => pinDrag.onItemDragStart(item, event)
+            : undefined
+        }
+        onDragEnd={item.kind === "task" ? pinDrag.onItemDragEnd : undefined}
+      />
+    </motion.div>
   );
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
-  // four-row list of words, and glyphs here only compete with the status dots
+  // short list of words, and glyphs here only compete with the status dots
   // in the sessions list below for the eye's attention.
   const sectionRow = (
     page: ChannelPageKey,
@@ -563,15 +654,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 params: { channelId },
               }),
           )}
-        {sectionRow(
-          "artifacts",
-          `${base}/artifacts`,
-          () =>
-            void navigate({
-              to: "/website/$channelId/artifacts",
-              params: { channelId },
-            }),
-        )}
       </div>
 
       {/* Relative so the FAB and the drag-selection band can float over the
@@ -611,9 +693,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             />
           </div>
         )}
+        {/* Pin and unpin stay reachable from the row's menu and its context
+            menu, so the drag adds no keyboard-only path. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
         <div
           aria-busy={isLoading}
           className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+          onDragOver={pinDrag.listProps.onDragOver}
+          onDrop={pinDrag.listProps.onDrop}
         >
           {listState === "loading" && <ChannelItemsSkeleton />}
 
@@ -636,23 +723,18 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               <TabEmptyState tab={tab} />
             ) : sections.length > 0 ? (
               <div className="flex flex-col gap-px">
-                {sections.map((section, index) => {
-                  // Under "Pinned" every row would wear the same badge, so the
-                  // header says it once instead — but only while a header below
-                  // marks where the pins stop. An alphabetical run carries no
-                  // header of its own, so there the badges stay.
-                  const nextRunIsHeaded =
-                    sections[index + 1] == null ||
-                    sections[index + 1].label != null;
-                  const showPinBadge =
-                    section.key !== PINNED_SECTION_KEY || !nextRunIsHeaded;
-                  return (
-                    <Fragment key={section.key}>
-                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                      {section.items.map((item) => taskRow(item, showPinBadge))}
-                    </Fragment>
-                  );
-                })}
+                {/* Always mounted, empty or not. Inserting the run on
+                    dragstart restructures the list under the dragged row, and
+                    Chromium ends the drag on the spot: dragstart, then dragend,
+                    before the pointer moves. Growing one already there is
+                    fine. */}
+                {pinnedRun()}
+                {datedSections.map((section) => (
+                  <Fragment key={section.key}>
+                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                    {section.items.map((item) => taskRow(item, true))}
+                  </Fragment>
+                ))}
               </div>
             ) : (
               <Empty className="border-0 py-6">
@@ -678,6 +760,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         actions={bulkActions}
         onClearSelection={clearSelection}
       />
+
+      {pinDrag.drag ? (
+        <ChannelItemDragPreview
+          drag={pinDrag.drag}
+          x={pinDrag.previewX}
+          y={pinDrag.previewY}
+        />
+      ) : null}
     </div>
   );
 }

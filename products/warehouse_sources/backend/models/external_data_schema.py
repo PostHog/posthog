@@ -16,6 +16,7 @@ from django.utils import timezone
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -1227,7 +1228,7 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SchemaSyncResult:
     created: list[str]
     deleted: list[str]

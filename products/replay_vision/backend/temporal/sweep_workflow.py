@@ -38,6 +38,7 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+    FIND_SCANNER_CANDIDATES_TIMEOUT,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
@@ -156,7 +157,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
-            start_to_close_timeout=dt.timedelta(seconds=200),
+            start_to_close_timeout=FIND_SCANNER_CANDIDATES_TIMEOUT,
             schedule_to_close_timeout=dt.timedelta(seconds=450),
             retry_policy=common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
@@ -171,7 +172,13 @@ class SweepScannerWorkflow(PostHogWorkflow):
             *(self._start_child(inputs, c) for c in (*find_result.candidates, *find_result.deep_candidates))
         )
 
-        if find_result.candidates:
+        if find_result.keyset_end is not None:
+            # The fetched batch's last row, which sits ahead of the dispatched candidates whenever
+            # exclusion dropped some, so dropping rows cannot stall the walk.
+            swept_at = find_result.keyset_end
+            last_seen_session_id = find_result.keyset_session_id if find_result.saturated else ""
+        elif find_result.candidates:
+            # Activity results recorded before this deploy carry no keyset.
             last = find_result.candidates[-1]
             swept_at, last_seen_session_id = last.session_end, (last.session_id if find_result.saturated else "")
         elif find_result.swept_through is not None:
@@ -182,7 +189,11 @@ class SweepScannerWorkflow(PostHogWorkflow):
             return
 
         await self._advance_watermark(
-            inputs.scanner_id, swept_at, last_seen_session_id, deep_swept_through=find_result.deep_swept_through
+            inputs.scanner_id,
+            swept_at,
+            last_seen_session_id,
+            deep_swept_through=find_result.deep_swept_through,
+            deep_keyset_session_id=find_result.deep_keyset_session_id,
         )
 
     async def _advance_watermark(
@@ -191,6 +202,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
         swept_at: dt.datetime,
         last_seen_session_id: str = "",
         deep_swept_through: dt.datetime | None = None,
+        deep_keyset_session_id: str = "",
     ) -> None:
         await wf.execute_activity(
             advance_scanner_watermark_activity,
@@ -199,6 +211,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 new_last_swept_at=swept_at,
                 new_last_seen_session_id=last_seen_session_id,
                 new_last_deep_swept_at=deep_swept_through,
+                new_last_deep_seen_session_id=deep_keyset_session_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=3),

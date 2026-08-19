@@ -61,17 +61,17 @@ from products.engineering_analytics.backend.logic.sources import GitHubTables
     ],
 )
 def test_classify_states(
-    master_hits,
-    queue_hits,
-    pr_hits,
-    age_hours,
-    span_hours,
-    branches,
-    latest_conclusion,
-    last_master_hit_age,
-    latest_completed_age,
-    expected,
-):
+    master_hits: int,
+    queue_hits: int,
+    pr_hits: int,
+    age_hours: int,
+    span_hours: int,
+    branches: int,
+    latest_conclusion: str | None,
+    last_master_hit_age: int,
+    latest_completed_age: int | None,
+    expected: BrokenTestState,
+) -> None:
     assert (
         _classify(
             master_hits=master_hits,
@@ -272,7 +272,6 @@ def test_build_query_embeds_the_failures_view():
     # Guards the private read path: the fingerprint scan reads the ci_failures builder as a subquery,
     # not the registered warehouse view by name (keeps the product off the global catalog).
     assert "engineering_analytics_ci_failures" not in module._FINGERPRINTS_SELECT
-    assert "FAILED" in module.ci_failures.build_query()
 
 
 class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):

@@ -4,7 +4,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -35,6 +35,13 @@ from products.tasks.backend.temporal.process_task.utils import (
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
+    def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
+        assert "zai-org/glm-5.3" in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", "zai-org/glm-5.3")) == (
+            "high",
+            "max",
+        )
+
     def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
@@ -342,14 +349,14 @@ class TestFetchUserMcpServerConfigs(TestCase):
     MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
-    def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
+    def _make_installation(self, **kwargs) -> ActiveInstallation:
         defaults = {
             "id": "abc-123",
             "name": "Linear",
             "proxy_path": f"/api/environments/{self.TEAM_ID}/mcp_server_installations/abc-123/proxy/",
         }
         defaults.update(kwargs)
-        return ActiveInstallationInfo(**defaults)
+        return ActiveInstallation(**defaults)
 
     def _expected_user_headers(self, *, consumer: str = "posthog-code") -> list[dict[str, str]]:
         return [
@@ -373,6 +380,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
         assert configs == [
             McpServerConfig(
@@ -465,10 +473,12 @@ class TestFetchUserMcpServerConfigs(TestCase):
             origin_product="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
 
         # The credential owner is forwarded separately from the acting user: the sandbox acts
-        # as `user_id`, but it may only mount the grants belonging to the owner.
+        # as `user_id`, but it may only mount the grants belonging to the owner. The per-scout
+        # allowlist rides along untouched — the facade applies it, not this layer.
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
             user_id=self.USER_ID,
@@ -476,6 +486,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
             McpServerConfig(
@@ -506,6 +517,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
 
     @patch(MOCK_API_URL)

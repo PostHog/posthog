@@ -365,8 +365,9 @@ class TestGoogleAdsLookbackDefault:
         assert schemas["campaign"].supports_incremental is False
         assert schemas["campaign"].default_incremental_lookback_seconds is None
         # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
-        # would reject it.
-        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
+        # would reject it. It must also stay under 30 days: that window re-read a trailing month of
+        # the stats tables on every incremental run, multiplying both synced rows and warehouse spend.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS < 2_592_000
 
 
 class TestGrpcReceiveLimit:
@@ -1506,6 +1507,22 @@ class TestGoogleAdsQueryConstruction:
         )
         assert all("2100-01-01" not in q for q in queries)
         assert all("1970-01-01" not in q for q in queries)
+
+    def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
+        # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
+        # the same backfill date every run and the refresh replaces the whole table with that same
+        # first slice of history. The run must stay a single open-ended scan over the full range.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=False,
+            )
+
+        assert queries == [
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "ORDER BY segments.date ASC"
+        ]
 
     def test_run_stops_after_max_data_windows(self):
         # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN

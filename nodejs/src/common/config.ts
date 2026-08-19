@@ -41,6 +41,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
+    recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -112,6 +113,15 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
+    /**
+     * Which world the ingestion persons store writes: 'pg' (default),
+     * 'personhog', or 'shadow' (pg authoritative, personhog best-effort).
+     * Until the merge saga lands, merge events fail loudly in personhog
+     * mode, so it is only safe for traffic that produces none.
+     */
+    PERSONS_STORE_MODE: string
+    /** Host and port of the personhog identity server. */
+    PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
@@ -293,6 +303,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONS_STORE_MODE: 'pg',
+        PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,

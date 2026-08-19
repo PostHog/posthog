@@ -311,12 +311,13 @@
 
     // Product specific colors
     --color-product-data-pipeline-light: rgb(46 162 211);
+    --color-product-data-pipeline-dark: rgb(84 189 235);
     --color-product-product-analytics-light: rgb(47 128 250);
     --color-product-workflows-light: rgb(47 128 250);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
-    --color-product-embedded-analytics-light: rgb(243 153 109);
-    --color-product-embedded-analytics-dark: rgb(250 158 120);
+    --color-product-endpoints-light: rgb(243 153 109);
+    --color-product-endpoints-dark: rgb(250 158 120);
     --color-product-session-replay-light: rgb(235 162 18);
     --color-product-session-replay-dark: rgb(247 165 1);
     --color-product-heatmaps-light: rgb(220 152 16);
@@ -329,6 +330,8 @@
     --color-product-error-tracking-light: rgb(211 148 24);
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
+    --color-product-product-tours-light: rgb(243 84 84);
+    --color-product-product-tours-dark: rgb(248 121 121);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-llm-analytics-dark: rgb(212 106 240);
@@ -340,6 +343,7 @@
     --color-product-mcp-analytics-light: rgb(205 48 180);
     --color-product-mcp-analytics-dark: rgb(229 105 205);
     --color-product-links-light: rgb(143 7 255);
+    --color-product-links-dark: rgb(178 92 255);
     --color-product-tracing-light: rgb(6 182 212);
     --color-product-tracing-dark: rgb(34 211 238);
     --color-product-metrics-light: rgb(234 88 12);
@@ -347,11 +351,20 @@
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
     --color-product-user-interviews-light: rgb(0 140 255);
+    --color-product-user-interviews-dark: rgb(77 171 255);
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
     --color-product-support-dark: rgb(247 165 1);
+    --color-product-visual-review-light: rgb(101 163 13);
+    --color-product-visual-review-dark: rgb(163 230 53);
+    --color-product-actions-light: rgb(47 128 250);
+    --color-product-actions-dark: rgb(96 165 250);
+    --color-product-cohorts-light: rgb(13 148 136);
+    --color-product-cohorts-dark: rgb(45 212 191);
+    --color-product-activity-light: rgb(225 29 72);
+    --color-product-activity-dark: rgb(251 113 133);
 
     // Generic brand color assignments
     // Change these to change the brand colors
@@ -1388,6 +1401,7 @@
         margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
+        pointer-events: auto;
         cursor: unset;
         border: 1px solid var(--secondary-3000-button-border);
         border-radius: var(--radius);
@@ -1397,6 +1411,7 @@
 
     .Toastify__toast-container {
         padding: 0;
+        pointer-events: none;
     }
 
     .Toastify__toast-body {

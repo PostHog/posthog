@@ -75,8 +75,10 @@ export function getWaitUntilTimeWindowDescription(
     return `Wait until ${dayDesc} ${timeClause} (${tzDesc}).`
 }
 
-export function shouldAutoUpdateDescription(description: string): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined): boolean {
+    // Agent-created actions can arrive without a description at all; treat an absent one like empty.
     return (
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION

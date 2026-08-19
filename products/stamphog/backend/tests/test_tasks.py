@@ -378,14 +378,14 @@ def test_disabled_repo_config_is_a_noop(team, repo_config):
 
 @pytest.mark.parametrize(
     "enabled,digest_enabled,expect_capture",
-    [(False, True, True), (True, False, True), (False, False, False)],
-    ids=["digest_only_captures", "review_only_captures", "fully_disabled_drops"],
+    [(True, True, True), (True, False, True), (False, True, False), (False, False, False)],
+    ids=["review_and_digest_captures", "review_only_captures", "review_off_drops", "fully_disabled_drops"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_merge_capture_gates_on_either_flag(team, repo_config, enabled, digest_enabled, expect_capture):
-    # A merged PR must be captured whenever review OR digest is on — a digest-only repo (review off,
-    # digest on) still needs its merges recorded or the daily digest has nothing to send. Only a fully
-    # disabled repo drops the merge. Regression: the merge path used to gate on review `enabled` alone.
+def test_merge_capture_gates_on_review_enabled(team, repo_config, enabled, digest_enabled, expect_capture):
+    # Merge facts are recorded for every review-enabled repo, digest or not, because the digest gate
+    # further down only decides whether audience_key gets stamped. A review-disabled repo drops the
+    # merge outright, digest_enabled notwithstanding — nothing downstream can use it.
     with team_scope(team.id):
         repo_config.enabled = enabled
         repo_config.digest_enabled = digest_enabled

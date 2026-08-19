@@ -9,6 +9,7 @@ import pytest
 
 from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
+    BackendPackageMarkerCheck,
     CheckContext,
     FileFolderConflictsCheck,
     IsolationChainCheck,
@@ -26,8 +27,10 @@ from hogli_commands.product.checks import (
     validate_tach_references,
 )
 from hogli_commands.product.isolation import (
+    MODEL_SURFACE_PREFIXES,
     facade_carveout_modules,
     facade_class_imports,
+    facade_model_crossings,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -35,6 +38,7 @@ from hogli_commands.product.isolation import (
     uncovered_permanent_modules,
     unqualified_permanent_modules,
     unwatched_garages,
+    unwatched_model_surface,
 )
 
 # ---------------------------------------------------------------------------
@@ -1604,6 +1608,142 @@ class TestFacadeClassImports:
         }
 
 
+class TestWatchedModelsAllowance:
+    _FACADE = {"models.py": "from ..models.table import DataWarehouseTable\n__all__ = ['DataWarehouseTable']\n"}
+    _SOURCES = {"models/table.py": "class DataWarehouseTable:\n    pass\n"}
+
+    def test_model_reexport_is_a_tracked_crossing_not_a_leak_for_an_allowance_product(self, tmp_path: Path) -> None:
+        # if this classification breaks, warehouse_sources' model re-exports re-arm the leak block
+        # and the restored narrowing silently forfeits (skip inert).
+        _, backend = _write_facade_product(
+            tmp_path, name="warehouse_sources", facade_files=self._FACADE, sources=self._SOURCES
+        )
+        assert facade_class_imports(backend, "warehouse_sources") == []
+        assert {c.class_name for c in facade_model_crossings(backend, "warehouse_sources")} == {"DataWarehouseTable"}
+
+    def test_model_reexport_stays_a_violation_for_a_product_not_on_the_allowance_list(self, tmp_path: Path) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, name="unrelated_product", facade_files=self._FACADE, sources=self._SOURCES
+        )
+        assert {f.class_name for f in facade_class_imports(backend, "unrelated_product")} == {"DataWarehouseTable"}
+        assert facade_model_crossings(backend, "unrelated_product") == []
+
+    def test_unlisted_class_stays_a_violation_on_an_allowance_product(self, tmp_path: Path) -> None:
+        # the allowance is keyed per class, so a listed product cannot grow a new crossing without a
+        # doctrine amendment — the rot vector a product-keyed list left wide open
+        facade = {"models.py": "from ..models.table import BrandNewModel\n__all__ = ['BrandNewModel']\n"}
+        sources = {"models/table.py": "class BrandNewModel:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, name="warehouse_sources", facade_files=facade, sources=sources)
+        assert {f.class_name for f in facade_class_imports(backend, "warehouse_sources")} == {"BrandNewModel"}
+        assert facade_model_crossings(backend, "warehouse_sources") == []
+
+    def test_allowance_is_scoped_to_the_model_package(self, tmp_path: Path) -> None:
+        # a class defined outside backend/models/ gets no free pass even for an allowance product
+        facade = {"models.py": "from ..logic.engine import Engine\n__all__ = ['Engine']\n"}
+        sources = {"logic/engine.py": "class Engine:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, name="warehouse_sources", facade_files=facade, sources=sources)
+        assert {f.class_name for f in facade_class_imports(backend, "warehouse_sources")} == {"Engine"}
+
+    @pytest.mark.parametrize(
+        "turbo_inputs, expected",
+        [
+            # models + migrations watched -> covered
+            (["backend/facade/**", "backend/models/**", "backend/migrations/**"], set()),
+            # migrations forgotten -> a data migration would skip the suite
+            (["backend/facade/**", "backend/models/**"], {"backend/migrations/"}),
+            # models forgotten entirely -> the crossing classes' definitions are unwatched
+            (["backend/facade/**"], {"backend/migrations/", "backend/models/"}),
+            # a single model file is not the whole surface -> every other model file is unwatched
+            (["backend/facade/**", "backend/models/table.py", "backend/migrations/**"], {"backend/models/"}),
+            # a negation carving files out of the surface breaks whole-surface coverage
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!backend/models/secret.py"],
+                {"backend/models/"},
+            ),
+            # ./-prefixed negations normalize the same way — no bypass
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!./backend/models/secret.py"],
+                {"backend/models/"},
+            ),
+            # a wildcard negation that could match inside the surface is rejected conservatively
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!backend/**/secret.py"],
+                {"backend/migrations/", "backend/models/"},
+            ),
+            # a wildcard negation provably outside the surface stays allowed
+            (
+                [
+                    "backend/facade/**",
+                    "backend/models/**",
+                    "backend/migrations/**",
+                    "!backend/temporal/data_imports/sources/mysql/tests/**",
+                ],
+                set(),
+            ),
+        ],
+    )
+    def test_model_surface_coverage(self, tmp_path: Path, turbo_inputs: list[str], expected: set[str]) -> None:
+        sources = {**self._SOURCES, "migrations/0001_initial.py": ""}
+        product_dir, _ = _write_facade_product(
+            tmp_path, name="warehouse_sources", facade_files=self._FACADE, sources=sources, turbo_inputs=turbo_inputs
+        )
+        assert unwatched_model_surface(product_dir) == expected
+
+    def test_migrations_are_required_before_the_directory_exists(self, tmp_path: Path) -> None:
+        # a product with models but no migrations yet must still watch the glob, otherwise its first
+        # migration lands in an unwatched location and a data migration skips the suite
+        product_dir, _ = _write_facade_product(
+            tmp_path,
+            name="warehouse_sources",
+            facade_files=self._FACADE,
+            sources=self._SOURCES,
+            turbo_inputs=["backend/facade/**", "backend/models/**"],
+        )
+        assert not (product_dir / "backend/migrations").exists()
+        assert unwatched_model_surface(product_dir) == {"backend/migrations/"}
+
+    def test_model_surface_inputs_count_as_narrowing_only_when_passed(self, tmp_path: Path) -> None:
+        # the restored warehouse_sources turbo.json must register as narrowed — otherwise the skip
+        # is silently inert forever — but only via the allowance, never for arbitrary products.
+        inputs = ["backend/facade/**", "backend/models/**", "backend/migrations/**"]
+        product_dir, _ = _write_facade_product(tmp_path, turbo_inputs=inputs)
+        assert has_narrowed_turbo_inputs(product_dir) is False
+        assert has_narrowed_turbo_inputs(product_dir, model_surface=MODEL_SURFACE_PREFIXES) is True
+
+    def _allowance_ctx(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str]) -> CheckContext:
+        # end-to-end through IsolationChainCheck: guards the status wiring and the checks.py
+        # branches, which the helper tests above cannot see
+        import hogli_commands.product.isolation as isolation_module
+
+        _seal_externally(monkeypatch)
+        monkeypatch.setattr(isolation_module, "MODEL_CROSSINGS", frozenset({("my_product", "Table")}))
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "facade" / "models.py").write_text("from ..models.table import Table\n__all__ = ['Table']\n")
+        (ctx.backend_dir / "models").mkdir()
+        (ctx.backend_dir / "models" / "table.py").write_text("class Table:\n    pass\n")
+        (ctx.backend_dir / "migrations").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": turbo_inputs}}})
+        )
+        return ctx
+
+    def test_chain_check_narrows_with_standing_warning_when_surface_watched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ctx = self._allowance_ctx(
+            tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**", "backend/migrations/**"]
+        )
+        result = chain_check.run(ctx)
+        assert not result.issues
+        assert any("watched-models allowance" in w for w in result.warnings)
+
+    def test_chain_check_blocks_when_surface_omitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = self._allowance_ctx(tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**"])
+        result = chain_check.run(ctx)
+        assert any("watched-models surface" in i and "backend/migrations/" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
+
+
 class TestUnwatchedGarages:
     @pytest.mark.parametrize(
         "garage_file, turbo_inputs, expected",
@@ -1730,3 +1870,48 @@ class TestPackageJsonScriptsWiringWithheld:
         _add_facade_reexport(ctx)
         result = check.run(ctx)
         assert not any("must not have" in i or "remove 'backend:contract-check'" in i for i in result.issues)
+
+
+class TestBackendPackageMarker:
+    check = BackendPackageMarkerCheck()
+
+    def _product(self, tmp_path: Path, *, markers: list[str], trees: list[str]) -> CheckContext:
+        ctx = _make_product(tmp_path, isolated=True)
+        for tree in trees:
+            (ctx.backend_dir / tree).mkdir(parents=True, exist_ok=True)
+            (ctx.backend_dir / tree / "views.py").write_text("x = 1\n")
+        for marker in markers:
+            (ctx.backend_dir / marker / "__init__.py").write_text("")
+        return ctx
+
+    @pytest.mark.parametrize(
+        "markers, expected",
+        [
+            # every level marked -> grimp reaches the whole contract surface
+            ([".", "facade", "presentation", "presentation/views"], set()),
+            # backend/ alone is not enough: grimp stops at the first unmarked level, so
+            # everything below is dropped and the contract passes for code it never saw
+            ([".", "facade", "presentation"], {"backend/presentation/views/"}),
+            ([".", "facade"], {"backend/presentation/", "backend/presentation/views/"}),
+            # missing at the root hides the entire backend
+            (["facade", "presentation", "presentation/views"], {"backend/"}),
+        ],
+    )
+    def test_missing_markers_on_contract_paths(self, tmp_path: Path, markers: list[str], expected: set[str]) -> None:
+        ctx = self._product(tmp_path, markers=markers, trees=["presentation", "presentation/views"])
+        assert set(self.check._missing_markers(ctx)) == expected
+
+    def test_directories_outside_the_contract_trees_are_left_alone(self, tmp_path: Path) -> None:
+        # test dirs and generated trees are namespace packages on purpose — flagging them would
+        # mean thousands of pointless files, and no contract targets them
+        ctx = self._product(tmp_path, markers=[".", "facade"], trees=[])
+        (ctx.backend_dir / "temporal" / "sources" / "stripe").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "sources" / "stripe" / "source.py").write_text("x = 1\n")
+        (ctx.backend_dir / "tests").mkdir()
+        (ctx.backend_dir / "tests" / "test_thing.py").write_text("x = 1\n")
+        assert self.check._missing_markers(ctx) == []
+
+    def test_empty_directories_need_no_marker(self, tmp_path: Path) -> None:
+        ctx = self._product(tmp_path, markers=[".", "facade"], trees=[])
+        (ctx.backend_dir / "facade" / "empty").mkdir()
+        assert self.check._missing_markers(ctx) == []

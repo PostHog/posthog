@@ -682,6 +682,12 @@ export interface ListOrganizationMembersParams {
     limit?: number
     updated_after?: string
     search?: string
+    /** Only members whose email is on this domain. */
+    email_domain?: string
+    /** Only members whose email is outside the organization's verified domains. */
+    outside_verified_domains?: boolean
+    /** Comma-separated membership levels to return, e.g. `1,8`. */
+    levels?: string
 }
 
 export interface APIErrorType {
@@ -1561,6 +1567,12 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    /**
+     * Server-resolved population narrowing (sessions of persons exposed to the experiment).
+     * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
+     * it rides through conversions so saved filters and scanners keep the narrowing.
+     */
+    experiment_exposure?: RecordingsQuery['experiment_exposure']
 }
 
 export interface UniversalFiltersGroup {
@@ -2076,7 +2088,6 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
-    has_summary?: boolean
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -3018,6 +3029,7 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    ScatterPlot = 'ScatterPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -5510,6 +5522,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5916,6 +5929,29 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
     resource?: AccessControlType['resource']
 }
 
+/** Which rule supplied an inherited access level — mirrors `ResolvedAccess.source` on the backend. */
+export type InheritedAccessSource =
+    | 'object'
+    | 'parent_object'
+    | 'resource'
+    | 'parent_resource'
+    | 'system_default'
+    | 'org_admin'
+    | 'creator'
+    | 'org_membership'
+
+/** What an object falls back to while it carries no override of its own, with the rule that
+ * decided it, resolved by the same walker that enforces access. */
+export type InheritedAccessType = {
+    access_level: AccessControlLevel
+    source: InheritedAccessSource
+    source_subject: 'member' | 'role' | 'default' | null
+    source_resource: APIScopeObject
+    source_resource_id: string | null
+    /** Human name of the parent object the level comes through (e.g. a table's source type). */
+    source_display_name: string | null
+}
+
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
     available_access_levels: AccessControlLevel[]
@@ -5923,11 +5959,9 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
-    /** Resource whose project-wide rules apply while the object carries no override of its own. */
-    inherited_resource?: APIScopeObject | null
-    /** The level that applies while the object carries no override: the project-wide rule for
-     * `inherited_resource`, or its built-in default when no rule is set. */
-    inherited_access_level?: AccessControlLevel | null
+    /** The level and rule that apply while the object carries no override of its own; null when
+     * nothing sits above the object (e.g. a project). */
+    inherited_access?: InheritedAccessType | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
@@ -6213,6 +6247,36 @@ export interface DataWarehouseSavedQuery {
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel
+    incremental?: DataWarehouseSavedQueryIncremental | null
+    incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+}
+
+export interface DataWarehouseSavedQueryIncremental {
+    enabled: boolean
+    /** Output column whose advancing value marks rows as new */
+    incremental_key: string
+    /** Output columns that identify a row. Must cover every GROUP BY column, and never be null */
+    unique_key: string[]
+    /** How far back before the last high point to re-read, for late-arriving data */
+    lookback_seconds?: number
+}
+
+export interface DataWarehouseSavedQueryIncrementalState {
+    watermark?: string | null
+    definition_fingerprint?: string | null
+    last_full_refresh_at?: string | null
+    last_run_mode?: 'incremental' | 'full_refresh' | null
+}
+
+export interface DataWarehouseSavedQueryIncrementalCheck {
+    eligible: boolean
+    key_candidates: string[]
+    /** Superset of key_candidates: identity only needs equality, so strings qualify here */
+    unique_key_candidates?: string[]
+    /** Coarse type per candidate (datetime, date, integer, ...). No entry: type unknown */
+    key_candidate_types?: Record<string, string>
+    blockers: string[]
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -6374,6 +6438,8 @@ export interface DataModelingJob {
     id: string
     saved_query_id: string
     status: DataModelingJobStatus
+    /** full_refresh: rows_materialized is the whole table. incremental: only the rows synced. Null: unknown (old run) */
+    run_mode?: 'full_refresh' | 'incremental' | null
     rows_materialized: number
     rows_expected: number | null
     error: string | null

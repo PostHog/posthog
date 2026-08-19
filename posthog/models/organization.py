@@ -1,5 +1,4 @@
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -21,6 +20,7 @@ from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
@@ -69,7 +69,7 @@ class OrganizationUsageInfo(TypedDict):
     period: list[str] | None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BillingPeriod:
     start: datetime
     end: datetime
@@ -185,6 +185,18 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
+    class DeactivationReason(models.TextChoices):
+        UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
+        TERMS_OF_SERVICE_VIOLATION = (
+            "Access revoked due to terms of service violation.",
+            "Terms of service violation",
+        )
+        DESKTOP_ABUSE = (
+            "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
+            "Desktop abuse",
+        )
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -215,6 +227,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ),
         max_length=200,
     )
+    # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
+    _is_active_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -321,6 +335,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
+    # Managed by Billing: whether the org had an active subscription (or active trial)
+    # at last customer sync. NULL = never synced = unknown; consumers must fail open on NULL.
+    has_active_subscription = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)
@@ -595,6 +612,38 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
+    instance._is_active_changed = False
+    if instance._state.adding:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        return
+
+    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    instance._is_active_changed = previous_is_active != instance.is_active
+
+
+@receiver(post_save, sender=Organization)
+def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = instance.pk
+
+    def _invalidate_cache():
+        from posthog.models.team import Team
+
+        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
+
+        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+        invalidate_llm_gateway_quota_cache(team_ids)
+
+    transaction.on_commit(_invalidate_cache)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

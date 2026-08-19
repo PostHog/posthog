@@ -184,6 +184,7 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
     CodeChannelLink = 'CodeChannelLink',
+    CodeTaskLink = 'CodeTaskLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',

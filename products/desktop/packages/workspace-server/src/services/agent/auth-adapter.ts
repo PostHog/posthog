@@ -154,6 +154,7 @@ export class AgentAuthAdapter {
       const proxiedUrl = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
+        { credentialOwner: "installation" },
       );
       const server: McpServerConnection = {
         name,

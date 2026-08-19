@@ -55,6 +55,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
     load_skill_for_run,
+    resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
@@ -275,6 +276,60 @@ class TestSkillLoader(BaseTest):
 
         loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         assert loaded.authors == []
+
+    def _create_config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.unscoped().create(
+            team_id=self.team.id, skill_name="signals-scout-errors", **kwargs
+        )
+
+    def test_acting_user_is_creator_even_when_config_names_an_enabler(self) -> None:
+        # The creator authored the prompt the run executes, so they must win over whoever
+        # merely switched the scout on.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        config = self._create_config(enabled_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
+
+    def test_acting_user_falls_back_to_config_enabler_for_authorless_skill(self) -> None:
+        # A pristine canonical scout's versions are all system-authored, so without the config
+        # fallback its runs pool on the team-level default user, which is the cost-allocation
+        # bug this resolver exists to fix. `enabled_by` outranks `created_by`: switching a
+        # scout on is the spend decision.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        self._create_skill("signals-scout-errors")
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
+
+    def test_acting_user_skips_config_enabler_without_access(self) -> None:
+        # The run mints a sandbox token as the resolved user, so a revoked member must never
+        # resolve; the next self-consenting candidate (the config creator) takes over.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        self._create_skill("signals-scout-errors")
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        OrganizationMembership.objects.filter(user=ben).delete()
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == self.user.id
+
+    def test_acting_user_none_when_creator_lost_access(self) -> None:
+        # A revoked skill creator with no config candidates must resolve to nothing, so the
+        # runner falls back to the team-level default instead of minting for a removed member.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        skill = self._create_skill("signals-scout-errors")
+        skill.created_by = ben
+        skill.save()
+        OrganizationMembership.objects.filter(user=ben).delete()
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", self._create_config()) is None
 
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
@@ -581,15 +636,18 @@ class TestPromptBuilder(BaseTest):
         assert "data-catalog-metric-run" in listed
         assert "Cache the lookup outcome" not in listed
         assert _SUPERSEDES_CACHED_ENTRIES in listed
+        assert "governed catalog consulted: no listed metric matched" in listed
 
         empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
         assert _SUPERSEDES_CACHED_ENTRIES in empty
+        assert "governed catalog consulted: empty, no metric matches" in empty
 
         fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
         assert _SUPERSEDES_CACHED_ENTRIES not in fallback
+        assert "governed catalog consulted: no listed metric matched" in fallback
 
         # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
         # and past it the listing stops being the whole catalog, so it has to say a lookup is still
@@ -1036,24 +1094,61 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("with_creator", [True, False])
-async def test_run_delegates_the_scout_creator_as_mcp_credential_owner(ateam, aerrors_skill, with_creator):
-    # MCP Store grants are personal, so a scout run mounts the connections its creator delegated
-    # to the Scout agent — never the acting user's. A scout with no creator (coordinator
-    # auto-discovered) stays fail-closed and mounts nothing.
+async def test_run_acts_as_the_skill_creator_when_one_resolves(ateam, aorganization, aerrors_skill):
+    # Spend attribution follows the task row's user, so a run whose skill has a creator must
+    # mint under them; falling through to the team-level default (42 here) re-pools every
+    # scout's spend on one user, the bug the skill-based resolution exists to fix.
+    def _set_creator() -> User:
+        creator = User.objects.create_and_join(aorganization, f"creator-{random.randint(1, 99999)}@example.com", None)
+        aerrors_skill.created_by = creator
+        aerrors_skill.save()
+        return creator
+
+    creator = await database_sync_to_async(_set_creator, thread_sensitive=False)()
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    def _seed_config() -> int | None:
-        creator = (
-            User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com") if with_creator else None
-        )
-        SignalScoutConfig.objects.unscoped().create(
-            team_id=ateam.id, skill_name="signals-scout-errors", created_by=creator
-        )
-        return creator.id if creator is not None else None
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
 
-    owner_id = await database_sync_to_async(_seed_config, thread_sensitive=False)()
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["context"].user_id == creator.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner(ateam, aerrors_skill):
+    # A scout is a team resource: its runs mount only team-scoped grants, gated by the
+    # config's per-scout server selection, and never delegate anyone's personal grants.
+    # Passing a credential owner here would silently re-open the personal lane.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        creator = User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com")
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            created_by=creator,
+            mcp_gateway_server_ids=["11111111-1111-1111-1111-111111111111"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
 
     async def _capture_start(*args, on_task_run_created=None, **kwargs):
         captured.update(kwargs)
@@ -1075,7 +1170,8 @@ async def test_run_delegates_the_scout_creator_as_mcp_credential_owner(ateam, ae
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["mcp_builtin_agent_key"] == "scout"
-    assert captured["mcp_credential_owner_id"] == owner_id
+    assert captured.get("mcp_credential_owner_id") is None
+    assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
 
 
 @pytest.mark.asyncio

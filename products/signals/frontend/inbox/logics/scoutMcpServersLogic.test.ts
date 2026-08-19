@@ -3,8 +3,6 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { userLogic } from 'scenes/userLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -35,11 +33,13 @@ function server(
     id: string,
     name: string,
     connectionState: ConnectionStateEnumApi,
-    sharedBy: UserBasicApi = YOU
+    sharedBy: UserBasicApi = YOU,
+    scope: MCPServiceAccountServerApi['scope'] = 'team'
 ): MCPServiceAccountServerApi {
     return {
         id,
         shared_by: sharedBy,
+        scope,
         name,
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
@@ -68,6 +68,10 @@ function account(
     }
 }
 
+function listResponse<T>(results: T[]): [number, { count: number; next: null; previous: null; results: T[] }] {
+    return [200, { count: results.length, next: null, previous: null, results }]
+}
+
 describe('scoutMcpServersLogic', () => {
     let logic: ReturnType<typeof scoutMcpServersLogic.build> | undefined
 
@@ -79,22 +83,19 @@ describe('scoutMcpServersLogic', () => {
         logic?.unmount()
     })
 
-    it('separates your Scout grants from teammate grants and flags the ones needing setup', async () => {
-        const notion = server('notion-id', 'Notion', 'missing_credential')
-        const linear = server('linear-id', 'Linear', 'ready')
-        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE)
-        const zendesk = server('zendesk-id', 'Zendesk', 'ready')
+    it('offers only team shares from the scout account, one row per server, preferring a ready share', async () => {
+        const personalNotion = server('notion-id', 'Notion', 'ready', YOU, 'personal')
+        const staleLinear = server('linear-id', 'linear', 'needs_reauth', YOU)
+        const readyLinear = server('linear-id', 'linear', 'ready', TEAMMATE)
+        const github = server('github-id', 'GitHub', 'ready', TEAMMATE)
+        const supportZendesk = server('zendesk-id', 'Zendesk', 'ready')
         useMocks({
             get: {
-                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
-                    200,
-                    {
-                        count: 2,
-                        next: null,
-                        previous: null,
-                        results: [account('support', [zendesk]), account('scout', [notion, linear, teammateGithub])],
-                    },
-                ],
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
+                    listResponse([
+                        account('support', [supportZendesk]),
+                        account('scout', [personalNotion, staleLinear, readyLinear, github]),
+                    ]),
             },
         })
 
@@ -102,68 +103,10 @@ describe('scoutMcpServersLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.scoutServers).toEqual([notion, linear, teammateGithub])
-        expect(logic.values.yourScoutServers).toEqual([notion, linear])
-        expect(logic.values.teammateScoutServers).toEqual([teammateGithub])
-        expect(logic.values.isScoutMcpAccessEnabled).toBe(true)
-        expect(logic.values.readyScoutServers).toEqual([linear])
-        expect(logic.values.availableScoutServers).toEqual([linear])
-        expect(logic.values.scoutServersNeedingSetup).toEqual([notion])
-    })
-
-    it('attributes no grants while the current user is still loading', async () => {
-        const linear = server('linear-id', 'Linear', 'ready')
-        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE)
-        useMocks({
-            get: {
-                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
-                    200,
-                    {
-                        count: 1,
-                        next: null,
-                        previous: null,
-                        results: [account('scout', [linear, teammateGithub])],
-                    },
-                ],
-            },
-        })
-
-        logic = scoutMcpServersLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        userLogic.actions.loadUserSuccess(null)
-
-        expect(logic.values.currentUserId).toBeNull()
-        expect(logic.values.yourScoutServers).toEqual([])
-        expect(logic.values.teammateScoutServers).toEqual([])
-        expect(logic.values.availableScoutServers).toEqual([])
-        expect(logic.values.scoutServersNeedingSetup).toEqual([])
-    })
-
-    it('does not expose ready servers when MCP access is paused', async () => {
-        const linear = server('linear-id', 'Linear', 'ready')
-        useMocks({
-            get: {
-                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
-                    200,
-                    {
-                        count: 1,
-                        next: null,
-                        previous: null,
-                        results: [account('scout', [linear], { status: 'paused' })],
-                    },
-                ],
-            },
-        })
-
-        logic = scoutMcpServersLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.scoutServers).toEqual([linear])
-        expect(logic.values.isScoutMcpAccessEnabled).toBe(false)
-        expect(logic.values.readyScoutServers).toEqual([linear])
-        expect(logic.values.availableScoutServers).toEqual([])
-        expect(logic.values.scoutServersNeedingSetup).toEqual([])
+        expect(logic.values.scoutServers).toEqual([personalNotion, staleLinear, readyLinear, github])
+        // The personal grant never backs a scout run, so it never shows. The two team shares
+        // of Linear collapse to one row, and the ready one carries it so the health tag does
+        // not report a problem the run does not have. Sorting ignores case.
+        expect(logic.values.teamScoutServers).toEqual([github, readyLinear])
     })
 })

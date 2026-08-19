@@ -119,7 +119,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "rate frustration"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:
@@ -574,7 +574,7 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
             name="capped",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         cost = observation_credits_for_model(scanner.model)
         seed_scanner_spend(scanner, cost)
@@ -604,7 +604,7 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
             name="uncapped",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         start = MagicMock(return_value=MagicMock())
         with (
@@ -710,7 +710,7 @@ class TestCreateReplayVisionActionTool(BaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @parameterized.expand([("daily",), ("weekly",)])
@@ -742,7 +742,7 @@ class TestCreateReplayVisionActionTool(BaseTest):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
 
@@ -781,7 +781,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
             name="secret-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @pytest.mark.django_db
@@ -822,7 +822,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
         _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
@@ -860,7 +860,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
             name="checkout",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @staticmethod
@@ -952,7 +952,7 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
             "name": "checkout",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
             "enabled": False,
             "estimated_monthly_observations": 400,
             # The model always stamps this alongside the count; the preview treats a missing one as stale.
@@ -1136,7 +1136,7 @@ class TestReplayVisionLifecycleTools(BaseTest):
             "name": "checkout",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
@@ -1166,7 +1166,7 @@ class TestReplayVisionLifecycleTools(BaseTest):
             inline_key="k",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "one-off"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=False,
             sampling_rate=0.0,
         )
@@ -1267,7 +1267,7 @@ class TestReplayVisionActionScannerAccess(BaseTest):
             name="private",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did they check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         return VisionAction.all_teams.create(
             team=self.team,
@@ -1332,7 +1332,7 @@ class TestReplayVisionActionScannerAccess(BaseTest):
             name="themes",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "what went wrong?", "tags": ["checkout"]},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
         _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))

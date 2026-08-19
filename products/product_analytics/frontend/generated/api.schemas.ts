@@ -1618,6 +1618,7 @@ export const ChartDisplayTypeApi = {
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
+    ScatterPlot: 'ScatterPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -1786,7 +1787,13 @@ export interface TrendsFilterApi {
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
     yAxisLabel?: string | null
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number | null
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number | null
     yAxisScaleType?: YAxisScaleTypeApi | null
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages. */
+    yAxisStartAtZero?: boolean | null
 }
 
 export interface TrendsQueryApi {
@@ -4027,6 +4034,7 @@ export const IntegrationKindApi = {
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -7261,6 +7269,7 @@ export const AccountsTableAccountFieldApi = {
     ExternalId: 'external_id',
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -7477,6 +7486,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -7700,6 +7711,22 @@ export interface PieChartSettingsApi {
     valueDisplay?: ValueDisplayApi | null
 }
 
+export type XScaleApi = (typeof XScaleApi)[keyof typeof XScaleApi]
+
+export const XScaleApi = {
+    Linear: 'linear',
+    Logarithmic: 'logarithmic',
+} as const
+
+export interface ScatterChartSettingsApi {
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean | null
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: XScaleApi | null
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7765,6 +7792,7 @@ export interface ChartSettingsApi {
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
+    scatter?: ScatterChartSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null

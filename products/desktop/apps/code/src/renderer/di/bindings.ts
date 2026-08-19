@@ -230,6 +230,10 @@ import {
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
+import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
@@ -300,6 +304,7 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
+  [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;
   [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
