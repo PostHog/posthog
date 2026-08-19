@@ -61,7 +61,7 @@ export function useChannelItems(channelId: string): {
     showAllUsers: true,
   });
   const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds, togglePin } = usePinnedTasks();
+  const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
   const { setPinned: setCanvasPinned, invalidateDashboards } =
     useDashboardMutations();
@@ -163,6 +163,23 @@ export function useChannelItems(channelId: string): {
           toast.error("Couldn't update pin");
         });
       },
+      // One request for the sessions and one per canvas, rather than a toggle
+      // per row: pinning is a scoped mutation, so a row-at-a-time batch waits
+      // out a round trip for each one.
+      setPinned: (items, pinned) => {
+        const taskIds = items
+          .filter((item) => item.kind === "task")
+          .map((item) => item.id);
+        const canvases = items.filter((item) => item.kind === "canvas");
+        const pins: Promise<unknown>[] = [];
+        if (taskIds.length > 0) pins.push(setPinnedMany(taskIds, pinned));
+        for (const canvas of canvases) {
+          pins.push(setCanvasPinned(canvas.id, pinned));
+        }
+        Promise.all(pins).catch(() => {
+          toast.error("Couldn't update pin");
+        });
+      },
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
@@ -185,6 +202,7 @@ export function useChannelItems(channelId: string): {
       navigate,
       setCanvasPinned,
       togglePin,
+      setPinnedMany,
       archiveTask,
       invalidateDashboards,
     ],

@@ -71,7 +71,7 @@ function SidebarMenuComponent() {
     useTaskContextMenu();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
-  const { togglePin } = usePinnedTasks();
+  const { togglePin, setPinnedMany } = usePinnedTasks();
 
   const sidebarData = useSidebarData({
     activeView: view,
@@ -413,6 +413,20 @@ function SidebarMenuComponent() {
     [togglePin],
   );
 
+  // One request for the batch rather than a toggle per row: pinning is a scoped
+  // mutation, so a row-at-a-time batch waits out a round trip for each one.
+  const handleTasksSetPinned = useCallback(
+    (taskIds: string[], pinned: boolean) => {
+      const archiving = useArchivingTasksStore.getState();
+      const eligible = taskIds.filter((id) => !archiving.isArchiving(id));
+      if (eligible.length === 0) return;
+      setPinnedMany(eligible, pinned).catch(() => {
+        toast.error(`Couldn't ${pinned ? "pin" : "unpin"} the sessions`);
+      });
+    },
+    [setPinnedMany],
+  );
+
   const handleArchivePrior = useCallback(
     async (taskId: string) => {
       const priorTaskIds = computePriorTaskIds(allSidebarTasks, taskId);
@@ -494,6 +508,7 @@ function SidebarMenuComponent() {
               onTaskContextMenu={handleTaskContextMenu}
               onTaskArchive={handleTaskArchive}
               onTaskTogglePin={handleTaskTogglePin}
+              onTasksSetPinned={handleTasksSetPinned}
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}

@@ -62,11 +62,16 @@ export interface PinDragApi<T> {
  */
 export function usePinDrag<T>({
   isPinned,
-  togglePin,
+  setPinned,
   getDragSiblings,
 }: {
   isPinned: (item: T) => boolean;
-  togglePin: (item: T) => void;
+  /**
+   * Applies the drop to everything it covers, in one call. A batch rather than
+   * a toggle per item: pinning is a scoped mutation, so N calls cost N
+   * round trips in sequence, and only a batch can report a partial failure.
+   */
+  setPinned: (items: T[], pinned: boolean) => void;
   /**
    * The items dragged alongside the grabbed one, excluding it. Absent, or
    * returning nothing, keeps the drag single-item.
@@ -96,17 +101,17 @@ export function usePinDrag<T>({
     previewY.set(OFFSCREEN);
   }, [previewX, previewY, write]);
 
-  // Toggling every dragged item would unpin the ones already pinned, so a drop
-  // states what it wants and skips whatever is already there.
+  // A drop states what it wants rather than toggling: toggling every dragged
+  // item would unpin the ones already pinned, so whatever is already there is
+  // left out of the batch.
   const applyDrop = useCallback(
     (drag: PinDrag<T>) => {
       const action = getPinDropAction(drag.sourcePinned, drag.overPinned);
       if (action === null) return;
-      for (const item of drag.items) {
-        if (isPinned(item) !== action) togglePin(item);
-      }
+      const changing = drag.items.filter((item) => isPinned(item) !== action);
+      if (changing.length > 0) setPinned(changing, action);
     },
-    [isPinned, togglePin],
+    [isPinned, setPinned],
   );
 
   // The listeners below register once for the life of the hook. Re-registering

@@ -34,7 +34,7 @@ describe("usePinDrag", () => {
     const { result, unmount } = renderHook(() =>
       usePinDrag<Row>({
         isPinned: (row) => row.pinned,
-        togglePin: vi.fn(),
+        setPinned: vi.fn(),
       }),
     );
 
@@ -52,9 +52,11 @@ describe("usePinDrag", () => {
   });
 
   // Toggling every dragged row would unpin the ones already in the run, so a
-  // batch drop has to state what it wants rather than flip each row.
+  // batch drop has to state what it wants rather than flip each row. One call,
+  // not one per row: pinning is a scoped mutation, so a row at a time costs a
+  // round trip each.
   it("pins every dragged row that is not pinned yet, and only those", () => {
-    const togglePin = vi.fn();
+    const setPinned = vi.fn();
     const rows: Row[] = [
       { id: "a", pinned: false },
       { id: "b", pinned: true },
@@ -63,7 +65,7 @@ describe("usePinDrag", () => {
     const { result } = renderHook(() =>
       usePinDrag<Row>({
         isPinned: (row) => row.pinned,
-        togglePin,
+        setPinned,
         getDragSiblings: () => rows.slice(1),
       }),
     );
@@ -86,7 +88,8 @@ describe("usePinDrag", () => {
       } as unknown as React.DragEvent);
     });
 
-    expect(togglePin.mock.calls.map(([row]) => row.id)).toEqual(["a", "c"]);
+    expect(setPinned).toHaveBeenCalledTimes(1);
+    expect(setPinned).toHaveBeenCalledWith([rows[0], rows[2]], true);
   });
 
   // The card promises "Remove from pinned" the moment the pointer leaves the
@@ -113,9 +116,9 @@ describe("usePinDrag", () => {
       when: "cancelled with Escape",
     },
   ])("$when, unpins=$unpins", ({ released, consumed, unpins }) => {
-    const togglePin = vi.fn();
+    const setPinned = vi.fn();
     const { result } = renderHook(() =>
-      usePinDrag<Row>({ isPinned: (row) => row.pinned, togglePin }),
+      usePinDrag<Row>({ isPinned: (row) => row.pinned, setPinned }),
     );
 
     act(() => {
@@ -145,7 +148,7 @@ describe("usePinDrag", () => {
       result.current.onItemDragEnd();
     });
 
-    expect(togglePin).toHaveBeenCalledTimes(unpins ? 1 : 0);
+    expect(setPinned).toHaveBeenCalledTimes(unpins ? 1 : 0);
     expect(isDragging()).toBe(false);
   });
 });

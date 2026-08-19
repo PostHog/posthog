@@ -53,6 +53,8 @@ interface TaskListViewProps {
   ) => void;
   onTaskArchive: (taskId: string) => void;
   onTaskTogglePin: (taskId: string) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  onTasksSetPinned: (taskIds: string[], pinned: boolean) => void;
   onTaskEditSubmit: (
     taskId: string,
     currentTitle: string,
@@ -79,6 +81,7 @@ export function TaskListView({
   onTaskContextMenu,
   onTaskArchive,
   onTaskTogglePin,
+  onTasksSetPinned,
   onTaskEditSubmit,
   onTaskEditCancel,
   onGroupContextMenu,
@@ -117,7 +120,11 @@ export function TaskListView({
   );
   const pinDrag = usePinDrag<TaskData>({
     isPinned: (task) => task.isPinned,
-    togglePin: (task) => onTaskTogglePin(task.id),
+    setPinned: (tasks, pinned) =>
+      onTasksSetPinned(
+        tasks.map((task) => task.id),
+        pinned,
+      ),
     getDragSiblings: dragSiblingsFor,
   });
   const dragState = pinDrag.drag;

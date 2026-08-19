@@ -442,7 +442,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   );
   const pinDrag = usePinDrag<ChannelItemModel>({
     isPinned: (item) => item.pinned,
-    togglePin: actions.togglePin,
+    setPinned: actions.setPinned,
     getDragSiblings: dragSiblingsFor,
   });
 

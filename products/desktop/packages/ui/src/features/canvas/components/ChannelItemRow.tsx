@@ -55,6 +55,8 @@ import {
 export interface ChannelItemActions {
   open: (item: ChannelItemModel) => void;
   togglePin: (item: ChannelItemModel) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
