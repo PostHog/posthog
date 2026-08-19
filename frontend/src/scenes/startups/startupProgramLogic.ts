@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -48,11 +48,11 @@ function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): stri
     if (!dayjs.isDayjs(date)) {
         return 'Invalid date format'
     }
-    if (date.isAfter(dayjs())) {
+    if (date.isAfter(dayjs(), 'day')) {
         return 'Incorporation date cannot be in the future'
     }
-    if (date.isBefore(dayjs().subtract(2, 'year'))) {
-        return 'Company must be less than 2 years old to be eligible'
+    if (date.isBefore(dayjs().subtract(2, 'year'), 'day')) {
+        return 'Your company must have been founded less than 2 years ago to be eligible'
     }
     return undefined
 }
@@ -385,6 +385,24 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ values }) => ({
+        submitStartupProgramFailure: () => {
+            const validationErrors = values.startupProgramValidationErrors
+            const fieldsWithErrors = Object.keys(validationErrors).filter(
+                (field) => (validationErrors as Record<string, unknown>)[field]
+            )
+            // Only a client-side validation error blocks the submit here; an API error leaves the fields valid.
+            if (fieldsWithErrors.length === 0) {
+                return
+            }
+            posthog.capture('startup program application blocked', {
+                program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                organization_id: values.currentOrganizationId,
+                blocked_at: 'validation',
+                fields_with_errors: fieldsWithErrors,
+            })
         },
     })),
     subscriptions(({ values, cache }) => ({

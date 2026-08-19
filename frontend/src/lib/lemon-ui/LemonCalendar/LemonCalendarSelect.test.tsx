@@ -102,6 +102,19 @@ describe('LemonCalendarSelect', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    test('commits the date on click when commitOnDateClick is set', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            <LemonCalendarSelect months={1} value={dayjs('2022-02-10')} onChange={onChange} commitOnDateClick />
+        )
+
+        const month = container.querySelector('.LemonCalendar__month') as HTMLElement
+        await userEvent.click(await within(month).findByText('15'))
+
+        // No Apply click — the date commits straight from the day click.
+        expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-15'))
+    })
+
     test('select various times', async () => {
         const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
             granularity: 'minute',

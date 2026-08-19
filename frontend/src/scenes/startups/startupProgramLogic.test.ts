@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -137,6 +138,41 @@ describe('startupProgramLogic', () => {
 
         expect(logic.values.isEmailDomainBlocked).toBe(true)
         expect(blockedEvents()).toHaveLength(0)
+    })
+
+    it('accepts an incorporation date exactly two years ago and rejects an older one', async () => {
+        const logic = await mountStartupProgramLogic({
+            billing: { has_active_subscription: true },
+            email: 'founder@example.com',
+        })
+
+        // A start-of-day date exactly two years ago must stay eligible.
+        logic.actions.setStartupProgramValue('incorporation_date', dayjs().subtract(2, 'year').startOf('day'))
+        expect(logic.values.startupProgramValidationErrors.incorporation_date).toBeUndefined()
+
+        logic.actions.setStartupProgramValue(
+            'incorporation_date',
+            dayjs().subtract(2, 'year').subtract(1, 'day').startOf('day')
+        )
+        expect(logic.values.startupProgramValidationErrors.incorporation_date).toBeTruthy()
+    })
+
+    it('captures a blocked event when a submit fails client-side validation', async () => {
+        const logic = await mountStartupProgramLogic({
+            billing: { has_active_subscription: true },
+            email: 'founder@example.com',
+        })
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.submitStartupProgram()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const validationBlocked = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event, eventProps]) =>
+                event === 'startup program application blocked' && eventProps?.blocked_at === 'validation'
+        )
+        expect(validationBlocked).toHaveLength(1)
+        expect(validationBlocked[0][1].fields_with_errors).toContain('incorporation_date')
     })
 
     it('captures the YC program when a previous startup-program user can reapply on the YC page', async () => {

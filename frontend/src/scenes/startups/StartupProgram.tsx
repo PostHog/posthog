@@ -483,6 +483,7 @@ export function StartupProgram(): JSX.Element {
                                                 <LemonField
                                                     name="incorporation_date"
                                                     label="The date that your company was incorporated"
+                                                    help="Your company must have been founded less than 2 years ago to be eligible."
                                                 >
                                                     <LemonCalendarSelectInput
                                                         clearable={false}
@@ -490,6 +491,7 @@ export function StartupProgram(): JSX.Element {
                                                         buttonProps={{ className: 'bg-bg-light' }}
                                                         placeholder=" "
                                                         selectionPeriod="past"
+                                                        commitOnDateClick
                                                     />
                                                 </LemonField>
                                             </>

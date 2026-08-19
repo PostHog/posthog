@@ -89,6 +89,8 @@ export interface LemonCalendarSelectProps {
     use24HourFormat?: boolean
     /** Extra "Apply" variants shown in a dropdown next to the Apply button. Each receives the selected date. */
     applyActions?: { label: string; onClick: (date: dayjs.Dayjs) => void }[]
+    /** Commit the date on click instead of waiting for Apply. Only for day granularity, where there is no time to pick. */
+    commitOnDateClick?: boolean
 }
 
 export function LemonCalendarSelect({
@@ -103,6 +105,7 @@ export function LemonCalendarSelect({
     onToggleTime,
     use24HourFormat = false,
     applyActions,
+    commitOnDateClick = false,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
@@ -135,6 +138,10 @@ export function LemonCalendarSelect({
         }
 
         setSelectValue(date)
+
+        if (date && commitOnDateClick) {
+            onChange?.(date)
+        }
     }
 
     useOnMountEffect(() => {
