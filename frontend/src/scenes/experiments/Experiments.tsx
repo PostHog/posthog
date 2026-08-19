@@ -3,14 +3,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -49,6 +46,8 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+
 import { CONCLUSION_DISPLAY_CONFIG } from './constants'
 import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -67,16 +66,12 @@ import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
-const HedgehogExperiment = pngHoggie(experimentPng)
-
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
     productKey: ProductKey.EXPERIMENTS,
+    emptyState: experimentsEmptyState,
 }
-
-export const EXPERIMENTS_PRODUCT_DESCRIPTION =
-    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.'
 
 // Component for the survey button using QuickSurveyModal
 const ExperimentSurveyButton = ({
@@ -206,7 +201,7 @@ const ExperimentsTable = ({
     openSurveyModal: (experiment: Experiment) => void
     openCopyToProjectModal: (experiment: Experiment) => void
 }): JSX.Element => {
-    const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
+    const { currentProjectId, experiments, experimentsLoading, filters, count, pagination } =
         useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
@@ -501,25 +496,6 @@ const ExperimentsTable = ({
 
     return (
         <SceneContent>
-            {tab === ExperimentsTabs.All && (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Experiment}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <ProductIntroduction
-                        productName="Experiments"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        action={() => router.actions.push(urls.experiment('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={HedgehogExperiment}
-                        className="my-0"
-                        mcpSurfaceKey="experiments.create"
-                    />
-                </AccessControlAction>
-            )}
             <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-0" />
             {count ? (

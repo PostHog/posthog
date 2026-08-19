@@ -1,5 +1,27 @@
 # posthog-cli
 
+## 0.13.0 — 2026-08-18
+
+### Minor changes
+
+- [f0be634b15f](https://github.com/PostHog/posthog/commit/f0be634b15fbf374bf90db01dfbd9023f9db6536) Add `--release-mode` to `proguard upload`, matching `sourcemap upload`. `symbol-set` (the default) keeps stamping the release onto the uploaded mapping. EXPERIMENTAL `event` creates the release but leaves the mapping unbound, so each event resolves its own release from the app version and namespace the SDK already sends. A map id is derived from the mapping's own content, so this keeps one symbol set for a mapping that several releases share. Also settable via `POSTHOG_RELEASE_MODE`. — Thanks @ablaszkiewicz!
+
+## 0.12.0 — 2026-08-18
+
+### Minor changes
+
+- [45016b12515](https://github.com/PostHog/posthog/commit/45016b12515b58f68ad22f1a0c053c39e2fd97b8) Add `posthog-cli release resolve`, which prints the id of the release the current build belongs to and creates the release if it doesn't exist yet. Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works; `--json` prints the whole release. It resolves the same release `sourcemap inject` would, so a bundler plugin that injects the release id into chunks itself lands on the same row. When nothing identifies a release, it prints nothing and exits `0`. `--dry-run` skips it, since resolving a release can create one. — Thanks @ablaszkiewicz!
+
+### Patch changes
+
+- [90730d20684](https://github.com/PostHog/posthog/commit/90730d206846ba073611c5ed103536ddd2828943) Delete CSS source maps and remove their sourceMappingURL comments after upload — Thanks @marandaneto!
+
+## 0.11.3 — 2026-08-17
+
+### Patch changes
+
+- [617ed9c912a](https://github.com/PostHog/posthog/commit/617ed9c912a432505cb20237bce95a81dde09c6d) Derive the `--release-mode event` chunk id from the minified source alone, and overwrite a symbol set whose content changed instead of failing. Bundlers embed the original file in `sourcesContent`, so a comment-only edit rewrote the sourcemap and, with the map folded into the id, minted a new chunk for code that never changed. The content hash still covers source and map, so that edit re-uploads the chunk under its existing id. Chunk ids injected by earlier versions change once on the next build, which re-uploads those chunks under their new ids. `--skip-on-conflict` is now ignored in this mode, with a warning: every chunk carries the release id in its injected snippet, so every chunk conflicts on every release, and skipping them all would leave the previous release id in place. — Thanks @ablaszkiewicz!
+
 ## 0.11.2 — 2026-08-14
 
 ### Patch changes

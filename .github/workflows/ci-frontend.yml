@@ -355,6 +355,12 @@ jobs:
             - name: Lint with Stylelint
               run: pnpm run lint:css
 
+            # Product colour tokens are named as plain strings from TypeScript manifests and
+            # empty-state configs, so nothing type-checks them. A reference to a token that no
+            # longer exists renders a whole surface colourless without failing anything else.
+            - name: Check product colour tokens all resolve
+              run: pnpm --filter=@posthog/frontend check-color-tokens
+
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
 
@@ -802,8 +808,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
-            # so each segment uploads under its own variant. Internal PRs only (needs the secret);
-            # cli-version pinned, not 'latest' (skips the release redirect).
+            # so each segment uploads under its own variant. Internal PRs only (needs the secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -812,13 +817,10 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
-                  org-slug: posthog-inc
                   variant: ${{ matrix.segment }}
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
@@ -877,7 +879,7 @@ jobs:
                   retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
-            # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
+            # the verdict. See the jest job for the full rationale.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -886,13 +888,10 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
-                  org-slug: posthog-inc
                   variant: replay-shared
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Fail on jest failure
