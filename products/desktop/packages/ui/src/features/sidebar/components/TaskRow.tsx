@@ -21,6 +21,14 @@ interface TaskRowProps {
   onDragEnd?: (event: React.DragEvent) => void;
   timestamp: number;
   depth?: number;
+  /**
+   * Whether to resolve the PR's state — a query per row into the host, where it
+   * hits git (and GitHub). The drag preview renders a copy of a row that is
+   * still mounted, so its query is already live; leaving this off keeps the
+   * preview from opening a second lookup per drag. Matches the space sidebar's
+   * drag card. The PR's existence still shows through `prUrl`.
+   */
+  withPrStatus?: boolean;
 }
 
 export function TaskRow({
@@ -40,12 +48,19 @@ export function TaskRow({
   onDragEnd,
   timestamp,
   depth = 0,
+  withPrStatus = true,
 }: TaskRowProps) {
   const workspace = useWorkspace(task.id);
   const effectiveMode =
     workspace?.mode ??
     (task.taskRunEnvironment === "cloud" ? "cloud" : undefined);
-  const { prState, hasDiff } = useTaskPrStatus(task);
+  const { prState, hasDiff } = useTaskPrStatus({
+    // An empty id is the hook's own "nothing to look up", so this registers no
+    // query rather than a second observer that would refetch behind the drag.
+    id: withPrStatus ? task.id : "",
+    cloudPrUrl: task.cloudPrUrl,
+    taskRunEnvironment: task.taskRunEnvironment,
+  });
   const isArchiving = useArchivingTasksStore((state) =>
     state.archivingTaskIds.has(task.id),
   );

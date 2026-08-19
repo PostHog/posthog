@@ -442,6 +442,7 @@ export function TaskListView({
                 onEditSubmit={() => undefined}
                 onEditCancel={() => undefined}
                 timestamp={dragState.item[timestampKey]}
+                withPrStatus={false}
               />
               <AnimatePresence>
                 {isUnpinIntent ? (
