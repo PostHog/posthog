@@ -1,6 +1,5 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 function ChannelSuffix({
@@ -14,9 +13,7 @@ function ChannelSuffix({
   return (
     <>
       {" in "}
-      <Text as="span" size="1" weight="medium">
-        {label}
-      </Text>
+      <span className="font-medium text-xs">{label}</span>
     </>
   );
 }
@@ -79,9 +76,9 @@ export function activityHeadline(
     case "mention":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           mentioned you
           <ChannelSuffix channelName={item.channelName} />
         </>
@@ -89,9 +86,9 @@ export function activityHeadline(
     case "thread_reply":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           replied to a thread you participated in
           <ChannelSuffix channelName={item.channelName} />
         </>
@@ -99,9 +96,9 @@ export function activityHeadline(
     case "owned_item_comment":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           commented on your {ownedItemName(item)}
           <ChannelSuffix channelName={item.channelName} />
         </>
