@@ -33,8 +33,12 @@ export interface availableSourcesLogicActions {
 export type availableSourcesLogicType = MakeLogicType<availableSourcesLogicValues, availableSourcesLogicActions>
 
 // The source-type manifest is a large response that rarely changes within a session. Hold the last
-// successful result in the module so the logic hydrates from it on remount instead of re-fetching.
+// successful result in the module so the logic hydrates from it on remount instead of re-fetching,
+// but only within the endpoint's own freshness window so a long-lived tab picks up connector changes
+// after a deploy rather than keeping a stale manifest forever.
+const MANIFEST_CACHE_TTL_MS = 10 * 60 * 1000 // matches the endpoint's Cache-Control max-age=600
 let cachedAvailableSources: Record<string, SourceConfig> | null = null
+let cachedAvailableSourcesAt = 0
 
 export const availableSourcesLogic = kea<availableSourcesLogicType>([
     path(['products', 'dataWarehouse', 'availableSourcesLogic']),
@@ -43,11 +47,12 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
             cachedAvailableSources as Record<string, SourceConfig> | null,
             {
                 load: async () => {
-                    if (cachedAvailableSources !== null) {
+                    if (cachedAvailableSources !== null && Date.now() - cachedAvailableSourcesAt < MANIFEST_CACHE_TTL_MS) {
                         return cachedAvailableSources
                     }
                     try {
                         cachedAvailableSources = await api.externalDataSources.wizard()
+                        cachedAvailableSourcesAt = Date.now()
                         return cachedAvailableSources
                     } catch (e: any) {
                         if (e.status === 403) {
