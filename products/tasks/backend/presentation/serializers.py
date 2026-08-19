@@ -691,6 +691,9 @@ class TaskWriteSerializer(serializers.Serializer):
             # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
             # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
             tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
+            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
+            # via its service JWT. A forged origin would fake that provenance.
+            tasks_facade.TaskOriginProduct.WORKFLOW,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
