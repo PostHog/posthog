@@ -91,7 +91,8 @@ def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
     return expr if is_denormalized else f"ifNull({expr}, '')"
 
 
-@dataclass
+# Mutable by design: the split-query combiner accumulates into one instance per team.
+@dataclass(frozen=False)
 class TeamMetrics:
     """All metrics for a single team from the combined query."""
 
