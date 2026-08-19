@@ -61,6 +61,14 @@ database "posthog" {
     }
   }
 
+  patch_table "logs_pattern_buckets_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "logs_pattern_buckets"
+    }
+  }
+
   patch_table "logs_volume_buckets_distributed" {
     engine "distributed" {
       cluster_name    = "logs"
