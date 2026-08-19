@@ -47,11 +47,11 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
-     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
-     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
-     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
-     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
+     * `imageurl:<pseudoTeam>:<hash>` ref. The prefix differs from the image lane's `image:` on
+     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
+     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
      * URLs and how many distinct hosts real traffic carries.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
@@ -68,6 +68,9 @@ export type MlMirrorConfig = {
      * the anonymizer collects no URLs until then.
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+
+    // US-only, PEM, multiple keys allowed (comma-separated)
+    WEB_BOT_AUTH_PRIVATE_KEYS: string
 
     /**
      * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
@@ -242,6 +245,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,

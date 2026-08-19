@@ -204,7 +204,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
-    "deltalite==0.1.6",
+    "deltalite==0.1.7",
 ]
 
 [dependency-groups]
@@ -620,6 +620,37 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
+    # TODO: experiments presentation wave — these were invisible to import-linter until
+    # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
+    # coupling. experiments is not isolated, so nothing was being skipped on their account.
+    "products.experiments.backend.presentation.serializers -> products.ai_observability.backend.models.llm_prompt",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.experiment_service",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.facade",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.hogql_queries.experiment_metric_fingerprint",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.hogql_queries.exposure_query_logic",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.hogql_queries.utils",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.llm_metric_templates",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.metric_events",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.metric_utils",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.models.experiment",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.running_time_calculator",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_buckets",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_context",
+    "products.experiments.backend.presentation.serializers -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.api.feature_flag",
+    "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.models.feature_flag",
+    "products.experiments.backend.presentation.views -> products.approvals.backend.mixins",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.experiment_service",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.llm_metric_templates",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.models.experiment",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.recalculation",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.running_time_calculator",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.session_buckets",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
+    "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
+    "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
+    "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)

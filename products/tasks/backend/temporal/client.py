@@ -33,7 +33,7 @@ from products.tasks.backend.temporal.process_task.workflow import PendingFollowu
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
-    from products.slack_app.backend.slack_thread import SlackThreadContext
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,

@@ -1123,13 +1123,13 @@ async fn test_cache_miss_returns_503() {
             body["detail"]
                 .as_str()
                 .unwrap()
-                .contains("Required data not found in cache"),
+                .contains("A service dependency is temporarily unavailable"),
             "Error message should mention cache miss"
         );
     } else {
         // If not JSON, verify the error message mentions cache
         assert!(
-            body_text.contains("Required data not found in cache"),
+            body_text.contains("A service dependency is temporarily unavailable"),
             "Body should mention cache miss. Got: {body_text}"
         );
     }

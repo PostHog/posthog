@@ -111,6 +111,24 @@ describe("useUpdateSuggestedReviewers", () => {
     expect(latest.content.map((r) => r.github_login)).toEqual(["octocat"]);
   });
 
+  it("invalidates report lists after updating reviewers", async () => {
+    mockUpdateArtefact.mockResolvedValue(artefact([reviewer("octocat")]));
+    const { result, queryClient } = renderUpdateHook();
+
+    const listKey = reportKeys.list({ suggested_reviewers: "user-me" });
+    queryClient.setQueryData(listKey, { results: [], count: 0 });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        artefactId: ARTEFACT_ID,
+        content: [{ github_login: "octocat" }],
+        optimisticReviewers: [reviewer("octocat")],
+      });
+    });
+
+    expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true);
+  });
+
   it("rolls back the cache when the request fails", async () => {
     const failure = new Error("boom");
     mockUpdateArtefact.mockRejectedValue(failure);

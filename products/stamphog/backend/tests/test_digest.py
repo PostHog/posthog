@@ -12,7 +12,9 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
@@ -22,6 +24,7 @@ from products.stamphog.backend.logic.digest import (
     _parse_llm_response,
     summarize_merged_prs,
 )
+from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
 from products.stamphog.backend.models import (
     DigestChannel,
     DigestRun,
@@ -442,3 +445,90 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     else:
         with pytest.raises(ValueError):
             _parse_llm_response(content, prs_by_index)
+
+
+def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> MagicMock:
+    """SlackIntegration stand-in whose post fails with ``post_error`` until the app has joined."""
+    stub = MagicMock()
+
+    def post(**kwargs: Any) -> dict[str, Any]:
+        if not joined:
+            raise SlackApiError(post_error, {"ok": False, "error": post_error})
+        return {"ok": True, "ts": "9999.1"}
+
+    def join(channel: str) -> dict[str, Any]:
+        if join_error:
+            # already_in_channel means somebody else already put the app in there, so the retried
+            # post has to succeed — the stub records the membership before raising.
+            if join_error == "already_in_channel":
+                joined.append(channel)
+            raise SlackApiError(join_error, {"ok": False, "error": join_error})
+        joined.append(channel)
+        return {"ok": True}
+
+    stub.client.chat_postMessage.side_effect = post
+    stub.client.conversations_join.side_effect = join
+    return stub
+
+
+@pytest.mark.parametrize(
+    "post_error,join_error,expected_error,joined",
+    [
+        ("not_in_channel", None, None, ["C1"]),
+        ("not_in_channel", "already_in_channel", None, ["C1"]),
+        ("not_in_channel", "missing_scope", DigestSlackError, []),
+        ("channel_not_found", None, SlackApiError, []),
+    ],
+    ids=[
+        "joins_then_posts",
+        "already_in_channel_counts_as_joined",
+        "refused_join_names_the_reason_and_the_invite",
+        "other_slack_errors_propagate",
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
+    team, post_error: str, join_error: str | None, expected_error: type[Exception] | None, joined: list[str]
+) -> None:
+    # An auto-provisioned channel is matched off the workspace list, so the app is not a member of it
+    # and the first post comes back not_in_channel. Joining is what makes that post land, and a
+    # concurrent worker joining first (already_in_channel) must not fail a digest whose retry would
+    # have gone through. A genuine refusal names Slack's reason and the invite, because neither is
+    # derivable from an error code by the person reading the run.
+    integration = Integration.objects.create(
+        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+    )
+    channel = DigestChannel.objects.for_team(team.id).create(
+        team_id=team.id,
+        audience_key=AUDIENCE,
+        slack_integration_id=integration.id,
+        slack_channel_id="C1",
+        slack_channel_name="team-devex",
+    )
+    summary = DigestSummary(
+        intro="1 merged.",
+        prs=[
+            DigestPRSummary(
+                pr_number=1,
+                title="Add util helper",
+                url="https://github.com/acme/widgets/pull/1",
+                author_login="devex-dev",
+                summary="Add util helper",
+                repository=REPO,
+            )
+        ],
+    )
+    actually_joined: list[str] = []
+    stub = _slack_stub(post_error, join_error, actually_joined)
+
+    with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", return_value=stub):
+        if expected_error is None:
+            assert post_digest(team.id, channel, summary) == "9999.1"
+        else:
+            with pytest.raises(expected_error) as caught:
+                post_digest(team.id, channel, summary)
+            if expected_error is DigestSlackError:
+                assert "/invite @PostHog" in str(caught.value)
+                assert str(join_error) in str(caught.value)
+
+    assert actually_joined == joined

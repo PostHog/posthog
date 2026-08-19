@@ -34,6 +34,7 @@ import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
+import { installUncaughtErrorLogging } from "@posthog/ui/shell/uncaughtErrorLog";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -252,6 +253,8 @@ export function GlobalEventHandlers({
     { ...globalOptions, enabled: !channelsEnabled && !channelsLayout },
     [handleSwitchTask],
   );
+
+  useEffect(() => installUncaughtErrorLogging(), []);
 
   // Konami code confetti
   const konamiProgressRef = useRef(0);

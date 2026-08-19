@@ -64,7 +64,7 @@ class _Recorder:
         # a deleted trigger message reads as.
         self.thread_messages: dict[str, list[dict[str, str]]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
-        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
@@ -74,6 +74,8 @@ class _Recorder:
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # True holds untagged replies back on the thread creator's `ask` mode.
+        self.awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -92,6 +94,15 @@ def _fake_activities(rec: _Recorder) -> list:
         event_text: str,
     ) -> bool:
         return True
+
+    @activity.defn(name="request_untagged_followup_confirmation_activity")
+    async def request_confirmation(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+    ) -> bool:
+        return rec.awaiting_confirmation
 
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
@@ -201,12 +212,6 @@ def _fake_activities(rec: _Recorder) -> list:
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         rec.internal_errors.append(inputs.event["ts"])
 
-    @activity.defn(name="resolve_posthog_code_slack_user_activity")
-    async def resolve_user(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
-    ) -> int | None:
-        return 42
-
     @activity.defn(name="mark_slack_app_message_processing_activity")
     async def mark_processing(input: SlackAppMessageReactionInput) -> None:
         rec.processing_marked.append(input.message_ts)
@@ -220,6 +225,7 @@ def _fake_activities(rec: _Recorder) -> list:
         mark_queued,
         quota,
         classify_followup,
+        request_confirmation,
         forward,
         collect,
         cascade,
@@ -231,7 +237,6 @@ def _fake_activities(rec: _Recorder) -> list:
         create_task,
         picker_timeout,
         internal_error,
-        resolve_user,
     ]
 
 

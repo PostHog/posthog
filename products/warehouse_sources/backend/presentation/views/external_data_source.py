@@ -109,7 +109,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
-    ManagedWarehouseSQLMode,
     PendingSourceCredential,
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -157,7 +156,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseManagedViewSetKind,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaSerializer,
     RowFiltersField,
@@ -699,6 +702,12 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="UTC anchor time for scheduled syncs.",
+    )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
     )
     cdc_table_mode = serializers.ChoiceField(
         required=False,
@@ -1394,7 +1403,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
-        help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
+        help_text=(
+            "Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick "
+            "which tables sync; omit it and every discovered table syncs with default settings."
+        ),
     )
     prefix = serializers.CharField(
         max_length=100,
@@ -1781,7 +1793,7 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
-    payload: dict
+    payload: dict = dataclasses.field(repr=False)
     credential: PendingSourceCredential | None
     error_response: Response | None
 
@@ -2197,6 +2209,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.SELF_DRIVING: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
             # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
@@ -2356,13 +2369,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
-        payload_schemas = payload.get("schemas", None)
-        if not payload_schemas or not isinstance(payload_schemas, list):
+        # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
+        # caller that wants to hand-pick tables still sends the array; one that just has
+        # credentials no longer has to run schema discovery itself to write back what we already
+        # know. Discovery ran above, so the defaults cost nothing extra here.
+        payload_schemas = payload.get("schemas")
+        if payload_schemas is not None and not isinstance(payload_schemas, list):
             new_source_model.delete()
             return Response(
+                data={"message": "The 'schemas' field must be a list of the tables to sync."},
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Schemas not given"},
             )
+        if not payload_schemas:
+            payload_schemas = build_default_schemas(source_schemas)
 
         # Return 400 if we get any schema names that don't exist in our source
         if any(schema.get("name") not in schema_names for schema in payload_schemas):
@@ -4702,7 +4721,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "direct_query_enabled",
                 "job_inputs",
             )
-            managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+            managed_source = next(
+                (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+                None,
+            ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)
