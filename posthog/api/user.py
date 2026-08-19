@@ -1013,6 +1013,9 @@ class UserViewSet(
     time_sensitive_exclude_actions = [
         "hedgehog_config",
         "scene_personalisation",
+        # Writes one timestamp and revokes nothing, so a fresh-auth challenge would
+        # only trap the user on the credential review screen that gates login.
+        "credentials_review_complete",
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]

@@ -1,3 +1,4 @@
+import time
 import uuid
 import datetime
 from datetime import timedelta
@@ -10,6 +11,7 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
@@ -434,6 +436,24 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == 204
         assert User.objects.get(pk=self.user.pk).credentials_reviewed_at == first_ts
+
+    @parameterized.expand(["stale", "step_up"])
+    def test_credentials_review_complete_allowed_without_fresh_auth(self, window: str):
+        # The interstitial gates login, so a fresh-auth challenge here would trap the user.
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        session = self.client.session
+        if window == "stale":
+            stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 100
+            session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        else:
+            session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == 204
+
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is not None
 
     def test_credentials_review_complete_requires_auth(self):
         self.client.logout()
