@@ -1744,7 +1744,7 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                cohort_id = located.prop.get("value")
+                cohort_id: Any = located.prop.get("value")
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
                         pk=cohort_id, team__project_id=self.context["project_id"]
