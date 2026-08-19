@@ -1,24 +1,28 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type CSSProperties } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { TZLabel } from 'lib/components/TZLabel'
-import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
+import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
+import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+
+import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
 
 interface ExceptionCardContentProps {
+    eventId?: string
+    fingerprint?: string
     timestamp?: string
+    eventMarkerColor?: TimelineMarkerColor
     label?: JSX.Element
-    /** Hide timestamp and label from the tab bar (e.g. when shown elsewhere on mobile) */
-    hideEventMeta?: boolean
 
     renderStackTraceActions?: () => JSX.Element | null
 }
@@ -54,57 +58,92 @@ export function ExceptionCard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [event?.uuid ?? issueId]
     )
+    const fingerprint = event?.properties?.$exception_fingerprint
 
     return (
         <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
             <BindLogic logic={errorPropertiesLogic} props={eventProps}>
-                <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
+                <ExceptionCardContent
+                    eventId={event?.uuid}
+                    fingerprint={typeof fingerprint === 'string' ? fingerprint : undefined}
+                    timestamp={event?.timestamp}
+                    {...contentProps}
+                />
             </BindLogic>
         </BindLogic>
     )
 }
 
 function ExceptionCardContent({
+    eventId,
+    fingerprint,
     timestamp,
+    eventMarkerColor,
     renderStackTraceActions,
     label,
-    hideEventMeta,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
+    const { sessionId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
         <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
-            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
-                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
-                    <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
-                        <div className="w-full h-full">
-                            <div className="flex items-center gap-1 text-lg h-full">
-                                <IconLogomark />
-                                <span className="text-sm">Exception</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 w-full justify-center h-full">
-                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="stack_trace">
-                                Stack Trace
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="properties">
-                                Properties
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="session">
-                                Session
-                            </TabsPrimitiveTrigger>
-                        </div>
-                        <div className="w-full flex gap-2 justify-end items-center">
-                            {!hideEventMeta && timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                            {!hideEventMeta && label}
-                        </div>
-                    </TabsPrimitiveList>
+            <Tabs
+                value={currentTab}
+                onValueChange={(value) => setCurrentTab(String(value))}
+                className="flex min-h-0 flex-1 flex-col gap-0"
+            >
+                <div className="grid h-10 w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-2">
+                    <div className="flex h-full min-w-0 items-center gap-1 text-lg">
+                        <IconLogomark />
+                        <span className="text-sm">Exception</span>
+                    </div>
+                    <TabsList variant="line" aria-label="Exception details" className="h-full! self-stretch">
+                        <TabsTrigger
+                            value="stack_trace"
+                            className="text-sm"
+                            style={{ '--background': 'transparent' } as CSSProperties}
+                        >
+                            Stack Trace
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="properties"
+                            className="text-sm"
+                            style={{ '--background': 'transparent' } as CSSProperties}
+                        >
+                            Properties
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="timeline"
+                            className="text-sm"
+                            style={{ '--background': 'transparent' } as CSSProperties}
+                        >
+                            Timeline
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="recording"
+                            className="text-sm"
+                            style={{ '--background': 'transparent' } as CSSProperties}
+                        >
+                            Recording
+                        </TabsTrigger>
+                    </TabsList>
+                    <div className="flex justify-end">
+                        {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
+                            <ViewLogsButton
+                                sessionId={sessionId}
+                                timestamp={timestamp}
+                                size="xsmall"
+                                data-attr="error-tracking-session-view-logs"
+                            />
+                        ) : null}
+                    </div>
                 </div>
                 <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
                 <PropertiesTab value="properties" className="flex-1 min-h-0" />
-                <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
-            </TabsPrimitive>
+                <SessionTab timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
+                <ExceptionCardFooter eventId={eventId} fingerprint={fingerprint} label={label} timestamp={timestamp} />
+            </Tabs>
         </LemonCard>
     )
 }
