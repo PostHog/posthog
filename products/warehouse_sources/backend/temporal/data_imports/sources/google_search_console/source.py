@@ -37,7 +37,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     GoogleSearchConsoleResumeConfig,
     google_search_console_session,
     google_search_console_source,
-    list_sites,
     list_sites_with_retry,
     normalize_site_url,
     suggest_registered_site,
@@ -251,7 +250,10 @@ class GoogleSearchConsoleSource(
             return False, _LOAD_CONNECTION_ERROR
 
         try:
-            sites = list_sites(session)
+            # Source creation probes credentials here, often right after the OAuth grant. Retry a
+            # transient 401/403 (or a token-refresh blip) from a just-granted token that hasn't
+            # propagated yet, so creation no longer rejects a valid connection (see `list_sites_with_retry`).
+            sites = list_sites_with_retry(session)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):

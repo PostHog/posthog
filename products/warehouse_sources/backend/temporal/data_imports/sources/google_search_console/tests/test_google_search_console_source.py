@@ -211,23 +211,21 @@ def test_missing_integration_is_non_retryable():
     ],
 )
 def test_validate_credentials_handles_auth_failures(status_code, expected_substring):
-    import requests
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
-    ) as mock_session_factory:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        err = requests.HTTPError(response=response)
-        session = mock.MagicMock()
-        session.get.return_value.raise_for_status.side_effect = err
-        mock_session_factory.return_value = session
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+    # A persistent 401/403 is surfaced as an actionable rejection only after the bounded retry gives up.
+    err = _http_error(status_code)
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             side_effect=err,
-        ):
-            ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.time.sleep"
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
     assert expected_substring in (message or "")
@@ -269,7 +267,7 @@ def test_validate_credentials_refresh_error_returns_reconnect_message(error_args
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             side_effect=err,
         ),
     ):
@@ -286,7 +284,7 @@ def test_validate_credentials_rejects_unknown_site():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             return_value=[
                 {"siteUrl": "https://other.example.com/", "permissionLevel": "siteOwner"},
             ],
@@ -307,7 +305,7 @@ def test_validate_credentials_suggests_registered_property_for_bare_hostname():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             return_value=[{"siteUrl": "https://plotlens.ai/", "permissionLevel": "siteOwner"}],
         ),
     ):
@@ -324,7 +322,7 @@ def test_validate_credentials_rejects_unverified_user():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             return_value=[
                 {"siteUrl": "https://example.com/", "permissionLevel": "siteUnverifiedUser"},
             ],
@@ -358,7 +356,7 @@ def test_validate_credentials_normalizes_site_url_before_lookup(entered, site_ur
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             return_value=[{"siteUrl": site_url, "permissionLevel": "siteOwner"}],
         ),
     ):
@@ -374,7 +372,7 @@ def test_validate_credentials_succeeds_for_verified_site():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             return_value=[
                 {"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"},
             ],
@@ -384,6 +382,36 @@ def test_validate_credentials_succeeds_for_verified_site():
 
     assert ok is True
     assert message is None
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_validate_credentials_recovers_from_transient_auth_failure(status_code):
+    # Source creation probes credentials right after the OAuth grant, when a just-granted token can
+    # still read as 401/403 until it propagates. Validation must retry rather than reject the
+    # connection on the first blip, matching the property-listing path.
+    list_sites = mock.Mock(
+        side_effect=[
+            _http_error(status_code),
+            [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+        ]
+    )
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
+            list_sites,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.time.sleep"
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is True
+    assert message is None
+    assert list_sites.call_count == 2
 
 
 def test_validate_credentials_handles_missing_integration():
@@ -434,7 +462,7 @@ def test_validate_credentials_unexpected_list_sites_error_stays_generic(error, s
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites",
             side_effect=error,
         ),
     ):
