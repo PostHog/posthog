@@ -26,6 +26,14 @@ CONNECT_MAX_ATTEMPTS = 4
 CONNECT_INITIAL_BACKOFF_SECONDS = 0.5
 CONNECT_BACKOFF_MULTIPLIER = 2.0
 
+# A blackholed Temporal address (dropped SYNs from a NetworkPolicy or security-group change,
+# conntrack exhaustion, a node failure) leaves the TCP dial with nothing to bound it, so a single
+# attempt can hang on the OS timeout for over two minutes and the retry loop would multiply that.
+# Bound each attempt so the loop has a predictable ceiling and a stuck dial cannot pin a Django
+# worker or startup process. Kept above the SDK's ~10s RPC retry window so a slow-but-healthy
+# connect is not cut short.
+CONNECT_ATTEMPT_TIMEOUT_SECONDS = 15.0
+
 
 class TemporalConnectionError(RuntimeError):
     """Raised when connecting to Temporal fails after retries. Lets callers tell a transient
@@ -78,15 +86,18 @@ async def connect(
     backoff = CONNECT_INITIAL_BACKOFF_SECONDS
     for attempt in range(1, CONNECT_MAX_ATTEMPTS + 1):
         try:
-            return await Client.connect(
-                f"{host}:{port}",
-                namespace=namespace,
-                tls=tls,
-                runtime=runtime,
-                interceptors=interceptors,
-                data_converter=data_converter,
-                plugins=list(plugins),
-            )
+            async with asyncio.timeout(CONNECT_ATTEMPT_TIMEOUT_SECONDS):
+                return await Client.connect(
+                    f"{host}:{port}",
+                    namespace=namespace,
+                    tls=tls,
+                    runtime=runtime,
+                    interceptors=interceptors,
+                    data_converter=data_converter,
+                    plugins=list(plugins),
+                )
+        # A timed-out attempt raises TimeoutError (an OSError subclass), so a stuck dial is caught
+        # here and retried like any other transient blip.
         except (RuntimeError, OSError) as error:
             last_error = error
             if attempt == CONNECT_MAX_ATTEMPTS:
