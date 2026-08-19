@@ -76,7 +76,6 @@ export const inboxLlmTraceLogic = kea<inboxLlmTraceLogicType>([
                         dateRange: { date_from: TRACE_LOOKBACK_FLOOR },
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = (await api.query(query)) as TraceQueryResponse
                         return response.results[0] ?? null
                     } catch {

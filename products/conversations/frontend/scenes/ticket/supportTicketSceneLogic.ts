@@ -645,7 +645,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                     try {
                         // First try to load by distinct_id
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.persons.list({ distinct_id: ticket.distinct_id })
                         if (response.results.length > 0) {
                             return response.results[0]
@@ -707,7 +706,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.conversationsTickets.list({
                             distinct_ids: person.distinct_ids.join(','),
                             ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
@@ -1149,7 +1147,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 const ticket = await api.conversationsTickets.get(props.id.toString())
 
                 // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
@@ -1234,7 +1231,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            // nosemgrep: prefer-codegen-api
             const request = api.conversationsTickets.update(props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
@@ -1287,7 +1283,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             const revision = ++cache.messageRevision
             const ticketId = values.ticket.id
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
                     item_id: ticketId,
@@ -1315,7 +1310,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
             try {
                 const oldestMessage = currentMessages[0]
-                // nosemgrep: prefer-codegen-api
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
                     item_id: values.ticket.id,
@@ -1385,7 +1379,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             let alreadySent = false
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
                     content,
                     rich_content: richContent,
@@ -1409,7 +1402,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // anything. A silent fetch keeps this off the normal loading and error paths.
                 const authorId = values.user?.id
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.comments.list({ scope: 'conversations_ticket', item_id: ticketId })
                     const earliestAcceptable = attemptStartedAt.subtract(SEND_RECOVERY_WINDOW_SECONDS, 'second')
                     sent =
@@ -1545,7 +1537,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (rating !== 'bad') {
                         return
                     }
-                    // nosemgrep: prefer-codegen-api
                     await api.conversationsTickets.submitAiFeedback(ticket.id, {
                         message_id: messageId,
                         rating,
@@ -1556,7 +1547,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.feedbackByMessageId[messageId]) {
                     return
                 }
-                // nosemgrep: prefer-codegen-api
                 await api.conversationsTickets.submitAiFeedback(ticket.id, {
                     message_id: messageId,
                     rating,

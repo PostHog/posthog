@@ -102,8 +102,6 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
-    DataWarehouseSavedQueryDraft,
-    DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -1449,24 +1447,8 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
-    public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
-    }
-
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
-    }
-
-    public dataWarehouseSavedQueryFolder(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.dataWarehouseSavedQueryFolders(teamId).addPathComponent(id)
-    }
-
-    public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
-    }
-
-    public dataWarehouseSavedQueryDraft(id: DataWarehouseSavedQueryDraft['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataWarehouseSavedQueryDrafts(teamId).addPathComponent(id)
     }
 
     public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
@@ -5768,24 +5750,6 @@ const api = {
         },
     },
 
-    dataWarehouseSavedQueryFolders: {
-        async list(): Promise<DataWarehouseSavedQueryFolder[]> {
-            return await new ApiRequest().dataWarehouseSavedQueryFolders().get()
-        },
-        async create(data: Pick<DataWarehouseSavedQueryFolder, 'name'>): Promise<DataWarehouseSavedQueryFolder> {
-            return await new ApiRequest().dataWarehouseSavedQueryFolders().create({ data })
-        },
-        async update(
-            folderId: DataWarehouseSavedQueryFolder['id'],
-            data: Pick<DataWarehouseSavedQueryFolder, 'name'>
-        ): Promise<DataWarehouseSavedQueryFolder> {
-            return await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).update({ data })
-        },
-        async delete(folderId: DataWarehouseSavedQueryFolder['id']): Promise<void> {
-            await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).delete()
-        },
-    },
-
     dataModelingDags: {
         async list(): Promise<PaginatedResponse<DataModelingDAG>> {
             return await new ApiRequest().dataModelingDags().get()
@@ -5869,27 +5833,6 @@ const api = {
         },
         async listRecent(): Promise<DataModelingJob[]> {
             return await new ApiRequest().dataModelingJobsRecent().get()
-        },
-    },
-
-    dataWarehouseSavedQueryDrafts: {
-        async list(): Promise<PaginatedResponse<DataWarehouseSavedQueryDraft>> {
-            return await new ApiRequest().dataWarehouseSavedQueryDrafts().get()
-        },
-        async get(id: DataWarehouseSavedQueryDraft['id']): Promise<DataWarehouseSavedQueryDraft> {
-            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).get()
-        },
-        async create(data: Partial<DataWarehouseSavedQueryDraft>): Promise<DataWarehouseSavedQueryDraft> {
-            return await new ApiRequest().dataWarehouseSavedQueryDrafts().create({ data })
-        },
-        async delete(id: DataWarehouseSavedQueryDraft['id']): Promise<void> {
-            await new ApiRequest().dataWarehouseSavedQueryDraft(id).delete()
-        },
-        async update(
-            id: DataWarehouseSavedQueryDraft['id'],
-            data: Partial<DataWarehouseSavedQueryDraft>
-        ): Promise<DataWarehouseSavedQueryDraft> {
-            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).update({ data })
         },
     },
 

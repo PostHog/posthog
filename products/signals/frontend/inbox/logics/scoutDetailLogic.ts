@@ -198,7 +198,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // allSettled, not all: one failed run's fetch (transient 500, deleted run)
                     // shouldn't discard every other run's findings — surface the partial set.
                     const settled = await Promise.allSettled(
-                        // nosemgrep: prefer-codegen-api
                         runs.map((run) => api.signalScout.runs.emissions(run.run_id))
                     )
                     const fulfilled = settled.filter(
@@ -234,7 +233,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // ones prefixed with its run_id.
                     const previous = values.emissionReports
                     const settled = await Promise.allSettled(
-                        // nosemgrep: prefer-codegen-api
                         runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
                     )
                     return runs.flatMap((run, index) => {
@@ -260,7 +258,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     if (touched.length === 0) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
                     return settled
                         .filter(

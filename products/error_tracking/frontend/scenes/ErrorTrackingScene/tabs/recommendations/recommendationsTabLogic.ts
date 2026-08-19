@@ -192,7 +192,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         loadRecommendations: async () => {
             actions.setRecommendationsLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.errorTracking.listRecommendations()
                 actions.setRecommendations(response.results)
                 posthog.capture('error_tracking_recommendations_loaded', {
@@ -207,7 +206,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         },
         pollRecommendations: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.errorTracking.listRecommendations({ poll: true })
                 actions.setRecommendations(response.results)
             } catch {
@@ -219,7 +217,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             // confirm the same status, so there's no flicker when it arrives.
             actions.markRecommendationComputing(id)
             try {
-                // nosemgrep: prefer-codegen-api
                 const updated = await api.errorTracking.refreshRecommendation(id)
                 actions.upsertRecommendation(updated)
             } catch {
@@ -228,7 +225,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             }
         },
         dismissRecommendation: async ({ id }) => {
-            // nosemgrep: prefer-codegen-api
             const updated = await api.errorTracking.dismissRecommendation(id)
             actions.upsertRecommendation(updated)
             posthog.capture('error_tracking_recommendation_dismissed', {
@@ -236,12 +232,10 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             })
         },
         restoreRecommendation: async ({ id }) => {
-            // nosemgrep: prefer-codegen-api
             const updated = await api.errorTracking.restoreRecommendation(id)
             actions.upsertRecommendation(updated)
         },
         suppressIssue: async ({ issueId }) => {
-            // nosemgrep: prefer-codegen-api
             await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
             posthog.capture('error_tracking_issue_update_status', {
                 status: 'suppressed',
@@ -253,12 +247,10 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 return
             }
             // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
-            // nosemgrep: prefer-codegen-api
             const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
             actions.upsertRecommendation(updated)
         },
         activateIssue: async ({ issueId }) => {
-            // nosemgrep: prefer-codegen-api
             await api.errorTracking.updateIssue(issueId, { status: 'active' })
             posthog.capture('error_tracking_issue_update_status', {
                 status: 'active',
@@ -269,7 +261,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             if (!longRunning) {
                 return
             }
-            // nosemgrep: prefer-codegen-api
             const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
             actions.upsertRecommendation(updated)
         },

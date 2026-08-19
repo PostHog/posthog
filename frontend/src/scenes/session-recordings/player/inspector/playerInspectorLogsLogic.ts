@@ -179,7 +179,6 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.logs.query({
                             query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end),
                         })
@@ -203,7 +202,6 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.logs.query({
                             query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end, cursor),
                         })

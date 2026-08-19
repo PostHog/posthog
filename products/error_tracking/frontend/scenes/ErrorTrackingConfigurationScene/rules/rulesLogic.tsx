@@ -261,7 +261,6 @@ export const rulesLogic = kea<rulesLogicType>([
             [] as ErrorTrackingRule[],
             {
                 loadRules: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const { results: rules } = await api.errorTracking.rules(props.ruleType)
                     return rules
                 },
@@ -270,11 +269,9 @@ export const rulesLogic = kea<rulesLogicType>([
                     const newValues = [...values.rules]
                     if (rule) {
                         if (rule.id === 'new') {
-                            // nosemgrep: prefer-codegen-api
                             const newRule = await api.errorTracking.createRule(props.ruleType, rule)
                             return [...newValues, newRule]
                         }
-                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.updateRule(props.ruleType, rule)
                         return newValues.map((r) => (r.id === rule.id ? { ...rule, disabled_data: null } : r))
                     }
@@ -282,7 +279,6 @@ export const rulesLogic = kea<rulesLogicType>([
                 },
                 deleteRule: async (id) => {
                     if (id !== 'new') {
-                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.deleteRule(props.ruleType, id)
                     }
                     const newValues = [...values.rules]
@@ -291,7 +287,6 @@ export const rulesLogic = kea<rulesLogicType>([
                 deleteSelectedRules: async () => {
                     await Promise.all(
                         values.selectedRuleIds.map((id) =>
-                            // nosemgrep: prefer-codegen-api
                             id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
                         )
                     )
@@ -300,7 +295,6 @@ export const rulesLogic = kea<rulesLogicType>([
                 finishReorderingRules: async () => {
                     const rules = values.localRules
                     const ruleOrders = Object.fromEntries(rules.map((r) => [r.id, r.order_key]))
-                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.reorderRules(props.ruleType, ruleOrders)
                     return rules
                 },

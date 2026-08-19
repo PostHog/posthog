@@ -491,7 +491,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
-                    // nosemgrep: prefer-codegen-api
                     const subscription = await api.subscriptions.get(props.id)
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
@@ -525,7 +524,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         summaryQuota: {
             __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
             loadSummaryQuota: async () => {
-                // nosemgrep: prefer-codegen-api
                 return await api.subscriptions.summaryQuota()
             },
         },
@@ -569,9 +567,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const updatedSub: SubscriptionType =
                     props.id === 'new'
-                        // nosemgrep: prefer-codegen-api
                         ? await api.subscriptions.create(payload)
-                        // nosemgrep: prefer-codegen-api
                         : await api.subscriptions.update(props.id, payload)
 
                 actions.resetSubscription()
@@ -769,7 +765,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     },
                 }
 
-                // nosemgrep: prefer-codegen-api
                 const asset = await api.exports.create(exportData)
                 breakpoint()
 
@@ -784,7 +779,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         await new Promise((resolve) => setTimeout(resolve, 3000))
                         breakpoint()
 
-                        // nosemgrep: prefer-codegen-api
                         const updated = await api.exports.get(asset.id)
                         if (updated.has_content) {
                             actions.setPreviewAsset(updated)
@@ -917,7 +911,6 @@ async function fetchPreviewImage(
     asset: ExportedAssetType,
     actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void }
 ): Promise<void> {
-    // nosemgrep: prefer-codegen-api
     const url = api.exports.determineExportUrl(asset.id)
     const response = await fetch(url, { credentials: 'include' })
     if (!response.ok) {

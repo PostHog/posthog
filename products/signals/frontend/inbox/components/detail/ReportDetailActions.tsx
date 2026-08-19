@@ -133,7 +133,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
         setIsRestoring(true)
         try {
-            // nosemgrep: prefer-codegen-api
             await api.signalReports.setState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')

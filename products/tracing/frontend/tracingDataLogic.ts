@@ -885,7 +885,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.listSpans(
                         {
                             dateRange: values.utcDateRange,
@@ -921,7 +920,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             ? { offset: values.listRows.length }
                             : { after: values.nextCursor ?? undefined }
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.listSpans(
                         {
                             dateRange: values.utcDateRange,
@@ -949,7 +947,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as Span[],
             {
                 loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
@@ -965,7 +962,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         return values.traceSpans
                     }
                     const { traceId, ts } = values.traceLoadContext
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
@@ -1015,7 +1011,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
                     const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.tree(
                         {
                             spanName: params.spanName,
@@ -1076,7 +1071,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         actions.setLastAggregationWindow(window)
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.aggregate(
                         {
                             dateRange: {
@@ -1127,7 +1121,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.sparkline(
                         {
                             dateRange: values.utcDateRange,
@@ -1166,7 +1159,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressMatchingCounts(controller)
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.count(
                         {
                             dateRange: values.utcDateRange,
@@ -1204,7 +1196,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressLatencyHeatmap(controller)
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.latencyHeatmap(
                         {
                             dateRange: values.utcDateRange,
@@ -1232,7 +1223,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressDurationHistogram(controller)
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.durationHistogram(
                         {
                             dateRange: values.utcDateRange,

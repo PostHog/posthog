@@ -17,7 +17,6 @@ import {
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -49,6 +48,7 @@ import {
     QueryTabState,
 } from '~/types'
 
+import { generatedQueryTabState } from 'products/data_warehouse/frontend/queryTabStateApi'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -2804,8 +2804,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.queryTabState.user(values.user?.uuid)
+                        return await generatedQueryTabState.user(values.user?.uuid)
                     } catch (e) {
                         console.error(e)
                         return null
@@ -2829,8 +2828,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             },
                         }
 
-                        // nosemgrep: prefer-codegen-api
-                        await api.queryTabState.update(queryTabState.id, newState)
+                        await generatedQueryTabState.update(queryTabState.id, newState)
 
                         return newState
                     } catch (e) {

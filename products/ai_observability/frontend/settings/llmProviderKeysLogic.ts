@@ -481,7 +481,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
                     )
@@ -514,7 +513,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         if (api_version) {
                             body.api_version = api_version
                         }
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
                             body
@@ -543,7 +541,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
                 },
             },
@@ -556,7 +553,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
                     return response.results
                 },
@@ -569,7 +565,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/`,
                         payload
@@ -589,7 +584,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.update(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`,
                         payload
@@ -611,7 +605,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     const url = replacementKeyId
                         ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
                         : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
-                    // nosemgrep: prefer-codegen-api
                     await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
@@ -624,7 +617,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}

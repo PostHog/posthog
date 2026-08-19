@@ -1,11 +1,15 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+
+import {
+    generatedManagedViewsets,
+    generatedRevenueAnalyticsJoins,
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
@@ -109,11 +113,9 @@ export const dataWarehouseManagedViewsetsLogic = kea<dataWarehouseManagedViewset
 
                     // If enabling, proceed directly
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        await api.dataWarehouseManagedViewsets.toggle(kind, true)
+                        await generatedManagedViewsets.toggle(kind, true)
                         if (kind === 'revenue_analytics') {
-                            // nosemgrep: prefer-codegen-api
-                            await api.revenueAnalyticsJoins.sync(true)
+                            await generatedRevenueAnalyticsJoins.sync(true)
                         }
                         lemonToast.success(`Viewset enabled successfully`)
                         actions.loadCurrentTeam()

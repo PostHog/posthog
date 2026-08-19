@@ -166,12 +166,10 @@ export const groupsModel = kea<groupsModelType>([
                     if (!values.currentProjectId) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
                     if (values.groupsEnabled) {
-                        // nosemgrep: prefer-codegen-api
                         return await api.update(
                             `/api/projects/${values.currentProjectId}/groups_types/update_metadata`,
                             payload
@@ -181,13 +179,11 @@ export const groupsModel = kea<groupsModelType>([
                 },
                 deleteGroupType: async (groupTypeIndex: number) => {
                     if (values.groupsEnabled) {
-                        // nosemgrep: prefer-codegen-api
                         await api.delete(`/api/projects/${values.currentProjectId}/groups_types/${groupTypeIndex}`)
                     }
                     return []
                 },
                 createDetailDashboard: async (groupTypeIndex: number) => {
-                    // nosemgrep: prefer-codegen-api
                     const groupType = await api.put(
                         `/api/projects/${values.currentProjectId}/groups_types/create_detail_dashboard`,
                         { group_type_index: groupTypeIndex }
@@ -212,7 +208,6 @@ export const groupsModel = kea<groupsModelType>([
                     groupTypeIndex: number
                     defaultColumns: string[]
                 }) => {
-                    // nosemgrep: prefer-codegen-api
                     const groupType = await api.put(
                         `/api/projects/${values.currentProjectId}/groups_types/set_default_columns`,
                         { group_type_index: groupTypeIndex, default_columns: defaultColumns }

@@ -403,7 +403,6 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             null as string[] | null,
             {
                 resolvePersonDistinctIds: async (distinctId: string) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.persons.list({ distinct_id: distinctId })
                     return response.results[0]?.distinct_ids ?? []
                 },

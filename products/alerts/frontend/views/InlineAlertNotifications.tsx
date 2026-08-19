@@ -32,7 +32,6 @@ function SlackDestinationChannel({ workspaceId, channelId }: { workspaceId: numb
 
     useEffect(() => {
         let cancelled = false
-        // nosemgrep: prefer-codegen-api
         api.integrations.slackChannelsById(workspaceId, channelId).then((res) => {
             if (!cancelled) {
                 setChannelName(res.channels[0]?.name ?? null)

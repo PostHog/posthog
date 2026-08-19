@@ -502,12 +502,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     // and then fetch them
                     let propertyDefinitions: CountedPaginatedResponse<PropertyDefinition>
                     if (type === 'session') {
-                        // nosemgrep: prefer-codegen-api
                         propertyDefinitions = await api.sessions.propertyDefinitions({
                             properties: pending,
                         })
                     } else {
-                        // nosemgrep: prefer-codegen-api
                         propertyDefinitions = await api.propertyDefinitions.list({
                             properties: pending,
                             ...queryParams,
@@ -582,7 +580,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                     constructValuesEndpoint(
                         endpoint,

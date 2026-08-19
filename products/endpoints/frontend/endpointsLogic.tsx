@@ -87,7 +87,6 @@ export const endpointsLogic = kea<endpointsLogicType>([
             [] as EndpointType[],
             {
                 loadEndpoints: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.endpoint.list()
                     return response.results || []
                 },

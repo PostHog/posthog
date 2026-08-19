@@ -32,7 +32,7 @@ describe('materializationJobsLogic', () => {
     }): Parameters<typeof useMocks>[0] {
         return {
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': () => [
                     200,
                     {
                         id: 'view-1',
@@ -42,10 +42,10 @@ describe('materializationJobsLogic', () => {
                         query: { kind: 'HogQLQuery', query: 'SELECT timestamp, id FROM events' },
                     },
                 ],
-                '/api/environments/:team_id/data_modeling_jobs': { results: [], count: 0 },
+                '/api/projects/:team_id/data_modeling_jobs': { results: [], count: 0 },
             },
             post: {
-                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => {
+                '/api/projects/:team_id/warehouse_saved_queries/check_incremental/': () => {
                     checkCalls += 1
                     return [200, ELIGIBLE_CHECK]
                 },

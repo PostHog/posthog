@@ -257,7 +257,6 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                     const params: Record<string, string> = {
                         date_from: '-30d',
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamId}/marketing_analytics/utm_audit`,
                         params

@@ -6,10 +6,10 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
+
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -223,8 +223,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             null as WebhookInfo | null,
             {
                 loadWebhookInfo: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    return await api.externalDataSources.getWebhookInfo(props.id)
+                    return await generatedExternalDataSources.getWebhookInfo(props.id)
                 },
             },
         ],
@@ -392,8 +391,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         createWebhook: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
-                const result = await api.externalDataSources.createWebhook(props.id)
+                const result = await generatedExternalDataSources.createWebhook(props.id)
                 actions.setCreateWebhookResult(result)
                 if (result.success) {
                     if ((result.pending_inputs?.length ?? 0) === 0) {
@@ -429,8 +427,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.externalDataSources.updateWebhookInputs(props.id, payload)
+                await generatedExternalDataSources.updateWebhookInputs(props.id, payload)
                 lemonToast.success('Webhook inputs saved')
                 // Clear typed plaintext immediately so the form doesn't keep the rotated
                 // secret in client state. `loadWebhookInfoSuccess` will then re-seed
@@ -443,8 +440,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         deleteWebhook: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
-                const result = await api.externalDataSources.deleteWebhook(props.id)
+                const result = await generatedExternalDataSources.deleteWebhook(props.id)
                 if (result.success) {
                     lemonToast.success(
                         result.external_deleted

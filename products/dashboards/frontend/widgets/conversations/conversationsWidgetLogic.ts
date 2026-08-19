@@ -54,7 +54,6 @@ export const conversationsWidgetLogic = kea<conversationsWidgetLogicType>([
             }
             actions.assignTicketLoading(ticketId)
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.conversationsTickets.update(ticketId, { assignee })
                 actions.assignTicketSuccess(ticketId)
                 props.onRefreshData?.()

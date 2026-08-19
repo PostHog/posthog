@@ -313,7 +313,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             null as OptOutSyncConfigResponse | null,
             {
                 loadSyncConfig: async () => {
-                    // nosemgrep: prefer-codegen-api
                     return await new ApiRequest().messagingCategoriesOptOutSyncConfig().get()
                 },
             },
@@ -460,7 +459,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 app_api_key: '',
             } as ImportFormValues,
             submit: async ({ app_api_key }) => {
-                // nosemgrep: prefer-codegen-api
                 const response = await new ApiRequest()
                     .messagingCategoriesImportFromCustomerIO()
                     .create({ data: { app_api_key } })
@@ -540,7 +538,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         },
         removeAppConfig: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesRemoveCustomerIOAppConfig().delete()
                 actions.resetImport()
             } catch (error: any) {
@@ -552,7 +549,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         rerunImport: async () => {
             actions.setImportProgress({ status: 'importing', topics_found: 0, errors: [] })
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await new ApiRequest().messagingCategoriesImportFromCustomerIO().create({ data: {} })
                 actions.setImportProgress(response)
                 actions.loadSyncConfig()
@@ -588,7 +584,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             formData.append('csv_file', file)
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await fetch(
                     `/api/environments/${values.currentTeamIdStrict}/messaging_categories/import_preferences_csv/`,
                     {
@@ -630,7 +625,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             }
             actions.setIsSavingWebhook(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesSaveWebhookConfig().create({
                     data: { webhook_signing_secret: secret, webhook_enabled: true },
                 })
@@ -646,7 +640,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         toggleWebhook: async ({ enabled }) => {
             actions.setIsSavingWebhook(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesSaveWebhookConfig().create({
                     data: { webhook_enabled: enabled },
                 })
@@ -660,7 +653,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         },
         removeWebhookConfig: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesRemoveWebhookConfig().delete()
                 actions.setWebhookSigningSecret('')
             } catch (error: any) {
@@ -679,7 +671,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             }
             actions.setIsSavingTrack(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesSaveTrackConfig().create({
                     data: { site_id: siteId, api_key: apiKey, region, track_enabled: true },
                 })
@@ -696,7 +687,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         toggleTrackSync: async ({ enabled }) => {
             actions.setIsSavingTrack(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesSaveTrackConfig().create({
                     data: { track_enabled: enabled },
                 })
@@ -710,7 +700,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         },
         removeTrackConfig: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await new ApiRequest().messagingCategoriesRemoveTrackConfig().delete()
                 actions.setTrackSiteId('')
                 actions.setTrackApiKey('')

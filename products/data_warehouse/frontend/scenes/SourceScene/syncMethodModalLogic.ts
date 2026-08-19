@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { ExternalDataSourceSchema, SchemaIncrementalFieldsResponse } from '~/types'
+
+import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 
@@ -109,8 +109,7 @@ export const syncMethodModalLogic = kea<syncMethodModalLogicType>([
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.externalDataSchemas.incremental_fields(schemaId)
+                        return await generatedExternalDataSchemas.incremental_fields(schemaId)
                     } catch (e: any) {
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e

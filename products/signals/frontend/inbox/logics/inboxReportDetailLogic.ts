@@ -578,7 +578,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalReportArtefact[] | null,
             {
                 loadReportArtefacts: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
                         limit: ARTEFACT_FETCH_LIMIT,
                     })
@@ -635,7 +634,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
                             try {
-                                // nosemgrep: prefer-codegen-api
                                 const task = await api.tasks.get(taskId)
                                 return { task, ...meta }
                             } catch {
@@ -661,7 +659,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
                 loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    // nosemgrep: prefer-codegen-api
                     return await api.signalReports.availableReviewers(query)
                 },
             },
@@ -1168,7 +1165,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
         updateReviewers: async ({ content }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.signalReports.setReviewers(props.reportId, content)
                 await actions.loadReportArtefacts()
             } catch (error: any) {

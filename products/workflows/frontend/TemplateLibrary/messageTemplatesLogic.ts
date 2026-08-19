@@ -156,7 +156,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.messaging.getTemplates()
                     return response.results
                 },
@@ -177,7 +176,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const newTemplate = await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         return [...values.templates, newTemplate]
@@ -194,7 +192,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     template: Partial<MessageTemplate>
                 }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
@@ -205,7 +202,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const duplicatedTemplate = await api.messaging.createTemplate({
                             name: `${template.name} (copy)`,
                             description: template.description,

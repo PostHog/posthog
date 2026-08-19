@@ -242,7 +242,6 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
     listeners(({ actions, cache, values }) => ({
         loadChannels: async ({ showError }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.get('api/conversations/v1/email/status?kind=customer_communication')
                 actions.loadChannelsSuccess(response.configs ?? [])
             } catch (error) {
@@ -269,7 +268,6 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
             const displayName =
                 [values.user.first_name, values.user.last_name].filter(Boolean).join(' ').trim() || values.user.email
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.create('api/conversations/v1/email/connect', {
                     from_email: email,
                     from_name: displayName,
@@ -287,7 +285,6 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
         openGmailConfirmation: async ({ channelId }) => {
             const confirmationWindow = window.open('about:blank', '_blank')
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.create('api/conversations/v1/email/confirm-forwarding', {
                     config_id: channelId,
                 })
@@ -310,7 +307,6 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
         },
         verifyForwarding: async ({ channelId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/email/verify-forwarding', {
                     config_id: channelId,
                 })
@@ -348,7 +344,6 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
         },
         disconnectEmail: async ({ channelId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/email/disconnect', { config_id: channelId })
                 cache.disposables.dispose(forwardingVerificationPollKey(channelId))
                 actions.disconnectEmailSuccess(channelId)

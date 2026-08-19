@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +10,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
+
+import {
+    generatedManagedViewsets,
+    generatedRevenueAnalyticsJoins,
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from './DataWarehouseManagedViewsetImpactModal'
@@ -63,11 +67,9 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element | null {
         }
 
         try {
-            // nosemgrep: prefer-codegen-api
-            await api.dataWarehouseManagedViewsets.toggle(kind, false)
+            await generatedManagedViewsets.toggle(kind, false)
             if (kind === 'revenue_analytics') {
-                // nosemgrep: prefer-codegen-api
-                await api.revenueAnalyticsJoins.sync(false)
+                await generatedRevenueAnalyticsJoins.sync(false)
             }
             lemonToast.success(`${VIEWSET_TITLES[kind]} viewset disabled and views deleted successfully`)
             loadCurrentTeam()

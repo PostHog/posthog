@@ -4,7 +4,6 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -12,6 +11,7 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { DatabaseSchemaTable } from '../../queries/schema/schema-general'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -490,8 +490,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (values.joinToEdit?.id && values.selectedSourceTable) {
                     // Edit join
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        await api.dataWarehouseViewLinks.update(values.joinToEdit.id, {
+                        await generatedWarehouseViewLinks.update(values.joinToEdit.id, {
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
                             joining_table_name,
@@ -511,8 +510,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 } else if (values.selectedSourceTable) {
                     // Create join
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        await api.dataWarehouseViewLinks.create({
+                        await generatedWarehouseViewLinks.create({
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
                             joining_table_name,
@@ -625,8 +623,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
             actions.validateJoinStarted()
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.dataWarehouseViewLinks.validate({
+                const response = await generatedWarehouseViewLinks.validate({
                     source_table_name: values.selectedSourceTableName,
                     source_table_key: sourceTableKey,
                     joining_table_name: values.selectedJoiningTableName,

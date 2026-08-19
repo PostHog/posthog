@@ -54,7 +54,6 @@ export const tracingIngestionLogic = kea<tracingIngestionLogicType>([
         teamHasSpans: {
             __default: undefined as boolean | undefined,
             loadTeamHasSpans: async (): Promise<boolean> => {
-                // nosemgrep: prefer-codegen-api
                 return await retryWithBackoff(() => api.tracing.hasSpans(), { maxAttempts: 3 })
             },
         },

@@ -138,7 +138,6 @@ async function queryAIDataForEvent(params: LoadAIDataParams, source: AIDataQuery
 
     const dateFrom = eventTimestamp.subtract(EVENT_TIMESTAMP_WINDOW_MINUTES, 'minute').toISOString()
     const dateTo = eventTimestamp.add(EVENT_TIMESTAMP_WINDOW_MINUTES, 'minute').toISOString()
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL<AIDataQueryRow[]>(
         hogql`
             SELECT

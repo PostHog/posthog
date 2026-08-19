@@ -36,7 +36,6 @@ export const exceptionIngestionLogic = kea<exceptionIngestionLogicType>([
         hasSentExceptionEvent: {
             __default: undefined as boolean | undefined,
             loadExceptionIngestionState: async (): Promise<boolean> => {
-                // nosemgrep: prefer-codegen-api
                 const response = await new ApiRequest()
                     .errorTrackingIssuesExists()
                     .get()

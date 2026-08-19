@@ -810,7 +810,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalCount(sortKey, undefined)
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const response: UserBlastRadiusType = await api.create(
                     `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                     {
@@ -870,7 +869,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return
                 }
 
-                // nosemgrep: prefer-codegen-api
                 const response = await api.featureFlags.bulkKeys(validIds)
                 const keys = response.keys
 
@@ -935,7 +933,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             for (let i = 0; i < uncachedIds.length; i += DISTINCT_ID_BATCH_SIZE) {
                 const chunk = uncachedIds.slice(i, i + DISTINCT_ID_BATCH_SIZE)
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const personsByDistinctId = await api.persons.getByDistinctIds(chunk)
                     actions.setDistinctIdNames(toMapping(chunk, personsByDistinctId))
                 } catch (error) {

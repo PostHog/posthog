@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
+
+import { generatedManagedViewsets } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export const VIEWSET_TITLES: Record<DataWarehouseManagedViewsetKind, string> = {
     revenue_analytics: 'Revenue analytics',
@@ -119,8 +119,7 @@ export const disableDataWarehouseManagedViewsetModalLogic = kea<disableDataWareh
             {
                 openModal: async ({ kind }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        const response = await api.dataWarehouseManagedViewsets.getViews(kind)
+                        const response = await generatedManagedViewsets.getViews(kind)
                         return response.views
                     } catch (error) {
                         console.error('Failed to fetch views:', error)

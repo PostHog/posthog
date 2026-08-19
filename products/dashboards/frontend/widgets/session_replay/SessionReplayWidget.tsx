@@ -81,7 +81,6 @@ function SessionReplayWidgetRecordingRow({
         setIsOpening(true)
         try {
             const query: RecordingsQuery = { ...matchingEventsQuery, session_ids: [recording.id] }
-            // nosemgrep: prefer-codegen-api
             const response = await api.recordings.getMatchingEvents(toParams(query))
             openSessionPlayer({
                 id: recording.id,

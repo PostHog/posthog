@@ -264,7 +264,6 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                 `,
                             }
 
-                            // nosemgrep: prefer-codegen-api
                             const response = await api.query(query)
                             const results: Record<string, TraceMessages> = {}
 

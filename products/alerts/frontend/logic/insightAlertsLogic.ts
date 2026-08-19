@@ -257,7 +257,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },
@@ -270,7 +269,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                         return {}
                     }
                     const alertIds = new Set(alerts.map((alert) => alert.id))
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
                         filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),

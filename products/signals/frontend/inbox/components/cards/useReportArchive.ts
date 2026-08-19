@@ -57,7 +57,6 @@ export function useReportArchive({
                 // Fallback for standalone usage (e.g. stories) without a bound list logic.
                 setIsArchiving(true)
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await api.signalReports.setState(reportId, {
                         state: 'suppressed',
                         dismissal_reason: reason,

@@ -499,7 +499,6 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     dateRange,
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(traceQuery)
                     if (dateRangeCacheKey !== getDateRangeCacheKey(values.dateRange)) {
                         return
@@ -572,7 +571,6 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                             traceId,
                             dateRange,
                         }
-                        // nosemgrep: prefer-codegen-api
                         const traceResponse = await api.query(traceQuery)
                         if (traceResponse.results && traceResponse.results[0]) {
                             fullTrace = traceResponse.results[0]
@@ -584,7 +582,6 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     // Build the hierarchy tree from full trace events
                     const hierarchy = restoreTree(fullTrace.events || [], traceId)
 
-                    // nosemgrep: prefer-codegen-api
                     const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
                         summarize_type: 'trace',
                         mode: 'minimal',

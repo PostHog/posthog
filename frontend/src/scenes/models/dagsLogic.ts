@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
+
+import { generatedDataModelingDags } from 'products/data_modeling/frontend/dataModelingApi'
 
 export const SYNC_FREQUENCY_OPTIONS: { value: DataModelingSyncInterval; label: string }[] = [
     { value: '15min', label: '15 minutes' },
@@ -81,13 +81,11 @@ export const dagsLogic = kea<dagsLogicType>([
         dags: {
             __default: [] as DataModelingDAG[],
             loadDags: async (): Promise<DataModelingDAG[]> => {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.dataModelingDags.list()
+                const response = await generatedDataModelingDags.list()
                 return response.results
             },
             updateDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
-                // nosemgrep: prefer-codegen-api
-                const updated = await api.dataModelingDags.update(dag.id, {
+                const updated = await generatedDataModelingDags.update(dag.id, {
                     name: dag.name,
                     description: dag.description,
                     sync_frequency: dag.sync_frequency,
@@ -95,8 +93,7 @@ export const dagsLogic = kea<dagsLogicType>([
                 return values.dags.map((d) => (d.id === updated.id ? updated : d))
             },
             deleteDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
-                // nosemgrep: prefer-codegen-api
-                await api.dataModelingDags.delete(dag.id)
+                await generatedDataModelingDags.delete(dag.id)
                 return values.dags.filter((d) => d.id !== dag.id)
             },
         },

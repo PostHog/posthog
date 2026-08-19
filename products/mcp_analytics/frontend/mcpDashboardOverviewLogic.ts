@@ -663,7 +663,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadKPIs: async (_: void, breakpoint) => {
                     const { interval } = values
                     const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
@@ -689,7 +688,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     // same bounded skew the KPI tiles already carry; splitting on the raw start instead
                     // would equalize the halves but desync Users from the other tiles, so don't.)
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
@@ -715,7 +713,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolRow[],
             {
                 loadToolRows: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: TOOL_ROWS_QUERY,
@@ -737,7 +734,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as SessionRow[],
             {
                 loadSessionRows: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: SESSION_ROWS_QUERY,
@@ -762,7 +758,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPHarnessBreakdownQuery,
                         dateRange,
@@ -785,7 +780,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCallsAndErrorsQuery,
                         dateRange,
@@ -807,7 +801,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCallBreakdownQuery,
                         dateRange,

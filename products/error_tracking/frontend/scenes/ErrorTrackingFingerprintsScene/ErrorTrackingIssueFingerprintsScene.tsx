@@ -162,7 +162,6 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
                 limit: 1,
                 tags: { productKey: ProductKey.ERROR_TRACKING },
             }
-            // nosemgrep: prefer-codegen-api
             const response = await api.query(query)
             if (response.results.length > 0) {
                 const [uuid, props, timestamp] = response.results[0]

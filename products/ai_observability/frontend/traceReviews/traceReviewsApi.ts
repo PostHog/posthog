@@ -114,7 +114,6 @@ export const traceReviewsApi = {
     },
 
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {
-        // nosemgrep: prefer-codegen-api
         return api.delete(`${getTraceReviewsBaseUrl(teamId)}${id}/`)
     },
 

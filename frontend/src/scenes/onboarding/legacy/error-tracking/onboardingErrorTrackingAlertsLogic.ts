@@ -267,7 +267,6 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                 }
 
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await api.hogFunctions.create(configuration)
                 } catch (e: any) {
                     // Without this, kea-forms swallows the API error and the "Next" button

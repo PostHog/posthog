@@ -122,7 +122,6 @@ export const logsFilterVolumePreviewLogic = kea<logsFilterVolumePreviewLogicType
                     if (!isFilterGroupNonEmpty(values.filterGroup)) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.logs.sparkline({
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },

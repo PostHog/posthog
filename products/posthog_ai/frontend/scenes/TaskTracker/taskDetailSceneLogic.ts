@@ -207,7 +207,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 loadTaskRuns: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
                         return response.results
                     } catch (errorObject) {
@@ -225,7 +224,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
                         return run ?? null
                     } catch (errorObject) {

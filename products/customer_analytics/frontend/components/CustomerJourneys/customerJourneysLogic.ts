@@ -206,7 +206,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         journeys: {
             __default: [] as CustomerJourneyApi[],
             loadJourneys: async (): Promise<CustomerJourneyApi[]> => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.customerJourneys.list()
                 return response.results
             },
@@ -219,9 +218,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 name: string
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
-                // nosemgrep: prefer-codegen-api
                 await api.customerJourneys.create({ insight: insightId, name, description })
-                // nosemgrep: prefer-codegen-api
                 const response = await api.customerJourneys.list()
                 return response.results
             },
@@ -234,14 +231,11 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 name: string
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
-                // nosemgrep: prefer-codegen-api
                 await api.customerJourneys.update(journeyId, { name, description })
-                // nosemgrep: prefer-codegen-api
                 const response = await api.customerJourneys.list()
                 return response.results
             },
             deleteJourney: async (journeyId: string): Promise<CustomerJourneyApi[]> => {
-                // nosemgrep: prefer-codegen-api
                 await api.customerJourneys.delete(journeyId)
                 return values.journeys.filter((j) => j.id !== journeyId)
             },

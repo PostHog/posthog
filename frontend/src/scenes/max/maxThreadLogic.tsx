@@ -132,7 +132,6 @@ export interface MaxThreadLogicProps {
 
 async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<boolean> {
     try {
-        // nosemgrep: prefer-codegen-api
         const pendingTask = await api.tasks.get(pendingBindTaskId)
         if (!isPiTaskRuntime(pendingTask.runtime)) {
             return false
@@ -1203,7 +1202,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         return { messages: [], limit: 0 }
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const queue = await api.conversations.queue.list(values.conversation.id)
                         return {
                             messages: queue.messages,
@@ -1343,7 +1341,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
-                        // nosemgrep: prefer-codegen-api
                         const handle = await api.conversations.open(conversationId, {
                             content: streamData.content,
                             trace_id: traceId,
@@ -1413,7 +1410,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.agent_mode = agentMode
                 }
 
-                // nosemgrep: prefer-codegen-api
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -1729,7 +1725,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Warm = open with no message: boots a Run that idles awaiting the first message. The
                 // returned handle lets a later release cancel exactly that Run via the relay (a full
                 // pool returns null — nothing to release).
-                // nosemgrep: prefer-codegen-api
                 const warm = await api.conversations.open(values.conversationId, {
                     content: null,
                     initial_permission_mode: INITIAL_PERMISSION_MODE,
@@ -1803,7 +1798,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     queuePayload.agent_mode = agentMode
                 }
 
-                // nosemgrep: prefer-codegen-api
                 const queue = await api.conversations.queue.enqueue(values.conversation.id, queuePayload)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
@@ -1824,7 +1818,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 const queue = await api.conversations.queue.update(values.conversation.id, queueId, content)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
@@ -1845,7 +1838,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
             actions.setQueuedMessages(fallbackQueue)
             try {
-                // nosemgrep: prefer-codegen-api
                 const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
@@ -1870,7 +1862,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
             actions.setQueuedMessages(fallbackQueue)
             try {
-                // nosemgrep: prefer-codegen-api
                 const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
@@ -1889,7 +1880,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 const queue = await api.conversations.queue.clear(values.conversation.id)
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
@@ -2112,7 +2102,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
                     actions.cancelSandboxRun()
                 } else {
-                    // nosemgrep: prefer-codegen-api
                     await api.conversations.cancel(values.conversation.id)
                 }
                 cache.generationController?.abort()
@@ -2282,7 +2271,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // nosemgrep: prefer-codegen-api
             await api.conversations.appendMessage(conversationId, message)
 
             actions.addMessage({

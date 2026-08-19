@@ -359,7 +359,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     if (!props.alertId) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
                         filter_groups: [buildAlertFilterConfig(props.alertId)],
@@ -443,7 +442,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             const results = await Promise.allSettled(
                 pending.map((notification) => {
                     const payload = buildHogFunctionPayload(alertId, alertName, notification)
-                    // nosemgrep: prefer-codegen-api
                     return api.hogFunctions.create(payload)
                 })
             )

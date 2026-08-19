@@ -2734,7 +2734,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                 if (props.id === 'new' && sourceId) {
                     // Used when "duplicating a feature flag". This populates the form with the source flag's data.
-                    // nosemgrep: prefer-codegen-api
                     const sourceFlag = await api.featureFlags.get(sourceId)
                     // But first, remove fields that we don't want to duplicate
                     const {
@@ -2769,13 +2768,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         // Get the flag first to check if it has an experiment
-                        // nosemgrep: prefer-codegen-api
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
 
                         // If there's an experiment, load it concurrently before returning to prevent UI flicker
                         if (retrievedFlag.experiment_set && retrievedFlag.experiment_set.length > 0) {
                             try {
-                                // nosemgrep: prefer-codegen-api
                                 const experiment = await api.experiments.get(retrievedFlag.experiment_set[0])
                                 actions.loadExperimentSuccess(experiment)
                             } catch (error) {
@@ -2890,7 +2887,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
-                        // nosemgrep: prefer-codegen-api
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
@@ -2912,7 +2908,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
                         }
 
-                        // nosemgrep: prefer-codegen-api
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             {
@@ -2949,13 +2944,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
-                        // nosemgrep: prefer-codegen-api
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
                     } else {
-                        // nosemgrep: prefer-codegen-api
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             {
@@ -2983,7 +2976,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!values.featureFlag.id) {
                         throw new Error('Cannot toggle active state of unsaved flag')
                     }
-                    // nosemgrep: prefer-codegen-api
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         { active }
@@ -3004,7 +2996,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw new Error('Cannot archive an unsaved flag')
                     }
                     // Archiving also disables the flag — the backend rejects archived+enabled flags
-                    // nosemgrep: prefer-codegen-api
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         archived ? { archived: true, active: false } : { archived: false }
@@ -3030,7 +3021,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch {
@@ -3046,7 +3036,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
@@ -3067,7 +3056,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         name: `Early access: ${values.featureFlag.key}`,
                         feature_flag_id: values.featureFlag.id,
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
                 },
             },
@@ -3089,7 +3077,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.surveys.create(newSurvey as NewSurvey)
                     actions.addProductIntent({
                         product_type: ProductKey.SURVEYS,
@@ -3108,7 +3095,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 createStaticCohort: async () => {
                     if (props.id && props.id !== 'new' && props.id !== 'link') {
-                        // nosemgrep: prefer-codegen-api
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
@@ -3121,7 +3107,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganizationId
                 const flagKey = values.featureFlag.key
 
-                // nosemgrep: prefer-codegen-api
                 const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
                 const teamIdsInCurrentProject =
                     values.currentOrganization?.teams
@@ -3165,7 +3150,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadScheduledChanges: async () => {
                 const { currentProjectId } = values
                 if (currentProjectId) {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.featureFlags.getScheduledChanges(currentProjectId, values.featureFlag.id)
                     return response.results || []
                 }
@@ -3216,14 +3200,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         end_date: values.endDate ? values.endDate.tz(timezone, true).endOf('day').toISOString() : null,
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
                 }
             },
             deleteScheduledChange: async (scheduledChangeId) => {
                 const { currentProjectId } = values
                 if (currentProjectId) {
-                    // nosemgrep: prefer-codegen-api
                     return await api.featureFlags.deleteScheduledChange(currentProjectId, scheduledChangeId)
                 }
             },
@@ -3234,7 +3216,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadFeatureFlagStatus: () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        // nosemgrep: prefer-codegen-api
                         return api.featureFlags.getStatus(currentProjectId, props.id)
                     }
                     return null
@@ -3244,7 +3225,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         experiment: {
             loadExperiment: async () => {
                 if (values.featureFlag.experiment_set && values.featureFlag.experiment_set.length > 0) {
-                    // nosemgrep: prefer-codegen-api
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
                 return null
@@ -3256,7 +3236,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadDependentFlags: async () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        // nosemgrep: prefer-codegen-api
                         return await api.get(
                             `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
                         )
@@ -3452,7 +3431,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             // Create the enable schedule first
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
@@ -3466,7 +3444,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             // Create the disable schedule
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: false },
@@ -3491,7 +3468,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
                 await breakpoint(1000) // in ms
-                // nosemgrep: prefer-codegen-api
                 await api.create(
                     `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
@@ -3990,7 +3966,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const { currentProjectId } = values
             if (currentProjectId) {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
                         is_recurring: false,
                     })
@@ -4005,7 +3980,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const { currentProjectId } = values
             if (currentProjectId) {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
                         is_recurring: true,
                     })
@@ -4044,7 +4018,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     name,
                 })
@@ -4082,7 +4055,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await breakpoint(250)
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     tags,
                 })

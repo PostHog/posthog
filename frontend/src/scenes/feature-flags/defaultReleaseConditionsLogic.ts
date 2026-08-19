@@ -17,7 +17,6 @@ export interface DefaultReleaseConditionsResponse {
 }
 
 export async function fetchDefaultReleaseConditions(teamId: number): Promise<DefaultReleaseConditionsResponse> {
-    // nosemgrep: prefer-codegen-api
     return await api.get(`/api/environments/${teamId}/default_release_conditions/`)
 }
 
@@ -171,7 +170,6 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                         throw new Error('No team selected')
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     return (await api.put(`/api/environments/${teamId}/default_release_conditions/`, {
                         enabled: values.localEnabled,
                         default_groups: values.localGroups ?? [],

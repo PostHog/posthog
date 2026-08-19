@@ -321,7 +321,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
                     // The api wrapper already returns the typed `{ user_uuid, name, email }[]` array.
-                    // nosemgrep: prefer-codegen-api
                     return await api.signalReports.availableReviewers(query)
                 },
             },

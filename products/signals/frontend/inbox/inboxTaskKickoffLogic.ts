@@ -76,7 +76,6 @@ async function createReportTask(
     runtimeSelection?: ClaudeRuntimeSelection
 ): Promise<void> {
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
-    // nosemgrep: prefer-codegen-api
     const task = await api.tasks.create({
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
@@ -101,7 +100,6 @@ async function createReportTask(
         // ACP runtime, so without this the sandbox boots with no first turn and the run just idles.
         pending_user_message: prompt,
     }
-    // nosemgrep: prefer-codegen-api
     await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
 
     router.actions.push(urls.taskDetail(task.id))

@@ -108,7 +108,6 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
         savedFilters: {
             __default: [] as SessionRecordingPlaylistType[],
             loadSavedFilters: async () => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.recordings.listPlaylists(
                     toParams({ limit: 100, order: '-last_modified_at', type: 'filters' })
                 )
@@ -118,7 +117,6 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
         collections: {
             __default: [] as SessionRecordingPlaylistType[],
             loadCollections: async () => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.recordings.listPlaylists(
                     toParams({ limit: 100, order: '-last_modified_at', type: 'collection' })
                 )
