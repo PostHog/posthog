@@ -19,7 +19,7 @@ import { useState } from "react";
 // create one when none exist yet.
 export function WebsiteChannelsIndex() {
   const spacesLayout = useChannelsLayout();
-  const { channels } = useChannels();
+  const { channels, isLoading } = useChannels();
   const reportCanvasesEnabled = useFeatureFlag(
     REPORT_CANVAS_INBOX_FLAG,
     import.meta.env.DEV,
@@ -45,7 +45,7 @@ export function WebsiteChannelsIndex() {
     select: (s) => s.location.pathname === "/website",
   });
 
-  if (isLoadingReportSpace) return null;
+  if (isLoading || isLoadingReportSpace) return null;
 
   if (!onIndexPath || activeTabIsBlank) return null;
 
