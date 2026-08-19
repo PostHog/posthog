@@ -17,12 +17,10 @@ import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
-// Trigger types started from this topic. Deliberately an explicit list rather than "any workflow
-// whose trigger is an event": internal events share the topic with error tracking and activity log
-// signals, and an event-triggered workflow expects those to arrive via analytics capture, not here.
-const INTERNAL_EVENT_TRIGGER_TYPES = new Set(['slack-message'])
-
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
+// The event that starts each trigger type. Type alone would match every other signal on this topic.
+const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([['slack-message', SLACK_MESSAGE_RECEIVED_EVENT]])
 
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
@@ -105,7 +103,8 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    INTERNAL_EVENT_TRIGGER_TYPES.has(flow.trigger.type) && !ownSlackMessages.has(globals),
+                    INTERNAL_EVENT_TRIGGER_EVENTS.get(flow.trigger.type) === globals.event.event &&
+                    !ownSlackMessages.has(globals),
             }),
         ])
 

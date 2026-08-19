@@ -298,6 +298,31 @@ describe('CDP Internal Events Consumer', () => {
             expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
         })
 
+        it('should not start a slack workflow from another signal on this topic', async () => {
+            // Eligibility has to match the event as well as the trigger type. Error tracking, alerts
+            // and activity logs all arrive here, and a workflow whose stored filters are empty (which
+            // the API accepts) matches whatever it is handed — so trigger type alone fires on all of
+            // them, with no channel or ts for a reply step to use.
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([
+                createKafkaMessage(
+                    createInternalEvent(team.id, {
+                        event: {
+                            timestamp: '2026-08-17T12:00:00.000Z',
+                            uuid: 'aaaaaaaa-bbbb-cccc-dddd-ffffffffffff',
+                            event: '$insight_alert_firing',
+                            distinct_id: 'U123',
+                            properties: { alert_id: 'abc' },
+                        },
+                    })
+                ),
+            ])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+        })
+
         it('should not start an event-triggered workflow', async () => {
             // Internal events share this topic with error tracking and activity log signals. An
             // event-triggered workflow expects those from analytics capture, so widening eligibility
