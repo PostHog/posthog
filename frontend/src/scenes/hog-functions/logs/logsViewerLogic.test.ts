@@ -185,12 +185,24 @@ describe('logsViewerLogic', () => {
                 args: [10],
                 expected: 'ORDER BY max(timestamp) DESC, instance_id DESC',
             },
+            {
+                description: 'bounds the rows read per instance so one instance cannot exhaust query memory',
+                args: [10],
+                expected: 'LIMIT 500 BY instance_id',
+            },
         ] as { description: string; args: [number, number?]; expected: string }[])(
             '$description',
             ({ args, expected }) => {
                 expect(buildGroupedLogsQuery(makeParams(), ...args)).toContain(expected)
             }
         )
+
+        it('applies the search filter to the outer query, not only the group subquery', () => {
+            const query = buildGroupedLogsQuery(makeParams({ searchGroups: ['timeout'] }), 10, 0)
+            // The ILIKE predicate must appear twice: once to pick groups, once to shrink the outer scan.
+            const matches = query.match(/message ILIKE concat/g) ?? []
+            expect(matches).toHaveLength(2)
+        })
 
         it('pages by offset alone, without introducing a timestamp cursor', () => {
             // A batch fires every instance within the same millisecond, so successive pages must differ ONLY by

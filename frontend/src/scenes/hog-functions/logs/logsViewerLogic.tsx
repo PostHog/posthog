@@ -29,6 +29,8 @@ export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
 export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
+// Cap the rows read per instance so one high-volume instance cannot pull in millions of rows.
+export const LOG_GROUP_PER_INSTANCE_LIMIT = 500
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -169,6 +171,7 @@ export const buildGroupedLogsQuery = (
         FROM log_entries
         WHERE 1=1
         ${hogql.raw(buildBoundaryFilters(request))}
+        ${hogql.raw(buildSearchFilters(request))}
         AND instance_id in (
             SELECT instance_id
             FROM log_entries
@@ -181,6 +184,7 @@ export const buildGroupedLogsQuery = (
             OFFSET ${groupOffset}
         )
         ORDER BY timestamp DESC
+        LIMIT ${LOG_GROUP_PER_INSTANCE_LIMIT} BY instance_id
         LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
 }
 
@@ -569,20 +573,26 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     actions.clearHiddenLogs()
                     const results = await loadGroupedLogs(values.logEntryParams).catch((e) => {
                         lemonToast.error('Error loading logs ' + e.message)
-                        throw e
+                        return []
                     })
                     await breakpoint(10)
 
                     return groupLogs(results)
                 },
                 loadMoreGroupedLogs: async () => {
+                    let failed = false
                     const results = await loadGroupedLogs(
                         values.logEntryParams,
                         LOG_GROUP_LIMIT,
                         values.groupedLogs.length
-                    )
+                    ).catch((e) => {
+                        lemonToast.error('Error loading logs ' + e.message)
+                        failed = true
+                        return []
+                    })
 
-                    if (!results.length) {
+                    // Keep the "load more" control on a transient error so the user can retry.
+                    if (!failed && !results.length) {
                         actions.markLogsEnd()
                     }
                     return groupLogs([...values.groupedLogs.flatMap((group) => group.entries), ...results])
