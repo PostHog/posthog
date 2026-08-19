@@ -85,7 +85,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     handleRetry,
     handleNewSession,
     handleBashCommand,
-  } = useSessionCallbacks({ taskId, task, session, repoPath });
+  } = useSessionCallbacks({ taskId, task, repoPath });
 
   const { handleBeforeSubmit, dialogProps } = useBranchMismatchDialog({
     taskId,

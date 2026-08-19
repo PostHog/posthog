@@ -502,31 +502,32 @@ describe("createIncrementalConversationBuilder", () => {
     }
   });
 
-  it("gives the active turn a fresh toolCalls Map identity each call so an in-place tool update re-renders", () => {
-    // SessionUpdateView is memoized on `turnContext.toolCalls`, and tool_call_update
-    // mutates the tool entry in place. If the Map reference is reused across calls
-    // the memo bails and the completed status (and streamed output) stay hidden
-    // until the turn ends. Guard that the Map identity changes every event.
+  it("replaces the tool row's update object when a tool_call_update lands so its memoized view re-renders", () => {
+    // Memoized rows compare the row's `update` object; a tool_call_update must
+    // surface as a fresh object carrying the merged state, or the completed
+    // status (and streamed output) stay hidden until the turn ends.
     const inc = createIncrementalConversationBuilder();
     const base = [userPromptMsg(1, 1, "go"), toolCallMsg(2, "t1")];
     const r1 = inc.update(base, true);
     const next = [...base, toolUpdateMsg(3, "t1", { status: "completed" })];
     const r2 = inc.update(next, true);
 
-    const ctx1 = r1.items.find((i) => i.type === "session_update");
-    const ctx2 = r2.items.find((i) => i.type === "session_update");
-    if (ctx1?.type !== "session_update" || ctx2?.type !== "session_update") {
+    const row1 = r1.items.find((i) => i.type === "session_update");
+    const row2 = r2.items.find((i) => i.type === "session_update");
+    if (row1?.type !== "session_update" || row2?.type !== "session_update") {
       throw new Error("expected tool-call session_update rows");
     }
-    expect(ctx2.turnContext.toolCalls).not.toBe(ctx1.turnContext.toolCalls);
-    expect(ctx2.turnContext.childItems).not.toBe(ctx1.turnContext.childItems);
+    expect(row2.update).not.toBe(row1.update);
+    expect((row2.update as { status?: string }).status).toBe("completed");
+    // The shared toolCalls Map holds the merged entry the view resolves.
+    expect(row2.turnContext.toolCalls.get("t1")?.status).toBe("completed");
   });
 
   it("surfaces a running agent's child tool calls live, before the turn completes", () => {
     // A subagent appends child tool calls (parentToolCallId) while it runs. The
-    // parent row is memoized on `turnContext.childItems`; without a fresh Map ref
-    // the new children stay invisible until turn end. Guard that a child appended
-    // mid-turn changes the childItems Map identity and is present.
+    // parent row renders them, so the parent's update object must be re-issued
+    // when a child arrives — otherwise its memoized view bails and the new
+    // children stay invisible until turn end.
     const inc = createIncrementalConversationBuilder();
     const base = [
       userPromptMsg(1, 1, "go"),
@@ -543,9 +544,65 @@ describe("createIncrementalConversationBuilder", () => {
     if (row1?.type !== "session_update" || row2?.type !== "session_update") {
       throw new Error("expected agent session_update rows");
     }
-    // New child arrived mid-turn: fresh Map identity so the memoized parent re-renders.
-    expect(row2.turnContext.childItems).not.toBe(row1.turnContext.childItems);
+    // New child arrived mid-turn: fresh parent update so the memoized row re-renders.
+    expect(row2).not.toBe(row1);
+    expect(row2.update).not.toBe(row1.update);
     expect(row2.turnContext.childItems.get("agent1")?.length).toBe(1);
+  });
+
+  it("re-issues a thought row's identity when its turn completes in the same batch a new turn starts", () => {
+    // The settled thought then sits before the next turn's boundary, where
+    // row caches retain by identity — only a fresh object surfaces the flip.
+    const inc = createIncrementalConversationBuilder();
+    const base = [userPromptMsg(1, 1, "go"), thoughtChunk(2, "hmm")];
+    const r1 = inc.update(base, true);
+    const next = [
+      ...base,
+      promptResponseMsg(3, 1),
+      userPromptMsg(4, 2, "next"),
+    ];
+    const r2 = inc.update(next, true);
+
+    const isThought = (i: ConversationItem) =>
+      i.type === "session_update" &&
+      i.update.sessionUpdate === "agent_thought_chunk";
+    const thought1 = r1.items.find(isThought);
+    const thought2 = r2.items.find(isThought);
+    if (
+      thought1?.type !== "session_update" ||
+      thought2?.type !== "session_update"
+    ) {
+      throw new Error("expected thought rows");
+    }
+    expect(thought1.thoughtComplete).toBe(false);
+    expect(thought2.thoughtComplete).toBe(true);
+    expect(thought2).not.toBe(thought1);
+  });
+
+  it("settles an older turn's thought after a newer turn starts", () => {
+    const inc = createIncrementalConversationBuilder();
+    const beforeCompletion = [
+      userPromptMsg(1, 1, "first"),
+      thoughtChunk(2, "hmm"),
+      userPromptMsg(3, 2, "second"),
+      agentChunk(4, "working"),
+    ];
+    inc.update(beforeCompletion, true);
+
+    const result = inc.update(
+      [...beforeCompletion, promptResponseMsg(5, 1, "cancelled")],
+      true,
+    );
+    const thought = result.items.find(
+      (item) =>
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "agent_thought_chunk",
+    );
+
+    if (thought?.type !== "session_update") {
+      throw new Error("expected thought row");
+    }
+    expect(thought.thoughtComplete).toBe(true);
   });
 
   it("groups canonical PostHog child metadata under its subagent", () => {

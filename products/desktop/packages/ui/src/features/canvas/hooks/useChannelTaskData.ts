@@ -5,12 +5,13 @@ import {
 } from "@posthog/core/sidebar/buildSidebarData";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import type { Task } from "@posthog/shared/domain-types";
-import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
+import { useSessionSelector } from "@posthog/ui/features/sessions/useSession";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useSuspendedTaskIds } from "@posthog/ui/features/suspension/useSuspendedTaskIds";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { useMemo } from "react";
+import { shallow } from "zustand/shallow";
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 const EMPTY_MAP: ReadonlyMap<string, string> = new Map();
@@ -21,7 +22,19 @@ const EMPTY_MAP: ReadonlyMap<string, string> = new Map();
 export function useChannelTaskData(
   task: Task | undefined,
 ): TaskData | undefined {
-  const session = useSessionForTask(task?.id);
+  const session = useSessionSelector(
+    task?.id,
+    (current): TaskSession | undefined =>
+      current
+        ? {
+            isPromptPending: current.isPromptPending,
+            pendingPermissions: current.pendingPermissions,
+            cloudStatus: current.cloudStatus,
+            cloudOutput: current.cloudOutput,
+          }
+        : undefined,
+    shallow,
+  );
   const workspace = useWorkspace(task?.id);
   const { pinnedTaskIds } = usePinnedTasks();
   const suspendedTaskIds = useSuspendedTaskIds();
@@ -31,7 +44,7 @@ export function useChannelTaskData(
     if (!task) return undefined;
     const sidebarTask = narrowFullTask(task);
     return deriveTaskData(sidebarTask, {
-      session: session as TaskSession | undefined,
+      session,
       workspace: workspace ?? undefined,
       timestamp: timestamps[task.id],
       pinnedIds: pinnedTaskIds,

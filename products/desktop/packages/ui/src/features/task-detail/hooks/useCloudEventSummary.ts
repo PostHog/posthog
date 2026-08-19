@@ -1,22 +1,31 @@
 import {
-  buildCloudEventSummary,
   type CloudEventSummary,
+  createCloudEventSummaryTracker,
 } from "@posthog/core/task-detail/cloudToolChanges";
-import { useMemo } from "react";
-import { useSessionForTask } from "../../sessions/useSession";
+import { useMemo, useRef } from "react";
+import { useSessionSelector } from "../../sessions/useSession";
 
 const EMPTY_SUMMARY: CloudEventSummary = {
   toolCalls: new Map(),
+  revision: 0,
+  changedFilesRevision: 0,
 };
 
 export function useCloudEventSummary(
   taskId: string,
   enabled = true,
 ): CloudEventSummary {
-  const session = useSessionForTask(enabled ? taskId : undefined);
-  const events = session?.events;
+  const events = useSessionSelector(
+    enabled ? taskId : undefined,
+    (session) => session?.events,
+  );
+  const trackerRef = useRef<ReturnType<
+    typeof createCloudEventSummaryTracker
+  > | null>(null);
+  trackerRef.current ??= createCloudEventSummaryTracker();
+  const tracker = trackerRef.current;
   return useMemo(
-    () => (events ? buildCloudEventSummary(events) : EMPTY_SUMMARY),
-    [events],
+    () => (events ? tracker.update(events) : EMPTY_SUMMARY),
+    [events, tracker],
   );
 }

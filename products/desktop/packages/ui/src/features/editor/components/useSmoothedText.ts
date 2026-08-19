@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 // one, so the cadence reads as even typing instead of speeding up to clear a
 // backlog. Matches the feel of #2685. See https://upstash.com/blog/smooth-streaming.
 const DEFAULT_CHARS_PER_SECOND = 120;
+const FRAME_INTERVAL_MS = 50;
 // Past this backlog we stop easing and snap, so a large buffered chunk (e.g. a
 // reconnect replaying a long message) never crawls.
 const MAX_LAG_CHARS = 600;
@@ -75,6 +76,13 @@ export function useSmoothedText(
       lastTsRef.current = null;
       const tick = (ts: number) => {
         const last = lastTsRef.current ?? ts;
+        if (
+          lastTsRef.current !== null &&
+          ts - lastTsRef.current < FRAME_INTERVAL_MS
+        ) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
         lastTsRef.current = ts;
         shownLenRef.current = nextRevealLength(
           shownLenRef.current,

@@ -121,6 +121,8 @@ type PiTurnState =
   | { phase: "active"; startedAt?: number; stopReason?: string }
   | { phase: "completed" };
 
+const STREAM_UPDATE_INTERVAL_MS = 50;
+
 type PiOperation =
   | "prompt"
   | "compact"
@@ -168,6 +170,11 @@ export class PiSessionController {
     { trusted: boolean; promise: Promise<void> }
   >();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
+  private readonly pendingEvents = new Map<string, AgentConversationEvent[]>();
+  private readonly pendingEventTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private readonly connections = new Map<string, Promise<void>>();
   private readonly readiness = new Map<string, Promise<void>>();
   private readonly sessionVersions = new Map<string, number>();
@@ -793,11 +800,15 @@ export class PiSessionController {
       const conversationEvents = events.filter(
         (event) => event.type !== "queue_update",
       );
-      const liveEvents = this.liveEvents.get(taskId) ?? [];
+      const liveEvents = [
+        ...(this.liveEvents.get(taskId) ?? []),
+        ...(this.pendingEvents.get(taskId) ?? []),
+      ];
       const newLiveEvents = this.reconcileLiveEvents(
         conversationEvents,
         liveEvents,
       );
+      this.discardPendingEvents(taskId);
       this.liveEvents.set(taskId, newLiveEvents);
       const historyUserMessageIds = new Set(
         conversationEvents.flatMap((event) =>
@@ -908,6 +919,18 @@ export class PiSessionController {
     event: AgentConversationEvent,
     context?: PiConversationEventContext,
   ): void {
+    const isLive = context?.isLive ?? true;
+    if (
+      isLive &&
+      (event.type === "assistant_message_chunk" ||
+        event.type === "assistant_thought_chunk" ||
+        event.type === "tool_call_updated")
+    ) {
+      this.queueEvent(taskId, event);
+      return;
+    }
+
+    this.flushPendingEvents(taskId);
     if (event.type === "queue_update") {
       const queue = {
         steering: event.steering,
@@ -925,7 +948,6 @@ export class PiSessionController {
       return;
     }
 
-    const isLive = context?.isLive ?? true;
     this.applyTurnEvent(taskId, event, isLive);
 
     if (event.type === "runtime_error") {
@@ -952,16 +974,9 @@ export class PiSessionController {
         );
       }
     }
-    const isDirectBashEvent =
-      (event.type === "tool_call_started" ||
-        event.type === "tool_call_updated") &&
-      event.toolCall.origin === "user_shell";
     const hasTurnActivity =
-      !isDirectBashEvent &&
-      (event.type === "assistant_message_chunk" ||
-        event.type === "assistant_thought_chunk" ||
-        event.type === "tool_call_started" ||
-        event.type === "tool_call_updated");
+      event.type === "tool_call_started" &&
+      event.toolCall.origin !== "user_shell";
     if (status && hasTurnActivity) {
       status = { ...status, isStreaming: true };
     }
@@ -1104,6 +1119,82 @@ export class PiSessionController {
 
   private handleCloudStatus(taskId: string, cloudStatus: TaskRunStatus): void {
     this.updateSession(taskId, { cloudStatus });
+  }
+
+  private queueEvent(taskId: string, event: AgentConversationEvent): void {
+    const pending = this.pendingEvents.get(taskId) ?? [];
+    pending.push(event);
+    this.pendingEvents.set(taskId, pending);
+
+    if (this.pendingEventTimers.has(taskId)) return;
+    this.pendingEventTimers.set(
+      taskId,
+      setTimeout(() => {
+        this.pendingEventTimers.delete(taskId);
+        this.flushPendingEvents(taskId);
+      }, STREAM_UPDATE_INTERVAL_MS),
+    );
+  }
+
+  private flushPendingEvents(taskId: string): void {
+    const timer = this.pendingEventTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingEventTimers.delete(taskId);
+    }
+
+    const pending = this.pendingEvents.get(taskId);
+    if (!pending?.length) return;
+    this.pendingEvents.delete(taskId);
+
+    const session = this.getSession(taskId);
+    const seenSourceIds = new Set(
+      session.events.flatMap((event) =>
+        event.sourceId ? [event.sourceId] : [],
+      ),
+    );
+    const events = pending.filter((event) => {
+      if (!event.sourceId || !seenSourceIds.has(event.sourceId)) {
+        if (event.sourceId) seenSourceIds.add(event.sourceId);
+        return true;
+      }
+      return false;
+    });
+    if (events.length === 0) return;
+
+    for (const event of events) {
+      this.applyTurnEvent(taskId, event, true);
+    }
+
+    this.liveEvents.set(taskId, [
+      ...(this.liveEvents.get(taskId) ?? []),
+      ...events,
+    ]);
+    const hasTurnActivity = events.some(
+      (event) =>
+        event.type !== "tool_call_updated" ||
+        event.toolCall.origin !== "user_shell",
+    );
+    const latestSession = this.getSession(taskId);
+    this.updateSession(taskId, {
+      connectionState: "connected",
+      events: [...latestSession.events, ...events],
+      status:
+        latestSession.status && hasTurnActivity
+          ? { ...latestSession.status, isStreaming: true }
+          : latestSession.status,
+      error:
+        latestSession.error?.scope === "operation"
+          ? latestSession.error
+          : undefined,
+    });
+  }
+
+  private discardPendingEvents(taskId: string): void {
+    const timer = this.pendingEventTimers.get(taskId);
+    if (timer) clearTimeout(timer);
+    this.pendingEventTimers.delete(taskId);
+    this.pendingEvents.delete(taskId);
   }
 
   private async refreshStats(taskId: string): Promise<void> {
@@ -1536,6 +1627,7 @@ export class PiSessionController {
 
   private disposeTask(taskId: string): void {
     this.cancelAuthRestoration.get(taskId)?.();
+    this.flushPendingEvents(taskId);
     this.resetTransport(taskId);
     this.taskRunIds.delete(taskId);
     this.liveEvents.delete(taskId);
@@ -1547,6 +1639,7 @@ export class PiSessionController {
   }
 
   private resetTransport(taskId: string): void {
+    this.discardPendingEvents(taskId);
     this.advanceSessionVersion(taskId);
     this.disposeConversationSubscription(taskId);
     this.sessions.delete(taskId);

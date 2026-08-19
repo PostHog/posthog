@@ -1,11 +1,93 @@
+import type { AcpMessage } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 
 import {
   cachedDiffStats,
+  createCloudEventSummaryTracker,
   extractCloudFileContent,
   extractCloudToolChangedFiles,
   type ParsedToolCall,
 } from "./cloudToolChanges";
+
+function toolEvent(
+  toolCallId: string,
+  update: Record<string, unknown>,
+): AcpMessage {
+  return {
+    ts: 1,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "run-1",
+        update: { sessionUpdate: "tool_call_update", toolCallId, ...update },
+      },
+    },
+  } as AcpMessage;
+}
+
+function textEvent(text: string): AcpMessage {
+  return {
+    ts: 1,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "run-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text },
+        },
+      },
+    },
+  } as AcpMessage;
+}
+
+describe("createCloudEventSummaryTracker", () => {
+  it("merges appended tool updates and resets when the transcript is replaced", () => {
+    const tracker = createCloudEventSummaryTracker();
+    const started = toolEvent("tool-1", { title: "Edit file" });
+    const completed = toolEvent("tool-1", { status: "completed" });
+
+    tracker.update([started]);
+    const appended = tracker.update([started, completed]);
+    expect(appended.toolCalls.get("tool-1")).toMatchObject({
+      title: "Edit file",
+      status: "completed",
+    });
+
+    const replacement = tracker.update([
+      toolEvent("tool-2", { title: "Write file" }),
+    ]);
+    expect([...replacement.toolCalls.keys()]).toEqual(["tool-2"]);
+  });
+
+  it("reuses the projected summary when appended events do not change tools", () => {
+    const tracker = createCloudEventSummaryTracker();
+    const started = toolEvent("tool-1", { title: "Edit file" });
+    const first = tracker.update([started]);
+
+    expect(tracker.update([started, textEvent("hello")])).toBe(first);
+  });
+
+  it("retains the changed-files revision for irrelevant streamed content", () => {
+    const tracker = createCloudEventSummaryTracker();
+    const started = toolEvent("tool-1", {
+      title: "Edit file",
+      locations: [{ path: "src/file.ts", line: null }],
+    });
+    const first = tracker.update([started]);
+    const input = toolEvent("tool-1", {
+      content: [
+        { type: "content", content: { type: "text", text: "partial" } },
+      ],
+    });
+
+    const second = tracker.update([started, input]);
+
+    expect(second.changedFilesRevision).toBe(first.changedFilesRevision);
+  });
+});
 
 function diffObj(
   newText: string,

@@ -175,10 +175,10 @@ function describeAcpMethod(acpMsg: AcpMessage): string {
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
  * per event. Electron IPC delivers each event as its own task, so a microtask
- * flush wouldn't batch across them — a short timer does. One frame is
- * imperceptible for streamed text.
+ * flush wouldn't batch across them — a short timer does. A 50ms presentation
+ * delay is imperceptible for streamed text and cuts update churn substantially.
  */
-const SESSION_EVENT_FLUSH_MS = 16;
+const SESSION_EVENT_FLUSH_MS = 50;
 /**
  * Steering an adapter that can't fold a message into a running turn leaves only
  * one way in: interrupt it. Cancelling the instant the user hits send cuts off
@@ -1670,6 +1670,14 @@ function classifyTurnEventKind(
   return "other";
 }
 
+function isStreamUpdateEvent(acpMsg: AcpMessage): boolean {
+  const msg = acpMsg.message;
+  if (!("method" in msg) || msg.method !== "session/update") return false;
+  const update = (msg as { params?: { update?: { sessionUpdate?: string } } })
+    .params?.update;
+  return update?.sessionUpdate !== "config_option_update";
+}
+
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
   private reconcilingTasks = new Set<string>();
@@ -2753,9 +2761,7 @@ export class SessionService {
     const batches = this.pendingSessionEvents;
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
-      for (const acpMsg of events) {
-        this.applySessionEvent(taskRunId, acpMsg);
-      }
+      this.applySessionEventBatch(taskRunId, events);
     }
   }
 
@@ -2765,9 +2771,7 @@ export class SessionService {
     const events = this.pendingSessionEvents.get(taskRunId);
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
-    for (const acpMsg of events) {
-      this.applySessionEvent(taskRunId, acpMsg);
-    }
+    this.applySessionEventBatch(taskRunId, events);
   }
 
   /**
@@ -2779,18 +2783,76 @@ export class SessionService {
     try {
       this.handleSessionEvent(taskRunId, acpMsg);
     } catch (error) {
-      const stats = this.statsFor(taskRunId);
-      stats.failed += 1;
-      if (stats.failed === 1 || stats.failed % 100 === 0) {
-        this.d.log.error("Session event handling failed", {
-          taskRunId,
-          method: describeAcpMethod(acpMsg),
-          failed: stats.failed,
-          received: stats.received,
-          error,
-        });
+      this.recordSessionEventFailure(taskRunId, acpMsg, error);
+    }
+  }
+
+  private recordSessionEventFailure(
+    taskRunId: string,
+    acpMsg: AcpMessage,
+    error: unknown,
+  ): void {
+    const stats = this.statsFor(taskRunId);
+    stats.failed += 1;
+    if (stats.failed === 1 || stats.failed % 100 === 0) {
+      this.d.log.error("Session event handling failed", {
+        taskRunId,
+        method: describeAcpMethod(acpMsg),
+        failed: stats.failed,
+        received: stats.received,
+        error,
+      });
+    }
+  }
+
+  private applySessionEventBatch(
+    taskRunId: string,
+    events: AcpMessage[],
+  ): void {
+    let passive: AcpMessage[] = [];
+    const flushPassive = () => {
+      if (passive.length === 0) return;
+      const session = this.d.store.getSessions()[taskRunId];
+      if (session) {
+        try {
+          if (session.initialPrompt?.length) {
+            this.d.store.updateSession(taskRunId, {
+              initialPrompt: undefined,
+            });
+          }
+          this.d.store.appendEvents(taskRunId, passive);
+        } catch (error) {
+          this.recordSessionEventFailure(taskRunId, passive[0], error);
+          for (const event of passive) {
+            this.applySessionEvent(taskRunId, event);
+          }
+          passive = [];
+          return;
+        }
+        try {
+          this.updatePromptStateFromEvents(taskRunId, passive, {
+            isLive: true,
+          });
+        } catch (error) {
+          this.recordSessionEventFailure(
+            taskRunId,
+            passive.at(-1) ?? passive[0],
+            error,
+          );
+        }
+      }
+      passive = [];
+    };
+
+    for (const event of events) {
+      if (isStreamUpdateEvent(event)) {
+        passive.push(event);
+      } else {
+        flushPassive();
+        this.applySessionEvent(taskRunId, event);
       }
     }
+    flushPassive();
   }
 
   private statsFor(taskRunId: string): {
@@ -2954,7 +3016,13 @@ export class SessionService {
       { taskRunId },
       {
         onData: (payload: unknown) => {
-          this.enqueueSessionEvent(taskRunId, payload as AcpMessage);
+          const event = payload as AcpMessage;
+          if (isStreamUpdateEvent(event)) {
+            this.enqueueSessionEvent(taskRunId, event);
+          } else {
+            this.flushSessionEventsForTask(taskRunId);
+            this.handleSessionEvent(taskRunId, event);
+          }
         },
         onError: (err) => {
           this.d.log.error("Session subscription error", {

@@ -454,16 +454,15 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   0%,
   100% {
     opacity: 1;
-    color: var(--accent-9);
   }
   50% {
     opacity: 0.5;
-    color: var(--accent-11);
   }
 }
 
 .ph-pulse {
-  animation: ph-pulse 1s ease-in-out infinite;
+  color: var(--accent-9);
+  animation: ph-pulse 1s step-end infinite;
 }
 
 /* Shimmer for an item whose run is still in flight. A highlight band sweeps
@@ -508,8 +507,7 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
 
 /* Freeze CSS keyframe animations while the app window is unfocused or hidden.
    Perpetual indicators (spinners, pulses, floats) otherwise keep the compositor
-   and GPU busy in the background for animations nobody is looking at — and some,
-   like ph-pulse's color shift, force main-thread repaints every frame. The class
+   and GPU busy in the background for animations nobody is looking at. The class
    is toggled from the renderer focus store (see GlobalEventHandlers). Transitions
    are unaffected, and animations resume where they left off on refocus. */
 body.ph-window-blurred *,

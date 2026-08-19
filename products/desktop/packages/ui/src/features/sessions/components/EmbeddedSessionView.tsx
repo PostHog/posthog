@@ -47,7 +47,7 @@ export function EmbeddedSessionView({
     handleRetry,
     handleNewSession,
     handleBashCommand,
-  } = useSessionCallbacks({ taskId, task, session, repoPath });
+  } = useSessionCallbacks({ taskId, task, repoPath });
 
   useEffect(() => {
     requestFocus(taskId);

@@ -127,15 +127,23 @@ export function useCanvasGenerationToasts(): void {
     })),
   });
 
-  // The live ACP sessions — for local runs this, not the run record, is what
-  // tells us generation has actually finished.
-  const sessions = useSessionStore((s) => s.sessions);
-  const taskIdIndex = useSessionStore((s) => s.taskIdIndex);
+  // Subscribe only to fields that affect generation state. Transcript appends
+  // must not rerender this persistent root-mounted watcher.
+  const sessionSignature = useSessionStore((state) =>
+    taskIds
+      .map((id) => {
+        const runId = state.taskIdIndex[id];
+        const session = runId ? state.sessions[runId] : undefined;
+        return `${id}:${session?.status ?? ""}:${session?.cloudStatus ?? ""}:${session?.isPromptPending ? 1 : 0}`;
+      })
+      .join("|"),
+  );
+  const sessionState = useSessionStore.getState();
 
   // Compute the "still generating?" signal per tracked task each render.
   const states = taskIds.map((id, i) => {
-    const runId = taskIdIndex[id];
-    const session = runId ? sessions[runId] : undefined;
+    const runId = sessionState.taskIdIndex[id];
+    const session = runId ? sessionState.sessions[runId] : undefined;
     const latestRun = details[i]?.data?.latest_run;
     const generating = isCanvasGenerating({
       genTaskId: id,
@@ -147,12 +155,12 @@ export function useCanvasGenerationToasts(): void {
   });
 
   // A stable signature so the transition effect only runs on real changes.
-  const sig = states
+  const sig = `${sessionSignature}|${states
     .map(
       (s) =>
         `${s.id}:${s.generating ? 1 : 0}:${s.latestRun?.status ?? ""}:${s.session?.status ?? ""}:${s.session?.cloudStatus ?? ""}:${s.session?.isPromptPending ? 1 : 0}`,
     )
-    .join("|");
+    .join("|")}`;
 
   const statesRef = useRef(states);
   statesRef.current = states;

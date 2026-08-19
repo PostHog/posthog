@@ -2,7 +2,11 @@ import { exec } from "node:child_process";
 import { platform } from "node:os";
 import { promisify } from "node:util";
 import { injectable, preDestroy } from "inversify";
-import { isProcessAlive, killProcessTree } from "./process-utils";
+import {
+  isProcessAlive,
+  killProcessTree,
+  killProcessTrees,
+} from "./process-utils";
 import type {
   DiscoveredProcess,
   ProcessCategory,
@@ -195,25 +199,24 @@ export class ProcessTrackingService {
 
   killByCategory(category: ProcessCategory): void {
     const procs = this.getByCategory(category);
-    for (const proc of procs) {
-      this.kill(proc.pid);
-    }
+    this.killProcesses(procs);
   }
 
   killByTaskId(taskId: string): void {
     const procs = this.getByTaskId(taskId);
-    for (const proc of procs) {
-      this.kill(proc.pid);
-    }
+    this.killProcesses(procs);
+  }
+
+  private killProcesses(procs: readonly TrackedProcess[]): void {
+    killProcessTrees(procs.map((proc) => proc.pid));
+    for (const proc of procs) this.unregister(proc.pid, "killed");
   }
 
   @preDestroy()
   killAll(): void {
     this._isShuttingDown = true;
 
-    for (const proc of this.processes.values()) {
-      killProcessTree(proc.pid);
-    }
+    killProcessTrees(Array.from(this.processes.keys()));
     this.processes.clear();
     this.taskProcesses.clear();
   }

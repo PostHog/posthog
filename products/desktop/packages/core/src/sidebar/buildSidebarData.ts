@@ -1,4 +1,8 @@
-import { readPrUrls, type WorkspaceMode } from "@posthog/shared";
+import {
+  readPrUrls,
+  type SessionStatus,
+  type WorkspaceMode,
+} from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { taskActivityAt } from "../tasks/taskActivity";
 import { getRepositoryInfo } from "./groupTasks";
@@ -111,6 +115,7 @@ export function filterVisibleTasks(
 }
 
 export interface TaskSession {
+  status?: SessionStatus;
   isPromptPending?: boolean;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
@@ -133,7 +138,7 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
-    signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
+    signature += `${session.taskId}:${session.status ?? ""}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
     }:${session.cloudStatus ?? ""}:${prUrl};`;
   }

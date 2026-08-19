@@ -98,9 +98,9 @@ describe("session event diagnostics", () => {
 
       events.subscriptions[0].handlers.onData(chunk("first"));
       events.subscriptions[0].handlers.onData(chunk("second"));
-      vi.advanceTimersByTime(20);
+      vi.advanceTimersByTime(50);
 
-      expect(appendEvents).toHaveBeenCalledTimes(2);
+      expect(appendEvents).toHaveBeenCalledTimes(3);
       expect(log.error).toHaveBeenCalledWith(
         "Session event handling failed",
         expect.objectContaining({

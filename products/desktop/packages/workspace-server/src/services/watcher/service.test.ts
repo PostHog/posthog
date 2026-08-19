@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileWatcherEvent, WatcherEvent } from "./schemas";
-import { DEBOUNCE_MS, MAX_WAIT_MS, WatcherService } from "./service";
+import {
+  accumulateFsEvents,
+  DEBOUNCE_MS,
+  drainPending,
+  MAX_WAIT_MS,
+  WatcherService,
+} from "./service";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -207,5 +213,28 @@ describe("WatcherService.watchRepo debounce", () => {
 
     wt.end();
     await done;
+  });
+});
+
+describe("WatcherService bulk changes", () => {
+  it("stops retaining paths after crossing the bulk threshold", () => {
+    const pending: Parameters<typeof accumulateFsEvents>[0] = {
+      dirs: new Set(),
+      files: new Set(),
+      deletes: new Set(),
+      bulkChanged: false,
+    };
+    const events = Array.from({ length: 1000 }, (_, index) => ({
+      type: "update" as const,
+      path: `/repo/dist/${index}.js`,
+    }));
+
+    accumulateFsEvents(pending, events);
+
+    expect(pending.files.size).toBe(0);
+    expect(drainPending("/repo", pending)).toEqual([
+      { kind: "working-tree-changed", repoPath: "/repo" },
+    ]);
+    expect(pending.bulkChanged).toBe(false);
   });
 });

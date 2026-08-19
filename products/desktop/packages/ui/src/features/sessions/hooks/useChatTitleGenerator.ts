@@ -1,4 +1,5 @@
 import type { Schemas } from "@posthog/api-client";
+import { createAppendOnlyTracker } from "@posthog/core/sessions/appendOnlyTracker";
 import {
   canApplyTitleFromPrompts,
   decideTitleGeneration,
@@ -28,9 +29,19 @@ import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { logger } from "@posthog/ui/shell/logger";
 import { titleAttachmentStoreApi } from "@posthog/ui/shell/titleAttachmentStore";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 const log = logger.scope("chat-title-generator");
+
+function createPromptCountTracker() {
+  return createAppendOnlyTracker<{ count: number }, number>({
+    init: () => ({ count: 0 }),
+    processEvent: (state, event) => {
+      state.count += extractUserPromptsFromEvents([event]).length;
+    },
+    getResult: (state) => state.count,
+  });
+}
 
 function getCachedTask(
   queryClient: QueryClient,
@@ -55,13 +66,19 @@ export function useChatTitleGenerator(task: Task): void {
     (state) => state.status === "authenticated" && !!state.cloudRegion,
   );
 
-  const promptCount = useSessionStore((state) => {
+  const events = useSessionStore((state) => {
     const taskRunId = state.taskIdIndex[taskId];
-    if (!taskRunId) return 0;
-    const session = state.sessions[taskRunId];
-    if (!session?.events) return 0;
-    return extractUserPromptsFromEvents(session.events).length;
+    return taskRunId ? state.sessions[taskRunId]?.events : undefined;
   });
+  const promptCountTrackerRef = useRef<ReturnType<
+    typeof createPromptCountTracker
+  > | null>(null);
+  promptCountTrackerRef.current ??= createPromptCountTracker();
+  const promptCountTracker = promptCountTrackerRef.current;
+  const promptCount = useMemo(
+    () => (events ? promptCountTracker.update(events) : 0),
+    [events, promptCountTracker],
+  );
 
   useEffect(() => {
     if (!isAuthenticated || (task.created_by && !currentUser)) return;

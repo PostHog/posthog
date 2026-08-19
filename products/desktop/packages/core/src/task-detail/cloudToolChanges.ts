@@ -8,6 +8,7 @@ import {
   isJsonRpcNotification,
 } from "@posthog/shared";
 import type { ChangedFile } from "@posthog/shared/domain-types";
+import { createAppendOnlyTracker } from "../sessions/appendOnlyTracker";
 
 function getContentText(
   content: ToolCallContent[] | undefined,
@@ -178,6 +179,73 @@ export function cachedDiffStats(
 
 export interface CloudEventSummary {
   toolCalls: Map<string, ParsedToolCall>;
+  revision: number;
+  changedFilesRevision: number;
+}
+
+function changedFilesKey(toolCall: ParsedToolCall): string {
+  const diff = getDiffContent(toolCall.content);
+  return JSON.stringify({
+    kind: inferKind(toolCall.kind, toolCall.title),
+    failed: toolCall.status === "failed",
+    locations: toolCall.locations?.map((location) => location.path),
+    diff: diff
+      ? {
+          path: diff.path,
+          oldText: diff.oldText,
+          newText: diff.newText,
+        }
+      : undefined,
+  });
+}
+
+function applyCloudEvent(
+  toolCalls: Map<string, ParsedToolCall>,
+  event: AcpMessage,
+): { toolChanged: boolean; changedFilesChanged: boolean } {
+  const message = event.message;
+  if (!isJsonRpcNotification(message) || message.method !== "session/update") {
+    return { toolChanged: false, changedFilesChanged: false };
+  }
+  const params = message.params as
+    | { update?: Record<string, unknown> }
+    | undefined;
+  const update = params?.update;
+  if (!update || typeof update !== "object") {
+    return { toolChanged: false, changedFilesChanged: false };
+  }
+
+  const sessionUpdate = update.sessionUpdate;
+  if (sessionUpdate !== "tool_call" && sessionUpdate !== "tool_call_update") {
+    return { toolChanged: false, changedFilesChanged: false };
+  }
+
+  const toolCallId =
+    typeof update.toolCallId === "string" ? update.toolCallId : undefined;
+  if (!toolCallId) return { toolChanged: false, changedFilesChanged: false };
+
+  const patch: Partial<ParsedToolCall> = {
+    toolCallId,
+    kind: typeof update.kind === "string" ? update.kind : null,
+    title: typeof update.title === "string" ? update.title : undefined,
+    status: typeof update.status === "string" ? update.status : null,
+    locations: Array.isArray(update.locations)
+      ? (update.locations as ToolCallLocation[])
+      : undefined,
+    content: Array.isArray(update.content)
+      ? (update.content as ToolCallContent[])
+      : undefined,
+    rawOutput: update.rawOutput,
+  };
+
+  const existing = toolCalls.get(toolCallId);
+  const merged = mergeToolCall(existing, patch);
+  toolCalls.set(toolCallId, merged);
+  return {
+    toolChanged: true,
+    changedFilesChanged:
+      !existing || changedFilesKey(existing) !== changedFilesKey(merged),
+  };
 }
 
 /**
@@ -189,48 +257,53 @@ export function buildCloudEventSummary(
   const toolCalls = new Map<string, ParsedToolCall>();
 
   for (const event of events) {
-    const message = event.message;
-    if (!isJsonRpcNotification(message)) continue;
-
-    if (message.method === "session/update") {
-      const params = message.params as
-        | { update?: Record<string, unknown> }
-        | undefined;
-      const update = params?.update;
-      if (!update || typeof update !== "object") continue;
-
-      const sessionUpdate = update.sessionUpdate;
-      if (
-        sessionUpdate !== "tool_call" &&
-        sessionUpdate !== "tool_call_update"
-      ) {
-        continue;
-      }
-
-      const toolCallId =
-        typeof update.toolCallId === "string" ? update.toolCallId : undefined;
-      if (!toolCallId) continue;
-
-      const patch: Partial<ParsedToolCall> = {
-        toolCallId,
-        kind: typeof update.kind === "string" ? update.kind : null,
-        title: typeof update.title === "string" ? update.title : undefined,
-        status: typeof update.status === "string" ? update.status : null,
-        locations: Array.isArray(update.locations)
-          ? (update.locations as ToolCallLocation[])
-          : undefined,
-        content: Array.isArray(update.content)
-          ? (update.content as ToolCallContent[])
-          : undefined,
-        rawOutput: update.rawOutput,
-      };
-
-      const merged = mergeToolCall(toolCalls.get(toolCallId), patch);
-      toolCalls.set(toolCallId, merged);
-    }
+    applyCloudEvent(toolCalls, event);
   }
 
-  return { toolCalls };
+  return { toolCalls, revision: 0, changedFilesRevision: 0 };
+}
+
+export function createCloudEventSummaryTracker(): {
+  update(events: AcpMessage[]): CloudEventSummary;
+} {
+  interface TrackerState {
+    toolCalls: Map<string, ParsedToolCall>;
+    revision: number;
+    changedFilesRevision: number;
+  }
+
+  let projectedState: TrackerState | undefined;
+  let projectedRevision = -1;
+  let projectedResult: CloudEventSummary = {
+    toolCalls: new Map(),
+    revision: 0,
+    changedFilesRevision: 0,
+  };
+
+  return createAppendOnlyTracker<TrackerState, CloudEventSummary>({
+    init: () => ({
+      toolCalls: new Map(),
+      revision: 0,
+      changedFilesRevision: 0,
+    }),
+    processEvent: (state, event) => {
+      const change = applyCloudEvent(state.toolCalls, event);
+      if (change.toolChanged) state.revision++;
+      if (change.changedFilesChanged) state.changedFilesRevision++;
+    },
+    getResult: (state) => {
+      if (state !== projectedState || state.revision !== projectedRevision) {
+        projectedState = state;
+        projectedRevision = state.revision;
+        projectedResult = {
+          toolCalls: state.toolCalls,
+          revision: state.revision,
+          changedFilesRevision: state.changedFilesRevision,
+        };
+      }
+      return projectedResult;
+    },
+  });
 }
 
 export function extractCloudFileDiff(

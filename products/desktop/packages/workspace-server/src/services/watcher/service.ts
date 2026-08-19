@@ -29,7 +29,7 @@ export const DEBOUNCE_MS = 500;
 // wise never trip it until it paused, freezing the diff panel/stats mid-run.
 // The max-wait forces a flush at least this often during sustained activity so
 // the UI keeps advancing while the agent works.
-export const MAX_WAIT_MS = 1000;
+export const MAX_WAIT_MS = 3000;
 const BULK_THRESHOLD = 100;
 
 const dirname = (p: string): string => {
@@ -51,12 +51,14 @@ interface Pending {
   dirs: Set<string>;
   files: Set<string>;
   deletes: Set<string>;
+  bulkChanged: boolean;
 }
 
 const createPending = (): Pending => ({
   dirs: new Set(),
   files: new Set(),
   deletes: new Set(),
+  bulkChanged: false,
 });
 
 export const accumulateFsEvents = (
@@ -64,9 +66,16 @@ export const accumulateFsEvents = (
   events: WatcherEvent[],
 ): void => {
   for (const event of events) {
+    if (pending.bulkChanged) continue;
     pending.dirs.add(dirname(event.path));
     if (event.type === "delete") pending.deletes.add(event.path);
     else pending.files.add(event.path);
+    if (pending.files.size + pending.deletes.size > BULK_THRESHOLD) {
+      pending.dirs.clear();
+      pending.files.clear();
+      pending.deletes.clear();
+      pending.bulkChanged = true;
+    }
   }
 };
 
@@ -76,12 +85,14 @@ export const drainPending = (
 ): FileWatcherEvent[] => {
   const totalChanges = pending.files.size + pending.deletes.size;
   const out: FileWatcherEvent[] = [];
-  if (totalChanges === 0 && pending.dirs.size === 0) return out;
+  if (!pending.bulkChanged && totalChanges === 0 && pending.dirs.size === 0) {
+    return out;
+  }
 
-  if (totalChanges > 0) {
+  if (pending.bulkChanged || totalChanges > 0) {
     out.push({ kind: "working-tree-changed", repoPath });
   }
-  if (totalChanges <= BULK_THRESHOLD) {
+  if (!pending.bulkChanged) {
     for (const dirPath of pending.dirs)
       out.push({ kind: "directory-changed", repoPath, dirPath });
     for (const filePath of pending.files)
@@ -92,6 +103,7 @@ export const drainPending = (
   pending.dirs.clear();
   pending.files.clear();
   pending.deletes.clear();
+  pending.bulkChanged = false;
   return out;
 };
 

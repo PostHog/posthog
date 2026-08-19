@@ -18,7 +18,7 @@ import { HandoffConfirmDialog } from "@posthog/ui/features/sessions/components/H
 import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDialogStore";
 import { useSessionCallbacks } from "@posthog/ui/features/sessions/hooks/useSessionCallbacks";
-import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
+import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import {
   useIsCloudTask,
   useWorkspace,
@@ -31,7 +31,7 @@ import { useState } from "react";
 const CLOUD_HANDOFF_FLAG = "phc-cloud-handoff";
 
 function LocalHandoffButton({ taskId, task }: { taskId: string; task: Task }) {
-  const session = useSessionForTask(taskId);
+  const inProgress = useSessionHandoffInProgress(taskId);
   const workspace = useWorkspace(taskId);
   const repoPath = workspace?.folderPath ?? null;
   const authStatus = useAuthStateValue((s) => s.status);
@@ -40,7 +40,6 @@ function LocalHandoffButton({ taskId, task }: { taskId: string; task: Task }) {
   const { initiateHandoffToCloud } = useSessionCallbacks({
     taskId,
     task,
-    session: session ?? undefined,
     repoPath,
   });
 
@@ -67,8 +66,6 @@ function LocalHandoffButton({ taskId, task }: { taskId: string; task: Task }) {
       setIsSubmitting(false);
     }
   };
-
-  const inProgress = session?.handoffInProgress ?? false;
 
   return (
     <>

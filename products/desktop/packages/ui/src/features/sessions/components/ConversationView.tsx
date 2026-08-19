@@ -142,8 +142,8 @@ export function ConversationView({
   // Streaming appends one event per token. The parse is incremental — each
   // event is handled once and completed turns are reused by reference — so per
   // token the work tracks the active turn, not the whole thread. We feed
-  // `events` directly (no frame-throttle) so a sent message's optimistic->real
-  // swap is never delayed past the frame the store commits it.
+  // `events` directly; the controller batches streaming-only updates while
+  // terminal and status events still flush immediately.
   const {
     items: conversationItems,
     lastTurnInfo,

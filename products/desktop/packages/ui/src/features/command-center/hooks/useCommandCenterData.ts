@@ -9,8 +9,7 @@ import {
 } from "@posthog/core/command-center/status";
 import type { Task } from "@posthog/shared/domain-types";
 import { useMemo } from "react";
-import type { AgentSession } from "../../sessions/sessionStore";
-import { useSessions } from "../../sessions/useSession";
+import { useSidebarSessionMap } from "../../sidebar/useSidebarSessionMap";
 import { useTasks } from "../../tasks/useTasks";
 import { useWorkspaces } from "../../workspace/useWorkspace";
 import { useCommandCenterStore } from "../commandCenterStore";
@@ -24,7 +23,7 @@ export function useCommandCenterData(): {
 } {
   const storeCells = useCommandCenterStore((s) => s.cells);
   const { data: tasks = [] } = useTasks();
-  const sessions = useSessions();
+  const sessionByTaskId = useSidebarSessionMap();
   const { data: workspaces } = useWorkspaces();
 
   const taskById = useMemo(() => {
@@ -34,16 +33,6 @@ export function useCommandCenterData(): {
     }
     return map;
   }, [tasks]);
-
-  const sessionByTaskId = useMemo(() => {
-    const map = new Map<string, AgentSession>();
-    for (const session of Object.values(sessions)) {
-      if (session.taskId) {
-        map.set(session.taskId, session);
-      }
-    }
-    return map;
-  }, [sessions]);
 
   const cells = useMemo(
     () =>

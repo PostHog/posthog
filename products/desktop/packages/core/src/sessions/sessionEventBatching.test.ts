@@ -4,7 +4,7 @@ import { SessionService, type SessionServiceDeps } from "./sessionService";
 
 const TASK_ID = "task-1";
 const RUN_ID = "run-1";
-const FLUSH_MS = 16;
+const FLUSH_MS = 50;
 
 /** A plain streamed agent-message chunk — the common per-token event that just
  * gets appended to the transcript. */
@@ -30,6 +30,51 @@ function chunkText(event: AcpMessage): string {
     update: { content: { text: string } };
   };
   return params.update.content.text;
+}
+
+function toolCall(id: string): AcpMessage {
+  return {
+    ts: 2,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: RUN_ID,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title: "Read file",
+          status: "in_progress",
+        },
+      },
+    },
+  } as unknown as AcpMessage;
+}
+
+function configOptionUpdate(): AcpMessage {
+  return {
+    ts: 3,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: RUN_ID,
+        update: {
+          sessionUpdate: "config_option_update",
+          configOptions: [
+            {
+              id: "mode",
+              name: "Mode",
+              category: "mode",
+              type: "select",
+              currentValue: "default",
+              options: [],
+            },
+          ],
+        },
+      },
+    },
+  } as unknown as AcpMessage;
 }
 
 function createHarness() {
@@ -138,6 +183,7 @@ function createHarness() {
     service,
     appendEvents,
     notifyPromptComplete,
+    setPersistedConfigOptions: deps.setPersistedConfigOptions,
     updateSession: store.updateSession,
     emit: (event: AcpMessage) => onEvent?.(event),
     events: () => sessions[RUN_ID].events,
@@ -189,6 +235,7 @@ describe("streamed event batching", () => {
     // A single flush tick drains the whole burst, in arrival order.
     vi.advanceTimersByTime(FLUSH_MS);
     expect(h.events().map(chunkText)).toEqual(["a", "b", "c"]);
+    expect(h.appendEvents).toHaveBeenCalledOnce();
   });
 
   it("flushes buffered events synchronously on teardown", () => {
@@ -205,6 +252,32 @@ describe("streamed event batching", () => {
     // The flush timer was cleared, so advancing does not re-apply anything.
     vi.advanceTimersByTime(FLUSH_MS);
     expect(h.events()).toHaveLength(2);
+  });
+
+  it("batches interleaved text and tool updates in order", () => {
+    const h = createHarness();
+    const streamed = chunk("a");
+    const active = toolCall("tool-1");
+
+    h.emit(streamed);
+    h.emit(active);
+
+    expect(h.events()).toEqual([]);
+    vi.advanceTimersByTime(FLUSH_MS);
+    expect(h.events()).toEqual([streamed, active]);
+    expect(h.appendEvents).toHaveBeenCalledOnce();
+  });
+
+  it("applies and persists config option updates immediately", () => {
+    const h = createHarness();
+    const streamed = chunk("a");
+    const configUpdate = configOptionUpdate();
+
+    h.emit(streamed);
+    h.emit(configUpdate);
+
+    expect(h.events()).toEqual([streamed, configUpdate]);
+    expect(h.setPersistedConfigOptions).toHaveBeenCalledOnce();
   });
 
   it("keeps the turn duration when the prompt mutation clears state before the response flushes", () => {

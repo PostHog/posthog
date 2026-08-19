@@ -74,7 +74,7 @@ import {
   readCommentContext,
 } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
-import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
+import { useSessionSelector } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -91,6 +91,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { shallow } from "zustand/shallow";
 import { BuiltCanvas } from "./BuiltCanvas";
 import { CanvasAgentRequestDialog } from "./CanvasAgentRequestDialog";
 import { CanvasBuildStatus } from "./CanvasBuildStatus";
@@ -223,7 +224,21 @@ export function FreeformCanvasView({
     enabled: !!effectiveTaskId,
     refetchInterval: effectiveTaskId ? 5000 : false,
   });
-  const genSession = useSessionForTask(effectiveTaskId ?? undefined);
+  const genSession = useSessionSelector(
+    effectiveTaskId ?? undefined,
+    (session) =>
+      session
+        ? {
+            status: session.status,
+            cloudStatus: session.cloudStatus,
+            isPromptPending: session.isPromptPending,
+            taskRunId: session.taskRunId,
+            agentIdleForRunId: session.agentIdleForRunId,
+            isCloud: session.isCloud,
+          }
+        : undefined,
+    shallow,
+  );
   // Whether the run's session is still alive. Drives record + build polling so
   // a freshly published version and its queued build get picked up. A local ACP
   // session stays "connected" after its generation prompt finishes, so this

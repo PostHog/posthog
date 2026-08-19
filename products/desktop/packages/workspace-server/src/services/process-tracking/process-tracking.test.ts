@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockPlatform = vi.hoisted(() => vi.fn(() => "darwin"));
 const mockIsProcessAlive = vi.hoisted(() => vi.fn((_pid: number) => true));
 const mockKillProcessTree = vi.hoisted(() => vi.fn());
+const mockKillProcessTrees = vi.hoisted(() => vi.fn());
 const mockExecAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", () => ({
@@ -23,6 +24,7 @@ vi.mock("node:os", () => ({
 vi.mock("./process-utils", () => ({
   isProcessAlive: mockIsProcessAlive,
   killProcessTree: mockKillProcessTree,
+  killProcessTrees: mockKillProcessTrees,
 }));
 
 import { ProcessTrackingService } from "./process-tracking";
@@ -314,9 +316,7 @@ describe("ProcessTrackingService", () => {
 
       service.killByCategory("shell");
 
-      expect(mockKillProcessTree).toHaveBeenCalledWith(1);
-      expect(mockKillProcessTree).toHaveBeenCalledWith(2);
-      expect(mockKillProcessTree).not.toHaveBeenCalledWith(3);
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([1, 2]);
       expect(service.getByCategory("shell")).toHaveLength(0);
       expect(service.getByCategory("agent")).toHaveLength(1);
     });
@@ -327,6 +327,7 @@ describe("ProcessTrackingService", () => {
       service.killByCategory("shell");
 
       expect(mockKillProcessTree).not.toHaveBeenCalled();
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([]);
       expect(service.getAll()).toHaveLength(1);
     });
   });
@@ -363,9 +364,7 @@ describe("ProcessTrackingService", () => {
 
       service.killByTaskId("task-1");
 
-      expect(mockKillProcessTree).toHaveBeenCalledWith(1);
-      expect(mockKillProcessTree).toHaveBeenCalledWith(2);
-      expect(mockKillProcessTree).not.toHaveBeenCalledWith(3);
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([1, 2]);
       expect(service.getByTaskId("task-1")).toEqual([]);
       expect(service.getByTaskId("task-2")).toHaveLength(1);
     });
@@ -376,6 +375,7 @@ describe("ProcessTrackingService", () => {
       service.killByTaskId("task-999");
 
       expect(mockKillProcessTree).not.toHaveBeenCalled();
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([]);
       expect(service.getAll()).toHaveLength(1);
     });
   });
@@ -426,9 +426,7 @@ describe("ProcessTrackingService", () => {
 
       service.killAll();
 
-      expect(mockKillProcessTree).toHaveBeenCalledWith(1);
-      expect(mockKillProcessTree).toHaveBeenCalledWith(2);
-      expect(mockKillProcessTree).toHaveBeenCalledWith(3);
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([1, 2, 3]);
       expect(service.getAll()).toHaveLength(0);
     });
 
@@ -436,6 +434,7 @@ describe("ProcessTrackingService", () => {
       service.killAll();
 
       expect(mockKillProcessTree).not.toHaveBeenCalled();
+      expect(mockKillProcessTrees).toHaveBeenCalledWith([]);
     });
   });
 });

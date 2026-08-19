@@ -115,6 +115,21 @@ describe("useSmoothedText", () => {
     expect(result.current.length).toBe(11);
   });
 
+  it("caps streaming renders at 20 frames per second", () => {
+    const { result, rerender } = renderHook(
+      ({ t }) => useSmoothedText(t, 100),
+      { initialProps: { t: "" } },
+    );
+    rerender({ t: "x".repeat(50) });
+
+    flushFrame(0);
+    expect(result.current.length).toBe(1);
+    flushFrame(16);
+    expect(result.current.length).toBe(1);
+    flushFrame(34);
+    expect(result.current.length).toBe(6);
+  });
+
   it("cancels the pending frame on unmount", () => {
     const { rerender, unmount } = renderHook(
       ({ t }) => useSmoothedText(t, 100),

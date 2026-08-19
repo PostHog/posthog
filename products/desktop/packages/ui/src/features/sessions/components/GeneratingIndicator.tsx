@@ -72,14 +72,16 @@ export function GeneratingIndicator({
 
   useEffect(() => {
     const startTime = startedAt ?? Date.now();
-    const interval = setInterval(() => {
+    const tick = () => {
       const now = Date.now();
       setElapsed(Math.max(0, now - startTime - pausedRef.current));
       // Measured from the last event rather than the turn's start, so a turn
       // that streamed for a minute and then went silent still reads as quiet.
       const since = lastActivityRef.current;
       setQuietFor(since === null ? 0 : Math.max(0, now - since));
-    }, 100);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
 
     return () => clearInterval(interval);
   }, [startedAt]);
@@ -119,7 +121,7 @@ export function GeneratingIndicator({
         (Esc to stop
         {dot}
         <span style={{ fontVariantNumeric: "tabular-nums" }}>
-          {formatDuration(elapsed, 1)}
+          {formatDuration(elapsed, 0)}
         </span>
         {quietFor >= QUIET_AFTER_MS && (
           <>

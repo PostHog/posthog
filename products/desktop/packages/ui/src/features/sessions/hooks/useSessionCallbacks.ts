@@ -21,10 +21,7 @@ import {
 } from "@posthog/ui/features/message-editor/commands";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useMessagingMode } from "@posthog/ui/features/sessions/hooks/useMessagingMode";
-import {
-  type AgentSession,
-  sessionStoreSetters,
-} from "@posthog/ui/features/sessions/sessionStore";
+import { sessionStoreSetters } from "@posthog/ui/features/sessions/sessionStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import {
   SHELL_CLIENT,
@@ -33,21 +30,19 @@ import {
 import { toast } from "@posthog/ui/primitives/toast";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 
 const log = logger.scope("session-callbacks");
 
 interface UseSessionCallbacksOptions {
   taskId: string;
   task: Task;
-  session: AgentSession | undefined;
   repoPath: string | null;
 }
 
 export function useSessionCallbacks({
   taskId,
   task,
-  session,
   repoPath,
 }: UseSessionCallbacksOptions) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
@@ -56,14 +51,11 @@ export function useSessionCallbacks({
   const { markActivity, markAsViewed } = useTaskViewed();
   const { requestFocus, setPendingContent } = useDraftStore((s) => s.actions);
 
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-
   const messagingMode = useMessagingMode(taskId);
 
   const handleSendPrompt = useCallback(
     async (text: string): Promise<boolean> => {
-      const currentSession = sessionRef.current;
+      const currentSession = sessionStoreSetters.getSessionByTaskId(taskId);
       const currentEvents = currentSession?.events ?? [];
       const handled = await tryExecuteCodeCommand(text, {
         taskId,
@@ -173,6 +165,7 @@ export function useSessionCallbacks({
     // composer would clobber the in-progress edit. The edit hold keeps the
     // queue from auto-sending until the edit is saved or cancelled.
     const currentSession = sessionStoreSetters.getSessionByTaskId(taskId);
+    const isCloud = currentSession?.isCloud ?? false;
     const editingId = currentSession?.editingQueuedId;
     if (
       editingId &&
@@ -188,12 +181,12 @@ export function useSessionCallbacks({
     const result = await sessionService.cancelPrompt(taskId);
     log.info("Prompt cancelled", { success: result });
 
-    const queuedPrompt = sessionRef.current?.isCloud
+    const queuedPrompt = isCloud
       ? combineQueuedCloudPrompts(queuedMessages)
       : queuedMessages.map((message) => message.content).join("\n\n");
 
     if (queuedPrompt) {
-      const pendingContent = sessionRef.current?.isCloud
+      const pendingContent = isCloud
         ? promptToQueuedEditorContent(queuedPrompt)
         : textToContent(typeof queuedPrompt === "string" ? queuedPrompt : "");
 
@@ -204,7 +197,7 @@ export function useSessionCallbacks({
 
   const handleRetry = useCallback(async () => {
     try {
-      if (sessionRef.current?.isCloud) {
+      if (sessionStoreSetters.getSessionByTaskId(taskId)?.isCloud) {
         await sessionService.retryCloudTaskWatch(taskId);
         return;
       }

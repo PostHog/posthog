@@ -54,6 +54,7 @@ export function SubagentToolView({
             childItems={turnContext.childItems}
             turnCancelled={turnContext.turnCancelled}
             turnComplete={turnContext.turnComplete}
+            thoughtComplete={child.thoughtComplete}
           />
         ) : null,
       )

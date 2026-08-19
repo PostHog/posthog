@@ -1678,6 +1678,46 @@ describe("PiSessionController", () => {
     ]);
   });
 
+  it("does not append a chunk twice when it arrives during initial load", async () => {
+    vi.useFakeTimers();
+    let resolveConversation: (events: AgentConversationEvent[]) => void =
+      () => {};
+    const conversation = new Promise<AgentConversationEvent[]>((resolve) => {
+      resolveConversation = resolve;
+    });
+    const chunk: AgentConversationEvent = {
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      content: { type: "text", text: "hello" },
+    };
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.getConversation).mockReturnValue(conversation);
+    vi.mocked(session.client.getState).mockResolvedValue({
+      ...(await session.client.getState()),
+      isStreaming: true,
+    });
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const controller = createController(session);
+
+    const connection = controller.connect("task-1");
+    await vi.waitFor(() =>
+      expect(session.onConversationEvent).toHaveBeenCalledOnce(),
+    );
+    onEvent(chunk);
+    resolveConversation([]);
+    await connection;
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([
+      chunk,
+    ]);
+    vi.useRealTimers();
+  });
+
   it("loads session state and appends normalized runtime events", async () => {
     const initialEvent: AgentConversationEvent = {
       type: "assistant_message_chunk",
@@ -1705,5 +1745,69 @@ describe("PiSessionController", () => {
       events: [initialEvent, liveEvent],
       status: { isCompacting: true },
     });
+  });
+
+  it("batches streamed chunks into one store update", async () => {
+    vi.useFakeTimers();
+    const first: AgentConversationEvent = {
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      content: { type: "text", text: "hello" },
+    };
+    const second: AgentConversationEvent = {
+      type: "assistant_message_chunk",
+      timestamp: 2,
+      content: { type: "text", text: " world" },
+    };
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const controller = createController(session);
+    await controller.connect("task-1");
+    const listener = vi.fn();
+    controller.store.subscribe(listener);
+
+    onEvent(first);
+    onEvent(second);
+
+    expect(listener).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([
+      first,
+      second,
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("flushes streamed chunks before a turn completes", async () => {
+    const chunk: AgentConversationEvent = {
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      content: { type: "text", text: "done" },
+    };
+    const completed: AgentConversationEvent = {
+      type: "turn_completed",
+      timestamp: 2,
+    };
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const controller = createController(session);
+    await controller.connect("task-1");
+
+    onEvent(chunk);
+    onEvent(completed);
+
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([
+      chunk,
+      completed,
+    ]);
   });
 });

@@ -233,7 +233,7 @@ function RetryingStatusView({
       setRemainingMs(Math.max(0, delayMs - (Date.now() - start)));
     };
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [delayMs, startedAt]);
 
@@ -282,7 +282,7 @@ function CompactingStatusView({
     const start = startedAt ?? Date.now();
     const tick = () => setElapsed(Date.now() - start);
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [startedAt]);
 
@@ -292,7 +292,7 @@ function CompactingStatusView({
         <Spinner size={14} className="animate-spin text-blue-9" />
         <Text className="text-[13px] text-gray-11">{label}</Text>
         <Text className="text-[13px] text-gray-10 tabular-nums">
-          {formatDuration(elapsed, 1)}
+          {formatDuration(elapsed, 0)}
         </Text>
       </Flex>
       {/* Decorative: the spinner and the text above carry the accessible status. */}

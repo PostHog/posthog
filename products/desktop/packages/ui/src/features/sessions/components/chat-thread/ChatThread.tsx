@@ -59,6 +59,7 @@ import {
   ChatStreamingMarkdown,
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
+import { createIncrementalChatRowGrouper } from "@posthog/ui/features/sessions/components/chat-thread/chatRowGrouping";
 import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
@@ -1371,9 +1372,16 @@ function ChatThreadRenderer({
     [conversationItems, optimisticItems, isCloud],
   );
 
+  const rowGrouper = useMemo(
+    () =>
+      createIncrementalChatRowGrouper((nextItems) =>
+        groupIntoTurns(groupToolCalls ? groupToolRuns(nextItems) : nextItems),
+      ),
+    [groupToolCalls],
+  );
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
-    [items, groupToolCalls],
+    () => rowGrouper.update(items),
+    [items, rowGrouper],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and

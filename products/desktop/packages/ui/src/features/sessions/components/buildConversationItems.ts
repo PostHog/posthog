@@ -627,6 +627,7 @@ function completePromptTurn(
 
   const wasCancelled = turn.stopReason === "cancelled";
   turn.context.turnCancelled = wasCancelled;
+  replaceTurnContextRows(b, turn.context);
 
   if (turn.gitAction.isGitAction && turn.gitAction.actionType) {
     b.items.push({
@@ -648,6 +649,25 @@ function completePromptTurn(
   if (turn.promptId !== -1) {
     b.pendingPrompts.delete(turn.promptId);
   }
+}
+
+function replaceTurnContextRows(b: ItemBuilder, context: TurnContext): void {
+  const visited = new Set<ConversationItem[]>();
+  const replaceRows = (items: ConversationItem[]): void => {
+    if (visited.has(items)) return;
+    visited.add(items);
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (item.type !== "session_update") continue;
+      if (item.turnContext === context) {
+        items[index] = { ...item };
+      }
+      for (const children of item.turnContext.childItems.values()) {
+        replaceRows(children);
+      }
+    }
+  };
+  replaceRows(b.items);
 }
 
 function handleNotification(
@@ -1041,6 +1061,7 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
     update,
     turnContext: turn.context,
   });
+  reissueToolCallRow(b, parentId);
 }
 
 function appendTextChunkToChildren(
@@ -1079,6 +1100,7 @@ function appendTextChunkToChildren(
         },
       },
     };
+    reissueToolCallRow(b, parentId);
   } else {
     turn.itemCount++;
     children.push({
@@ -1087,7 +1109,44 @@ function appendTextChunkToChildren(
       update: { ...update, content: { ...update.content } },
       turnContext: turn.context,
     });
+    reissueToolCallRow(b, parentId);
   }
+}
+
+function reissueToolCallRow(
+  b: ItemBuilder,
+  toolCallId: string,
+  nextUpdate?: ToolCall,
+): void {
+  const turn = b.currentTurn;
+  if (!turn) return;
+  const current = turn.toolCalls.get(toolCallId);
+  const update = nextUpdate ?? (current ? { ...current } : undefined);
+  if (!update) return;
+  turn.toolCalls.set(toolCallId, update);
+
+  const visited = new Set<ConversationItem[]>();
+  const replace = (items: ConversationItem[]): void => {
+    if (visited.has(items)) return;
+    visited.add(items);
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (item.type !== "session_update") continue;
+      if (
+        item.update.sessionUpdate === "tool_call" &&
+        item.update.toolCallId === toolCallId
+      ) {
+        items[index] = {
+          ...item,
+          update: { ...update, sessionUpdate: "tool_call" },
+        };
+      }
+      for (const children of item.turnContext.childItems.values()) {
+        replace(children);
+      }
+    }
+  };
+  replace(b.items);
 }
 
 function processSessionUpdate(
@@ -1119,8 +1178,9 @@ function processSessionUpdate(
       const existing = turn.toolCalls.get(update.toolCallId);
       if (existing) {
         const wasTerminal = isTerminalToolStatus(existing.status);
-        Object.assign(existing, update);
-        if (!wasTerminal && isTerminalToolStatus(existing.status)) {
+        const merged = { ...existing, ...update };
+        reissueToolCallRow(b, update.toolCallId, merged);
+        if (!wasTerminal && isTerminalToolStatus(merged.status)) {
           b.completedToolCallCount++;
         }
       } else {
@@ -1146,8 +1206,25 @@ function processSessionUpdate(
       if (existing) {
         const wasTerminal = isTerminalToolStatus(existing.status);
         const { sessionUpdate: _, ...rest } = update;
-        Object.assign(existing, rest);
-        if (!wasTerminal && isTerminalToolStatus(existing.status)) {
+        const merged: ToolCall = {
+          ...existing,
+          ...rest,
+          toolCallId: existing.toolCallId,
+          title: rest.title ?? existing.title,
+          content:
+            rest.content === null
+              ? undefined
+              : (rest.content ?? existing.content),
+          kind: rest.kind === null ? undefined : (rest.kind ?? existing.kind),
+          locations:
+            rest.locations === null
+              ? undefined
+              : (rest.locations ?? existing.locations),
+          status:
+            rest.status === null ? undefined : (rest.status ?? existing.status),
+        };
+        reissueToolCallRow(b, update.toolCallId, merged);
+        if (!wasTerminal && isTerminalToolStatus(merged.status)) {
           b.completedToolCallCount++;
         }
       }

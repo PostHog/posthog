@@ -1,4 +1,3 @@
-import type { AgentSession } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,12 +91,11 @@ import { useSessionCallbacks } from "./useSessionCallbacks";
 const TASK = "task-1";
 const task = { id: TASK, latest_run: null } as unknown as Task;
 
-function renderCallbacks(session?: AgentSession) {
+function renderCallbacks() {
   return renderHook(() =>
     useSessionCallbacks({
       taskId: TASK,
       task,
-      session,
       repoPath: "/repo",
     }),
   );
@@ -197,7 +195,7 @@ describe("useSessionCallbacks.handleSendPrompt", () => {
     messagingMode.value = "steer";
     sessionService.sendPrompt.mockResolvedValue({ stopReason: "steered" });
 
-    const { result } = renderCallbacks(sessionState as unknown as AgentSession);
+    const { result } = renderCallbacks();
     await result.current.handleSendPrompt("change direction");
 
     expect(sessionService.sendPrompt).toHaveBeenCalledWith(
