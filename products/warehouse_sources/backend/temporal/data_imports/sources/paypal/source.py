@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paypal import PayPalSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.paypal import (
     PayPalResumeConfig,
+    check_endpoint_permissions,
     paypal_source,
     validate_credentials as validate_paypal_credentials,
 )
@@ -53,6 +54,8 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
             "401 Client Error: Unauthorized for url: https://api-m.sandbox.paypal.com/v1/oauth2/token": "PayPal rejected your app credentials. Check the client ID and secret, and that they belong to the sandbox environment.",
             "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/oauth2/token": "PayPal could not issue a token for your app. Check the client ID and secret, and that they belong to the live environment.",
             "400 Client Error: Bad Request for url: https://api-m.sandbox.paypal.com/v1/oauth2/token": "PayPal could not issue a token for your app. Check the client ID and secret, and that they belong to the sandbox environment.",
+            "400 Client Error: Bad Request for url: https://api-m.paypal.com/v1/reporting/transactions": "PayPal rejected this transaction query as too large. This account's transaction volume exceeds what a single reporting window can return, so the transactions table cannot sync. Contact PostHog support to narrow the sync window.",
+            "400 Client Error: Bad Request for url: https://api-m.sandbox.paypal.com/v1/reporting/transactions": "PayPal rejected this transaction query as too large. This account's transaction volume exceeds what a single reporting window can return, so the transactions table cannot sync. Contact PostHog support to narrow the sync window.",
             "403 Client Error: Forbidden for url": "Your PayPal app is not allowed to call this API. In the PayPal developer dashboard, enable the features this source needs (Transaction Search, Invoicing, Subscriptions, Disputes) on the app.",
         }
 
@@ -80,6 +83,12 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
                 schema.default_incremental_lookback_seconds = TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS
         return schemas
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `environment` picks the live vs sandbox PayPal host, so changing it retargets where the
+        # stored client secret is sent — require re-entering secrets when it changes.
+        return ["environment"]
+
     def validate_credentials(
         self,
         config: PayPalSourceConfig,
@@ -87,7 +96,24 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_paypal_credentials(config.environment, config.client_id, config.client_secret)
+        valid, error = validate_paypal_credentials(config.environment, config.client_id, config.client_secret)
+        if not valid or schema_name is None:
+            # Source-create: minting a token proves the credentials. Per-table feature access is
+            # reported separately via get_endpoint_permissions so it never blocks connecting.
+            return valid, error
+
+        # Per-schema check: confirm the app has the feature this specific table needs.
+        reason = self.get_endpoint_permissions(config, team_id, [schema_name]).get(schema_name)
+        return reason is None, reason
+
+    def get_endpoint_permissions(
+        self,
+        config: PayPalSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        return check_endpoint_permissions(config.environment, config.client_id, config.client_secret, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PayPalResumeConfig]:
         return ResumableSourceManager[PayPalResumeConfig](inputs, PayPalResumeConfig)

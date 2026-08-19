@@ -169,8 +169,8 @@ def _transaction_start(db_incremental_field_last_value: Any, now: datetime) -> d
 def _dispute_start(db_incremental_field_last_value: Any, now: datetime) -> Optional[datetime]:
     """Instant to filter disputes from, or None for a full refresh.
 
-    PayPal rejects a `start_time` older than 180 days with a non-retryable 400, so an incremental
-    watermark is clamped forward to that floor. PayPal cannot serve disputes created before it.
+    PayPal rejects an `update_time_after` older than 180 days with a non-retryable 400, so an
+    incremental watermark is clamped forward to that floor. PayPal cannot serve disputes outside it.
     """
     watermark = _to_datetime(db_incremental_field_last_value)
     if watermark is None:
@@ -202,6 +202,69 @@ def validate_credentials(environment: str, client_id: str, client_secret: str) -
     if response.status_code in (400, 401):
         return False, "PayPal rejected these credentials. Check the client ID, secret, and environment."
     return False, f"PayPal returned an unexpected status ({response.status_code}) while authenticating."
+
+
+def _probe_params(config: PayPalEndpointConfig, now: datetime) -> dict[str, Any]:
+    """Smallest valid request per endpoint, used only to observe a 200/403 for the permission probe."""
+    if config.pagination == "date_window":
+        return {
+            "start_date": _format_reporting_datetime(now - timedelta(days=1)),
+            "end_date": _format_reporting_datetime(now),
+            "fields": "all",
+            "page_size": 1,
+            "page": 1,
+        }
+    if config.pagination == "single":
+        return {"currency_code": "ALL"}
+    if config.pagination == "page_token":
+        return {"page_size": 1}
+    return {"page": 1, "page_size": 1}
+
+
+def check_endpoint_permissions(
+    environment: str, client_id: str, client_secret: str, endpoints: list[str]
+) -> dict[str, str | None]:
+    """Report which endpoints the app cannot read: ``{name: None}`` reachable, ``{name: reason}`` denied.
+
+    A fresh PayPal REST app enables no features, so setup could otherwise turn on tables that 403 on
+    every sync. Only a real 403 counts as a missing feature; a throttle, 5xx, or network blip stays
+    reachable so a transient failure never blocks source creation or the schema picker.
+    """
+    try:
+        base_url = _base_url(environment)
+    except ValueError:
+        return dict.fromkeys(endpoints)
+
+    session = _get_session(client_secret)
+    try:
+        token = _mint_token(session, base_url, client_id, client_secret)
+    except Exception:
+        return dict.fromkeys(endpoints)
+
+    now = _now()
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        config = PAYPAL_ENDPOINTS.get(name)
+        if config is None or config.required_feature is None:
+            results[name] = None
+            continue
+        try:
+            response = session.get(
+                f"{base_url}{config.path}",
+                params=_probe_params(config, now),
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=VALIDATE_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            results[name] = None
+            continue
+        results[name] = (
+            f"Your PayPal app cannot access this table. Enable {config.required_feature} on the app "
+            "in the PayPal developer dashboard."
+            if response.status_code == 403
+            else None
+        )
+    return results
 
 
 def get_rows(
@@ -367,9 +430,11 @@ def _page_token_rows(
     watermark: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     params: dict[str, Any] = {"page_size": config.page_size}
-    start_time = _dispute_start(watermark, _now())
-    if start_time is not None:
-        params["start_time"] = _format_dispute_datetime(start_time)
+    update_time_after = _dispute_start(watermark, _now())
+    if update_time_after is not None:
+        # Filter on update time, not creation time, so a dispute whose status changed since the
+        # last run is re-fetched and the merge on dispute_id refreshes the row.
+        params["update_time_after"] = _format_dispute_datetime(update_time_after)
 
     token = resume.next_page_token if resume is not None else None
 

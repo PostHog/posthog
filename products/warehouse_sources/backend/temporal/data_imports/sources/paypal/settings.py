@@ -44,6 +44,10 @@ class PayPalEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_key: str | None = None
     sort_mode: SortMode = "asc"
+    # PayPal app feature the endpoint needs (Transaction Search, Disputes, Invoicing, …). A fresh
+    # REST app has none enabled, so the permission probe reports which tables the app cannot read.
+    # ``None`` means the endpoint needs no opt-in feature.
+    required_feature: str | None = None
 
 
 PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
@@ -62,6 +66,7 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         partition_key="transaction_initiation_date",
         # Windows are walked oldest-first, so the watermark only ever moves forward.
         sort_mode="asc",
+        required_feature="Transaction Search",
     ),
     "balances": PayPalEndpointConfig(
         name="balances",
@@ -70,6 +75,7 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         # One row per currency held by the account, as of the moment we asked.
         primary_key=["account_id", "currency"],
         pagination="single",
+        required_feature="Transaction Search",
     ),
     "disputes": PayPalEndpointConfig(
         name="disputes",
@@ -79,12 +85,17 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         pagination="page_token",
         # The disputes list caps page_size at 50.
         page_size=50,
-        # `start_time` filters server-side on dispute creation time.
-        incremental_fields=[incremental_field("create_time")],
+        # A dispute is created open and its status resolves later, so the cursor tracks
+        # `update_time` (sent as the server-side `update_time_after` filter). A create-time cursor
+        # would never re-fetch a dispute whose status changed after its creation fell below the
+        # watermark, leaving the row stale forever.
+        incremental_fields=[incremental_field("update_time")],
+        # Creation time never moves, so it partitions cleanly; update_time would rewrite partitions.
         partition_key="create_time",
         # PayPal does not document the ordering of the disputes list, so the watermark is
         # committed only once a run finishes rather than after every batch.
         sort_mode="desc",
+        required_feature="Disputes",
     ),
     "invoices": PayPalEndpointConfig(
         name="invoices",
@@ -94,6 +105,7 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         pagination="page_number",
         # The invoice list has no updated-since filter (only the separate search endpoint
         # does), so it is full refresh.
+        required_feature="Invoicing",
     ),
     "plans": PayPalEndpointConfig(
         name="plans",
@@ -104,6 +116,7 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         # Billing plan listings cap page_size at 20.
         page_size=20,
         partition_key="create_time",
+        required_feature="Subscriptions",
     ),
     "products": PayPalEndpointConfig(
         name="products",
@@ -114,6 +127,7 @@ PAYPAL_ENDPOINTS: dict[str, PayPalEndpointConfig] = {
         # Catalog product listings cap page_size at 20.
         page_size=20,
         partition_key="create_time",
+        required_feature="Subscriptions",
     ),
 }
 

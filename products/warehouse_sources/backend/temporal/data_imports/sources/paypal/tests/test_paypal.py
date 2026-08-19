@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.pay
     _next_page_token,
     _to_datetime,
     _transaction_start,
+    check_endpoint_permissions,
     get_rows,
     paypal_source,
     validate_credentials,
@@ -255,6 +256,41 @@ class TestValidateCredentials:
         assert message is not None
 
 
+@mock.patch(f"{_MODULE}.make_tracked_session")
+class TestEndpointPermissions:
+    def test_a_403_reports_the_feature_the_app_must_enable(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _response({}, status=403)
+
+        result = check_endpoint_permissions("live", "cid", "secret", ["transactions"])
+
+        assert result["transactions"] is not None
+        assert "Transaction Search" in result["transactions"]
+
+    def test_a_reachable_endpoint_reports_no_error(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _response({"items": []}, status=200)
+
+        assert check_endpoint_permissions("live", "cid", "secret", ["disputes"]) == {"disputes": None}
+
+    @pytest.mark.parametrize("status", [429, 500])
+    def test_a_transient_failure_is_not_reported_as_a_missing_feature(
+        self, mock_session: mock.MagicMock, status: int
+    ) -> None:
+        # A throttle or 5xx must not masquerade as a denied table, or setup would wrongly disable it.
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _response({}, status=status)
+
+        assert check_endpoint_permissions("live", "cid", "secret", ["invoices"]) == {"invoices": None}
+
+    def test_a_token_mint_failure_never_blocks_discovery(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.post.side_effect = Exception("boom")
+
+        result = check_endpoint_permissions("live", "cid", "secret", ["transactions", "disputes"])
+
+        assert result == {"transactions": None, "disputes": None}
+
+
 @mock.patch(f"{_MODULE}._now", return_value=_NOW)
 @mock.patch(f"{_MODULE}.make_tracked_session")
 class TestGetRows:
@@ -463,7 +499,7 @@ class TestGetRows:
         tokens = [call.kwargs["params"].get("next_page_token") for call in mock_session.return_value.get.call_args_list]
         assert tokens == [None, "tok2"]
 
-    def test_disputes_push_the_watermark_into_the_server_side_start_time_filter(
+    def test_disputes_push_the_watermark_into_the_update_time_after_filter(
         self, mock_session: mock.MagicMock, _mock_now: mock.MagicMock
     ) -> None:
         mock_session.return_value.post.return_value = _token_response()
@@ -478,10 +514,12 @@ class TestGetRows:
         )
 
         params = mock_session.return_value.get.call_args.kwargs["params"]
-        assert params["start_time"] == "2024-05-01T06:30:00.000Z"
+        # Incremental disputes filter on update time so status changes on old disputes are re-fetched.
+        assert params["update_time_after"] == "2024-05-01T06:30:00.000Z"
+        assert "start_time" not in params
         assert params["page_size"] == 50
 
-    def test_disputes_full_refresh_sends_no_start_time(
+    def test_disputes_full_refresh_sends_no_update_time_filter(
         self, mock_session: mock.MagicMock, _mock_now: mock.MagicMock
     ) -> None:
         mock_session.return_value.post.return_value = _token_response()
@@ -495,7 +533,7 @@ class TestGetRows:
             db_incremental_field_last_value="2024-05-01T06:30:00Z",
         )
 
-        assert "start_time" not in mock_session.return_value.get.call_args.kwargs["params"]
+        assert "update_time_after" not in mock_session.return_value.get.call_args.kwargs["params"]
 
     def test_disputes_resume_from_the_saved_page_token(
         self, mock_session: mock.MagicMock, _mock_now: mock.MagicMock
