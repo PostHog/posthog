@@ -60,9 +60,14 @@ runs:
                 # workflow run), so take the newest run (check run IDs are
                 # monotonic) and report it only once it completes — an older
                 # completed run must not mask a newer one still in flight.
+                # Drop runs that concurrency cancelled: a superseded run completes
+                # as "cancelled" seconds before its replacement's check exists, so
+                # counting it would report a false failure. Keep polling until a
+                # non-cancelled run completes; if this run is the superseded one,
+                # the caller's own concurrency group cancels the wait anyway.
                 if conclusion=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
                     -f check_name="$CHECK_NAME" -f filter=latest \
-                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions")] | max_by(.id) | select(.status == "completed") | .conclusion // empty'); then
+                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions" and .conclusion != "cancelled")] | max_by(.id) | select(.status == "completed") | .conclusion // empty'); then
                   if [ -n "$conclusion" ]; then
                     break
                   fi
