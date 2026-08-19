@@ -7168,11 +7168,11 @@
         }
     },
     "mcp-connections-list": {
-        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+        "description": "List the third-party MCP servers installed in this PostHog project's MCP Store (the \"connections\"). Each entry returns its `id` (pass it to mcp-connection-tools-list), `display_name`, `url`, status fields (`is_enabled`, `needs_reauth`, `pending_oauth`), and `tool_count`. Use it to discover installed servers before you load a connection's live tool catalog with mcp-connection-tools-list.\nThis tool does not diagnose or change your PostHog session. It does not list PostHog projects, organizations, or regions. It does not route to another project. It does not report your token scope. It reads the project you already selected, so select one first. To reach a different project, or to fix a project or permission error, use switch-project or projects-get, and switch-organization or organizations-get for the organization.",
         "category": "MCP Store",
         "feature": "mcp_store",
-        "summary": "List MCP connections",
-        "title": "List MCP connections",
+        "summary": "List installed MCP Store servers",
+        "title": "List installed MCP Store servers",
         "required_scopes": ["project:read"],
         "annotations": {
             "destructiveHint": false,
