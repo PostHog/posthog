@@ -88,19 +88,23 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     }),
     listeners(({ cache, actions, values }) => ({
         onApiResponse: async ({ response, error }, breakpoint) => {
-            if (error || !response?.status) {
+            if (error instanceof NetworkError && error.reason === 'timeout') {
+                // A long-running request dropped by the gateway is not a connectivity problem, so the
+                // "trouble connecting" banner would be wrong and unhelpful. Say what actually happened.
+                // Handled before the debounce breakpoint below, because any unrelated response within
+                // its window would cancel this run and swallow the toast. Repeat timeouts are already
+                // rate-limited by lastTimeoutToast.
+                const now = Date.now()
+                if (now - (cache.lastTimeoutToast ?? 0) > 10000) {
+                    cache.lastTimeoutToast = now
+                    lemonToast.error(
+                        'The request timed out. It may be querying too much data. Try a shorter date range or fewer filters.'
+                    )
+                }
+            } else if (error || !response?.status) {
+                // Debounce so a single failure amid successful traffic doesn't flash the banner.
                 await breakpoint(50)
-                if (error instanceof NetworkError && error.reason === 'timeout') {
-                    // A long-running request dropped by the gateway is not a connectivity problem, so the
-                    // "trouble connecting" banner would be wrong and unhelpful. Say what actually happened.
-                    const now = Date.now()
-                    if (now - (cache.lastTimeoutToast ?? 0) > 10000) {
-                        cache.lastTimeoutToast = now
-                        lemonToast.error(
-                            'The request timed out. It may be querying too much data. Try a shorter date range or fewer filters.'
-                        )
-                    }
-                } else if (
+                if (
                     (error instanceof NetworkError && (error.reason === 'network' || error.reason === 'offline')) ||
                     // Fallback for callers that pass the raw browser error (e.g. CORS failures before Django).
                     error?.message === 'Failed to fetch'

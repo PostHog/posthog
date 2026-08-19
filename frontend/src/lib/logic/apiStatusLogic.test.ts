@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { NetworkError } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -120,6 +121,26 @@ describe('apiStatusLogic', () => {
             }).toFinishAllListeners()
 
             expect(errorSpy).not.toHaveBeenCalled()
+            errorSpy.mockRestore()
+        })
+    })
+
+    describe('timeout handling', () => {
+        it('shows the timeout toast even when another response arrives during the debounce window', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+            // A concurrent response in the same tick would cancel a debounced run at breakpoint(50).
+            // The timeout toast must survive that, so it is dispatched alongside a successful response.
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, new NetworkError('timeout'))
+                logic.actions.onApiResponse({ status: 200, ok: true } as Response)
+            }).toFinishAllListeners()
+
+            expect(errorSpy).toHaveBeenCalledTimes(1)
             errorSpy.mockRestore()
         })
     })
