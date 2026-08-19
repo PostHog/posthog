@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -771,6 +772,7 @@ async def _rewrite_into_temp(
         )
         rows_written += combined.num_rows
         commits += 1
+        report_buffer_bytes(0)
         fields = progress()
         await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
@@ -865,6 +867,8 @@ async def _rewrite_into_temp(
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes
+        # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
+        report_buffer_bytes(buffered_bytes)
 
     await flush()
 

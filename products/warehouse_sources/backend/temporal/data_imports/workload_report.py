@@ -1,6 +1,6 @@
-"""Per-run workload self-reporting for warehouse sync activities.
+"""Per-run workload self-reporting for warehouse sync and repartition activities.
 
-Each import activity periodically writes what it is doing — phase, current in-memory buffer, process
+Each reporting activity periodically writes what it is doing — phase, current in-memory buffer, process
 RSS, and the peaks of both — to the warehouse Redis, keyed by run. The value outlives the worker, so
 when a worker dies silently the retry can read the dead attempt's last report, and the reports of
 everything else that was running on the same pod, and attach them to the `dwh_pod_heartbeat_timeout`
@@ -413,6 +413,7 @@ def enrich_death_event_properties(
                     "co_tenant_sum_buffer_bytes": sum(currents),
                     "co_tenant_merge_count": sum(1 for phase in phases if phase == "merge"),
                     "co_tenant_extract_count": sum(1 for phase in phases if phase == "extract"),
+                    "co_tenant_repartition_count": sum(1 for phase in phases if phase == "repartition"),
                 }
             )
             if death_ts is not None:
