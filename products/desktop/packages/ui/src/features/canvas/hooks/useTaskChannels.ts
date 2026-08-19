@@ -21,9 +21,7 @@ export {
 
 /**
  * Backend task channels — the single channel identity (feed, threads,
- * instructions and canvases all hang off the same UUID). Listing is a pure
- * read; the default #me and #general channels are provisioned explicitly
- * (startup location resolution, onboarding completion).
+ * instructions and canvases all hang off the same UUID).
  */
 export function useTaskChannels(options?: { enabled?: boolean }): {
   channels: TaskChannel[];

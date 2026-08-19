@@ -55,7 +55,6 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(personal[0]["name"], "me")
         self.assertEqual(personal[0]["created_by"]["id"], self.user.id)
 
-        # Provisioning again reuses the same personal channel and reports nothing created
         again = self._provision()
         self.assertFalse(again["personal_created"])
         self.assertEqual(
@@ -106,7 +105,6 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(general[0]["channel_type"], "public")
         self.assertFalse(general[0]["starred"])
 
-        # A second user provisioning inherits the team's #general rather than creating it
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
         again = self._provision(other_client)
