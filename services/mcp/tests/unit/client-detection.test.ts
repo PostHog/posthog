@@ -184,23 +184,24 @@ describe('isPostHogCodeConsumer', () => {
 })
 
 describe('isLegacyDialectOnlyClient', () => {
-    it.each([['antigravity-client'], ['antigravity'], ['Antigravity'], ['antigravity-client/1.2.3']])(
-        'returns true for %s',
+    it.each([
+        ['antigravity-client'],
+        ['antigravity'],
+        ['Antigravity'],
+        ['antigravity-client/1.2.3'],
+        // Bridge variants are gated too: their fallback lands on the legacy
+        // handshake, which works, while their stateless support varies by version.
+        ['antigravity-client (via mcp-remote 0.1.37)'],
+    ])('returns true for %s', (clientName) => {
+        expect(isLegacyDialectOnlyClient(clientName)).toBe(true)
+    })
+
+    it.each([['claude-code'], ['cursor'], ['mcp-remote-fallback-test'], [''], [undefined]])(
+        'returns false for %s',
         (clientName) => {
-            expect(isLegacyDialectOnlyClient(clientName)).toBe(true)
+            expect(isLegacyDialectOnlyClient(clientName)).toBe(false)
         }
     )
-
-    it.each([
-        ['antigravity-client (via mcp-remote 0.1.37)'],
-        ['antigravity (via mcp-remote 0.1.37)'],
-        ['claude-code'],
-        ['cursor'],
-        [''],
-        [undefined],
-    ])('returns false for %s', (clientName) => {
-        expect(isLegacyDialectOnlyClient(clientName)).toBe(false)
-    })
 })
 
 describe('isToolsModeClient', () => {
