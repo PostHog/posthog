@@ -7,6 +7,7 @@ import {
   flattenSelectOptions,
   useModelConfigOptionForTask,
 } from "../../sessionStore";
+import { usePendingPermissionsForTask } from "../../useSession";
 import { useSessionTaskId } from "../../useSessionTaskId";
 import { ModelSelector } from "../ModelSelector";
 import { type ToolViewProps, useToolCallStatus } from "./toolCallUtils";
@@ -33,10 +34,21 @@ export function PlanApprovalView({
     | undefined;
   const isHistoricalPlan = rawInput?.historical === true;
 
-  const planText = useMemo(
-    () => extractPlanText({ rawInput, content }),
-    [content, rawInput],
-  );
+  const pendingPermissions = usePendingPermissionsForTask(taskId ?? undefined);
+
+  const planText = useMemo(() => {
+    const fromToolCall = extractPlanText({ rawInput, content });
+    if (fromToolCall) return fromToolCall;
+    // An older agent build delivers a plan recovered from the plan file only
+    // inside the permission request, never the transcript tool_call.
+    const pending = pendingPermissions.get(toolCall.toolCallId);
+    return pending
+      ? extractPlanText({
+          rawInput: pending.toolCall.rawInput as { plan?: unknown } | undefined,
+          content: pending.toolCall.content,
+        })
+      : null;
+  }, [content, rawInput, pendingPermissions, toolCall.toolCallId]);
 
   const wasNotApproved = isFailed || wasCancelled;
   const showResult = isHistoricalPlan || isComplete || wasNotApproved;

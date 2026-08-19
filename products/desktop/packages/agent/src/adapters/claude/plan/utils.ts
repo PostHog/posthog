@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
@@ -15,6 +16,23 @@ export function isClaudePlanFilePath(filePath: string | undefined): boolean {
   const resolved = path.resolve(filePath);
   const plansDir = path.resolve(getClaudePlansDir());
   return resolved === plansDir || resolved.startsWith(plansDir + path.sep);
+}
+
+/**
+ * Latest on-disk content of a plan file. The in-memory copy captured at Write
+ * time goes stale once the agent Edits the plan, so callers should prefer
+ * this and fall back to cached copies when the file isn't readable (yet).
+ */
+export function readPlanFileContent(
+  filePath: string | undefined,
+): string | undefined {
+  if (!filePath) return undefined;
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+    return content.trim() ? content : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function isPlanReady(plan: string | undefined): boolean {

@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compilePostHogExecPermissionRegex,
@@ -564,7 +567,10 @@ describe("ExitPlanMode plan resolution", () => {
   const PLAN =
     "# Add the CTA\n\nPut a signup button in the hero and point it at /signup.";
 
-  function createPlanContext(emittedToolCalls: Set<string>) {
+  function createPlanContext(
+    emittedToolCalls: Set<string>,
+    session: Record<string, unknown> = {},
+  ) {
     return createContext("ExitPlanMode", {
       toolInput: {},
       emittedToolCalls,
@@ -572,6 +578,7 @@ describe("ExitPlanMode plan resolution", () => {
         permissionMode: "plan",
         lastPlanContent: PLAN,
         notificationHistory: [],
+        ...session,
       },
       applySessionMode: vi.fn().mockResolvedValue(undefined),
       client: {
@@ -581,6 +588,13 @@ describe("ExitPlanMode plan resolution", () => {
         }),
       },
     });
+  }
+
+  function requestedPlan(context: Parameters<typeof canUseTool>[0]) {
+    const request = (
+      context.client.requestPermission as ReturnType<typeof vi.fn>
+    ).mock.calls[0][0];
+    return request.toolCall.rawInput.plan;
   }
 
   function planUpdates(context: Parameters<typeof canUseTool>[0]) {
@@ -621,5 +635,48 @@ describe("ExitPlanMode plan resolution", () => {
         ]),
       }),
     ]);
+  });
+
+  it("prefers the on-disk plan over the stale in-memory copy", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "posthog-plan-test-"));
+    const planPath = path.join(dir, "plan.md");
+    const diskPlan = `${PLAN}\n\nAlso update the pricing page link.`;
+    fs.writeFileSync(planPath, diskPlan);
+    try {
+      const context = createPlanContext(new Set(), {
+        lastPlanFilePath: planPath,
+      });
+
+      await canUseTool(context);
+
+      expect(requestedPlan(context)).toBe(diskPlan);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the in-memory plan when the plan file is unreadable", async () => {
+    const context = createPlanContext(new Set(), {
+      lastPlanFilePath: "/nonexistent/posthog-plan-test/plan.md",
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("allow");
+    expect(requestedPlan(context)).toBe(PLAN);
+  });
+
+  it("denies when no plan can be recovered", async () => {
+    const context = createPlanContext(new Set(), {
+      lastPlanContent: undefined,
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    if (result.behavior === "deny") {
+      expect(result.message).toContain("Plan not ready");
+    }
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
   });
 });

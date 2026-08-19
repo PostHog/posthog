@@ -27,6 +27,7 @@ import {
   getLatestAssistantText,
   isClaudePlanFilePath,
   isPlanReady,
+  readPlanFileContent,
 } from "../plan/utils";
 import {
   type AskUserQuestionInput,
@@ -176,7 +177,11 @@ function getPlanFromFile(
   session: Session,
   fileContentCache: { [key: string]: string },
 ): string | undefined {
+  // Disk first: lastPlanContent is captured from the initial full-content
+  // Write, so it goes stale once the agent Edits the plan file. The cached
+  // copies cover the file not being written yet when ExitPlanMode runs.
   return (
+    readPlanFileContent(session.lastPlanFilePath) ||
     session.lastPlanContent ||
     (session.lastPlanFilePath
       ? fileContentCache[session.lastPlanFilePath]

@@ -1,8 +1,11 @@
+import type { PermissionRequest } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sessionStoreSetters, useSessionStore } from "../../sessionStore";
+import { SessionTaskIdProvider } from "../../useSessionTaskId";
 import { PlanApprovalView } from "./PlanApprovalView";
 
 vi.mock("../../../permissions/PlanContent", () => ({
@@ -147,5 +150,78 @@ describe("PlanApprovalView", () => {
     expect(
       screen.queryByRole("button", { name: /show plan/i }),
     ).not.toBeInTheDocument();
+  });
+
+  describe("pending-permission fallback", () => {
+    beforeEach(() => {
+      useSessionStore.setState((state) => {
+        state.sessions = {};
+        state.taskIdIndex = {};
+      });
+    });
+
+    function seedSessionWithPendingPermission(
+      toolCall: PermissionRequest["toolCall"],
+    ): void {
+      sessionStoreSetters.setSession({
+        taskRunId: "run-1",
+        taskId: "task-1",
+        taskTitle: "Test",
+        channel: "agent-event:run-1",
+        events: [],
+        startedAt: 0,
+        status: "connected",
+        isPromptPending: false,
+        isCompacting: false,
+        promptStartedAt: null,
+        pendingPermissions: new Map([
+          [
+            toolCall.toolCallId,
+            { taskRunId: "run-1", receivedAt: 0, options: [], toolCall },
+          ],
+        ]),
+        pausedDurationMs: 0,
+        messageQueue: [],
+        optimisticItems: [],
+      });
+    }
+
+    function renderWithTask(toolCall: ToolCall) {
+      return render(
+        <Theme>
+          <SessionTaskIdProvider taskId="task-1">
+            <PlanApprovalView toolCall={toolCall} />
+          </SessionTaskIdProvider>
+        </Theme>,
+      );
+    }
+
+    it("falls back to the pending permission's plan when the transcript tool call has none", () => {
+      seedSessionWithPendingPermission({
+        toolCallId: "tc-1",
+        title: "Ready to code?",
+        kind: "switch_mode",
+        content: [
+          { type: "content", content: { type: "text", text: PLAN_MARKER } },
+        ],
+        rawInput: { plan: PLAN_MARKER },
+      });
+      renderWithTask(makeToolCall({ rawInput: undefined, content: [] }));
+
+      expect(screen.getByText(PLAN_MARKER)).toBeInTheDocument();
+    });
+
+    it("renders nothing while pending when neither the tool call nor the permission carries a plan", () => {
+      seedSessionWithPendingPermission({
+        toolCallId: "tc-1",
+        title: "Ready to code?",
+        kind: "switch_mode",
+      });
+      const { container } = renderWithTask(
+        makeToolCall({ rawInput: undefined, content: [] }),
+      );
+
+      expect(container).toHaveTextContent("");
+    });
   });
 });
