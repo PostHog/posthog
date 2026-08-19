@@ -67,7 +67,9 @@ export function buildThreadTimeline<T extends ThreadMessageLike>(
     const artifact = threadMessageArtifact(message);
     if (artifact) {
       rows.push({ kind: "artifact", timestamp, message, artifact });
-    } else if ((message.author_kind ?? "human") === "human") {
+    } else if (!message.event && (message.author_kind ?? "human") === "human") {
+      // Event-bearing rows (comment announcements) belong to the activity
+      // timeline; drawn here they would read as something the person typed.
       rows.push({ kind: "human", timestamp, message });
     }
   }

@@ -100,6 +100,12 @@ export const saveClipboardFileInput = z.object({
   originalName: z.string().optional(),
 });
 
+export const hostInfoOutput = z.object({
+  platform: z.string(),
+  arch: z.string(),
+});
+export type HostInfo = z.infer<typeof hostInfoOutput>;
+
 export interface SavedAttachment {
   path: string;
   name: string;

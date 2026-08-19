@@ -17,6 +17,24 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
+# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
+
+@dataclass(frozen=True)
+class ExceptionSummary:
+    exception_count: int
+    ingestion_failure_count: int
+    prev_exception_count: int
+
+
+@dataclass(frozen=True)
+class CrashFreeSummary:
+    total_sessions: int
+    crash_free_rate: float
+    crash_free_rate_change: dict | None
+    total_sessions_change: dict | None
+
 
 @dataclass(frozen=True)
 class ErrorTrackingIssueAssignee:

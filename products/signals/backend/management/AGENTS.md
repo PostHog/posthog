@@ -59,6 +59,15 @@ python manage.py ingest_report_json \
     --team-id 1
 ```
 
+To test report-canvas Activity delivery, set a suggested reviewer whose GitHub login belongs to a user in the local organization:
+
+```bash
+python manage.py ingest_report_json \
+    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
+    --team-id 1 \
+    --suggested-reviewer-login <your-github-login>
+```
+
 The fixture must match the shape in `report_generation/fixtures/` — a JSON object with `repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart still requires a working GitHub integration (for reviewer resolution) and the commit authors in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective priority threshold (personal or team default) covers the report's priority — otherwise the report will be saved but no `Task` will be created.
 
 ## Seeding billable reports (refund testing)
@@ -82,16 +91,6 @@ python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid>
 ```
 
 For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
-
-## Session summary (video-based)
-
-Test the SummarizeSingleSessionWorkflow with full video validation:
-
-```bash
-python manage.py summarize_single_session <session_id> [--team-id N] [--user-id N]
-```
-
-Uses first team/user if omitted. Runs `execute_summarize_session` with video-based summarization.
 
 ## Repository selection (agentic)
 
@@ -169,6 +168,7 @@ Idempotent — skips any report that already has a `task_run` artefact referenci
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
+- `emit_signals_from_fixture` and `emit_signals_from_llm` apply the team's `SignalSourceConfig.config` steering keys (`steering`, `default_not_actionable`) like production does — clear them on the source's config row for an unsteered baseline
 - Read each command's source for all available flags — they are in this directory
 - If you are looking for the local-only debug commands `analyze_report.py`, `select_repo.py`, or `parse_sandbox_log.py`, those are documented in `../report_generation/AGENTS.md`
 - **If you change any command or the flow, update this file to match**

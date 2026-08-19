@@ -121,6 +121,19 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def fail_stuck_video_exports() -> None:
+    """Give up on video exports whose render workflow died without recording a reason.
+
+    The workflow records its own failures, but not the ones where it never got to run: its execution
+    timeout firing, a dispatch failure, a lost worker. Without this sweep those rows stay
+    indistinguishable from a render still in progress.
+    """
+    from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 @skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.
@@ -809,7 +822,9 @@ def capture_task_run_state_metrics() -> None:
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and "
+                "run_environment. For `queued` this is time spent waiting in the queue, so a re-queued run counts "
+                "from its re-queue rather than from row creation.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronRight, IconPlus } from '@posthog/icons'
+import { IconArrowUpRight, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -18,11 +18,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
+import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
@@ -48,9 +50,6 @@ const ENTITY_KIND_LABELS: Record<string, string> = {
     classifier: 'Classifier',
     scorer: 'Scorer',
     summarizer: 'Summarizer',
-    llm_judge: 'LLM judge',
-    hog: 'Hog',
-    sentiment: 'Sentiment',
 }
 
 function entityKindLabel(kind: string): string {
@@ -76,7 +75,7 @@ function resolveAgentStatus(
     return 'watching'
 }
 
-/** One individually switchable thing inside a source: a scanner, an evaluation, a signal type. */
+/** One individually switchable thing inside a source: a scanner or a signal type. */
 interface RosterEntity {
     id: string
     name: string
@@ -95,6 +94,8 @@ interface AgentSourceState {
     entities: RosterEntity[]
     /** The entity list is still loading, so the count would read as a wrong zero. */
     entitiesLoading: boolean
+    /** The source's `SignalSourceConfig` row, for sources that persist one. Steering writes to it. */
+    sourceConfig: SignalSourceConfig | null
 }
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
@@ -207,10 +208,9 @@ interface ExpansionProps {
     onEnableTool: (tool: SourceToolStatus) => void
     onToggleEntity: (entityId: string) => void
     onConfigureFilters?: () => void
+    /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
+    onSteer?: () => void
     onRetryData: () => void
-    /** AI observability only: the periodic digest, which is its own signal stream, not a master. */
-    onToggleReports?: () => void
-    reportsEnabled?: boolean
 }
 
 function ToolDataStatus({
@@ -277,9 +277,8 @@ function Expansion({
     onEnableTool,
     onToggleEntity,
     onConfigureFilters,
+    onSteer,
     onRetryData,
-    onToggleReports,
-    reportsEnabled,
 }: ExpansionProps): JSX.Element {
     const [filter, setFilter] = useState('')
     const { entities } = state
@@ -322,30 +321,32 @@ function Expansion({
                 <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
             ) : null}
 
-            {onToggleReports && (
-                <div className="flex items-start gap-2">
-                    <LemonSwitch
-                        size="small"
-                        className="mt-0.5"
-                        checked={!!reportsEnabled}
-                        onChange={onToggleReports}
-                        aria-label="Summary reports"
-                    />
-                    <div className="min-w-0">
-                        <div className="text-xs font-medium text-default">Summary reports</div>
-                        <p className="mb-0 text-xs text-secondary">
-                            File one report for each evaluation, on a schedule or after a set number of new results.
-                            This is separate from the individual results below.
-                        </p>
-                    </div>
-                </div>
-            )}
-
             {onConfigureFilters && (
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-secondary">Limit which recordings this source analyzes.</span>
                     <LemonButton type="secondary" size="xsmall" onClick={onConfigureFilters}>
                         Configure filters
+                    </LemonButton>
+                </div>
+            )}
+
+            {onSteer && (
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-secondary">
+                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
+                            ? 'Guidance is set for this source.'
+                            : 'Tell the agent what matters and what to skip.'}
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconGear />}
+                        onClick={onSteer}
+                        data-attr="signal-source-steering-open"
+                    >
+                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
+                            ? 'Edit guidance'
+                            : 'Add guidance'}
                     </LemonButton>
                 </div>
             )}
@@ -435,9 +436,8 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableTool: (tool: SourceToolStatus) => void
     onConfigureFilters?: () => void
+    onSteer?: () => void
     onRetryData: () => void
-    onToggleReports?: () => void
-    reportsEnabled?: boolean
 }
 
 const AgentRow = memo(function AgentRow({
@@ -451,9 +451,8 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableTool,
     onConfigureFilters,
+    onSteer,
     onRetryData,
-    onToggleReports,
-    reportsEnabled,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
@@ -525,8 +524,21 @@ const AgentRow = memo(function AgentRow({
                         />
                     ) : null}
                 </div>
-                <IconChevronRight
-                    className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                {/* A real button inside the clickable row, so keyboard users can reach the
+                    expansion (and the controls inside it, like steering). */}
+                <LemonButton
+                    size="xsmall"
+                    icon={
+                        <IconChevronRight
+                            className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                        />
+                    }
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onExpand()
+                    }}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                 />
             </div>
             {expanded && (
@@ -538,9 +550,8 @@ const AgentRow = memo(function AgentRow({
                     onEnableTool={onEnableTool}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     onConfigureFilters={onConfigureFilters}
+                    onSteer={onSteer}
                     onRetryData={onRetryData}
-                    onToggleReports={onToggleReports}
-                    reportsEnabled={reportsEnabled}
                 />
             )}
         </div>
@@ -549,7 +560,6 @@ const AgentRow = memo(function AgentRow({
 
 export function AgentsRoster(): JSX.Element {
     const {
-        sessionAnalysisConfig,
         conversationsConfig,
         evalReportsConfig,
         anomalyInvestigationConfig,
@@ -564,10 +574,6 @@ export function AgentsRoster(): JSX.Element {
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
-        evaluations,
-        evaluationsLoading,
-        signalEmittingEvaluationIds,
-        isSessionAnalysisToggling,
         isConversationsToggling,
         isEvalReportsToggling,
         isAnomalyInvestigationToggling,
@@ -582,25 +588,22 @@ export function AgentsRoster(): JSX.Element {
         enablingTool,
     } = useValues(signalSourcesLogic)
     const {
-        toggleSessionAnalysis,
         toggleConversations,
         toggleErrorTracking,
         toggleErrorTrackingType,
         toggleEvalReports,
-        toggleEvaluationSignals,
         toggleCiSignals,
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         toggleScannerSignals,
-        setAllScannerSignals,
-        setEvaluationSignals,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
-        openSessionAnalysisSetup,
         loadToolDataEvents,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
+    // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
+    const [steeringTarget, setSteeringTarget] = useState<{ config: SignalSourceConfig; label: string } | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -612,18 +615,6 @@ export function AgentsRoster(): JSX.Element {
                 enabled: scanner.emits_signals ?? false,
             })),
         [visionScanners]
-    )
-
-    const evaluationEntities = useMemo(
-        (): RosterEntity[] =>
-            (evaluations ?? []).map((evaluation) => ({
-                id: evaluation.id,
-                name: evaluation.name,
-                detail: evaluation.description || undefined,
-                kind: evaluation.evaluation_type,
-                enabled: signalEmittingEvaluationIds.includes(evaluation.id),
-            })),
-        [evaluations, signalEmittingEvaluationIds]
     )
 
     const errorTrackingEntities = useMemo(
@@ -639,7 +630,11 @@ export function AgentsRoster(): JSX.Element {
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
-            const base = { entities: [] as RosterEntity[], entitiesLoading: false }
+            const base = {
+                entities: [] as RosterEntity[],
+                entitiesLoading: false,
+                sourceConfig: null as SignalSourceConfig | null,
+            }
             const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
                 ...base,
                 armed: !!config?.enabled,
@@ -647,6 +642,7 @@ export function AgentsRoster(): JSX.Element {
                 // No config row yet → the source has never been connected; surface a Connect button.
                 requiresSetup: config === null,
                 syncStatus: config?.status,
+                sourceConfig: config,
             })
             switch (source) {
                 case 'error_tracking':
@@ -667,6 +663,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isConversationsToggling,
                         requiresSetup: false,
                         syncStatus: conversationsConfig?.status,
+                        sourceConfig: conversationsConfig,
                     }
                 case 'replay_vision':
                     return {
@@ -678,25 +675,13 @@ export function AgentsRoster(): JSX.Element {
                         entities: scannerEntities,
                         entitiesLoading: visionScanners === null && visionScannersLoading,
                     }
-                case 'session_replay':
-                    return {
-                        ...base,
-                        armed: !!sessionAnalysisConfig?.enabled,
-                        loading: isSessionAnalysisToggling,
-                        requiresSetup: false,
-                        syncStatus: sessionAnalysisConfig?.status,
-                    }
                 case 'llm_analytics':
                     return {
                         ...base,
-                        // No master switch here, so the row is on when anything under it is: an
-                        // allowlisted evaluation, or the periodic digest.
-                        armed: !!evalReportsConfig?.enabled || evaluationEntities.some((e) => e.enabled),
+                        armed: !!evalReportsConfig?.enabled,
                         loading: isEvalReportsToggling,
                         requiresSetup: false,
                         syncStatus: null,
-                        entities: evaluationEntities,
-                        entitiesLoading: evaluations === null && evaluationsLoading,
                     }
                 case 'analytics':
                     return {
@@ -742,12 +727,7 @@ export function AgentsRoster(): JSX.Element {
             scannerEntities,
             visionScanners,
             visionScannersLoading,
-            sessionAnalysisConfig,
-            isSessionAnalysisToggling,
             evalReportsConfig,
-            evaluationEntities,
-            evaluations,
-            evaluationsLoading,
             isEvalReportsToggling,
             anomalyInvestigationConfig,
             isAnomalyInvestigationToggling,
@@ -780,11 +760,8 @@ export function AgentsRoster(): JSX.Element {
                 case 'conversations':
                     toggleConversations()
                     return
-                case 'session_replay':
-                    toggleSessionAnalysis()
-                    return
                 case 'llm_analytics':
-                    // Switched per evaluation, plus the digest, both in the expanded list.
+                    toggleEvalReports()
                     return
                 case 'analytics':
                     toggleAnomalyInvestigation()
@@ -804,14 +781,8 @@ export function AgentsRoster(): JSX.Element {
             }
         },
         [
-            scannerEntities,
-            setAllScannerSignals,
-            evaluationEntities,
-            evalReportsConfig,
-            setEvaluationSignals,
             toggleErrorTracking,
             toggleConversations,
-            toggleSessionAnalysis,
             toggleEvalReports,
             toggleCiSignals,
             toggleAnomalyInvestigation,
@@ -824,13 +795,11 @@ export function AgentsRoster(): JSX.Element {
         (source: AgentRosterSource, entityId: string) => {
             if (source === 'replay_vision') {
                 toggleScannerSignals(entityId)
-            } else if (source === 'llm_analytics') {
-                toggleEvaluationSignals(entityId)
             } else if (source === 'error_tracking') {
                 toggleErrorTrackingType(entityId as SignalSourceType)
             }
         },
-        [toggleScannerSignals, toggleEvaluationSignals, toggleErrorTrackingType]
+        [toggleScannerSignals, toggleErrorTrackingType]
     )
 
     const visibleGroups = AGENT_ROSTER_GROUPS.map((group) => ({
@@ -853,33 +822,55 @@ export function AgentsRoster(): JSX.Element {
                 <div key={group.label} className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-muted">{group.label}</span>
                     <div className="divide-y divide-primary overflow-hidden rounded border border-primary">
-                        {group.agents.map((agent) => (
-                            <AgentRow
-                                key={agent.source}
-                                agent={agent}
-                                state={stateFor(agent.source)}
-                                tool={toolStatusBySource[agent.source]}
-                                expanded={expandedSource === agent.source}
-                                enablingTool={
-                                    !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
-                                }
-                                onExpand={() =>
-                                    setExpandedSource((current) => (current === agent.source ? null : agent.source))
-                                }
-                                onToggle={handleToggle}
-                                onToggleEntity={handleToggleEntity}
-                                onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
-                                onConfigureFilters={
-                                    agent.source === 'session_replay' ? openSessionAnalysisSetup : undefined
-                                }
-                                onRetryData={loadToolDataEvents}
-                                onToggleReports={agent.source === 'llm_analytics' ? toggleEvalReports : undefined}
-                                reportsEnabled={!!evalReportsConfig?.enabled}
-                            />
-                        ))}
+                        {group.agents.map((agent) => {
+                            const state = stateFor(agent.source)
+                            // Steering needs a persisted row to write to, so optimistic `new_`
+                            // placeholder rows wait until the reload lands. Disabled sources keep
+                            // the control: enabling starts a sync immediately, so rules must be
+                            // settable before the first sync runs.
+                            const steeringConfig =
+                                agent.steerable && state.sourceConfig && !state.sourceConfig.id.startsWith('new_')
+                                    ? state.sourceConfig
+                                    : null
+                            return (
+                                <AgentRow
+                                    key={agent.source}
+                                    agent={agent}
+                                    state={state}
+                                    tool={toolStatusBySource[agent.source]}
+                                    expanded={expandedSource === agent.source}
+                                    enablingTool={
+                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
+                                    }
+                                    onExpand={() =>
+                                        setExpandedSource((current) => (current === agent.source ? null : agent.source))
+                                    }
+                                    onToggle={handleToggle}
+                                    onToggleEntity={handleToggleEntity}
+                                    onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
+                                    onConfigureFilters={undefined}
+                                    onSteer={
+                                        steeringConfig
+                                            ? () => setSteeringTarget({ config: steeringConfig, label: agent.label })
+                                            : undefined
+                                    }
+                                    onRetryData={loadToolDataEvents}
+                                />
+                            )
+                        })}
                     </div>
                 </div>
             ))}
+
+            {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
+            {steeringTarget && (
+                <SourceSteeringModal
+                    key={steeringTarget.config.id}
+                    sourceConfig={steeringTarget.config}
+                    sourceLabel={steeringTarget.label}
+                    onClose={() => setSteeringTarget(null)}
+                />
+            )}
         </div>
     )
 }

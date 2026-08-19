@@ -88,9 +88,9 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - To remove all editor filters while preserving the placeholder, pass an empty `filters` object (`{}`).
   - Do not replace the placeholder with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
   - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`, and the column-bound form `{filters(expr AS key, ...)}`.
-  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`.
-  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups.
-  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, and session scope on `sessions` unless the query also includes `events`.
+  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, `groups`, or `persons`.
+  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups and persons.
+  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, person scope on queries selecting only `persons`, and session scope on `sessions` unless the query also includes `events`.
   - For any other table, view, or join (including data warehouse/source tables), use the column-bound form, for example `{filters(created_at AS timestamp, account_id AS 'account_id')}`:
     - The reserved key `timestamp` receives the date range. Any other key (a string alias like `'plan'` or `'$group_0'`) receives the property filters on that key, with full operator semantics.
     - `null AS key` opts the query out of filtering on that key. An active filter with no binding raises an error, so bind or explicitly opt out of every filter key in use.

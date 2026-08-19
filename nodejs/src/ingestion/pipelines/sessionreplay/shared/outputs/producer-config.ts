@@ -158,7 +158,8 @@ export function getDefaultKafkaMlImageFetchProducerEnvConfig(): KafkaMlImageFetc
         // JSON URLs compress well, unlike the image bytes on the scrub lane.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_COMPRESSION_CODEC: 'snappy',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_LINGER_MS: '',
-        // Records here are small, so the queue is sized by count rather than by bytes.
+        // A record is packed to a byte budget, so bytes rather than count are what bind here:
+        // this holds roughly 60 full records in flight against 50,000 small ones.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '50000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
         // The same short local timeout as the scrub lane, and for the same reason: these ack

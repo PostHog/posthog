@@ -145,15 +145,19 @@ class DucklingBackfillConfig:
 2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
    action or the managed warehouse onboarding API. This creates the control-plane team row
    with backfill enabled. The discovery sensor will pick up the team on its next run.
-   The enablement flow also creates a
-   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
-   warehouse is ready, background schema discovery exposes every table in the team's event/person,
-   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
-   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
-   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
-   multiple teams.
+   By default, the SQL editor exposes the auto-provisioned Duckgres source as an external connection
+   backed by the stored server login. When the `managed-warehouse-sql-editor` flag is enabled, the chooser
+   replaces it with the built-in connection only if a reserved source already contains a configured Duckgres
+   `project_reader` credential. Reader provisioning and rotation are separate from this enablement flow.
+   Background discovery for a ready reader exposes only the project namespaces allowed by Duckgres. If the
+   flag is enabled without a valid reader, neither managed connection appears in the chooser.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
+
+Each Dagster backfill session mints a new short-lived Duckgres service credential.
+Concurrent sessions use the same `dagster:events-backfill` audit principal but receive
+different credential IDs and secrets. A reconnect refreshes only the credential ID held
+by that session.
 
 ## Troubleshooting
 
@@ -184,6 +188,10 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
 - **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
 - **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
+
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
 
 ## S3 Path Structure
 

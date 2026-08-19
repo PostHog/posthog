@@ -162,6 +162,7 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'cdp-functions-create',
     'workflows-create',
     'workflows-create-email-template',
+    'llma-parser-recipe-create',
 ])
 
 /**

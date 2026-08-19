@@ -50,7 +50,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -109,6 +109,9 @@ TEAM_ID_FILTER_PATTERNS = {
     "_account_tagged_items": "system__accounts.team_id",
     # The custom property tables declare their real team_id column, so the standard direct
     # guard applies (and is pushed into the federated read).
+    # Runs have no team_id column; isolation is enforced via a predicate scoping through the
+    # run's parent (scheduled or on-demand batch export)
+    "batch_export_runs": "system__batch_exports.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
@@ -194,6 +197,33 @@ def _create_batch_export_backfill(team: Team, label: str):
         team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
     )
     return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
+
+
+def _create_batch_export_run(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    batch_export = BatchExport.objects.create(
+        team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
+    )
+    return BatchExportRun.objects.create(batch_export=batch_export, status="Running", data_interval_end=timezone.now())
+
+
+def _create_batch_export_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    with team_scope(team.pk):
+        return BatchExportOnDemand.objects.create(team=team, destination=destination)
+
+
+def _create_batch_export_run_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportRun
+
+    on_demand = _create_batch_export_on_demand(team, label)
+    return BatchExportRun.objects.create(
+        batch_export_on_demand=on_demand, status="Running", data_interval_end=timezone.now()
+    )
 
 
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
@@ -645,6 +675,14 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_survey_response_archive(team: Team, label: str) -> SurveyResponseArchive:
+    return SurveyResponseArchive.objects.create(
+        team=team,
+        survey=_create_survey(team, f"archived_{label}"),
+        response_uuid=uuid.uuid4(),
+    )
+
+
 def _create_public_task_channel(team: Team, label: str):
     Channel = apps.get_model("tasks", "Channel")
 
@@ -769,6 +807,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
+    ("batch_export_on_demands", _create_batch_export_on_demand),
+    ("batch_export_runs", _create_batch_export_run),
+    # A run parented by an on-demand export exercises the other branch of the runs table's scoping predicate
+    ("batch_export_runs", _create_batch_export_run_on_demand),
     ("batch_exports", _create_batch_export),
     ("business_knowledge_chunks", _create_business_knowledge_chunk),
     ("business_knowledge_documents", _create_business_knowledge_document),
@@ -826,6 +868,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
+    ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
@@ -870,6 +913,22 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+    def test_error_tracking_issue_severity(self):
+        ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="high_severity_issue",
+            status=ErrorTrackingIssue.Status.ACTIVE,
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
+
+        response = execute_hogql_query(
+            "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("high",)]
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):

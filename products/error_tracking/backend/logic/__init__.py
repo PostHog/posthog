@@ -317,6 +317,13 @@ def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[s
             if issue_description is not None
         ]
 
+    if key == "severity":
+        return [
+            severity
+            for severity in queryset.filter(severity__icontains=value).values_list("severity", flat=True).distinct()
+            if severity is not None
+        ]
+
     return []
 
 

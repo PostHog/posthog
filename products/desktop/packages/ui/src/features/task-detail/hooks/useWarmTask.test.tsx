@@ -288,6 +288,37 @@ describe("useWarmTask", () => {
     expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the warm lease when only reasoning effort changes", async () => {
+    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
+      initialProps: {
+        ...cloudTyping,
+        runtimeAdapter: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
+    });
+    await flushDebounce();
+
+    rerender({
+      ...cloudTyping,
+      runtimeAdapter: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+    });
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledOnce();
+    expect(
+      takeWarmTaskLease({
+        repository: "acme/repo",
+        branch: "main",
+        runtimeAdapter: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+      }),
+    ).toEqual({ taskId: "task-1", runId: "run-1" });
+  });
+
   it("forwards sandbox configuration and re-warms when the image changes", async () => {
     const { rerender } = renderHook((props: Props) => useWarmTask(props), {
       initialProps: {

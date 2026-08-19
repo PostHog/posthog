@@ -186,7 +186,7 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo; an out-of-tree PostHog/code checkout also works
+# The desktop source lives in this repo at products/desktop
 LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
 ```
 
@@ -205,6 +205,27 @@ pnpm --dir products/desktop --filter @posthog/agent... build
 | `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                                                                                      |
 | `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, each local package's external runtime dependencies are installed and its compiled output is overlaid onto the image. |
 | `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. Uses the published agent by default and builds local agent packages when `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set. This is the recommended option for local development.                                                                                              |
+
+### Modal apps
+
+Every sandbox is booked against a Modal app, which is what groups it in the Modal dashboard and attributes its cost.
+The app is picked from the template first, and from `SandboxConfig.workload` when the template has no app of its own.
+
+| App                            | Owned by                                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `posthog-sandbox-default`      | Everything not claimed below — user-created tasks, loops, onboarding, image builds            |
+| `posthog-sandbox-self-driving` | The self-driving fleet: Signals report research and repo selection, Signals scouts, ReviewHog |
+| `posthog-sandbox-notebook`     | `NOTEBOOK_BASE` template                                                                      |
+| `posthog-sandbox-streamlit`    | `STREAMLIT_BASE` template                                                                     |
+
+Self-driving membership is derived from the task's `origin_product` (`SELF_DRIVING_ORIGIN_PRODUCTS` in
+`logic/services/sandbox.py`), so a product joins the fleet by adding its origin there — no caller changes.
+The split is for metering only: same image, same resources, same isolation, and images and snapshots are
+workspace-scoped in Modal, so a self-driving box still restores a snapshot baked under the default app.
+
+Each name above is a class attribute on `ModalSandbox`, and the `MODAL_DOCKER` and `MODAL_EVALS` providers
+override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), so local and eval runs never land
+in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
 

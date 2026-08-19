@@ -57,6 +57,11 @@ export type CommandMenuAction =
   | "open-artifact"
   | "open-channel"
   | "open-command-center"
+  | "save-feed"
+  | "complete-filter"
+  | "show-all-matches"
+  | "repair-query"
+  | "open-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"
@@ -153,6 +158,21 @@ export interface PromptSentProperties {
   prompt_length_chars: number;
 }
 
+/** Sentiment captured by the thumbs under an agent turn. */
+export type AgentTurnFeedbackSentiment = "positive" | "negative";
+
+/**
+ * A reader's verdict on one agent turn, from the thumbs in the turn footer.
+ * Feedback is analytics-only: it never changes the session. `turn_id` is
+ * stable for the life of the thread, so switching thumbs re-fires the event
+ * and the last one wins.
+ */
+export interface AgentTurnFeedbackProperties {
+  task_id: string | null;
+  turn_id: string;
+  sentiment: AgentTurnFeedbackSentiment;
+}
+
 // Git operations
 export interface GitActionExecutedProperties {
   action_type: GitActionType;
@@ -243,6 +263,7 @@ export interface CommandMenuActionProperties {
 }
 
 export type SidebarNavItem =
+  | "home"
   | "new_task"
   | "search"
   | "inbox"
@@ -928,7 +949,6 @@ export type ChannelsSurface =
   | "task_input"
   | "channel_home"
   | "channel_history"
-  | "channel_artifacts"
   | "pinned"
   | "dashboards_grid"
   | "canvas"
@@ -958,8 +978,6 @@ export type ChannelActionType =
   | "new_task_suggestion"
   | "view_context"
   | "view_history"
-  | "view_artifacts"
-  | "open_artifact"
   | "file_task"
   | "unfile_task"
   | "archive_task"
@@ -970,11 +988,17 @@ export type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "canvas_mode_toggle"
-  /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
-  | "canvas_generate"
-  | "activity_tab_change"
-  | "artifacts_view_change";
+  | "activity_tab_change";
+
+export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+
+export interface TaskFeedActionProperties {
+  action_type: TaskFeedActionType;
+  surface: "sidebar" | "feed_home" | "command_menu";
+  feed_id: string;
+  /** Length of the saved query. Do not record its text. */
+  query_length?: number;
+}
 
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
@@ -991,12 +1015,8 @@ export interface ChannelActionProperties {
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For canvas_mode_toggle: whether canvas mode is being armed. */
-  armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
-  /** For artifacts_view_change: the selected layout. */
-  view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }
@@ -1023,8 +1043,6 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
-  /** The canvas render kind. */
-  kind?: "json-render" | "freeform";
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */
@@ -1330,6 +1348,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_CANCELLED: "Task run cancelled",
   TASK_RUN_STOPPED: "Task run stopped",
   PROMPT_SENT: "Prompt sent",
+  AGENT_TURN_FEEDBACK: "Agent turn feedback",
 
   // Claude Code session import
   CLAUDE_SESSIONS_SHOWN: "Claude Code sessions shown",
@@ -1469,6 +1488,7 @@ export const ANALYTICS_EVENTS = {
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
+  TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_RENDERED: "Canvas rendered",
@@ -1514,6 +1534,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_CANCELLED]: TaskRunCancelledProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
+  [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 
   // Claude Code session import
   [ANALYTICS_EVENTS.CLAUDE_SESSIONS_SHOWN]: ClaudeSessionsShownProperties;
@@ -1650,6 +1671,7 @@ export type EventPropertyMap = {
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
+  [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;

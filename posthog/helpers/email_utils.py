@@ -17,7 +17,8 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import Q, QuerySet
+from django.db.models import Func, QuerySet, Value
+from django.db.models.functions import Lower
 
 import requests
 import structlog
@@ -260,6 +261,13 @@ def strip_email_alias(email: str) -> str:
     return f"{local}@{domain}"
 
 
+# SQL counterpart of `strip_email_alias`, lowercased. Shared by the lookup in
+# `EmailValidationHelper.user_exists_with_stripped_alias` and by the `user_stripped_alias_idx`
+# index on `User` that makes it an index lookup — Postgres only uses a functional index when
+# the query filters on the identical expression, so these must not drift apart.
+STRIPPED_EMAIL_EXPRESSION = Func(Lower("email"), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace")
+
+
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""
     local = value.split("@", 1)[0]
@@ -358,10 +366,13 @@ class EmailValidationHelper:
         """
         from posthog.models.user import User
 
-        stripped = strip_email_alias(email)
-        local, _, domain = stripped.rpartition("@")
-        candidates = User.objects.filter(is_active=True).filter(
-            Q(email__iexact=stripped) | (Q(email__istartswith=f"{local}+") & Q(email__iendswith=f"@{domain}"))
+        # Compared lowercased because the expression below (and the index backing it) lowercases
+        # first, so an equality match would otherwise miss legacy mixed-case rows.
+        stripped = strip_email_alias(email).lower()
+        candidates = (
+            User.objects.filter(is_active=True)
+            .annotate(stripped_email=STRIPPED_EMAIL_EXPRESSION)
+            .filter(stripped_email=stripped)
         )
         if exclude_user_id is not None:
             candidates = candidates.exclude(pk=exclude_user_id)

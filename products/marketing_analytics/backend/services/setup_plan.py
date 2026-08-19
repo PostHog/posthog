@@ -281,7 +281,14 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     status = integration.overall_status
     source_type = integration.source_type
     ds = integration.data_source
-    volume = integration.attribution.events_unmatched_likely_yours_last_7d if integration.attribution else 0
+    attribution = integration.attribution
+    # Both counters: `events_only` is set when either one is non-zero, so reading just the
+    # likely-yours side reports "0 events" as the reason to connect a platform whose
+    # utm_source matched exactly. They never overlap — a utm_source either matches an alias
+    # or is only fuzzy-suggested — so the sum is every event carrying this platform's source.
+    volume = (
+        attribution.events_matched_last_7d + attribution.events_unmatched_likely_yours_last_7d if attribution else 0
+    )
 
     if status == "events_only":
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
@@ -500,9 +507,9 @@ def _conversion_goal_suggestions(
         if goal.is_misconfigured:
             suggestions.append(_fix_goal_suggestion(goal))
 
-    if not any(goal_flags.get(g.id, {}).get("counts_as_revenue") for g in goals.goals):
+    if not any(goal_flags.get(g.conversion_goal_id, {}).get("counts_as_revenue") for g in goals.goals):
         suggestions.append(_missing_flag_suggestion(goals.goals, goal_flags, revenue=True))
-    if not any(goal_flags.get(g.id, {}).get("counts_as_customer") for g in goals.goals):
+    if not any(goal_flags.get(g.conversion_goal_id, {}).get("counts_as_customer") for g in goals.goals):
         suggestions.append(_missing_flag_suggestion(goals.goals, goal_flags, revenue=False))
 
     return [s for s in suggestions if s is not None]
@@ -551,7 +558,7 @@ def _create_goal_suggestions(candidates: EventSuggestionsResponse | None) -> lis
 
 def _fix_goal_suggestion(goal: ConversionGoalSummary) -> Suggestion:
     return Suggestion(
-        id=f"fix_conversion_goal:{goal.id}",
+        id=f"fix_conversion_goal:{goal.conversion_goal_id}",
         kind=SuggestionKind.FIX_CONVERSION_GOAL,
         severity=Severity.ERROR,
         confidence=0.95,
@@ -596,7 +603,7 @@ def _missing_flag_suggestion(
         ),
         unlocks=[Capability.ROAS if revenue else Capability.CAC],
         # Which goal counts as revenue is a business decision, not a config fix.
-        apply=UpdateConversionGoal(conversion_goal_id=candidate.id, patch={flag: True}),
+        apply=UpdateConversionGoal(conversion_goal_id=candidate.conversion_goal_id, patch={flag: True}),
         safe_to_batch=False,
         event_volume=candidate.last_30d_count,
     )

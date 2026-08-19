@@ -93,7 +93,7 @@ export interface TaskCreationInput {
   /**
    * Desktop-only local MCP servers (stdio / private URL) designated for
    * relaying into the cloud run via the creating desktop
-   * (docs/cloud-mcp-relay.md). Names only. Cloud-only.
+   * (docs/CLOUD-MCP-RELAY.md). Names only. Cloud-only.
    */
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
   /**

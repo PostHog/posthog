@@ -451,6 +451,7 @@ class TestHandleRulesCommandActivity:
             event={"text": text, "channel": self.channel, "thread_ts": self.thread_ts, "user": self.slack_user_id},
             integration_id=self.integration.id,
             slack_team_id="T12345",
+            user_id=self.user.id,
         )
 
     @patch("posthog.models.integration.SlackIntegration")

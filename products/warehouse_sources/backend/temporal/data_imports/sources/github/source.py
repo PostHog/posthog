@@ -307,7 +307,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
         # still gets picked up by Temporal's activity retry; classify it as retryable so it's
         # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
-        return {"GitHub API rate limit exceeded"}
+        #
+        # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
+        # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
+        # the source can fix.
+        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None

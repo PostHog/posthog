@@ -21,11 +21,21 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, NotFound, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotAuthenticated,
+    NotFound,
+    ParseError,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.schema import QuerySchemaRoot
 
@@ -36,16 +46,11 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.permissions import (
-    APIScopePermission,
-    DenyMCPBuiltInAgentOAuth,
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-)
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
@@ -58,7 +63,12 @@ from products.tasks.backend.facade import (
     cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import compute_quota_limit_response, usage_limit_response
+from products.tasks.backend.facade.access import (
+    code_access_required_response,
+    compute_quota_limit_response,
+    usage_limit_response,
+)
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.metrics import (
@@ -68,6 +78,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
@@ -82,6 +93,7 @@ from products.tasks.backend.facade.streams import (
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    ModelCatalogueResponseSerializer,
     PinnedTaskIdsResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
@@ -96,8 +108,6 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextResponseSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
-    TaskAutomationSerializer,
-    TaskAutomationWriteSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -151,6 +161,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskStagedArtifactsPrepareUploadResponseSerializer,
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
+    TaskUsageResponseSerializer,
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
@@ -273,6 +284,37 @@ def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
     return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
 
 
+class TaskUsageUpstreamUnavailable(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Task usage is temporarily unavailable."
+    default_code = "task_usage_upstream_unavailable"
+
+
+class _SignalReportTaskCreateThrottle(UserRateThrottle):
+    """Rate-limits only signal-report task creation on the shared create endpoint.
+
+    Report-started tasks run unbilled inference (the customer pays per PR), so their creation
+    rate needs a per-user bound the generic create path doesn't; the per-report cap alone still
+    allows sweeping every report on a team. Reading `request.data` here is safe — DRF caches it.
+    """
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        data = request.data
+        if not isinstance(data, dict) or data.get("origin_product") != "signal_report":
+            return True
+        return super().allow_request(request, view)
+
+
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
+    scope = "signal_report_task_create_burst"
+    rate = "10/hour"
+
+
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
+    scope = "signal_report_task_create_day"
+    rate = "30/day"
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -291,6 +333,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if getattr(self, "action", None) == "create":
+            throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
+        return throttles
+
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
@@ -299,7 +347,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
@@ -388,6 +436,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(
+        operation_id="tasks_usage_retrieve",
+        responses={200: TaskUsageResponseSerializer},
+        summary="Get task usage",
+        description="Return estimated model and cloud compute costs attributed to a task.",
+    )
+    @action(detail=True, methods=["get"], url_path="usage", required_scopes=["task:read"])
+    def usage(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None or task.created_at is None:
+            raise NotFound()
+        try:
+            usage = get_task_usage(team_id=self.team_id, task_id=task.id, task_created_at=task.created_at)
+        except TaskTokenUsageUnavailable as error:
+            raise TaskUsageUpstreamUnavailable() from error
+        return Response(
+            TaskUsageResponseSerializer(
+                {
+                    "token_cost_usd": usage.token_cost_usd,
+                    "compute_cost_usd": usage.compute_cost_usd,
+                    "total_cost_usd": usage.total_cost_usd,
+                }
+            ).data
+        )
+
     @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
     @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
     def artifacts(self, request, pk=None, **kwargs):
@@ -460,7 +533,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             201: TaskSerializer,
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Organization reached its PostHog Desktop usage limit",
+                description=(
+                    "Organization reached its PostHog Desktop usage limit, the signal report reached its "
+                    "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired"
+                ),
             ),
         },
     )
@@ -468,6 +544,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            ReportTaskCapExceeded,
+        )
+
         try:
             task = tasks_facade.create_task(
                 self.team_id,
@@ -475,8 +555,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 validated_data=dict(serializer.validated_data),
                 client_provenance=get_task_client_provenance(request),
             )
-        except ComputeBillingLimitExceeded:
-            return compute_quota_limit_response()
+        except ComputeBillingLimitExceeded as error:
+            return compute_quota_limit_response(error.reason)
+        except ReportTaskCapExceeded as error:
+            # `code` distinguishes this from the compute-quota 429 for frontend handling.
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail}
+                ).data,
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
@@ -561,6 +649,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             raise NotFound()
         return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
+
+    @extend_schema(
+        responses={200: ModelCatalogueResponseSerializer},
+        summary="List available models",
+        description=(
+            "Return the models a task run may use, with the reasoning efforts each one supports. "
+            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
+            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
+            "than treating it as 'no models exist'."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
+    def models(self, request, **kwargs):
+        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])
@@ -820,7 +923,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             404: OpenApiResponse(description="Task not found"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
@@ -840,10 +946,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Usage limits only, no `has_tasks_access` check: that gate is the Desktop waitlist (the
-        # `tasks` flag or a redeemed invite), and this is the endpoint the generally-available Inbox
-        # runs tasks through (report "Create PR" / "Discuss", scout chat). Waitlisting a released
-        # surface would 403 it; cost is covered by usage-based billing.
+        # The generally-available Inbox runs tasks through this endpoint too (report "Create PR" /
+        # "Discuss", scout chat), so the Desktop waitlist gate applies only to tasks whose Inbox
+        # entitlement the server can't verify — see task_exempt_from_code_access.
+        if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -881,6 +990,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=WarmTaskResponseSerializer,
                 description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
             ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="PostHog Desktop access is required"
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -900,6 +1012,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def warm(self, request, **kwargs):
         if not self._warm_enabled():
             return Response(status=status.HTTP_200_OK)
+
+        # Warming is a Desktop-composer feature with no Inbox caller, so no exemption applies.
+        if access_response := code_access_required_response(request.user):
+            return access_response
 
         user_id = self._user_id()
         if user_id is None:
@@ -982,87 +1098,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class DenyBuiltInAgentTaskAutomations(DenyMCPBuiltInAgentOAuth):
-    """Automations schedule future runs that resolve a member's credentials, so a
-    built-in agent's sandbox token must not create or trigger them."""
-
-    message = "Built-in agents cannot manage task automations."
-
-
-@extend_schema(tags=["task-automations"])
-class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """API for managing scheduled task automations."""
-
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, DenyBuiltInAgentTaskAutomations]
-    scope_object = "task"
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-
-    def _write_serializer(self, data, *, partial: bool = False) -> TaskAutomationWriteSerializer:
-        serializer = TaskAutomationWriteSerializer(
-            data=data, partial=partial, context={"team": self.team, "team_id": self.team.id}
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer
-
-    @staticmethod
-    def _facade_kwargs(validated_data: dict) -> dict:
-        """Translate the resolved ``github_integration`` instance to its id for the facade."""
-        kwargs = dict(validated_data)
-        if "github_integration" in kwargs:
-            integration = kwargs.pop("github_integration")
-            kwargs["github_integration_id"] = integration.id if integration is not None else None
-        return kwargs
-
-    @extend_schema(responses={200: TaskAutomationSerializer(many=True)})
-    def list(self, request, **kwargs):
-        automations = tasks_facade.list_task_automations(self.team_id, getattr(request.user, "id", None))
-        page = self.paginate_queryset(automations)
-        if page is not None:
-            return self.get_paginated_response(TaskAutomationSerializer(page, many=True).data)
-        return Response(TaskAutomationSerializer(automations, many=True).data)
-
-    @extend_schema(responses={200: TaskAutomationSerializer})
-    def retrieve(self, request, pk=None, **kwargs):
-        automation = tasks_facade.get_task_automation(pk, self.team_id, getattr(request.user, "id", None))
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
-
-    @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
-    def create(self, request, **kwargs):
-        serializer = self._write_serializer(request.data)
-        automation = tasks_facade.create_task_automation(
-            self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
-        )
-        return Response(TaskAutomationSerializer(automation).data, status=status.HTTP_201_CREATED)
-
-    @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
-    def partial_update(self, request, pk=None, **kwargs):
-        serializer = self._write_serializer(request.data, partial=True)
-        automation = tasks_facade.update_task_automation(
-            pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
-        )
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
-
-    @extend_schema(responses={204: None})
-    def destroy(self, request, pk=None, **kwargs):
-        if not tasks_facade.delete_task_automation(pk, self.team_id, getattr(request.user, "id", None)):
-            raise NotFound()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(request=None, responses={200: TaskAutomationSerializer})
-    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
-    def run(self, request, pk=None, **kwargs):
-        automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
-
-
 @extend_schema(tags=["task-runs", "tasks"])
+def is_sandbox_agent_request(request, task_id: str) -> bool:
+    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    access_token = authenticator.access_token
+    application = access_token.application
+    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return False
+    return access_token.sandbox_task_id == UUID(task_id)
+
+
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1098,14 +1146,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return getattr(self.request.user, "id", None)
 
     def _is_sandbox_agent_request(self, task_id: str) -> bool:
-        authenticator = self.request.successful_authenticator
-        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-            return False
-        access_token = authenticator.access_token
-        application = access_token.application
-        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
-            return False
-        return access_token.sandbox_task_id == UUID(task_id)
+        return is_sandbox_agent_request(self.request, task_id)
 
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
@@ -1187,7 +1228,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -1206,6 +1250,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 task_id, self.team_id, self._user_id(), for_control=True
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
+            if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+                access_response := code_access_required_response(request.user)
+            ):
+                return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
@@ -1223,7 +1271,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             404: OpenApiResponse(description="Task run not found"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
@@ -1260,7 +1311,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Backstop: don't launch the cloud workflow for an over-limit team.
+        # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -1367,7 +1422,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # must not be resurrected to completed/failed by a stale in-flight agent PATCH. A terminal run
         # is done, so a late PATCH is a no-op, not an overwrite.
         run = tasks_facade.update_task_run(
-            pk, task_id, self.team_id, validated_data=dict(request.validated_data), only_if_non_terminal=True
+            pk,
+            task_id,
+            self.team_id,
+            validated_data=dict(request.validated_data),
+            only_if_non_terminal=True,
+            caller_is_agent=self._is_sandbox_agent_request(task_id),
         )
         if run is None:
             raise NotFound()
@@ -1434,6 +1494,43 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response = Response(TaskRunDetailSerializer(run).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with the boundary recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Run is still active; send /clear to its agent"
+            ),
+        },
+        summary="Clear conversation history",
+        description=(
+            "Record a `/clear` boundary in a finished run's log so the next run in the chain "
+            "starts with an empty conversation. Its checkpoints, artifacts, and visible history "
+            "are unaffected. Only for a finished run: an active one has an agent that owns the "
+            "clear, so send `/clear` to it as an ordinary message instead."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="clear_conversation",
+        required_scopes=["task:write"],
+    )
+    def clear_conversation(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome, run = tasks_facade.clear_task_run_conversation(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_terminal":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Run is still active; send /clear to its agent instead"}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        if run is None:
+            raise NotFound()
+        return Response(TaskRunDetailSerializer(run).data)
 
     @extend_schema(
         responses={
@@ -1601,7 +1698,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         result = tasks_facade.upload_task_run_artifacts(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
+            pk,
+            task_id,
+            self.team_id,
+            artifacts=request.validated_data["artifacts"],
+            uploaded_by="agent" if self._is_sandbox_agent_request(task_id) else "user",
         )
         if result is None:
             raise NotFound()
@@ -1902,7 +2003,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=ConnectionTokenResponseSerializer,
                 description="Connection token for direct sandbox connection",
             ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="PostHog Desktop access is required"
+            ),
             404: OpenApiResponse(description="Task run not found"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Organization reached its PostHog Desktop usage limit",
+            ),
         },
         summary="Get sandbox connection token",
         description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
@@ -1915,6 +2023,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
         user = request.user
         token = tasks_facade.create_task_run_connection_token(
             pk, task_id, self.team_id, user_id=user.id, distinct_id=user.distinct_id
@@ -1963,6 +2077,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="Invalid command or no active sandbox",
             ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required to message this run's agent",
+            ),
             404: OpenApiResponse(description="Task run not found"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -2008,9 +2126,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            # No `has_tasks_access` check, for the same reason as `TaskViewSet.run`:
-            # the Inbox starts interactive runs and drops the user straight into this composer, so
-            # "Discuss" would 403 on its first reply if this required Code access.
+            # The Inbox starts interactive runs and drops the user straight into this composer,
+            # so "Discuss" and scout chat replies must not require Desktop access. Their tasks
+            # are server-verifiable Inbox shapes (task_exempt_from_code_access); everything else
+            # is a Desktop conversation and follows the same gate as TaskViewSet.run.
+            if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+                access_response := code_access_required_response(request.user)
+            ):
+                return access_response
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -2039,8 +2162,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
                 )
-            except ComputeBillingLimitExceeded:
-                return compute_quota_limit_response()
+            except ComputeBillingLimitExceeded as error:
+                return compute_quota_limit_response(error.reason)
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
                 # follow-up path does, so a transient signalling failure surfaces
@@ -2070,6 +2193,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if request_id is not None:
                 response_payload["id"] = request_id
             return Response(TaskRunCommandResponseSerializer(response_payload).data)
+
+        if method == "pi/rpc":
+            inner_command = params.get("command") if isinstance(params, dict) else None
+            inner_type = inner_command.get("type") if isinstance(inner_command, dict) else None
+            if (
+                inner_type
+                not in {
+                    "abort",
+                    "abort_bash",
+                    "get_available_models",
+                    "get_available_thinking_levels",
+                    "get_commands",
+                    "get_entries",
+                    "get_session_stats",
+                    "get_state",
+                    "mcp_permission_response",
+                    "permission_response",
+                }
+                and not tasks_facade.task_exempt_from_code_access(task_id, self.team_id)
+                and (access_response := code_access_required_response(request.user))
+            ):
+                return access_response
 
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id
@@ -2332,7 +2477,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
             ),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Pi cloud runtime is disabled"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2356,6 +2504,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _pi_cloud_runtime_disabled_response()
 
         # Resume also runs in cloud: gate before handoff.
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(request.user)
+        ):
+            return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -2676,7 +2828,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def create(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
         artifact, error = tasks_facade.create_task_run_living_artifact(
-            self._run_id(), task_id, self.team_id, artifact=request.validated_data
+            self._run_id(),
+            task_id,
+            self.team_id,
+            artifact=request.validated_data,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
         )
         if artifact is None and error is None:
             raise NotFound()
@@ -2724,6 +2880,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         started = perf_counter()
 
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
+            raw_source = query.get("source") if isinstance(query, dict) else None
+            source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
                 distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
                 event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
@@ -2731,6 +2889,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "task_id": task_id,
                     "run_id": run_id,
                     "source": "query" if query is not None else "insight",
+                    "insight_id": request.validated_data.get("insight_id"),
+                    "query_kind": source.get("kind"),
+                    "display": next(
+                        (f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None
+                    ),
                     "duration_ms": round((perf_counter() - started) * 1000, 2),
                     "failure_reason": failure_reason,
                     "export_asset_id": export_asset_id,
@@ -2802,6 +2965,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             run_id,
             task_id,
             self.team_id,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
             artifact={
                 "name": self._with_png_extension(name),
                 "artifact_type": TaskArtifactType.FILE,
@@ -2883,6 +3047,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             self._run_id(),
             task_id,
             self.team_id,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
             artifact_id=pk,
             content=request.validated_data.get("content"),
             content_bytes=request.validated_data.get("content_bytes"),

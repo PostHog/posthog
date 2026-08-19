@@ -1,4 +1,5 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { Switch } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex, Text } from "@radix-ui/themes";
@@ -53,7 +54,7 @@ export function LoopContextFields({
     { value: NOT_ATTACHED_VALUE, label: "Not attached to a channel" },
     ...channels.map((channel) => ({
       value: channel.id,
-      label: `#${channel.name}`,
+      label: channelDisplayLabel(channel.name, channel.channelType),
     })),
   ];
 

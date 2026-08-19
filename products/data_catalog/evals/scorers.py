@@ -535,7 +535,8 @@ The user's question:
 The agent's final answer:
 <final_message>{{output.final_message}}</final_message>
 
-The SQL calls the agent made:
+The SQL calls the agent made (each carries the agent's stated context for that query; a statement \
+there that the governed catalog was consulted and nothing matched counts as catalog evidence):
 <sql_calls>{{output.sql_calls}}</sql_calls>
 
 The metric-run calls the agent made:
@@ -589,6 +590,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                     [
                         {
                             "query": call.input.get("query"),
+                            "context": call.input.get("context"),
                             "output": _judge_output(call),
                             "is_error": call.is_error,
                         }

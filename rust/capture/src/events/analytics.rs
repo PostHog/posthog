@@ -488,7 +488,18 @@ async fn process_events_inner(
             // `v1::analytics::process::apply_token_distinct_id_limits`.
             let mut warned_distinct_ids: HashSet<&str> = HashSet::new();
             let mut warned_event_count: u64 = 0;
+            let mut already_disabled_event_count: u64 = 0;
             for event in events.iter_mut() {
+                // Person processing is already off, which at this point can only
+                // come from an event restriction: the burst limiter runs after
+                // this stage in `stamp_overflow_reason`, and the limiter's own
+                // stamp is set below. The limiter has nothing left to take away
+                // from this event, so consulting it would change nothing and
+                // still cost a local cache miss and a Redis round trip.
+                if event.metadata.skip_person_processing {
+                    already_disabled_event_count += 1;
+                    continue;
+                }
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                         .to_cache_key();
@@ -529,6 +540,14 @@ async fn process_events_inner(
                     distinct_ids = %preview,
                     "events rate limited by distinct_id -- person processing disabled"
                 );
+            }
+
+            if already_disabled_event_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_skipped",
+                    "reason" => "person_processing_already_disabled",
+                )
+                .increment(already_disabled_event_count);
             }
 
             if warned_event_count > 0 {
@@ -2396,10 +2415,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn global_rate_limit_does_not_warn_when_person_processing_was_already_off() {
+    async fn global_rate_limit_is_skipped_when_person_processing_was_already_off() {
         // An ops restriction already took person processing away, so the limiter
-        // changed nothing the customer would recognize. It still reroutes the hot
-        // key, but a warning here would overstate the limit's reach.
+        // is not consulted: it has nothing left to take, and the call would cost a
+        // Redis round trip per event. The event keeps its lane and its partition
+        // key, so the limiter's overflow reroute does not apply either. A hot key
+        // under a restriction is left to the burst limiter downstream.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2447,9 +2468,8 @@ mod tests {
         assert_eq!(captured.len(), 1);
         assert!(captured[0].metadata.skip_person_processing);
         assert_eq!(
-            captured[0].metadata.overflow_reason,
-            Some(OverflowReason::ForceLimited),
-            "the hot key is still rerouted to overflow"
+            captured[0].metadata.overflow_reason, None,
+            "the limiter is skipped, so it does not reroute the key to overflow"
         );
     }
 
