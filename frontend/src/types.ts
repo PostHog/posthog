@@ -2377,6 +2377,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
