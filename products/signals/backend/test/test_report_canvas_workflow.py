@@ -1,15 +1,28 @@
 import uuid
 
 import pytest
+from unittest.mock import patch
 
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.models import Team
+
 from products.signals.backend.report_canvas import ReportCanvasGeneration
-from products.signals.backend.temporal.report_canvas import ReportCanvasWorkflowInput, SignalReportCanvasWorkflow
+from products.signals.backend.temporal.report_canvas import (
+    ReportCanvasWorkflowInput,
+    SignalReportCanvasWorkflow,
+    report_canvases_enabled_activity,
+)
 
 TASK_QUEUE = "test-report-canvas"
+
+
+@pytest.mark.asyncio
+async def test_report_canvas_gate_treats_deleted_team_as_disabled() -> None:
+    with patch("products.signals.backend.temporal.report_canvas.Team.objects.get", side_effect=Team.DoesNotExist):
+        assert await report_canvases_enabled_activity(123) is False
 
 
 @pytest.mark.asyncio
