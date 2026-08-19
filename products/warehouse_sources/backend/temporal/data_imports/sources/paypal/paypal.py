@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -7,6 +6,8 @@ from urllib.parse import parse_qs, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,7 +33,7 @@ class PayPalRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class PayPalResumeConfig:
     """Where to pick a partially-walked endpoint back up.
 
@@ -123,13 +124,19 @@ def _flatten_transaction(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _date_windows(start: datetime, end: datetime, window_days: int) -> list[tuple[datetime, datetime]]:
-    windows: list[tuple[datetime, datetime]] = []
+@frozen
+class DateWindow:
+    start: datetime
+    end: datetime
+
+
+def _date_windows(start: datetime, end: datetime, window_days: int) -> list[DateWindow]:
+    windows: list[DateWindow] = []
     cursor = start
     step = timedelta(days=window_days)
     while cursor < end:
         window_end = min(cursor + step, end)
-        windows.append((cursor, window_end))
+        windows.append(DateWindow(start=cursor, end=window_end))
         cursor = window_end
     return windows
 
@@ -274,23 +281,23 @@ def _transaction_rows(
     start_index = 0
     start_page = 1
     if resume is not None and resume.window_start is not None:
-        for index, (window_start, _) in enumerate(windows):
-            if window_start.isoformat() == resume.window_start:
+        for index, window in enumerate(windows):
+            if window.start.isoformat() == resume.window_start:
                 start_index = index
                 start_page = max(resume.page, 1)
                 logger.debug(f"PayPal: resuming transactions from {resume.window_start} page {start_page}")
                 break
 
     for index in range(start_index, len(windows)):
-        window_start, window_end = windows[index]
+        window = windows[index]
         page = start_page if index == start_index else 1
 
         while True:
             data = request(
                 config.path,
                 {
-                    "start_date": _format_reporting_datetime(window_start),
-                    "end_date": _format_reporting_datetime(window_end),
+                    "start_date": _format_reporting_datetime(window.start),
+                    "end_date": _format_reporting_datetime(window.end),
                     "fields": "all",
                     "page_size": config.page_size,
                     "page": page,
@@ -306,11 +313,11 @@ def _transaction_rows(
             page += 1
             # Saved after yielding so a crash re-yields the last page (merge dedupes on the
             # primary key) rather than skipping it.
-            resumable_source_manager.save_state(PayPalResumeConfig(window_start=window_start.isoformat(), page=page))
+            resumable_source_manager.save_state(PayPalResumeConfig(window_start=window.start.isoformat(), page=page))
 
         if index + 1 < len(windows):
             resumable_source_manager.save_state(
-                PayPalResumeConfig(window_start=windows[index + 1][0].isoformat(), page=1)
+                PayPalResumeConfig(window_start=windows[index + 1].start.isoformat(), page=1)
             )
 
 

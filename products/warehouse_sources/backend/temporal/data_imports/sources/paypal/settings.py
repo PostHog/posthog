@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
@@ -27,7 +29,7 @@ TRANSACTION_HISTORY_DAYS = 3 * 365
 TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 24 * 60 * 60
 
 
-@dataclass
+@frozen
 class PayPalEndpointConfig:
     name: str
     path: str

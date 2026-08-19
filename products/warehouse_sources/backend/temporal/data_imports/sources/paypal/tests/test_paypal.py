@@ -159,16 +159,16 @@ class TestPayPalTransport:
 
         windows = _date_windows(start, end, 7)
 
-        assert windows[0][0] == start
-        assert windows[-1][1] == end
-        assert all(windows[i][1] == windows[i + 1][0] for i in range(len(windows) - 1))
-        assert all((w_end - w_start) <= timedelta(days=7) for w_start, w_end in windows)
+        assert windows[0].start == start
+        assert windows[-1].end == end
+        assert all(windows[i].end == windows[i + 1].start for i in range(len(windows) - 1))
+        assert all((w.end - w.start) <= timedelta(days=7) for w in windows)
 
     @pytest.mark.parametrize("window_days", [1, 7, 31])
     def test_date_windows_never_exceed_the_paypal_window_cap(self, window_days: int) -> None:
         windows = _date_windows(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 3, 1, tzinfo=UTC), window_days)
         assert windows
-        assert all((w_end - w_start) <= timedelta(days=31) for w_start, w_end in windows)
+        assert all((w.end - w.start) <= timedelta(days=31) for w in windows)
 
     def test_date_windows_empty_when_start_is_not_before_end(self) -> None:
         moment = datetime(2024, 1, 1, tzinfo=UTC)
