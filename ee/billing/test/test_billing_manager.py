@@ -76,6 +76,41 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    def test_get_billing_adds_todays_usage_to_usage_summary(self):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.organization.usage = {
+            "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34, "limit": None},
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+        }
+        manager = BillingManager(license)
+        billing_response = {
+            "customer": {
+                "products": [],
+                "usage_summary": {
+                    "posthog_code_token_credits": {"usage": 1200, "limit": None},
+                    "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                },
+            }
+        }
+
+        with (
+            patch.object(manager, "_get_billing", return_value=billing_response),
+            patch.object(manager, "update_org_details"),
+            patch.object(manager, "get_default_products", return_value={"products": []}),
+        ):
+            response = manager.get_billing(self.organization)
+
+        assert response["usage_summary"]["posthog_code_token_credits"] == {
+            "usage": 1200,
+            "limit": None,
+            "todays_usage": 34,
+        }
+        assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
+
     @parameterized.expand(
         [
             ("with_ip", "203.0.113.7", True),

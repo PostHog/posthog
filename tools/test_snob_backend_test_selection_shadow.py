@@ -8,6 +8,8 @@ from types import ModuleType
 
 import unittest
 
+from parameterized import parameterized
+
 SCRIPT_PATH = Path(__file__).with_name("snob_backend_test_selection_shadow.py")
 
 
@@ -260,6 +262,24 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
         self.assertEqual([], result.full_run_reasons)
         self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
+
+    # ci-backend's `legacy` paths filter routes these into test selection, but none of
+    # them is Python, so the import graph reaches no test through them. Without a full-run
+    # pattern the selector returns an empty set and the narrowed run gates on nothing.
+    @parameterized.expand(
+        [
+            ("quarantine_lift", ".test_quarantine.json"),
+            ("hogql_parser_sources", "common/hogql_parser/HogQLParser.cpp"),
+            ("hogvm", "common/hogvm/python/execute.py"),
+            ("product_manifest", "products/surveys/manifest.tsx"),
+        ]
+    )
+    def test_non_python_legacy_inputs_signal_full_run(self, _name: str, path: str) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests([path], {})
+
+        self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
 
     def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
         selection = _load_selection_module()

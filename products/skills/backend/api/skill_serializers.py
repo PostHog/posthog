@@ -20,9 +20,9 @@ from .skill_services import (
 )
 
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
-# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# form, and the rest mirror the tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog"}
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}

@@ -63,6 +63,7 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
     churned_at = models.DateTimeField(null=True, blank=True)
+    ignored_at = models.DateTimeField(null=True, blank=True)
     _properties = JSONField(default=dict, db_column="properties")
     # NULL = periodic Slack channel summaries off for this account.
     slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)

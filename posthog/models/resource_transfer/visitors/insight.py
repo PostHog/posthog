@@ -21,6 +21,7 @@ class InsightVisitor(
         "dive_dashboard",
         "dashboard",
         "dashboards",
+        "subscriptions_dashboard_export",
         "short_id",
         "filters_hash",
         "refreshing",
