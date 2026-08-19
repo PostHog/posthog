@@ -5,11 +5,13 @@ import type { ReactNode } from "react";
 
 function ChannelSuffix({ channelName }: { channelName: string | null }) {
   if (!channelName) return null;
+  const label =
+    channelName === "personal" ? "your personal space" : `#${channelName}`;
   return (
     <>
       {" in "}
       <Text as="span" size="1" weight="medium">
-        #{channelName}
+        {label}
       </Text>
     </>
   );
