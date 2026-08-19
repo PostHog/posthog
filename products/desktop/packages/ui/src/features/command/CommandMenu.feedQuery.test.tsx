@@ -96,7 +96,7 @@ describe("CommandMenu feed queries", () => {
     );
 
     await user.type(
-      screen.getByPlaceholderText(/Search or filter/),
+      screen.getByPlaceholderText(/Search commands and tasks/),
       "created-by:@me ",
     );
     // The footer advertises the save shortcut; the results are debounced.
@@ -135,7 +135,7 @@ describe("CommandMenu feed queries", () => {
     );
 
     await user.type(
-      screen.getByPlaceholderText(/Search or filter/),
+      screen.getByPlaceholderText(/Search commands and tasks/),
       "saved:fail",
     );
     await user.click(await screen.findByText("My failing tasks"));
@@ -149,17 +149,34 @@ describe("CommandMenu feed queries", () => {
         <CommandMenu open onOpenChange={() => {}} />
       </Theme>,
     );
-    const input =
-      screen.getByPlaceholderText<HTMLInputElement>(/Search or filter/);
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      /Search commands and tasks/,
+    );
 
-    // Typing a bare prefix offers the filter key alongside normal results…
     await user.type(input, "cre");
     await user.click(await screen.findByText("created-by:"));
     expect(input.value).toBe("created-by:");
 
-    // …and completing the key swaps the suggestions to its values.
     await user.click(await screen.findByText("@me"));
     expect(input.value).toBe("created-by:@me ");
+  });
+
+  it("keeps the command catalog out of a value completion", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      /Search commands and tasks/,
+    );
+
+    expect(await screen.findByText("Actions")).toBeTruthy();
+    await user.type(input, "created-by:");
+    expect(await screen.findByText("Teammates")).toBeTruthy();
+    expect(screen.queryByText("Actions")).toBeNull();
+    expect(screen.queryByText("Navigation")).toBeNull();
   });
 
   it("scopes sections with type:", async () => {
@@ -169,8 +186,9 @@ describe("CommandMenu feed queries", () => {
         <CommandMenu open onOpenChange={() => {}} />
       </Theme>,
     );
-    const input =
-      screen.getByPlaceholderText<HTMLInputElement>(/Search or filter/);
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      /Search commands and tasks/,
+    );
 
     // Commands render by default…
     expect(await screen.findByText("Actions")).toBeTruthy();

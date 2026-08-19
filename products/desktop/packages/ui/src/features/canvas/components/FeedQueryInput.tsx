@@ -118,6 +118,7 @@ export function FeedQueryInput({
   onSubmit,
   placeholder,
   autoFocus,
+  openOnFocus = true,
   "aria-label": ariaLabel,
 }: {
   id?: string;
@@ -127,6 +128,8 @@ export function FeedQueryInput({
   onSubmit?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Open the suggestions as soon as the field takes focus. */
+  openOnFocus?: boolean;
   "aria-label"?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -260,9 +263,13 @@ export function FeedQueryInput({
             trackCaret();
           }}
           onScroll={syncScroll}
+          // A click asks for the suggestions even where focus alone doesn't.
+          onClick={() => setOpen(true)}
           onSelect={trackCaret}
           onKeyDown={onKeyDown}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (openOnFocus) setOpen(true);
+          }}
           // Delayed so a mousedown on a suggestion lands before the list goes.
           onBlur={() => setTimeout(() => setOpen(false), 120)}
         />

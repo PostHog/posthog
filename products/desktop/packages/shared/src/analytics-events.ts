@@ -59,6 +59,8 @@ export type CommandMenuAction =
   | "open-command-center"
   | "save-feed"
   | "complete-filter"
+  | "show-all-matches"
+  | "repair-query"
   | "open-feed"
   | "open-inbox"
   | "open-archived"

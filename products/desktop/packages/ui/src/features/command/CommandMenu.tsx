@@ -33,7 +33,6 @@ import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
-import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
@@ -56,8 +55,13 @@ import {
   formatHotkeyParts,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
+import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
-import { useFeedQueryCommands } from "@posthog/ui/features/command/useFeedQueryCommands";
+import {
+  matchSummary,
+  useFeedQueryCommands,
+} from "@posthog/ui/features/command/useFeedQueryCommands";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
 import {
   type Command,
@@ -72,9 +76,7 @@ import {
   closeSettings,
   openSettings,
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { TaskIcon } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -121,33 +123,8 @@ interface CommandMenuProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/**
- * Task icon for the command palette. Renders the same shared `TaskIcon` as
- * the sidebar — cloud run status, PR/branch status, etc. — deriving its
- * inputs from the raw task and a per-task PR-status query.
- */
-function TaskCommandIcon({ task }: { task: Task }) {
-  const { prState, hasDiff } = useTaskPrStatus({
-    id: task.id,
-    cloudPrUrl: null,
-    taskRunEnvironment: task.latest_run?.environment,
-  });
-  const stateSlackThreadUrl = (
-    task.latest_run?.state as { slack_thread_url?: unknown } | undefined
-  )?.slack_thread_url;
-  const slackThreadUrl =
-    typeof stateSlackThreadUrl === "string" ? stateSlackThreadUrl : undefined;
-  return (
-    <TaskIcon
-      workspaceMode={task.latest_run?.environment}
-      taskRunStatus={task.latest_run?.status}
-      originProduct={task.origin_product}
-      slackThreadUrl={slackThreadUrl}
-      prState={prState}
-      hasDiff={hasDiff}
-    />
-  );
-}
+const DEFAULT_RESULT_LIMIT = 8;
+const COLLAPSED_CHIP_COUNT = 5;
 
 /**
  * The palette input's syntax-coloring layer: the same `FeedQueryHighlight`
@@ -177,7 +154,7 @@ function PaletteQueryMirror({
 
   // A passive effect, not a layout one: this component is a child of the
   // wrapper div, and a child's layout effect fires before the parent's ref
-  // attaches — the wrapper would still read null. After paint, both exist.
+  // attaches, so the wrapper would still read null. After paint, both exist.
   useEffect(() => {
     if (!visible) return;
     const wrap = wrapRef.current;
@@ -453,7 +430,18 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     ];
 
     const actions: Command[] = [
-      ...themeOptions,
+      {
+        id: "new-task",
+        label: "New task",
+        keywords: "create",
+        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+        action: "new-task",
+        shortcut: SHORTCUTS.NEW_TASK,
+        onRun: () => {
+          closeSettingsDialog();
+          openTaskInput();
+        },
+      },
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
@@ -474,18 +462,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
-      {
-        id: "new-task",
-        label: "New task",
-        keywords: "create",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
-        action: "new-task",
-        shortcut: SHORTCUTS.NEW_TASK,
-        onRun: () => {
-          closeSettingsDialog();
-          openTaskInput();
-        },
-      },
+      // Last, because the first row is what a stray Enter runs.
+      ...themeOptions,
     ];
 
     if (canSearchFiles) {
@@ -724,25 +702,43 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     pendingCaret.current = nextCaret;
   }, []);
 
+  // Keyed on the query it was lifted for, so the next query starts capped again
+  // without an effect to reset it.
+  const [showAllFor, setShowAllFor] = useState<string | null>(null);
+  const resultLimit =
+    showAllFor === query ? Number.MAX_SAFE_INTEGER : DEFAULT_RESULT_LIMIT;
+  const showAllMatches = useCallback(() => setShowAllFor(query), [query]);
+
   const feedQuery = useFeedQueryCommands({
     query,
     caret,
     enabled: open && spacesLayout,
+    limit: resultLimit,
     onApply: onApplyFilter,
+    onShowAll: showAllMatches,
   });
-  const { scope, hasFilterTokens, searchText, keyChips, matchCount } =
-    feedQuery;
+  const {
+    mode,
+    scope,
+    hasFilterTokens,
+    searchText,
+    keyChips,
+    matchCount,
+    shownCount,
+    hasRepairs,
+  } = feedQuery;
 
-  // Commands, channels, and tasks share a single filterable list. With the
-  // query language always on, what narrows them is the query's *free text*
-  // (`matchesCommandSearch` against the raw query would drop every label the
-  // moment a token appears), and a real filter token or `type:` scope decides
-  // which sections exist at all.
+  // Commands, channels, and tasks share a single filterable list. What narrows
+  // them is the query's *free text* (`matchesCommandSearch` against the raw
+  // query would drop every label the moment a token appears), and the mode
+  // decides which sections exist at all: picking a value or reading a query's
+  // matches are single-question states, so the catalog stays out of them.
   const sections = useMemo(() => {
-    const showCommands = !hasFilterTokens && (!scope || scope === "command");
-    const showChannels = !hasFilterTokens && (!scope || scope === "space");
-    const showPlainTasks = !hasFilterTokens && !scope;
-    const showRemoteSearch = !hasFilterTokens && !scope;
+    const browsing = mode === "browsing" || mode === "completingKey";
+    const showCommands = browsing && (!scope || scope === "command");
+    const showChannels = browsing && (!scope || scope === "space");
+    const showPlainTasks = browsing && !scope;
+    const showRemoteSearch = browsing && !scope;
     return prioritizeExactCommandMatches(
       [
         ...feedQuery.sections,
@@ -759,7 +755,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     commandSections,
     channelSections,
     taskSections,
-    hasFilterTokens,
+    mode,
     scope,
     searchText,
   ]);
@@ -778,6 +774,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
   // Which row the keyboard is on, so Tab can complete the highlighted filter.
   const highlightedId = useRef<string | null>(null);
+  const showMatchSummary = mode === "querying" || matchCount != null;
 
   const handleSelect = (id: string | null): void => {
     if (id === null) return;
@@ -795,8 +792,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     setQuery("");
   };
 
-  // Tab completes: the first key chip while typing a bare word, otherwise
-  // the highlighted (or first) value suggestion — mirroring the feed editor.
+  // Tab completes what is being typed: the first key chip while typing a bare
+  // word, otherwise the highlighted value suggestion, mirroring the feed
+  // editor. With nothing typed it is left alone and moves focus to the strip.
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     // ⌘S saves the query as a saved search — the footer advertises it.
     if (
@@ -810,7 +808,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       return;
     }
     if (event.key !== "Tab") return;
-    if (keyChips.length > 0) {
+    if (mode === "completingKey" && keyChips.length > 0) {
       event.preventDefault();
       keyChips[0].apply();
       return;
@@ -836,26 +834,28 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             defaultOpen
             items={sections}
             value={query}
-            autoHighlight="always"
+            // `true`, not "always", so nothing is highlighted until something
+            // is typed and Enter on an untouched palette runs nothing.
+            autoHighlight
             keepHighlight
             onItemHighlighted={(value) => {
               highlightedId.current = typeof value === "string" ? value : null;
             }}
             onValueChange={(val, eventDetails) => {
-              if (eventDetails.reason !== "input-change") return;
-              if (typeof val === "string") {
+              if (typeof val !== "string") return;
+              if (eventDetails.reason === "input-change") {
                 setQuery(val);
                 trackCaret();
+                return;
               }
+              // The clear button reports a reason of its own.
+              if (val === "") setQuery("");
             }}
             filter={paletteFilter}
           >
             {/* The query is drawn twice: the input's own text is transparent
                 and a mirror underneath renders it with the feed editor's
-                inline token coloring. The wrapper measures where quill's
-                inner input actually sits (icon addon, padding) so the mirror
-                overlays it glyph-for-glyph; both carry PALETTE_QUERY_TEXT so
-                the metrics can't drift. */}
+                inline token coloring, so a token is colored where it is typed. */}
             <div ref={inputWrapRef} className="relative">
               <PaletteQueryMirror
                 query={query}
@@ -865,7 +865,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               <AutocompleteInput
                 placeholder={
                   spacesLayout
-                    ? "Search or filter — commands, spaces, tasks…"
+                    ? "Search commands and tasks, or filter with created-by:"
                     : bluebirdEnabled
                       ? "Search commands, channels, and tasks…"
                       : "Search commands and tasks…"
@@ -887,41 +887,29 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 onSelect={trackCaret}
               />
             </div>
-            {/* The filter catalog as a one-line chip strip, not list rows:
-                twelve rows of keys buried the results being searched. Typing
-                a bare word narrows the strip to matching keys (Tab or click
-                inserts); inside a token it yields to the value rows. */}
             {keyChips.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto border-(--gray-a4) border-b px-3 py-1.5 [scrollbar-width:none]">
-                <span className="shrink-0 select-none text-(--gray-9) text-[10.5px] uppercase tracking-wider">
-                  Narrow
-                </span>
-                {keyChips.map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    title={chip.hint}
-                    className={cn(
-                      "h-[22px] shrink-0 rounded-full border border-(--gray-a6) bg-(--gray-a2) px-2",
-                      "font-mono text-(--blue-11) text-[11.5px] leading-none",
-                      "hover:border-(--gray-a8) hover:bg-(--gray-a4)",
-                    )}
-                    // Before blur, so the input keeps focus through the click.
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={chip.apply}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
+              <PaletteFilterChips
+                chips={keyChips}
+                collapsedCount={COLLAPSED_CHIP_COUNT}
+                filtering={mode === "completingKey"}
+              />
             )}
-            <AutocompleteStatus
-              emptyContent={
-                <span>
-                  No results for <strong>"{query}"</strong>
-                </span>
-              }
-            />
+            {showMatchSummary ? (
+              <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
+                {matchSummary(matchCount, shownCount, hasRepairs)}
+              </div>
+            ) : (
+              // A count of the untouched command catalog answers nothing.
+              query !== "" && (
+                <AutocompleteStatus
+                  emptyContent={
+                    <span>
+                      No results for <strong>"{query}"</strong>
+                    </span>
+                  }
+                />
+              )
+            )}
             <AutocompleteList className="max-h-[60vh]">
               {(section: CommandSection) => (
                 <AutocompleteGroup key={section.label} items={section.items}>
@@ -943,6 +931,11 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                         {cmd.icon}
                         <span className="wrap-break-word min-w-0 whitespace-normal">
                           {cmd.label}
+                          {cmd.subtitle && (
+                            <span className="block truncate text-gray-9 text-xs">
+                              {cmd.subtitle}
+                            </span>
+                          )}
                         </span>
                         {cmd.detail && (
                           <span className="shrink-0 text-gray-9">
@@ -972,8 +965,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 </KbdGroup>
                 <span className="text-xs">
                   save search
-                  {matchCount != null &&
-                    ` · ${matchCount} ${matchCount === 1 ? "task" : "tasks"}`}
+                  {matchCount === 0 && " · no matches yet"}
                 </span>
               </div>
             )}

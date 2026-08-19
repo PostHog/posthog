@@ -1,8 +1,9 @@
 import { XIcon } from "@phosphor-icons/react";
-import { suggestFeedName } from "@posthog/core/tasks/feedQuery";
+import { parseFeedQuery, suggestFeedName } from "@posthog/core/tasks/feedQuery";
 import { Button, cn, Spinner } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
+import { unfinishedFilterKeys } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import {
   useFeedQueryPlan,
   useTaskFeedResults,
@@ -14,7 +15,7 @@ import {
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { track } from "@posthog/ui/shell/analytics";
 import { Dialog, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const MAX_FEED_NAME_LENGTH = 80;
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -90,6 +91,12 @@ export function TaskFeedModal({
   // it is typed rather than after the debounce settles.
   const { plan } = useFeedQueryPlan(open ? trimmedQuery : "");
   const issue = plan?.issues[0];
+  // A word left mid-filter is valid free text, so the parser has nothing to say
+  // about it, and this is the last screen before the query is saved.
+  const unfinished = useMemo(() => {
+    const parsedText = parseFeedQuery(trimmedQuery).text;
+    return unfinishedFilterKeys(parsedText)[0];
+  }, [trimmedQuery]);
   const counting = trimmedQuery !== "" && (isPending || preview.isLoading);
 
   const submit = () => {
@@ -171,6 +178,9 @@ export function TaskFeedModal({
           <FeedQueryInput
             id="task-feed-query"
             autoFocus
+            // The field is autofocused with a query already in it, so the
+            // suggestions would cover the buttons before anyone typed.
+            openOnFocus={false}
             value={query}
             onChange={setQueryAndSuggestName}
             onSubmit={submit}
@@ -186,12 +196,16 @@ export function TaskFeedModal({
                 ? issue.kind === "unsupported"
                   ? "text-(--amber-11)"
                   : "text-(--red-11)"
-                : "text-(--gray-9)",
+                : unfinished
+                  ? "text-(--amber-11)"
+                  : "text-(--gray-9)",
             )}
             title={issue?.message}
           >
             {issue?.message ??
-              "Free text searches tasks. Same filter twice is either, -filter excludes."}
+              (unfinished
+                ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
+                : "Free text searches tasks. Same filter twice is either, -filter excludes.")}
           </div>
         </Flex>
 

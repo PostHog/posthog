@@ -144,6 +144,27 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   },
 ];
 
+/**
+ * Free-text words that look like a filter key someone stopped typing, with the
+ * keys they could have meant. `created-by:shy i` searches for "i", which
+ * quietly widens the results.
+ */
+export function unfinishedFilterKeys(
+  text: string,
+): { word: string; keys: string[] }[] {
+  const keys = [...KEY_SUGGESTIONS, ...PALETTE_KEY_SUGGESTIONS];
+  return text
+    .split(/\s+/)
+    .filter((word) => word !== "")
+    .map((word) => ({
+      word,
+      keys: keys
+        .filter((key) => key.label.startsWith(word.toLowerCase()))
+        .map((key) => key.label),
+    }))
+    .filter((candidate) => candidate.keys.length > 0);
+}
+
 const TYPE_VALUES: FeedQuerySuggestion[] = [
   { insert: "task", label: "task", hint: "only tasks" },
   { insert: "space", label: "space", hint: "only spaces" },
