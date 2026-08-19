@@ -14,12 +14,27 @@ SAFETY MODEL
 
 Everything rests on one property, verified against the flag and cohort read paths:
 
-    A person row owning no LIVE posthog_persondistinctid row is unreachable. The product
-    resolves a person only via distinct_id -> posthog_persondistinctid -> person_id
-    (rust/feature-flags/src/flags/flag_matching_utils.rs:845 for hash key overrides,
-    :288 for static cohorts), so nothing keyed to that person_id can be read either.
-    Both of those reads start from a distinct id, and the override read requires
-    pdi.is_deleted = false, so a tombstoned mapping does not make a person reachable.
+    A person row owning no live posthog_persondistinctid row cannot be resolved FROM A
+    DISTINCT ID, so nothing keyed to that person_id takes part in flag evaluation, cohort
+    matching, or event attribution. Those reads all start from a distinct id
+    (rust/common/types/src/person.rs:22 joins posthog_persondistinctid with
+    is_deleted = false; flag_matching_utils.rs:845 and :288 build on it).
+
+Say it that precisely, because the shorter version -- "the row is unreachable" -- is not
+true. Plenty of paths reach a person by uuid or by bigint id without touching a distinct
+id at all: the persons detail API accepts either, and personhog exposes GetPersonByUuid,
+GetPersonsByUuids, GetPerson and GetPersons. What makes the delete safe is narrower: a
+victim is always rn > 1 within a duplicate (team_id, uuid) group, so a row carrying the
+same uuid always survives it. Every uuid-keyed lookup still finds a person; it just finds
+the one the product can actually resolve.
+
+Two consequences of that worth stating rather than discovering:
+
+  - get_person_by_uuid takes the first row of an unordered result, so for a duplicated
+    uuid it returns an arbitrary member today. Removing the victims makes it deterministic.
+  - Static cohort population resolves uuid -> person id and does not deduplicate, so it
+    writes membership rows against victims continuously, not historically. Expect the
+    post-commit cohort sweep to find rows on an active team. That is the normal case here.
 
 Two gates enforce it from opposite directions, because proving the victims are safe is
 not the same as proving the survivor is right:
@@ -27,10 +42,27 @@ not the same as proving the survivor is right:
     GATE_REACHABLE_SQL           no row we delete may be reachable
     GATE_SURVIVOR_REACHABLE_SQL  if any row in the group is reachable, one we keep must be
 
-So a row owning zero distinct IDs can be deleted without changing any product
-behaviour, and the feature-flag overrides that cascade away with it were already
+DO NOT REORDER THE LOCK AND THE GATE. Ingestion's stranded-row claim path selects exactly
+the rows this command deletes -- the unreachable holder of a (team_id, uuid) -- and
+repoints it to a live distinct id. It takes FOR UPDATE on that row, and so does
+LOCK_VICTIMS_SQL, which is the only reason the two serialize instead of racing. The gate
+must stay after the lock. This stopped being hypothetical when
+PERSON_CREATE_CLAIM_TEAM_ALLOWLIST was enabled: the teams on it are the teams with
+duplicates, so a run against them will meet a claim in flight, and the batch-level prune
+is what absorbs it.
+
+So a row owning zero live distinct IDs can be deleted without changing any membership
+or flag DECISION, and the feature-flag overrides that cascade away with it were already
 unreachable. Moving them onto the surviving person would do the opposite: it would
 resurrect dead data and could change which flag variant a live user receives.
+
+One carve-out, because "no product behaviour" would overstate it. Static cohort size
+comes from a bare COUNT(*) over posthog_cohortpeople scoped by cohort_id, with no join
+to persons, so an unreachable row's memberships are counted today even though no read
+path can act on them. Removing that row corrects the displayed count downward. That is
+a fix rather than a regression -- the count gates the realtime-evaluation threshold, so
+an inflated one can demote a cohort that should qualify -- but it is user-visible, and
+it is the one number a dedup run can move.
 
 The three dependent tables behave differently on DELETE in production, which is why
 the reachability assertion runs before every delete and again inside the transaction:
@@ -41,6 +73,34 @@ the reachability assertion runs before every delete and again inside the transac
 
 Only the first fails loudly, so the command cannot rely on the database to catch a
 mistake in the other two.
+
+BLAST RADIUS OF A DELETED bigint id
+
+Audited across the repo rather than assumed. Two facts do most of the work.
+
+Nothing reassigns the id. posthog_person.id comes from a sequence and there is no setval
+anywhere, so a deleted id dangles forever and is never handed to a different person. Every
+"wrong person" scenario needs id reuse, so the real failure mode is a dangling reference or
+a silent no-op, not mistaken identity.
+
+ClickHouse never stores it. Every person column in every ClickHouse table is UUID-typed --
+person, person_distinct_id2, person_static_cohort, cohortpeople, events, the override
+dictionary, all of it -- and every Kafka producer sends person.uuid, discarding the bigint.
+So a dedup needs no ClickHouse tombstone, but only because the survivor keeps the uuid and
+therefore keeps ClickHouse's row backed. GATE_NO_SURVIVOR_SQL is what holds that up: delete
+the last row for a uuid and ClickHouse would be left visible-but-unbacked. Do not weaken it.
+
+Outside the persons DB the bigint survives in a handful of places, none of which this
+command can repair, and all of which fail safe:
+
+    posthog_activitylog.item_id     a Person row's audit trail becomes unreachable; only
+                                    the "deleted" entry carries the uuid to find it by
+    Temporal delete-persons input   a queued run holding a victim id resolves nothing for
+                                    it and under-deletes silently
+    split_person Celery payload     raises, retries once, dies
+    Dagster run config / event log  stale resume watermarks and failure metadata
+
+Drain those queues before a large run rather than reasoning about them mid-flight.
 
 Deleted rows and their dependent rows are written to a local JSONL file, fsync'd, after
 the victims are locked and before the delete runs. Locking first matters: an insert into
@@ -130,6 +190,9 @@ members AS (
     JOIN dups d ON d.team_id = p.team_id AND d.uuid = p.uuid
     WHERE p.team_id = %(team)s
 ),
+-- refs decides deletability for delete-unreferenced, not who survives: the ranking below
+-- puts reachability ahead of it, so n_cohort and n_ff only ever break a tie between rows
+-- that are all unreachable. They look load-bearing for survivor choice and are not.
 scored AS (
     SELECT *, (n_did + n_cohort + n_ff + n_recon) AS refs FROM members
 ),
