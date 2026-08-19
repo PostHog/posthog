@@ -30972,13 +30972,6 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
-    export interface EvaluationPattern {
-      title: string;
-      description: string;
-      frequency: string;
-      example_generation_ids: string[];
-    }
-
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -31280,74 +31273,6 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
-    }
-
-    /**
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na
-     */
-    export type FilterEnum = typeof FilterEnum[keyof typeof FilterEnum];
-
-
-    export const FilterEnum = {
-      All: 'all',
-      Pass: 'pass',
-      Fail: 'fail',
-      Na: 'na',
-    } as const;
-
-    /**
-     * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
-     */
-    export interface EvaluationSummaryRequest {
-      /** UUID of the evaluation config to summarize */
-      evaluation_id: string;
-      /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-       *
-       * * `all` - all
-       * * `pass` - pass
-       * * `fail` - fail
-       * * `na` - na */
-      filter?: FilterEnum;
-      /**
-         * Optional: specific generation IDs to include in summary (max 250)
-         * @maxItems 250
-         */
-      generation_ids?: string[];
-      /** If true, bypass cache and generate a fresh summary */
-      force_refresh?: boolean;
-    }
-
-    export interface EvaluationSummaryStatistics {
-      total_analyzed: number;
-      pass_count: number;
-      fail_count: number;
-      na_count: number;
-    }
-
-    export interface EvaluationSummaryResponse {
-      overall_assessment: string;
-      pass_patterns: EvaluationPattern[];
-      fail_patterns: EvaluationPattern[];
-      na_patterns: EvaluationPattern[];
-      recommendations: string[];
-      statistics: EvaluationSummaryStatistics;
-    }
-
-    export interface EvaluationSummaryThrottleResponse {
-      /** Error category */
-      type: string;
-      /** Machine-readable error code */
-      code: string;
-      /** Why the request was throttled */
-      detail: string;
-      /**
-         * Related request field, when applicable
-         * @nullable
-         */
-      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -89776,14 +89701,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsModelsRetrieveParams = {
     /**

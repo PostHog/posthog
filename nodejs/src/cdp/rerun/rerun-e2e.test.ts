@@ -149,7 +149,6 @@ describe('CDP hog invocation rerun e2e', () => {
         hub.CDP_FETCH_RETRIES = 0
         hub.CDP_FETCH_BACKOFF_BASE_MS = 1
         hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
-        hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
         hub.CYCLOTRON_NODE_DATABASE_URL = NODE_DB_URL
         hub.HOG_INVOCATION_RESULTS_ENABLED = true
 
