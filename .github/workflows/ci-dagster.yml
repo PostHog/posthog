@@ -494,9 +494,9 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ env.TESTMON_DATAFILE }}
-                  key: dagster-testmon-v3-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+                  key: dagster-testmon-v3-py3.13-${{ matrix.concurrency }}-shards-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
                   restore-keys: |
-                      dagster-testmon-v3-py3.13-shard-${{ matrix.group }}-
+                      dagster-testmon-v3-py3.13-${{ matrix.concurrency }}-shards-${{ matrix.group }}-
 
             - name: Measure affected Dagster tests
               if: ${{ github.event_name == 'pull_request' && hashFiles('.github/scripts/dagster_testmon_shadow.py') != '' }}
@@ -556,7 +556,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ env.TESTMON_DATAFILE }}
-                  key: dagster-testmon-v3-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+                  key: dagster-testmon-v3-py3.13-${{ matrix.concurrency }}-shards-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
 
             - name: Upload testmon shadow selection
               if: ${{ github.event_name == 'pull_request' && !cancelled() }}
