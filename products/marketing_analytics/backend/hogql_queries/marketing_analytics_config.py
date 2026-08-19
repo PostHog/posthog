@@ -51,7 +51,9 @@ MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
 )
 
 
-@dataclass
+# Mutable by design: `from_team` builds a default instance and then overwrites the
+# team-derived fields on it, rather than threading them all through the constructor.
+@dataclass(frozen=False)
 class MarketingAnalyticsConfig:
     """
     Configuration object that centralizes all constants and naming conventions
