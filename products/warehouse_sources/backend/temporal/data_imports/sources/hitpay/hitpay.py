@@ -1,6 +1,7 @@
-import dataclasses
 from collections.abc import Iterable
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -35,7 +36,7 @@ HITPAY_PRODUCTION_BASE_URL = "https://api.hit-pay.com"
 HITPAY_SANDBOX_BASE_URL = "https://api.sandbox.hit-pay.com"
 
 
-@dataclasses.dataclass
+@frozen
 class HitpayResumeConfig:
     """Paginator checkpoint. Only one of the two is ever set, matching the endpoint's pagination
     kind (page-number for most endpoints, cursor for Charges)."""
