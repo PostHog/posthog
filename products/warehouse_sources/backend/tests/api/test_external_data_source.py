@@ -397,7 +397,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
+    def test_create_external_data_source_delete_on_non_list_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -412,6 +412,28 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @parameterized.expand([("omitted", {}), ("empty_list", {"schemas": []})])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_schemas(self, _name, extra_payload, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    **extra_payload,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        source = ExternalDataSource.objects.get()
+        assert source.schemas.filter(should_sync=True).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -8257,6 +8279,8 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+                source = ExternalDataSource.objects.get(id=response.json()["id"])
+                self.assertEqual(source.prefix, prefix)
 
 
 class TestCreateWebhook(APIBaseTest):

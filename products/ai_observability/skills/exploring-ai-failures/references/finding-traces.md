@@ -68,12 +68,11 @@ Then `query-llm-trace` on each. Reading ~20–30 across a use case usually surfa
 
 ## Existing-eval spikes
 
-A jump in an existing eval's failures often exposes a new problem. Summarize the failures, then confirm
-the spike with a daily count:
+A jump in an existing eval's failures often exposes a new problem. Find the eval, then confirm the spike
+with a daily count and read the failing runs:
 
 ```json
 posthog:llma-evaluation-list { "enabled": true }
-posthog:llma-evaluation-summary-create { "evaluation_id": "<uuid>", "filter": "fail" }
 ```
 
 ```sql
