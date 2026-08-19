@@ -1,13 +1,25 @@
 import { ArrowRight, SignOut } from "@phosphor-icons/react";
+import { integrationKeys } from "@posthog/core/integrations/repositoryKeys";
+import {
+  classifyIntegrations,
+  type Integration,
+} from "@posthog/core/integrations/selectors";
 import {
   buildAbandonedProps,
   buildCompletedProps,
   buildStepCompletedProps,
   type StepCompletedContext,
 } from "@posthog/core/onboarding/analytics";
+import {
+  planSpaceRepoAssignments,
+  resolveRepoIntegrationId,
+} from "@posthog/core/onboarding/spaceRepoAssignment";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { ImportConfigStep } from "@posthog/ui/features/onboarding/components/ImportConfigStep";
@@ -21,7 +33,9 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
 import { Button, Flex } from "@radix-ui/themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { useEffect, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -31,6 +45,8 @@ import { SelectRepoStep } from "./SelectRepoStep";
 
 const IS_DEV = import.meta.env.DEV;
 
+const log = logger.scope("onboarding-flow");
+
 const stepVariants = {
   enter: (dir: number) => ({ opacity: 0, x: dir * 20 }),
   center: { opacity: 1, x: 0 },
@@ -38,6 +54,7 @@ const stepVariants = {
 };
 
 export function OnboardingFlow() {
+  const queryClient = useQueryClient();
   const {
     currentStep,
     currentIndex,
@@ -65,6 +82,44 @@ export function OnboardingFlow() {
   const setLastUsedWorkspaceMode = useSettingsStore(
     (state) => state.setLastUsedWorkspaceMode,
   );
+  const apiClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: apiClient });
+
+  // Best-effort: make the onboarding repo pick the default for the personal
+  // space, and for #general only while the team has not configured one. The
+  // fetch also lazily provisions both spaces and primes the channel cache the
+  // first-run landing reads right after.
+  const assignRepoToSpaces = async (): Promise<void> => {
+    if (!selectedCloudRepo || !apiClient) return;
+    // Fetched directly: the integrations store only fills once the main app's
+    // hooks mount, which has not happened during onboarding.
+    const integrations = await queryClient.fetchQuery({
+      queryKey: integrationKeys.list(),
+      queryFn: () => apiClient.getIntegrations() as Promise<Integration[]>,
+      staleTime: 60_000,
+    });
+    const integrationId = resolveRepoIntegrationId(
+      selectedCloudRepo,
+      classifyIntegrations(integrations).githubIntegrations,
+    );
+    // Channels only accept a team integration alongside repositories, so a
+    // user-level-only GitHub connection cannot set a space default. The task
+    // input still prefills from the last-used cloud repository there.
+    if (integrationId == null) return;
+    const channels = await queryClient.fetchQuery({
+      queryKey: TASK_CHANNELS_QUERY_KEY,
+      queryFn: () => apiClient.getTaskChannels(),
+      staleTime: 60_000,
+    });
+    for (const channelId of planSpaceRepoAssignments(
+      channels,
+      currentUser?.uuid ?? null,
+    )) {
+      await apiClient.updateTaskChannelRepositories(channelId, integrationId, [
+        selectedCloudRepo,
+      ]);
+    }
+  };
 
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
@@ -163,6 +218,9 @@ export function OnboardingFlow() {
       // if an earlier session left a local run-mode preference behind.
       setLastUsedWorkspaceMode("cloud");
     }
+    assignRepoToSpaces().catch((error) =>
+      log.warn("Failed to save onboarding repo to spaces", { error }),
+    );
     shipIt();
     completeOnboarding();
     openTaskInput();
