@@ -367,6 +367,10 @@ describe('dashboardLogic', () => {
         it('previews tile spacing immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
             jest.useFakeTimers()
 
             try {
@@ -385,6 +389,27 @@ describe('dashboardLogic', () => {
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
                     grid_spacing: 'relaxed',
                 })
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not report the default tile density', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.saveDashboardTileSpacing('standard')
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
             } finally {
                 jest.useRealTimers()
             }
