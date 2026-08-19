@@ -508,7 +508,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 state.filter((check) => check.id !== checkId),
         },
         pendingCheckActions: [
-            { running: {}, deleting: {}, toggling: {}, loadingRuns: {} } as Record<
+            { running: {}, deleting: {}, toggling: {}, loadingRuns: {}, loadingSuiteRunRuns: {} } satisfies Record<
                 CheckPendingKind,
                 Record<string, boolean>
             >,
