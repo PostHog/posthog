@@ -4900,8 +4900,8 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
-    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
-    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    # The table was rebuilt from scratch under xmin (the first xmin run reads the whole table),
+    # so both rows land and the `_ph_xmin` column is present.
     res = await sync_to_async(execute_hogql_query)(
         "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
     )
