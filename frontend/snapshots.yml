@@ -6591,7 +6591,7 @@ snapshots:
     scenes-app-inbox-scene--empty-control--dark:
         hash: v1.k794b7964.99ffca71975a423bd8ef679c361fd0bf4b9a1f6be6d4f4dfe82b69a9637184af.NwEat2sZEU9_PcNSbsxCt1SZBzTzyQJbewP-ZpJZOM4
     scenes-app-inbox-scene--empty-control--light:
-        hash: v1.k794b7964.0bd8154cc24c9f19aef821da27d873001473634e8c8e4868d414d9204b35c58f.ATQvLBhDOPKTDa3bKkfGKcPytCuMGpk_mBtOdv-f3WQ
+        hash: v1.k794b7964.897cfada57cb1060860335179b5f5d10d33399f095e30ffa6a5902e188905977.VxZJrOI1PpjGafyt7ExIH6RjhtapLZ36twmDzUMFcts
     scenes-app-inbox-scene--empty-with-many-scouts--dark:
         hash: v1.k794b7964.32ea8aa91e71baa9a72b403c44731aa97bff8282b6bd9d5041b4537a50825060.G9RYZ-ZdAGxc4hcvryNgiAmH5xsqtHIj8mjKeXCZpJI
     scenes-app-inbox-scene--empty-with-many-scouts--light:
@@ -7569,9 +7569,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-csp-reporting--light:
         hash: v1.k794b7964.fd469d98fbaae429c7a81f49593b7f5723a4e068f3ceb03ed5f047b0535e227c.NLE5KInsuUjiK_nTGOj4Pgh43vBGeZXEgKsn6Rw5hXQ
     scenes-app-settings-environment--settings-environment-customization--dark:
-        hash: v1.k794b7964.62c21cd085915d104c92416ee218f9f12159066791fb833f576912ead2a809b7.OUqBSu9xrfAvA_NO2eN6cmVREwKJxJrx3vlevIwQD3g
+        hash: v1.k794b7964.b2b538c8df6d6b783d47c2be8817bb2f861b008fa847c50d5c99af59cbfa4cac.i6X_OHC5u_KV0XlPvyAcdu8QrZ93MD0OrVZQmaPcgMI
     scenes-app-settings-environment--settings-environment-customization--light:
-        hash: v1.k794b7964.e94d97fff18d5bff78eb6d25f0b56ecc7d8ca86ff3f05eca2186eb6696465d9d.h-lAqKJZMVq-VXGOL4mnrcH_f4ExzGTdGzUCaGg7N7Y
+        hash: v1.k794b7964.a393b6bb989d93d6b36362c11e1d6dfb4019d8d631c0d250ec0cc295301e2b96.Hn0smGMdrsefh679kAsc4_NCm7DZwG063H7cj1I5iiM
     scenes-app-settings-environment--settings-environment-danger-zone--dark:
         hash: v1.k794b7964.b2709895d612381724c2275aeaa291853ad3460c7a70f82f44f9b68b53d48da7.5LGiSsDKJB9hs5AsxbeWNNMpCqNP39jEiu5P91ZXcGY
     scenes-app-settings-environment--settings-environment-danger-zone--light:

@@ -553,6 +553,12 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
