@@ -9,7 +9,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
@@ -61,6 +63,25 @@ class ChannelsAPITestCase(TestCase):
             [c["id"] for c in again["channels"] if c["channel_type"] == "personal"],
             [personal[0]["id"]],
         )
+
+    @parameterized.expand(
+        [
+            ("write_scope", "task:write", status.HTTP_200_OK),
+            ("read_scope", "task:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_provisioning_over_a_scoped_token_needs_task_write(self, _name, scope, expected_status):
+        # Desktop authenticates with an OAuth bearer token, so an action missing from the
+        # write-scope list is refused before its scopes are even read.
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label=f"provisioning {scope}", secure_value=hash_key_value(key), scopes=[scope]
+        )
+
+        response = APIClient().post(
+            f"{self._channels_url()}provision_defaults/", headers={"authorization": f"Bearer {key}"}
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_list_does_not_provision(self):
         response = self.client.get(self._channels_url())
