@@ -2203,7 +2203,7 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                     .max(hogFlowsRerunCreateBodyFilterOneErrorMessageContainsMax)
                     .optional()
                     .describe(
-                        "Restrict to invocations whose error_message contains this substring (case-sensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind)."
+                        "Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind)."
                     ),
                 max_attempts: zod
                     .number()

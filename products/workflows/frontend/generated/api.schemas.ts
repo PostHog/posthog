@@ -1089,7 +1089,7 @@ export interface HogInvocationRerunFilterApi {
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
     /**
-     * Restrict to invocations whose error_message contains this substring (case-sensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+     * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
      * @maxLength 200
      */
     error_message_contains?: string

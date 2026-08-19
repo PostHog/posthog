@@ -44,7 +44,7 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         required=False,
         max_length=200,
         help_text=(
-            "Restrict to invocations whose error_message contains this substring (case-sensitive). "
+            "Restrict to invocations whose error_message contains this substring (case-insensitive). "
             "Use to isolate one failure mode when error_kind is too coarse (most app-level errors "
             "share the 'hog_error' kind)."
         ),

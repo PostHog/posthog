@@ -456,7 +456,7 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
         })
 
-        it('honours error_message_contains filter (only matching rows are rerun)', async () => {
+        it('honours error_message_contains filter, case-insensitively', async () => {
             await seedRows([
                 {
                     invocation_id: 'inv-sender',
@@ -473,7 +473,9 @@ describe('RerunPaginatorService integration', () => {
                     filter: {
                         window_start: '2026-01-01T00:00:00Z',
                         window_end: '2027-01-01T00:00:00Z',
-                        error_message_contains: 'The custom sender address',
+                        // Deliberately lower-cased vs the stored message: a needle copied
+                        // from logs must match regardless of capitalization.
+                        error_message_contains: 'the custom sender address',
                     },
                 },
             })

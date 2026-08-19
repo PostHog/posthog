@@ -6,6 +6,10 @@ import { urls } from 'scenes/urls'
 
 import { workflowsIncidentReplayLogic } from './workflowsIncidentReplayLogic'
 
+// Mirrors the server-side HOG_INVOCATION_RERUN_MAX_COUNT default: one rerun request
+// queues at most this many invocations, so larger workflows need a second pass.
+const RERUN_MAX_COUNT_PER_REQUEST = 10000
+
 export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
     const { showBanner, affectedWorkflows, replayStatusById } = useValues(workflowsIncidentReplayLogic)
     const { replayWorkflow } = useActions(workflowsIncidentReplayLogic)
@@ -13,6 +17,8 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
     if (!showBanner) {
         return null
     }
+
+    const hasLargeWorkflow = affectedWorkflows.some((workflow) => workflow.failedCount > RERUN_MAX_COUNT_PER_REQUEST)
 
     return (
         <LemonBanner
@@ -25,6 +31,13 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
                     Some of your workflow emails failed to send between August 17 and August 18 (UTC) because of an
                     incident on our side. You can replay the failed sends for each affected workflow below. Replaying
                     only re-runs what failed during that period.
+                    {hasLargeWorkflow ? (
+                        <>
+                            {' '}
+                            A replay covers up to 10,000 failed sends per run. For workflows with more, replay again
+                            after the first run finishes to send the rest.
+                        </>
+                    ) : null}
                 </div>
                 <ul className="flex flex-col gap-1">
                     {affectedWorkflows.map((workflow) => {
@@ -38,7 +51,7 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
                                     loading={status === 'pending'}
                                     disabledReason={
                                         status === 'queued'
-                                            ? 'Replay queued. Failed sends are being retried.'
+                                            ? 'Replay queued. Failed sends are being retried. Refresh the page to replay again once it finishes.'
                                             : undefined
                                     }
                                     onClick={() => replayWorkflow(workflow.id)}

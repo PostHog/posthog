@@ -56,7 +56,7 @@ export interface RerunFilter {
     status?: RerunStatusValue[]
     error_kind?: string[]
     /**
-     * Case-sensitive substring match on the latest error_message. Isolates one
+     * Case-insensitive substring match on the latest error_message. Isolates one
      * failure mode where error_kind is too coarse — most app-level errors share
      * the generic 'hog_error' kind.
      */

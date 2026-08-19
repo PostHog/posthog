@@ -483,9 +483,10 @@ export class RerunPaginatorService {
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
             : ''
-        // positionCaseSensitive instead of LIKE so the needle requires no %/_ escaping.
+        // position() instead of LIKE so the needle requires no %/_ escaping. Case-insensitive so a
+        // needle copied from logs matches regardless of capitalization.
         const errorMessageClause = filter.error_message_contains
-            ? 'AND positionCaseSensitive(argMax(error_message, version), {error_message_contains:String}) > 0'
+            ? 'AND positionCaseInsensitive(argMax(error_message, version), {error_message_contains:String}) > 0'
             : ''
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
