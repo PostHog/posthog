@@ -12,6 +12,7 @@ type Run = Pick<TaskRun, "environment" | "status">;
 type Session = Pick<
   AgentSession,
   | "status"
+  | "isCloud"
   | "cloudStatus"
   | "isPromptPending"
   | "taskRunId"
@@ -25,11 +26,13 @@ const genSession = (
     cloudStatus?: TaskRunStatus;
     isPromptPending?: boolean;
     agentIdle?: boolean;
+    isCloud?: boolean;
   },
 ): GenSession => ({
   status,
   cloudStatus: opts?.cloudStatus,
   isPromptPending: opts?.isPromptPending ?? false,
+  isCloud: opts?.isCloud,
   taskRunId: "r1",
   agentIdleForRunId: opts?.agentIdle ? "r1" : undefined,
 });
@@ -45,6 +48,7 @@ const session = (
   status,
   cloudStatus,
   isPromptPending: false,
+  isCloud: undefined,
   taskRunId: "r1",
   agentIdleForRunId: undefined,
 });
@@ -188,6 +192,17 @@ describe("isCanvasGenerating", () => {
         genTaskLoading: true,
         latestRun: undefined,
         session: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses a streaming cloud session before latest run metadata arrives", () => {
+    expect(
+      isCanvasGenerating({
+        genTaskId: "t1",
+        genTaskLoading: false,
+        latestRun: undefined,
+        session: genSession("connected", { isCloud: true }),
       }),
     ).toBe(true);
   });

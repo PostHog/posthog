@@ -17,6 +17,7 @@ export interface CanvasGenerationStatusInput {
     | Pick<
         AgentSession,
         | "status"
+        | "isCloud"
         | "cloudStatus"
         | "isPromptPending"
         | "taskRunId"
@@ -38,10 +39,10 @@ export type CanvasTerminalStatus = Extract<
 // after an automatic prompt, where the prompt event itself may not be replayed.
 // Without a mirror the run status is all there is.
 function isCloudRunActive(
-  latestRun: Pick<TaskRun, "status">,
+  latestRun: Pick<TaskRun, "status"> | undefined,
   session: CanvasGenerationStatusInput["session"],
 ): boolean {
-  const cloudStatus = session?.cloudStatus ?? latestRun.status;
+  const cloudStatus = session?.cloudStatus ?? latestRun?.status;
   if (isTerminalStatus(cloudStatus)) return false;
   if (session) {
     return (
@@ -73,7 +74,7 @@ export function isCanvasGenerationRunning({
   // Assume running while the task record is still loading.
   if (genTaskLoading) return true;
 
-  if (latestRun?.environment === "cloud") {
+  if (latestRun?.environment === "cloud" || session?.isCloud === true) {
     return isCloudRunActive(latestRun, session);
   }
 
@@ -98,7 +99,7 @@ export function isCanvasGenerating({
   if (!genTaskId) return false;
   if (genTaskLoading) return true;
 
-  if (latestRun?.environment === "cloud") {
+  if (latestRun?.environment === "cloud" || session?.isCloud === true) {
     return isCloudRunActive(latestRun, session);
   }
 
