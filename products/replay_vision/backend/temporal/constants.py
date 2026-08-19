@@ -86,6 +86,8 @@ READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
 READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
+# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
+AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
