@@ -5466,10 +5466,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def test_creating_feature_flag_with_non_existant_cohort(self):
+    @parameterized.expand(
+        [
+            # Scalar id for a cohort that isn't there -> Cohort.DoesNotExist.
+            ("scalar", 5151, "Cohort with id 5151 does not exist"),
+            # A list value can't map to a pk. Django raises TypeError while it prepares
+            # the lookup, which must return the same 400, not an opaque 500.
+            ("list", [493183], "Cohort with id [493183] does not exist"),
+        ]
+    )
+    def test_creating_feature_flag_with_invalid_cohort(self, _name, cohort_value, expected_detail):
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
-            [{"key": "id", "type": "cohort", "value": 5151}],
+            [{"key": "id", "type": "cohort", "value": cohort_value}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -5477,7 +5486,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "cohort_does_not_exist",
-                "detail": "Cohort with id 5151 does not exist",
+                "detail": expected_detail,
                 "attr": "filters",
             }.items(),
             cohort_request.json().items(),

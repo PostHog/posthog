@@ -1747,7 +1747,7 @@ class FeatureFlagSerializer(
                 cohort_id = located.prop.get("value")
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
-                        pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
+                        pk=cohort_id, team__project_id=self.context["project_id"]
                     )
                     # Static cohorts (including one-time snapshots) hold a
                     # materialised person list.  The populating criteria may
@@ -1782,7 +1782,11 @@ class FeatureFlagSerializer(
                             _validate_behavioral_cohort_for_feature_flag(
                                 cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
                             )
-                except Cohort.DoesNotExist:
+                except (Cohort.DoesNotExist, TypeError, ValueError):
+                    # A malformed value (a list, a non-numeric string) can't map to a
+                    # cohort pk. Django raises TypeError/ValueError when it prepares the
+                    # lookup, so catch those too and return the same validation error
+                    # instead of an opaque 500.
                     raise serializers.ValidationError(
                         detail=f"Cohort with id {cohort_id} does not exist",
                         code="cohort_does_not_exist",
