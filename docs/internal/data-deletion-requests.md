@@ -15,9 +15,9 @@ Whether to expose it to customers is a separate product decision.
 `DataDeletionRequest` (`posthog/models/data_deletion_request.py`) has three request types:
 
 | `request_type`     | What it removes                                              |
-| ------------------ | ----------------------------------------------------------- |
-| `event_removal`    | Whole events that match the criteria.                       |
-| `property_removal` | Named properties from matching events (the event stays).    |
+| ------------------ | ------------------------------------------------------------ |
+| `event_removal`    | Whole events that match the criteria.                        |
+| `property_removal` | Named properties from matching events (the event stays).     |
 | `person_removal`   | A set of persons: their profiles, events, and/or recordings. |
 
 This document focuses on `event_removal`, the type support most often needs — for example, "delete every `$pageview` for team X between two dates."
@@ -103,12 +103,12 @@ The scope and mode set the timing.
 The flow reports lifecycle events to PostHog's own analytics project through `posthog/ph_client.py`, so the team can measure how many requests we field and how long each takes.
 These events describe internal operations; they do not touch the customer's project data.
 
-| Event                              | When it fires                                  |
-| ---------------------------------- | ---------------------------------------------- |
-| `data deletion request submitted`  | A draft is submitted for approval.             |
-| `data deletion request approved`   | Approved by a person or the auto-approval job. |
-| `data deletion request completed`  | Verification confirmed the rows are gone.      |
-| `data deletion request failed`     | An execution attempt errored.                  |
+| Event                             | When it fires                                  |
+| --------------------------------- | ---------------------------------------------- |
+| `data deletion request submitted` | A draft is submitted for approval.             |
+| `data deletion request approved`  | Approved by a person or the auto-approval job. |
+| `data deletion request completed` | Verification confirmed the rows are gone.      |
+| `data deletion request failed`    | An execution attempt errored.                  |
 
 Every event carries `request_id`, `team_id`, `request_type`, `matching_event_count`, and timings (`seconds_since_created`, `seconds_since_approved`), so volume and turnaround are both measurable.
 The `approved` event carries `approved_via`, which is `auto` or `manual`.

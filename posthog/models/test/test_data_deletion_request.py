@@ -704,10 +704,8 @@ def test_capture_deletion_request_event_reports_measurable_properties():
 def test_capture_deletion_request_event_swallows_capture_failure():
     request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
 
-    @contextmanager
     def exploding_scoped_capture():
         raise RuntimeError("analytics client is down")
-        yield  # pragma: no cover
 
     # Instrumentation must never fail a deletion: a broken capture is logged and swallowed.
     with patch("posthog.ph_client.ph_scoped_capture", exploding_scoped_capture):
