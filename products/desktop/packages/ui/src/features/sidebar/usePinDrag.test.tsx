@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePinDragStore } from "./pinDragStore";
+import { consumeTaskDrop } from "./taskDrag";
 import { usePinDrag } from "./usePinDrag";
 
 vi.mock("@posthog/ui/utils/sounds", () => ({ playTrashSound: vi.fn() }));
@@ -89,32 +90,29 @@ describe("usePinDrag", () => {
   });
 
   // The card promises "Remove from pinned" the moment the pointer leaves the
-  // run, wherever it goes. Only the list used to take the drop, so releasing
-  // over the main pane showed the promise and did nothing.
-  //
-  // Escape cancels a drag without firing a drop, which is what separates it
-  // from a release. Reading `dropEffect` on `dragend` cannot: both report
-  // "none", so a cancelled drag would unpin what the user was still holding.
+  // run, wherever it goes, so a release nothing else claimed has to keep that
+  // promise. Escape fires no drop at all, which is what separates the two:
+  // reading `dropEffect` on `dragend` cannot, because both report "none".
   it.each([
     {
-      event: "drop",
-      defaultPrevented: false,
+      released: true,
+      consumed: false,
       unpins: true,
       when: "released over nothing",
     },
     {
-      event: "drop",
-      defaultPrevented: true,
+      released: true,
+      consumed: true,
       unpins: false,
-      when: "released on another drop target",
+      when: "released on a Command Center tile",
     },
     {
-      event: "dragend",
-      defaultPrevented: false,
+      released: false,
+      consumed: false,
       unpins: false,
       when: "cancelled with Escape",
     },
-  ])("$when, unpins=$unpins", ({ event, defaultPrevented, unpins }) => {
+  ])("$when, unpins=$unpins", ({ released, consumed, unpins }) => {
     const togglePin = vi.fn();
     const { result } = renderHook(() =>
       usePinDrag<Row>({ isPinned: (row) => row.pinned, togglePin }),
@@ -128,13 +126,23 @@ describe("usePinDrag", () => {
     });
 
     act(() => {
-      if (event === "dragend") {
-        result.current.onItemDragEnd();
-        return;
+      if (released) {
+        // The main pane's file-drop handler stops propagation on every drop, so
+        // only a capture-phase listener sees the release. Dispatching on a child
+        // that stops it is how this test would catch a regression to bubble.
+        const target = document.createElement("div");
+        document.body.appendChild(target);
+        target.addEventListener("drop", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        if (consumed) consumeTaskDrop();
+        target.dispatchEvent(
+          new Event("drop", { bubbles: true, cancelable: true }),
+        );
+        target.remove();
       }
-      const drop = new Event("drop", { cancelable: true });
-      if (defaultPrevented) drop.preventDefault();
-      window.dispatchEvent(drop);
+      result.current.onItemDragEnd();
     });
 
     expect(togglePin).toHaveBeenCalledTimes(unpins ? 1 : 0);

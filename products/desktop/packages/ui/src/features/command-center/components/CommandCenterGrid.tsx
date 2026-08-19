@@ -6,6 +6,7 @@ import {
 } from "@posthog/core/command-center/grid";
 import { Button } from "@posthog/quill";
 import {
+  consumeTaskDrop,
   readTaskDragData,
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
@@ -92,7 +93,11 @@ function useTaskDropTarget(onTasks: (taskIds: string[]) => void) {
       e.preventDefault();
       setIsOver(false);
       const taskIds = readTaskDragData(e.dataTransfer);
-      if (taskIds.length > 0) onTasks(taskIds);
+      if (taskIds.length === 0) return;
+      // Filing is what this drop was for, so the pin drag behind the same
+      // gesture leaves the sessions pinned where they were.
+      consumeTaskDrop();
+      onTasks(taskIds);
     },
   };
 }

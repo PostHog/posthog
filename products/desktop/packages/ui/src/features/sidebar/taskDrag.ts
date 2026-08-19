@@ -44,6 +44,28 @@ export function taskDragSiblings<T>(
   });
 }
 
+// Set by a target that takes a session drop for its own purpose, read once by
+// the pin drag that started it. A module-level flag rather than a field on the
+// event: the pin drag reads it on `dragend`, which is a different event from
+// the `drop` the target handled.
+let taskDropConsumed = false;
+
+/**
+ * Marks the session drop in flight as taken. A Command Center tile files what
+ * was dropped on it, so the pin drag behind the same gesture must not also
+ * unpin it.
+ */
+export function consumeTaskDrop(): void {
+  taskDropConsumed = true;
+}
+
+/** Reads and clears the flag, so it can't survive into the next drag. */
+export function takeConsumedTaskDrop(): boolean {
+  const consumed = taskDropConsumed;
+  taskDropConsumed = false;
+  return consumed;
+}
+
 export function writeTaskDragData(
   dataTransfer: Pick<DataTransfer, "setData">,
   draggedTaskId: string,
