@@ -95,6 +95,7 @@ async def _create_alert(
     schedule_restriction: dict | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
+    forecast_config: dict | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
@@ -122,6 +123,7 @@ async def _create_alert(
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
+            forecast_config=forecast_config,
             state=state,
         )
         return alert
@@ -289,6 +291,40 @@ class TestPrepareAlert:
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
 
         assert result.action == PrepareAction.EVALUATE
+
+    async def _finished_target_alert(self, ateam, target_date: str):
+        return await _create_alert(
+            ateam,
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": target_date,
+            },
+        )
+
+    async def _assert_finished_cleanly(self, alert) -> None:
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.action == PrepareAction.SKIP
+        assert result.reason == SkipReason.TARGET_DATE_PASSED
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state != AlertState.ERRORED
+        checks = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
+        assert checks == 0
+
+    @freeze_time("2024-06-03T10:00:00Z")
+    async def test_target_alert_finishes_cleanly_on_its_date(self, ateam) -> None:
+        await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-03"))
+
+    @freeze_time("2024-06-03T10:00:00Z")
+    async def test_target_alert_finishes_cleanly_after_its_date(self, ateam) -> None:
+        await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-01"))
 
     async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
         a = await _create_alert(

@@ -8,6 +8,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor, execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
+from products.alerts.backend.evaluation.forecast import TrendsForecastExtractor, evaluate_with_forecast
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
@@ -30,6 +31,10 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
 DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
+}
+
+FORECAST_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
+    NodeKind.TRENDS_QUERY: TrendsForecastExtractor(),
 }
 
 
@@ -59,6 +64,19 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     return evaluate_with_detector(result, detector_config)
 
 
+def check_forecast_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
+    forecast_config = alert.forecast_config
+    if not forecast_config:
+        raise ValueError("check_forecast_alert requires forecast_config — dispatcher invariant violated")
+    kind = get_from_dict_or_attr(query, "kind")
+    extractor = FORECAST_EXTRACTORS.get(kind)
+    if extractor is None:
+        raise NotImplementedError(f"AlertCheckError: Forecast alerts for {kind} are not supported yet")
+    threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
+    result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    return evaluate_with_forecast(result, forecast_config, threshold)
+
+
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
@@ -76,6 +94,9 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
         if kind in WRAPPER_NODE_KINDS:
             query = get_from_dict_or_attr(query, "source")
             kind = get_from_dict_or_attr(query, "kind")
+
+        if alert.forecast_config:
+            return check_forecast_alert(alert, insight, query)
 
         if alert.detector_config:
             return check_detector_alert(alert, insight, query)

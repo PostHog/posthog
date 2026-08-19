@@ -20,6 +20,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     DetectorConfig,
+    ForecastConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
@@ -45,7 +46,7 @@ from posthog.models import User
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.rate_limit import AlertTestDeliveryThrottle
+from posthog.rate_limit import AlertTestDeliveryThrottle, ForecastSimulateThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -62,11 +63,13 @@ from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
+from products.alerts.backend.evaluation.forecast import simulate_forecast_on_insight
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.forecasting.engine import validate_forecast_horizon_and_width
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -78,6 +81,13 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.product_analytics.backend.models.insight import Insight
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+
+def _target_date_is_changing(forecast_config: dict | None, instance: AlertConfiguration | None) -> bool:
+    if not forecast_config:
+        return False
+    stored = (instance.forecast_config or {}) if instance is not None else {}
+    return forecast_config.get("target_date") != stored.get("target_date")
 
 
 def _validate_interval_entitlement(
@@ -180,6 +190,17 @@ class AlertConfigField(serializers.JSONField):
 @extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
 class DetectorConfigField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(ForecastConfig)  # type: ignore[arg-type]
+class ForecastConfigField(serializers.JSONField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        try:
+            ForecastConfig.model_validate(value)
+        except Exception as e:
+            raise serializers.ValidationError(f"Invalid forecast config: {e}")
+        return value
 
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
@@ -378,6 +399,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
+    forecast_config = ForecastConfigField(
+        required=False,
+        allow_null=True,
+        help_text="Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.",
+    )
     insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
@@ -481,6 +507,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "checks_total",
             "config",
             "detector_config",
+            "forecast_config",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -760,8 +787,25 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             detector_config = None
 
-        require_threshold_bounds = detector_config is None and (
-            self.instance is None or "threshold" in attrs or "detector_config" in attrs
+        if "forecast_config" in attrs:
+            forecast_config = attrs["forecast_config"]
+        elif self.instance is not None:
+            forecast_config = self.instance.forecast_config
+        else:
+            forecast_config = None
+
+        if attrs.get("forecast_config") and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            raise ValidationError("Forecast alerts are not enabled for your account.")
+
+        require_threshold_bounds = (
+            detector_config is None
+            and forecast_config is None
+            and (
+                self.instance is None
+                or "threshold" in attrs
+                or "detector_config" in attrs
+                or "forecast_config" in attrs
+            )
         )
 
         # Mirror the UI's default for cadences finer than the insight interval. Applied before
@@ -786,6 +830,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval,
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
+                forecast_config=forecast_config,
+                require_future_target_date=_target_date_is_changing(forecast_config, self.instance),
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
@@ -989,6 +1035,127 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+    has_forecast = OptionalBooleanField(required=False)
+
+
+class ForecastSimulateRequestSerializer(serializers.Serializer):
+    insight = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID to simulate the forecast on.",
+    )
+    forecast_config = ForecastConfigField(
+        help_text="Forecast configuration to simulate.",
+    )
+    series_index = serializers.IntegerField(
+        default=0,
+        help_text="Zero-based index of the series to analyze (trends insights only).",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
+        "If not provided, uses the forecast's minimum required samples. Trends insights only.",
+    )
+
+    def validate_insight(self, value):
+        _require_insight_viewer_access(self.context, value)
+        _enforce_alert_feature_flags(self.context, value)
+        return value
+
+    def validate_forecast_config(self, value):
+        if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
+        try:
+            validate_forecast_horizon_and_width(ForecastConfig.model_validate(value), None, check_horizon=False)
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
+        return value
+
+
+class ForecastFitQualitySerializer(serializers.Serializer):
+    mape = serializers.FloatField(
+        allow_null=True, help_text="In-sample mean absolute percentage error of the forecast fit."
+    )
+    coverage = serializers.FloatField(
+        allow_null=True, help_text="Share of training points that fall inside the forecast's prediction interval."
+    )
+    verdict = serializers.ChoiceField(
+        choices=["good", "noisy", "poor", "unknown"],
+        help_text="Distilled fit-quality verdict for the preview: good, noisy, poor, or unknown "
+        "(not enough data to assess).",
+    )
+
+
+class ForecastTargetProjectionSerializer(serializers.Serializer):
+    predicted = serializers.FloatField(help_text="Value the forecast predicts for the target date.")
+    best_case = serializers.FloatField(
+        help_text="Value at the favorable edge of the band for the target date: the upper edge when the target "
+        "is a floor to reach, the lower edge when it is a ceiling to stay under."
+    )
+    target = serializers.FloatField(help_text="The target value being aimed for.")
+    target_date = serializers.CharField(help_text="The date the target must be met.")
+    misses_on_forecast = serializers.BooleanField(help_text="Whether the point forecast misses the target.")
+    misses_on_best_case = serializers.BooleanField(
+        help_text="Whether even the favorable edge misses the target, which is what fires by default."
+    )
+
+
+class ForecastLatestDeviationSerializer(serializers.Serializer):
+    value = serializers.FloatField(help_text="The latest completed actual value.")
+    lower = serializers.FloatField(help_text="Lower bound of the expected range for that point.")
+    upper = serializers.FloatField(help_text="Upper bound of the expected range for that point.")
+    outside = serializers.BooleanField(help_text="Whether the value falls outside the range, which is what fires.")
+
+
+class ForecastSimulateResponseSerializer(serializers.Serializer):
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Historical data values for each point.")  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each historical point.")
+    interval = serializers.CharField(
+        allow_null=True, help_text="Interval of the trends query (hour, day, week, month)."
+    )
+    forecast_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Date labels for each forecast point."
+    )
+    forecast_yhat = serializers.ListField(
+        child=serializers.FloatField(), help_text="Predicted value for each forecast point."
+    )
+    forecast_lower = serializers.ListField(
+        child=serializers.FloatField(), help_text="Lower bound of the forecast uncertainty band for each point."
+    )
+    forecast_upper = serializers.ListField(
+        child=serializers.FloatField(), help_text="Upper bound of the forecast uncertainty band for each point."
+    )
+    forecast_components = serializers.DictField(
+        child=serializers.ListField(child=serializers.FloatField()),
+        required=False,
+        allow_null=True,
+        help_text="Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast "
+        "point. Present only when the forecast engine outputs a decomposition.",
+    )
+    history_lower = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Lower bound of the expected range for each historical point, aligned with `dates` and `data`. "
+        "Null when the engine produces no in-sample band.",
+    )
+    history_upper = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Upper bound of the expected range for each historical point, aligned with `dates` and `data`.",
+    )
+    target_projection = ForecastTargetProjectionSerializer(
+        allow_null=True,
+        help_text="Where the forecast lands against the target on the target date, on both the point forecast "
+        "and the favorable edge. Present only for the target_by_date condition.",
+    )
+    latest_deviation = ForecastLatestDeviationSerializer(
+        allow_null=True,
+        help_text="The band-deviation check the alert itself runs on the latest completed point. Present only "
+        "for the band_deviation condition, and computed from a separate fit that excludes that point, so the "
+        "bounds here differ from the last entry of history_lower/history_upper.",
+    )
+    fit_quality = ForecastFitQualitySerializer(help_text="In-sample fit diagnostics for the forecast.")
 
 
 @extend_schema_view(
@@ -1026,7 +1193,15 @@ class AlertListFiltersSerializer(serializers.Serializer):
                 "has_detector",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+                description="Optional. Restrict results by whether the alert uses anomaly detection. "
+                "A forecast alert has no detector, so has_detector=false includes forecast alerts as well as "
+                "plain threshold alerts. Use has_forecast to separate the two.",
+            ),
+            OpenApiParameter(
+                "has_forecast",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses a forecast.",
             ),
         ],
     ),
@@ -1069,6 +1244,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has_detector = list_filters.validated_data.get("has_detector")
         if has_detector is not None:
             queryset = queryset.filter(detector_config__isnull=not has_detector)
+
+        has_forecast = list_filters.validated_data.get("has_forecast")
+        if has_forecast is not None:
+            queryset = queryset.filter(forecast_config__isnull=not has_forecast)
 
         created_by = filters.get("created_by")
         if created_by:
@@ -1340,6 +1519,44 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Simulation failed: unable to compute results for this insight.")
 
         response_serializer = AlertSimulateResponseSerializer(result)
+        return Response(response_serializer.data)
+
+    @extend_schema(
+        request=ForecastSimulateRequestSerializer,
+        responses={200: ForecastSimulateResponseSerializer},
+        description="Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.",
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="simulate_forecast",
+        required_scopes=["alert:read", "insight:read"],
+        throttle_classes=[ForecastSimulateThrottle],
+    )
+    def simulate_forecast(self, request, *args, **kwargs):
+        serializer = ForecastSimulateRequestSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+
+        insight = serializer.validated_data["insight"]
+        forecast_config = serializer.validated_data["forecast_config"]
+        series_index = serializer.validated_data["series_index"]
+        date_from = serializer.validated_data.get("date_from")
+
+        try:
+            result = simulate_forecast_on_insight(
+                insight=insight,
+                team=self.team,
+                forecast_config=forecast_config,
+                series_index=series_index,
+                date_from=date_from,
+                user=cast(User, request.user),
+            )
+        except (ValueError, IndexError, AlertExtractionError) as e:
+            raise ValidationError(str(e))
+        except RuntimeError:
+            raise ValidationError("Simulation failed: unable to compute results for this insight.")
+
+        response_serializer = ForecastSimulateResponseSerializer(result)
         return Response(response_serializer.data)
 
 

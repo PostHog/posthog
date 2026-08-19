@@ -9421,6 +9421,77 @@ export namespace Schemas {
      */
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
+    export type ForecastConditionType = typeof ForecastConditionType[keyof typeof ForecastConditionType];
+
+
+    export const ForecastConditionType = {
+      FutureBreach: 'future_breach',
+      BandDeviation: 'band_deviation',
+      TargetByDate: 'target_by_date',
+    } as const;
+
+    export type ForecastDirection = typeof ForecastDirection[keyof typeof ForecastDirection];
+
+
+    export const ForecastDirection = {
+      Both: 'both',
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export type ForecastErrorMode = typeof ForecastErrorMode[keyof typeof ForecastErrorMode];
+
+
+    export const ForecastErrorMode = {
+      PredictionInterval: 'prediction_interval',
+      Relative: 'relative',
+      Absolute: 'absolute',
+    } as const;
+
+    export type ForecastSensitivity = typeof ForecastSensitivity[keyof typeof ForecastSensitivity];
+
+
+    export const ForecastSensitivity = {
+      Forecast: 'forecast',
+      BestCase: 'best_case',
+    } as const;
+
+    export type ForecastTargetDirection = typeof ForecastTargetDirection[keyof typeof ForecastTargetDirection];
+
+
+    export const ForecastTargetDirection = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface ForecastConfig {
+      condition: ForecastConditionType;
+      /** Which way a deviation has to go to count (band_deviation only). Default both. */
+      direction?: ForecastDirection | null;
+      engine?: 'prophet';
+      /** How a deviation from the forecast is measured (band_deviation only). Default prediction_interval. */
+      error_mode?: ForecastErrorMode | null;
+      /** Distance from the forecast that counts, in the metric's own units (absolute mode only). */
+      error_threshold_abs?: number | null;
+      /** Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only). */
+      error_threshold_pct?: number | null;
+      /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval. */
+      horizon?: number | null;
+      /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
+      interval_width?: number | null;
+      /** How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them. */
+      score_threshold?: number | null;
+      /** Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read. */
+      sensitivity?: ForecastSensitivity | null;
+      /** Value the metric must reach or stay under (target_by_date only). */
+      target?: number | null;
+      /** ISO date the target must be met by (target_by_date only). */
+      target_date?: string | null;
+      /** Which side of `target` is acceptable (target_by_date only). */
+      target_direction?: ForecastTargetDirection | null;
+      type?: 'ForecastConfig';
+    }
+
     /**
      * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
@@ -9506,6 +9577,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration (third alert mode). Mutually exclusive with detector_config. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -38000,6 +38073,129 @@ export namespace Schemas {
     }
 
     /**
+     * * `good` - good
+     * * `noisy` - noisy
+     * * `poor` - poor
+     * * `unknown` - unknown
+     */
+    export type ForecastFitQualityVerdictEnum = typeof ForecastFitQualityVerdictEnum[keyof typeof ForecastFitQualityVerdictEnum];
+
+
+    export const ForecastFitQualityVerdictEnum = {
+      Good: 'good',
+      Noisy: 'noisy',
+      Poor: 'poor',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ForecastFitQuality {
+      /**
+         * In-sample mean absolute percentage error of the forecast fit.
+         * @nullable
+         */
+      mape: number | null;
+      /**
+         * Share of training points that fall inside the forecast's prediction interval.
+         * @nullable
+         */
+      coverage: number | null;
+      /** Distilled fit-quality verdict for the preview: good, noisy, poor, or unknown (not enough data to assess).
+       *
+       * * `good` - good
+       * * `noisy` - noisy
+       * * `poor` - poor
+       * * `unknown` - unknown */
+      verdict: ForecastFitQualityVerdictEnum;
+    }
+
+    export interface ForecastLatestDeviation {
+      /** The latest completed actual value. */
+      value: number;
+      /** Lower bound of the expected range for that point. */
+      lower: number;
+      /** Upper bound of the expected range for that point. */
+      upper: number;
+      /** Whether the value falls outside the range, which is what fires. */
+      outside: boolean;
+    }
+
+    export interface ForecastSimulateRequest {
+      /** Insight ID to simulate the forecast on. */
+      insight: number;
+      /** Forecast configuration to simulate. */
+      forecast_config: ForecastConfig;
+      /** Zero-based index of the series to analyze (trends insights only). */
+      series_index?: number;
+      /**
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only.
+         * @nullable
+         */
+      date_from?: string | null;
+    }
+
+    /**
+     * Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast point. Present only when the forecast engine outputs a decomposition.
+     * @nullable
+     */
+    export type ForecastSimulateResponseForecastComponents = {[key: string]: number[]} | null;
+
+    export interface ForecastTargetProjection {
+      /** Value the forecast predicts for the target date. */
+      predicted: number;
+      /** Value at the favorable edge of the band for the target date: the upper edge when the target is a floor to reach, the lower edge when it is a ceiling to stay under. */
+      best_case: number;
+      /** The target value being aimed for. */
+      target: number;
+      /** The date the target must be met. */
+      target_date: string;
+      /** Whether the point forecast misses the target. */
+      misses_on_forecast: boolean;
+      /** Whether even the favorable edge misses the target, which is what fires by default. */
+      misses_on_best_case: boolean;
+    }
+
+    export interface ForecastSimulateResponse {
+      /** Historical data values for each point. */
+      data: number[];
+      /** Date labels for each historical point. */
+      dates: string[];
+      /**
+         * Interval of the trends query (hour, day, week, month).
+         * @nullable
+         */
+      interval: string | null;
+      /** Date labels for each forecast point. */
+      forecast_dates: string[];
+      /** Predicted value for each forecast point. */
+      forecast_yhat: number[];
+      /** Lower bound of the forecast uncertainty band for each point. */
+      forecast_lower: number[];
+      /** Upper bound of the forecast uncertainty band for each point. */
+      forecast_upper: number[];
+      /**
+         * Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast point. Present only when the forecast engine outputs a decomposition.
+         * @nullable
+         */
+      forecast_components?: ForecastSimulateResponseForecastComponents;
+      /**
+         * Lower bound of the expected range for each historical point, aligned with `dates` and `data`. Null when the engine produces no in-sample band.
+         * @nullable
+         */
+      history_lower: number[] | null;
+      /**
+         * Upper bound of the expected range for each historical point, aligned with `dates` and `data`.
+         * @nullable
+         */
+      history_upper: number[] | null;
+      /** Where the forecast lands against the target on the target date, on both the point forecast and the favorable edge. Present only for the target_by_date condition. */
+      target_projection: ForecastTargetProjection | null;
+      /** The band-deviation check the alert itself runs on the latest completed point. Present only for the band_deviation condition, and computed from a separate fit that excludes that point, so the bounds here differ from the last entry of history_lower/history_upper. */
+      latest_deviation: ForecastLatestDeviation | null;
+      /** In-sample fit diagnostics for the forecast. */
+      fit_quality: ForecastFitQuality;
+    }
+
+    /**
      * Request body for `forget`.
      */
     export interface ForgetRequest {
@@ -56033,6 +56229,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration (third alert mode). Mutually exclusive with detector_config. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -84732,9 +84930,13 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Optional. Restrict results by whether the alert uses anomaly detection.
+     * Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.
      */
     has_detector?: boolean;
+    /**
+     * Optional. Restrict results by whether the alert uses a forecast.
+     */
+    has_forecast?: boolean;
     /**
      * Optional. Restrict results to alerts on this insight ID.
      */

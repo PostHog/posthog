@@ -24,7 +24,10 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
     has_detector: zod
         .boolean()
         .optional()
-        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
+        .describe(
+            'Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.'
+        ),
+    has_forecast: zod.boolean().optional().describe('Optional. Restrict results by whether the alert uses a forecast.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -78,6 +81,8 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyForecastConfigOneEngineDefault = `prophet`
+export const alertsCreateBodyForecastConfigOneTypeDefault = `ForecastConfig`
 
 export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -1240,6 +1245,73 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod.object({
+                condition: zod.enum(['future_breach', 'band_deviation', 'target_by_date']),
+                direction: zod
+                    .union([zod.enum(['both', 'above', 'below']), zod.null()])
+                    .optional()
+                    .describe('Which way a deviation has to go to count (band_deviation only). Default both.'),
+                engine: zod.literal('prophet').default(alertsCreateBodyForecastConfigOneEngineDefault),
+                error_mode: zod
+                    .union([zod.enum(['prediction_interval', 'relative', 'absolute']), zod.null()])
+                    .optional()
+                    .describe(
+                        'How a deviation from the forecast is measured (band_deviation only). Default prediction_interval.'
+                    ),
+                error_threshold_abs: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Distance from the forecast that counts, in the metric's own units (absolute mode only)."
+                    ),
+                error_threshold_pct: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only).'
+                    ),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
+                    ),
+                interval_width: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+                score_threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.'
+                    ),
+                sensitivity: zod
+                    .union([zod.enum(['forecast', 'best_case']), zod.null()])
+                    .optional()
+                    .describe(
+                        'Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read.'
+                    ),
+                target: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Value the metric must reach or stay under (target_by_date only).'),
+                target_date: zod
+                    .union([zod.string(), zod.null()])
+                    .optional()
+                    .describe('ISO date the target must be met by (target_by_date only).'),
+                target_direction: zod
+                    .union([zod.enum(['at_least', 'at_most']), zod.null()])
+                    .optional()
+                    .describe('Which side of `target` is acceptable (target_by_date only).'),
+                type: zod.literal('ForecastConfig').default(alertsCreateBodyForecastConfigOneTypeDefault),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.'),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1382,6 +1454,8 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyForecastConfigOneEngineDefault = `prophet`
+export const alertsPartialUpdateBodyForecastConfigOneTypeDefault = `ForecastConfig`
 
 export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -2569,6 +2643,73 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod.object({
+                condition: zod.enum(['future_breach', 'band_deviation', 'target_by_date']),
+                direction: zod
+                    .union([zod.enum(['both', 'above', 'below']), zod.null()])
+                    .optional()
+                    .describe('Which way a deviation has to go to count (band_deviation only). Default both.'),
+                engine: zod.literal('prophet').default(alertsPartialUpdateBodyForecastConfigOneEngineDefault),
+                error_mode: zod
+                    .union([zod.enum(['prediction_interval', 'relative', 'absolute']), zod.null()])
+                    .optional()
+                    .describe(
+                        'How a deviation from the forecast is measured (band_deviation only). Default prediction_interval.'
+                    ),
+                error_threshold_abs: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Distance from the forecast that counts, in the metric's own units (absolute mode only)."
+                    ),
+                error_threshold_pct: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only).'
+                    ),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
+                    ),
+                interval_width: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+                score_threshold: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.'
+                    ),
+                sensitivity: zod
+                    .union([zod.enum(['forecast', 'best_case']), zod.null()])
+                    .optional()
+                    .describe(
+                        'Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read.'
+                    ),
+                target: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Value the metric must reach or stay under (target_by_date only).'),
+                target_date: zod
+                    .union([zod.string(), zod.null()])
+                    .optional()
+                    .describe('ISO date the target must be met by (target_by_date only).'),
+                target_direction: zod
+                    .union([zod.enum(['at_least', 'at_most']), zod.null()])
+                    .optional()
+                    .describe('Which side of `target` is acceptable (target_by_date only).'),
+                type: zod.literal('ForecastConfig').default(alertsPartialUpdateBodyForecastConfigOneTypeDefault),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.'),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(

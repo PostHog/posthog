@@ -2665,6 +2665,34 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
+class ForecastConditionType(StrEnum):
+    FUTURE_BREACH = "future_breach"
+    BAND_DEVIATION = "band_deviation"
+    TARGET_BY_DATE = "target_by_date"
+
+
+class ForecastDirection(StrEnum):
+    BOTH = "both"
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ForecastErrorMode(StrEnum):
+    PREDICTION_INTERVAL = "prediction_interval"
+    RELATIVE = "relative"
+    ABSOLUTE = "absolute"
+
+
+class ForecastSensitivity(StrEnum):
+    FORECAST = "forecast"
+    BEST_CASE = "best_case"
+
+
+class ForecastTargetDirection(StrEnum):
+    AT_LEAST = "at_least"
+    AT_MOST = "at_most"
+
+
 class FunnelConversionMetric(StrEnum):
     CONVERSION_FROM_START = "conversion_from_start"
     CONVERSION_FROM_PREVIOUS = "conversion_from_previous"

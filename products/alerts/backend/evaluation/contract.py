@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -78,6 +79,10 @@ class AlertExtractionError(Exception):
     """
 
 
+class InsufficientHistoryError(Exception):
+    pass
+
+
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 
@@ -101,14 +106,14 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
-@dataclass
+@frozen
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
     kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
     ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
 
     team: Team
-    detector_config: dict[str, Any]
+    extractor_config: dict[str, Any]
     user: User | None = None
     series_index: int = 0
     date_from: str | None = None

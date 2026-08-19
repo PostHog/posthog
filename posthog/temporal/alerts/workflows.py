@@ -183,7 +183,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
             # Skip the synchronous notify when the investigation agent is gating —
             # the AnomalyInvestigationWorkflow will dispatch (or suppress) after the
             # verdict, and the safety-net schedule force-fires if the workflow stalls.
-            if evaluation.should_notify and not evaluation.should_gate_notification:
+            if evaluation.should_notify and evaluation.alert_check_id and not evaluation.should_gate_notification:
                 await temporalio.workflow.execute_activity(
                     notify_alert,
                     NotifyAlertActivityInputs(

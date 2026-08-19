@@ -49,9 +49,9 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import validate_alert_config
-from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -180,6 +180,11 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
+            finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
+            if finished_fields:
+                alert.save(update_fields=finished_fields)
+                return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
+
             with upgrade_query(insight):
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
@@ -191,6 +196,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     threshold_config,
                     alert.calculation_interval,
                     detector_config=alert.detector_config,
+                    forecast_config=alert.forecast_config,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
@@ -254,6 +260,19 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
+        except InsufficientHistoryError:
+            with transaction.atomic():
+                locked = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                alert_check, _ = add_alert_check(locked, None, None)
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=False,
+                new_state=AlertState(alert_check.state),
+            )
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the

@@ -20,6 +20,7 @@ class SkipReason(StrEnum):
     WEEKEND = "weekend"
     QUIET_HOURS = "quiet_hours"
     SNOOZED = "snoozed"
+    TARGET_DATE_PASSED = "target_date_passed"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,7 +74,7 @@ class RecordFailedEvaluationResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertResult:
     # AlertCheck PK is a UUIDT; stringified here so Temporal's JSON codec can pass it through.
-    alert_check_id: str
+    alert_check_id: str | None
     should_notify: bool
     new_state: AlertState
     # Human-readable breach descriptions the FIRING email uses as match_descriptions.

@@ -47,6 +47,9 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, WithPostHogUrl<Schema
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
         }
+        if (params.forecast_config !== undefined) {
+            body['forecast_config'] = params.forecast_config
+        }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
         }
@@ -177,6 +180,9 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, WithPostHogUrl<Schema
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
         }
+        if (params.forecast_config !== undefined) {
+            body['forecast_config'] = params.forecast_config
+        }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
         }
@@ -220,6 +226,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
             query: {
                 created_by: params.created_by,
                 has_detector: params.has_detector,
+                has_forecast: params.has_forecast,
                 insight_id: params.insight_id,
                 insight_tag: params.insight_tag,
                 limit: params.limit,

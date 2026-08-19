@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 
 from pydantic import ValidationError as PydanticValidationError
 
@@ -7,6 +8,9 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    ForecastConditionType,
+    ForecastConfig,
+    ForecastErrorMode,
     FunnelsAlertConfig,
     FunnelsQuery,
     HogQLAlertConfig,
@@ -21,11 +25,18 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
-from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
+from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
+from products.alerts.backend.forecasting.engine import (
+    MAX_SCORE_THRESHOLD,
+    horizon_for_target_date,
+    validate_forecast_horizon_and_width,
+    validate_forecast_interval,
+)
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -41,6 +52,11 @@ class _AlertConfigValidationContext:
     threshold_config: dict | None
     require_threshold_bounds: bool
     detector_config: dict | None
+    forecast_config: dict | None
+
+    @property
+    def bounds_required(self) -> bool:
+        return self.require_threshold_bounds and self.detector_config is None and self.forecast_config is None
 
 
 def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
@@ -97,7 +113,7 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
         # series. Reject at config time so the alert can't be saved only to fail every check.
         raise ValueError("Anomaly detection isn't supported for any-row SQL alerts — use last-row or first-row")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -146,7 +162,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
                 f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} when upper threshold is specified"
             )
 
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -170,7 +186,7 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         raise ValueError("This funnel only supports absolute value conditions")
     strategy.validate_config(funnels_query, parsed)
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -198,8 +214,80 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
             f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} "
             "when upper threshold is specified"
         )
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
+
+
+def _validate_band_deviation(parsed: ForecastConfig) -> None:
+    if parsed.error_mode == ForecastErrorMode.RELATIVE:
+        if parsed.error_threshold_pct is None:
+            raise ValueError("A percentage expected-range alert needs a percentage to compare against.")
+        if not 0 < parsed.error_threshold_pct <= 10:
+            raise ValueError("The percentage must be between 0 and 1000%.")
+    if parsed.error_mode == ForecastErrorMode.ABSOLUTE:
+        if parsed.error_threshold_abs is None:
+            raise ValueError("A fixed-amount expected-range alert needs an amount to compare against.")
+        if parsed.error_threshold_abs <= 0:
+            raise ValueError("The amount must be more than 0.")
+    if parsed.score_threshold is not None and not 0 <= parsed.score_threshold <= MAX_SCORE_THRESHOLD:
+        raise ValueError(f"How far past the range must be between 0 and {MAX_SCORE_THRESHOLD}.")
+
+
+def _validate_target_by_date(
+    parsed: ForecastConfig, interval: IntervalType | None, *, require_future_date: bool
+) -> None:
+    if parsed.target is None:
+        raise ValueError("A target alert needs a target value.")
+    if parsed.target_direction is None:
+        raise ValueError("A target alert needs a direction: at least, or at most.")
+    if not parsed.target_date:
+        raise ValueError("A target alert needs a target date.")
+    try:
+        target_date = date.fromisoformat(str(parsed.target_date))
+    except ValueError:
+        raise ValueError(f"Target date isn't a valid date: {parsed.target_date}")
+    today = datetime.now(UTC).date()
+    if require_future_date or target_date > today:
+        horizon_for_target_date(target_date, interval, today)
+
+
+def _validate_forecast_config(
+    forecast_config: dict,
+    kind: str | None,
+    query: dict,
+    threshold_config: dict | None,
+    require_future_target_date: bool,
+) -> None:
+    if kind not in FORECAST_EXTRACTORS:
+        raise ValueError(f"Forecast alerts aren't supported for {kind} insights")
+    try:
+        parsed = ForecastConfig.model_validate(forecast_config)
+    except Exception:
+        raise ValueError(
+            f"Alert has invalid forecast config (engine/condition/horizon/interval_width): {forecast_config}"
+        )
+    try:
+        trends_query = TrendsQuery.model_validate(query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+    validate_forecast_horizon_and_width(parsed, trends_query.interval)
+    if parsed.condition == ForecastConditionType.BAND_DEVIATION:
+        _validate_band_deviation(parsed)
+    if parsed.condition == ForecastConditionType.TARGET_BY_DATE:
+        _validate_target_by_date(parsed, trends_query.interval, require_future_date=require_future_target_date)
+    if is_non_time_series_trend(trends_query):
+        raise ValueError("Forecast alerts require a time series trends insight")
+    if _has_breakdown(trends_query):
+        raise ValueError("Forecast alerts don't support breakdowns yet")
+    validate_forecast_interval(trends_query.interval)
+    if parsed.condition == ForecastConditionType.FUTURE_BREACH:
+        validate_threshold_bounds_required(threshold_config)
+        if threshold_config is not None:
+            threshold = InsightThreshold.model_validate(threshold_config)
+            if threshold.type != InsightThresholdType.ABSOLUTE:
+                raise ValueError(
+                    "Forecast breach alerts need an absolute threshold. Switch the threshold from percentage to absolute."
+                )
 
 
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
@@ -317,6 +405,8 @@ def validate_alert_config(
     calculation_interval: str | None = None,
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
+    forecast_config: dict | None = None,
+    require_future_target_date: bool = False,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
@@ -347,6 +437,11 @@ def validate_alert_config(
     if detector_config is not None and kind not in DETECTOR_EXTRACTORS:
         raise ValueError(f"Anomaly detection alerts aren't supported for {kind} insights")
 
+    if forecast_config is not None:
+        if detector_config is not None:
+            raise ValueError("An alert can't have both anomaly detection and forecast configured")
+        _validate_forecast_config(forecast_config, kind, query, threshold_config, require_future_target_date)
+
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
@@ -359,5 +454,6 @@ def validate_alert_config(
             threshold_config=threshold_config,
             require_threshold_bounds=require_threshold_bounds,
             detector_config=detector_config,
+            forecast_config=forecast_config,
         )
     )

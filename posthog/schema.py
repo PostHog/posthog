@@ -111,6 +111,11 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
+    ForecastConditionType as ForecastConditionType,
+    ForecastDirection as ForecastDirection,
+    ForecastErrorMode as ForecastErrorMode,
+    ForecastSensitivity as ForecastSensitivity,
+    ForecastTargetDirection as ForecastTargetDirection,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -5188,6 +5193,79 @@ class FileSystemImport(BaseModel):
         ),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
+
+
+class ForecastConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: ForecastConditionType
+    direction: ForecastDirection | None = Field(
+        default=None,
+        description=("Which way a deviation has to go to count (band_deviation only). Default both."),
+    )
+    engine: Literal["prophet"] = "prophet"
+    error_mode: ForecastErrorMode | None = Field(
+        default=None,
+        description=(
+            "How a deviation from the forecast is measured (band_deviation only). Default prediction_interval."
+        ),
+    )
+    error_threshold_abs: float | None = Field(
+        default=None,
+        description=("Distance from the forecast that counts, in the metric's own units (absolute mode only)."),
+    )
+    error_threshold_pct: float | None = Field(
+        default=None,
+        description=(
+            "Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only)."
+        ),
+    )
+    horizon: int | None = Field(
+        default=None,
+        description=(
+            "How many future intervals to forecast when checking for a threshold breach"
+            " (future_breach only). Default 7. The forecast can reach at most 6 months"
+            " ahead, so the limit depends on the insight's interval."
+        ),
+    )
+    interval_width: float | None = Field(
+        default=None,
+        description=("Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95)."),
+    )
+    score_threshold: float | None = Field(
+        default=None,
+        description=(
+            "How far outside the band counts, in band half-widths, from 0 to 3"
+            " (prediction_interval mode only). Higher fires less, and a well-calibrated"
+            " band stops firing at all above about 2. Half-widths rather than training"
+            " residuals: those exist only when the engine runs with history, which is"
+            " the preview path, and a scheduled check does not. The band already"
+            " carries the residual scale, since Prophet built it from them."
+        ),
+    )
+    sensitivity: ForecastSensitivity | None = Field(
+        default=None,
+        description=(
+            "Which line the comparison reads. Defaults to the point forecast for"
+            " future_breach, and to best_case for target_by_date. Ignored by"
+            " band_deviation. Distinct from `score_threshold`, which decides how far"
+            " outside the band counts, not which line is read."
+        ),
+    )
+    target: float | None = Field(
+        default=None,
+        description="Value the metric must reach or stay under (target_by_date only).",
+    )
+    target_date: str | None = Field(
+        default=None,
+        description="ISO date the target must be met by (target_by_date only).",
+    )
+    target_direction: ForecastTargetDirection | None = Field(
+        default=None,
+        description="Which side of `target` is acceptable (target_by_date only).",
+    )
+    type: Literal["ForecastConfig"] = "ForecastConfig"
 
 
 class FormResumePayload(BaseModel):

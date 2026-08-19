@@ -26155,6 +26155,92 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ForecastConditionType": {
+            "enum": ["future_breach", "band_deviation", "target_by_date"],
+            "type": "string"
+        },
+        "ForecastConfig": {
+            "additionalProperties": false,
+            "description": "Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.",
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/ForecastConditionType"
+                },
+                "direction": {
+                    "$ref": "#/definitions/ForecastDirection",
+                    "description": "Which way a deviation has to go to count (band_deviation only). Default both."
+                },
+                "engine": {
+                    "$ref": "#/definitions/ForecastEngineType"
+                },
+                "error_mode": {
+                    "$ref": "#/definitions/ForecastErrorMode",
+                    "description": "How a deviation from the forecast is measured (band_deviation only). Default prediction_interval."
+                },
+                "error_threshold_abs": {
+                    "description": "Distance from the forecast that counts, in the metric's own units (absolute mode only).",
+                    "type": "number"
+                },
+                "error_threshold_pct": {
+                    "description": "Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only).",
+                    "type": "number"
+                },
+                "horizon": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
+                },
+                "interval_width": {
+                    "description": "Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).",
+                    "type": "number"
+                },
+                "score_threshold": {
+                    "description": "How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.",
+                    "type": "number"
+                },
+                "sensitivity": {
+                    "$ref": "#/definitions/ForecastSensitivity",
+                    "description": "Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read."
+                },
+                "target": {
+                    "description": "Value the metric must reach or stay under (target_by_date only).",
+                    "type": "number"
+                },
+                "target_date": {
+                    "description": "ISO date the target must be met by (target_by_date only).",
+                    "type": "string"
+                },
+                "target_direction": {
+                    "$ref": "#/definitions/ForecastTargetDirection",
+                    "description": "Which side of `target` is acceptable (target_by_date only)."
+                },
+                "type": {
+                    "const": "ForecastConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "engine", "condition"],
+            "type": "object"
+        },
+        "ForecastDirection": {
+            "enum": ["both", "above", "below"],
+            "type": "string"
+        },
+        "ForecastEngineType": {
+            "const": "prophet",
+            "type": "string"
+        },
+        "ForecastErrorMode": {
+            "enum": ["prediction_interval", "relative", "absolute"],
+            "type": "string"
+        },
+        "ForecastSensitivity": {
+            "enum": ["forecast", "best_case"],
+            "type": "string"
+        },
+        "ForecastTargetDirection": {
+            "enum": ["at_least", "at_most"],
+            "type": "string"
+        },
         "FormDismissPayload": {
             "additionalProperties": false,
             "properties": {
