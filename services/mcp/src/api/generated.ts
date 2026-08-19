@@ -44078,10 +44078,13 @@ export namespace Schemas {
     }
 
     /**
-     * A configured destination, with the fields it was created with so the two round-trip.
+     * A configured destination, with the fields it was created with.
      *
-     * slack_channel_name has no counterpart here: creation puts it in the HogFunction name
-     * rather than its inputs, so there is nothing to read back.
+     * Two of those fields do not come back as sent. slack_channel_name has no counterpart at all:
+     * creation puts it in the HogFunction name rather than its inputs, so there is nothing to read
+     * back. webhook_url comes back redacted to scheme and host, because the full URL is a bearer
+     * credential and logs:read includes viewers — so a caller cannot use this response to compare
+     * the stored URL against the one it sent.
      */
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -44095,7 +44098,7 @@ export namespace Schemas {
       slack_workspace_id?: number;
       /** Slack channel ID. Present when type=slack. */
       slack_channel_id?: string;
-      /** Endpoint posted to. Present for webhook and teams. */
+      /** Endpoint posted to, redacted to scheme and host because the full URL is a credential. Present for webhook and teams. */
       webhook_url?: string;
     }
 

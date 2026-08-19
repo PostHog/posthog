@@ -38,6 +38,7 @@ from products.alerts.backend.facade.api import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
+    redact_webhook_url,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -765,10 +766,13 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
-    """A configured destination, with the fields it was created with so the two round-trip.
+    """A configured destination, with the fields it was created with.
 
-    slack_channel_name has no counterpart here: creation puts it in the HogFunction name
-    rather than its inputs, so there is nothing to read back.
+    Two of those fields do not come back as sent. slack_channel_name has no counterpart at all:
+    creation puts it in the HogFunction name rather than its inputs, so there is nothing to read
+    back. webhook_url comes back redacted to scheme and host, because the full URL is a bearer
+    credential and logs:read includes viewers — so a caller cannot use this response to compare
+    the stored URL against the one it sent.
     """
 
     type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
@@ -776,7 +780,19 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
         required=False, help_text="Integration ID for the Slack workspace. Present when type=slack."
     )
     slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Present when type=slack.")
-    webhook_url = serializers.URLField(required=False, help_text="Endpoint posted to. Present for webhook and teams.")
+    webhook_url = serializers.URLField(
+        required=False,
+        help_text=(
+            "Endpoint posted to, redacted to scheme and host because the full URL is a credential. "
+            "Present for webhook and teams."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = cast(dict[str, Any], super().to_representation(instance))
+        if data.get("webhook_url"):
+            data["webhook_url"] = redact_webhook_url(data["webhook_url"])
+        return data
 
 
 def _build_reason(
@@ -1012,10 +1028,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={200: LogsAlertDestinationConfigSerializer(many=True)},
         description=(
-            "List the notification destinations configured for this alert. Creating a destination "
-            "fans out into one HogFunction per alert event kind (firing, resolved, ...); this returns "
-            "one entry per destination, carrying the whole group's HogFunction IDs and the config it "
-            "was created with."
+            "Paginated list of the notification destinations configured for this alert. Creating a "
+            "destination fans out into one HogFunction per alert event kind (firing, resolved, ...); "
+            "this returns one entry per destination, carrying the whole group's HogFunction IDs and "
+            "the config it was created with. webhook_url comes back redacted to scheme and host."
         ),
     )
     @create_destination.mapping.get
@@ -1027,10 +1043,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             allowed_destination_types=LOGS_DESTINATION_TYPES,
         )
-        serializer = LogsAlertDestinationConfigSerializer(
-            [{"hog_function_ids": list(group.hog_function_ids), **group.data} for group in groups],
-            many=True,
-        )
+        # A plain list, not a queryset — destinations are regrouped in Python. DRF paginates it
+        # anyway: get_count falls back to len() and the page is a slice. Groups come back in
+        # HogFunction creation order, so page boundaries are stable.
+        destinations = [{"hog_function_ids": list(group.hog_function_ids), **group.data} for group in groups]
+
+        page = self.paginate_queryset(destinations)
+        if page is not None:
+            serializer = LogsAlertDestinationConfigSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertDestinationConfigSerializer(destinations, many=True)
         return Response(serializer.data)
 
     @extend_schema(

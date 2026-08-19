@@ -218,7 +218,7 @@ export const getLogsAlertsDestinationsListUrl = (
 }
 
 /**
- * List the notification destinations configured for this alert. Creating a destination fans out into one HogFunction per alert event kind (firing, resolved, ...); this returns one entry per destination, carrying the whole group's HogFunction IDs and the config it was created with.
+ * Paginated list of the notification destinations configured for this alert. Creating a destination fans out into one HogFunction per alert event kind (firing, resolved, ...); this returns one entry per destination, carrying the whole group's HogFunction IDs and the config it was created with. webhook_url comes back redacted to scheme and host.
  */
 export const logsAlertsDestinationsList = async (
     projectId: string,

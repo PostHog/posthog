@@ -1067,15 +1067,17 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        destinations = response.json()["results"]
         assert len(destinations) == 1
         assert destinations[0]["type"] == "slack"
+        # Slack config is returned whole: the workspace is an integration ID, and the channel ID
+        # is useless without it, so neither is a credential the way a webhook URL is.
         assert destinations[0]["slack_workspace_id"] == 42
         assert destinations[0]["slack_channel_id"] == "C123"
         # Creation writes slack_channel_name into the HogFunction name, not its inputs.
         assert "slack_channel_name" not in destinations[0]
 
-    def test_list_destinations_returns_webhook_url(self):
+    def test_list_destinations_returns_paginated_envelope(self):
         self._sync_destination_templates()
         created = self._create_via_api()
         self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
@@ -1083,12 +1085,55 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        body = response.json()
+        assert set(body) == {"count", "next", "previous", "results"}
+        assert body["count"] == 1
+        assert body["next"] is None
+        assert body["previous"] is None
+        assert [destination["type"] for destination in body["results"]] == ["webhook"]
+
+    def test_list_destinations_pages_with_limit_and_offset(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        for host in ("first", "second", "third"):
+            self._create_destination(created["id"], {"type": "webhook", "webhook_url": f"https://{host}.example.com/h"})
+
+        first_page = self.client.get(self._destinations_url(created["id"]), {"limit": 2})
+        second_page = self.client.get(self._destinations_url(created["id"]), {"limit": 2, "offset": 2})
+
+        assert first_page.status_code == status.HTTP_200_OK, first_page.json()
+        assert second_page.status_code == status.HTTP_200_OK, second_page.json()
+        # Groups come back in HogFunction creation order, so the pages don't overlap.
+        assert first_page.json()["count"] == 3
+        assert [destination["webhook_url"] for destination in first_page.json()["results"]] == [
+            "https://first.example.com/…",
+            "https://second.example.com/…",
+        ]
+        assert first_page.json()["next"] is not None
+        assert second_page.json()["count"] == 3
+        assert [destination["webhook_url"] for destination in second_page.json()["results"]] == [
+            "https://third.example.com/…",
+        ]
+        assert second_page.json()["next"] is None
+        assert second_page.json()["previous"] is not None
+
+    def test_list_destinations_redacts_webhook_url(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook?token=s3cret"}
+        )
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()["results"]
         assert len(destinations) == 1
         assert destinations[0]["type"] == "webhook"
-        assert destinations[0]["webhook_url"] == "https://example.com/hook"
+        # The path and query carry the credential, so only scheme and host come back.
+        assert destinations[0]["webhook_url"] == "https://example.com/…"
 
-    def test_list_destinations_returns_teams_webhook_url(self):
+    def test_list_destinations_redacts_teams_webhook_url(self):
         self._sync_destination_templates()
         created = self._create_via_api()
         teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
@@ -1097,10 +1142,20 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        destinations = response.json()["results"]
         assert len(destinations) == 1
         assert destinations[0]["type"] == "teams"
-        assert destinations[0]["webhook_url"] == teams_url
+        assert destinations[0]["webhook_url"] == "https://prod-00.westus.logic.azure.com:443/…"
+
+    def test_list_destinations_never_stores_the_redacted_url(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+
+        assert self.client.get(self._destinations_url(created["id"])).status_code == status.HTTP_200_OK
+        # Redaction is a read-path concern only — delivery still needs the real URL.
+        stored = HogFunction.objects.filter(id__in=ids).values_list("inputs", flat=True)
+        assert {inputs["url"]["value"] for inputs in stored} == {"https://example.com/hook"}
 
     def test_list_destinations_groups_each_destinations_hog_functions_into_one_entry(self):
         self._sync_destination_templates()
@@ -1115,7 +1170,7 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        destinations = response.json()["results"]
         # Two destinations, four HogFunctions each, not eight single-function entries.
         assert len(destinations) == 2
         by_type = {destination["type"]: destination for destination in destinations}
@@ -1131,7 +1186,7 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        destinations = response.json()["results"]
         assert sorted(destination["slack_channel_id"] for destination in destinations) == ["C1", "C2"]
 
     def test_list_destinations_returns_empty_list_without_destinations(self):
@@ -1140,7 +1195,8 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == []
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
 
     def test_list_destinations_excludes_soft_deleted_destinations(self):
         self._sync_destination_templates()
@@ -1154,31 +1210,34 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == []
+        assert response.json()["results"] == []
 
     def test_list_destinations_excludes_other_alerts_destinations(self):
         self._sync_destination_templates()
         created_a = self._create_via_api()
         created_b = self._create_via_api(name="Another alert")
-        self._create_destination(created_a["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
-        self._create_destination(created_b["id"], {"type": "webhook", "webhook_url": "https://example.com/b"})
+        # Distinct hosts, not distinct paths: the read redacts the path away.
+        self._create_destination(created_a["id"], {"type": "webhook", "webhook_url": "https://a.example.com/hook"})
+        self._create_destination(created_b["id"], {"type": "webhook", "webhook_url": "https://b.example.com/hook"})
 
         response = self.client.get(self._destinations_url(created_b["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [destination["webhook_url"] for destination in response.json()] == ["https://example.com/b"]
+        assert [destination["webhook_url"] for destination in response.json()["results"]] == ["https://b.example.com/…"]
 
     def test_list_destinations_excludes_other_teams_hog_functions(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/ours"})
+        self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://ours.example.com/hook"})
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        self._make_foreign_hog_function(team=other_team, alert_id=created["id"], url="https://example.com/theirs")
+        self._make_foreign_hog_function(team=other_team, alert_id=created["id"], url="https://theirs.example.com/hook")
 
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [destination["webhook_url"] for destination in response.json()] == ["https://example.com/ours"]
+        assert [destination["webhook_url"] for destination in response.json()["results"]] == [
+            "https://ours.example.com/…"
+        ]
 
     def test_list_destinations_on_other_teams_alert_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -1205,10 +1264,14 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()
+        destinations = response.json()["results"]
         assert len(destinations) == 1
         assert sorted(destinations[0].pop("hog_function_ids")) == sorted(ids)
-        assert destinations[0] == payload
+        # webhook_url is the one created field that cannot round-trip: the read redacts it.
+        expected = dict(payload)
+        if "webhook_url" in expected:
+            expected["webhook_url"] = "https://example.com/…"
+        assert destinations[0] == expected
 
     # --- Reset ---
 
