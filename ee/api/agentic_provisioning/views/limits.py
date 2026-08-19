@@ -1,10 +1,14 @@
 """Rate limit introspection: a partner's derived tier and effective budgets.
 
-GET serves bearer holders; POST serves client-authenticated partners (a signed
-assertion or client secret rides the form body, the same way the token endpoint
-takes it, which a GET has nowhere to carry). Both return the same document, so
-a partner can see its limits and current headroom instead of discovering them
-through 429s.
+The caller has to prove it controls the partner, either with a bearer token or
+with the client authentication the token endpoint already takes (a signed
+assertion or a client secret). A bare client_id only identifies a public
+partner, so honoring it here would hand every caller that partner's tier and
+live headroom, and spend its introspection budget in the process. A public
+partner reads its own limits with the bearer it holds after its token exchange.
+
+POST rather than GET because client authentication rides the form body, which a
+GET has nowhere to carry.
 """
 
 from __future__ import annotations
@@ -30,16 +34,12 @@ class LimitsView(ProvisioningAPIView):
     # The partner arrives by bearer or by client authentication, resolved in the
     # handler so both paths share one endpoint.
     authenticates_in_handler = True
-
-    @rate_limited("limits_reads", charge="manual")
-    def get(self, request: Request) -> Response:
-        return self._limits_response(request)
+    # A bearer only exists in the region that minted it, so a token from the other
+    # region has to proxy rather than 401 here.
+    region_proxy_strategy = "bearer_lookup"
 
     @rate_limited("limits_reads", charge="manual")
     def post(self, request: Request) -> Response:
-        return self._limits_response(request)
-
-    def _limits_response(self, request: Request) -> Response:
         partner = self._identify_partner(request)
         self.charge_rate_limit(request, partner)
         return Response(
@@ -62,6 +62,8 @@ class LimitsView(ProvisioningAPIView):
             app = access_token.application
             if app is None or not app.is_provisioning_partner:
                 raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+            if not app.provisioning.active:
+                raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
             return app
 
         try:
@@ -70,4 +72,10 @@ class LimitsView(ProvisioningAPIView):
             raise ProvisioningError("unauthorized", str(exc.detail), status=401)
         if result is None:
             raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
-        return result[1]
+
+        partner = result[1]
+        # A public partner presents a client_id anyone can send, which identifies it
+        # without proving the caller is it. Its bearer does.
+        if not partner.requires_client_authentication:
+            raise ProvisioningError("unauthorized", "This client must authenticate with a bearer token", status=401)
+        return partner
