@@ -563,7 +563,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 }
                 const version = values.viewingVersion?.version
                 const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
-                // nosemgrep: prefer-codegen-api
                 return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
             },
         },
@@ -571,7 +570,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             __default: null as string | null,
             loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const result = await api.endpoint.run(name, data)
                     if (result && typeof result === 'object' && 'clickhouse' in result) {
                         const { clickhouse, ...rest } = result as any
@@ -686,7 +684,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 const versionNumber = parseInt(searchParams.version, 10)
                 if (!isNaN(versionNumber) && versionNumber !== endpoint.current_version) {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const versionData = await api.endpoint.get(endpoint.name, versionNumber)
                         actions.setViewingVersion(versionData)
                     } catch {
@@ -851,7 +848,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             const versionToReload = options?.version ?? values.viewingVersion?.version
             if (versionToReload && endpointName) {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const versionData = await api.endpoint.get(endpointName, versionToReload)
                     actions.setViewingVersion(versionData)
                 } catch {
@@ -892,7 +888,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     if (versionParam && values.endpoint?.name) {
                         // Load the requested version
                         const requestedVersion = versionParam
-                        // nosemgrep: prefer-codegen-api
                         api.endpoint
                             .get(name, versionParam)
                             .then((versionData) => {

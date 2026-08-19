@@ -54,7 +54,6 @@ export const logsIngestionLogic = kea<logsIngestionLogicType>([
         teamHasLogs: {
             __default: undefined as boolean | undefined,
             loadTeamHasLogs: async (): Promise<boolean> => {
-                // nosemgrep: prefer-codegen-api
                 return await retryWithBackoff(() => api.logs.hasLogs(), { maxAttempts: 3 })
             },
         },

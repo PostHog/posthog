@@ -130,7 +130,6 @@ export const recentSpikesLogic = kea<recentSpikesLogicType>([
         spikesResponse: {
             loadRecentSpikes: async (_, breakpoint) => {
                 await breakpoint(100)
-                // nosemgrep: prefer-codegen-api
                 return await api.errorTracking.getSpikeEvents({
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,

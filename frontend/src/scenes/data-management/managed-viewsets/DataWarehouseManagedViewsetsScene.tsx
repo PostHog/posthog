@@ -11,10 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
-import {
-    generatedManagedViewsets,
-    generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from './DataWarehouseManagedViewsetImpactModal'
@@ -67,9 +64,9 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element | null {
         }
 
         try {
-            await generatedManagedViewsets.toggle(kind, false)
+            await managedViewsetsApi.toggle(kind, false)
             if (kind === 'revenue_analytics') {
-                await generatedRevenueAnalyticsJoins.sync(false)
+                await revenueAnalyticsJoinsApi.sync(false)
             }
             lemonToast.success(`${VIEWSET_TITLES[kind]} viewset disabled and views deleted successfully`)
             loadCurrentTeam()

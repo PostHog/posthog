@@ -758,7 +758,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.conversationsTickets.list(params)
                 // Drop responses that were superseded while in flight, so a slow reply
                 // to an older query can't overwrite newer results.
@@ -904,7 +903,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
             try {
-                // nosemgrep: prefer-codegen-api
                 const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()

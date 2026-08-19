@@ -67,7 +67,7 @@ interface CdcStatus {
     schedule_paused?: boolean
 }
 
-export const generatedExternalDataSources = {
+export const externalDataSourcesApi = {
     async list(options?: ApiMethodOptions): Promise<PaginatedResponse<ExternalDataSource>> {
         return (await externalDataSourcesList(
             projectId(),
@@ -245,7 +245,7 @@ export const generatedExternalDataSources = {
     },
 }
 
-export const generatedExternalDataSchemas = {
+export const externalDataSchemasApi = {
     async get(schemaId: string): Promise<ExternalDataSchemaWithSource> {
         return (await externalDataSchemasRetrieve(projectId(), schemaId)) as unknown as ExternalDataSchemaWithSource
     },

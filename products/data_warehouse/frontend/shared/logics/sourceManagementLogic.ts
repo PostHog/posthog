@@ -28,11 +28,8 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
-import {
-    generatedExternalDataSchemas,
-    generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { warehouseViewLinksApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type {
@@ -41,7 +38,7 @@ import type {
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../frontend/src/types'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
+import { warehouseTablesApi } from '../../warehouseTablesApi'
 import { joinsLogic } from './joinsLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 
@@ -285,7 +282,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                         })
                     }
 
-                    await generatedExternalDataSchemas.update(schema.id, schema)
+                    await externalDataSchemasApi.update(schema.id, schema)
                     actions.loadSources()
 
                     return null
@@ -459,17 +456,17 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
-            await generatedWarehouseTablesApi.delete(tableId)
+            await warehouseTablesApi.delete(tableId)
             actions.loadDatabase()
         },
         refreshSelfManagedTableSchema: async ({ tableId }) => {
             lemonToast.info('Updating schema...')
-            await generatedWarehouseTablesApi.refreshSchema(tableId)
+            await warehouseTablesApi.refreshSchema(tableId)
             lemonToast.success('Schema updated')
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {
-            await generatedExternalDataSources.delete(source.id)
+            await externalDataSourcesApi.delete(source.id)
             actions.loadSources()
             actions.sourceLoadingFinished(source)
 
@@ -499,7 +496,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             })
 
             try {
-                await generatedExternalDataSources.reload(source.id)
+                await externalDataSourcesApi.reload(source.id)
                 actions.loadSources()
 
                 posthog.capture('source reloaded', { sourceType: source.source_type })
@@ -544,7 +541,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         },
         deleteJoin: ({ join }): void => {
             void deleteWithUndo({
-                endpoint: generatedWarehouseViewLinks.determineDeleteEndpoint(),
+                endpoint: warehouseViewLinksApi.determineDeleteEndpoint(),
                 object: {
                     id: join.id,
                     name: `${join.field_name} on ${join.source_table_name}`,

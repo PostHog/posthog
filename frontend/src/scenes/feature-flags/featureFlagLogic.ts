@@ -3067,7 +3067,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         name: `Early access: ${values.featureFlag.key}`,
                         feature_flag_id: values.featureFlag.id,
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
                 },
             },

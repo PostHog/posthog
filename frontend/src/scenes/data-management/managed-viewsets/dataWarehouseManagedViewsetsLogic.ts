@@ -6,10 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 
-import {
-    generatedManagedViewsets,
-    generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
@@ -113,9 +110,9 @@ export const dataWarehouseManagedViewsetsLogic = kea<dataWarehouseManagedViewset
 
                     // If enabling, proceed directly
                     try {
-                        await generatedManagedViewsets.toggle(kind, true)
+                        await managedViewsetsApi.toggle(kind, true)
                         if (kind === 'revenue_analytics') {
-                            await generatedRevenueAnalyticsJoins.sync(true)
+                            await revenueAnalyticsJoinsApi.sync(true)
                         }
                         lemonToast.success(`Viewset enabled successfully`)
                         actions.loadCurrentTeam()

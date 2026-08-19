@@ -18,7 +18,7 @@ import {
 
 const projectId = (): string => String(getCurrentTeamId())
 
-export const generatedWarehouseViewLinks = {
+export const warehouseViewLinksApi = {
     async list(): Promise<PaginatedResponse<DataWarehouseViewLink>> {
         return (await warehouseViewLinkList(projectId())) as unknown as PaginatedResponse<DataWarehouseViewLink>
     },
@@ -59,7 +59,7 @@ export const generatedWarehouseViewLinks = {
     },
 }
 
-export const generatedManagedViewsets = {
+export const managedViewsetsApi = {
     async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
         await managedViewsetsUpdate(projectId(), kind, { enabled })
     },
@@ -74,7 +74,7 @@ export const generatedManagedViewsets = {
     },
 }
 
-export const generatedRevenueAnalyticsJoins = {
+export const revenueAnalyticsJoinsApi = {
     async sync(enabled: boolean): Promise<void> {
         await revenueAnalyticsJoinsCreate(projectId(), { enabled })
     },

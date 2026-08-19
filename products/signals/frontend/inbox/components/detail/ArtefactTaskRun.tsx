@@ -43,7 +43,6 @@ export function ArtefactTaskRun({
         }
         setLoading(true)
         let cancelled = false
-        // nosemgrep: prefer-codegen-api
         api.tasks
             .get(content.task_id)
             .then((result) => {

@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,6 +13,12 @@ import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelVizType, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
+import {
+    customerJourneysCreate,
+    customerJourneysDestroy,
+    customerJourneysList,
+    customerJourneysPartialUpdate,
+} from 'products/customer_analytics/frontend/generated/api'
 import { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -207,7 +213,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             __default: [] as CustomerJourneyApi[],
             loadJourneys: async (): Promise<CustomerJourneyApi[]> => {
                 // nosemgrep: prefer-codegen-api
-                const response = await api.customerJourneys.list()
+                const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
             addJourney: async ({
@@ -220,9 +226,13 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
                 // nosemgrep: prefer-codegen-api
-                await api.customerJourneys.create({ insight: insightId, name, description })
+                await customerJourneysCreate(String(ApiConfig.getCurrentProjectId()), {
+                    insight: insightId,
+                    name,
+                    description,
+                })
                 // nosemgrep: prefer-codegen-api
-                const response = await api.customerJourneys.list()
+                const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
             updateJourney: async ({
@@ -235,14 +245,17 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 description?: string
             }): Promise<CustomerJourneyApi[]> => {
                 // nosemgrep: prefer-codegen-api
-                await api.customerJourneys.update(journeyId, { name, description })
+                await customerJourneysPartialUpdate(String(ApiConfig.getCurrentProjectId()), journeyId, {
+                    name,
+                    description,
+                })
                 // nosemgrep: prefer-codegen-api
-                const response = await api.customerJourneys.list()
+                const response = await customerJourneysList(String(ApiConfig.getCurrentProjectId()))
                 return response.results
             },
             deleteJourney: async (journeyId: string): Promise<CustomerJourneyApi[]> => {
                 // nosemgrep: prefer-codegen-api
-                await api.customerJourneys.delete(journeyId)
+                await customerJourneysDestroy(String(ApiConfig.getCurrentProjectId()), journeyId)
                 return values.journeys.filter((j) => j.id !== journeyId)
             },
         },

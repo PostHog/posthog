@@ -48,7 +48,7 @@ import {
     QueryTabState,
 } from '~/types'
 
-import { generatedQueryTabState } from 'products/data_warehouse/frontend/queryTabStateApi'
+import { queryTabStateApi } from 'products/data_warehouse/frontend/queryTabStateApi'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -2804,7 +2804,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         return null
                     }
                     try {
-                        return await generatedQueryTabState.user(values.user?.uuid)
+                        return await queryTabStateApi.user(values.user?.uuid)
                     } catch (e) {
                         console.error(e)
                         return null
@@ -2828,7 +2828,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             },
                         }
 
-                        await generatedQueryTabState.update(queryTabState.id, newState)
+                        await queryTabStateApi.update(queryTabState.id, newState)
 
                         return newState
                     } catch (e) {

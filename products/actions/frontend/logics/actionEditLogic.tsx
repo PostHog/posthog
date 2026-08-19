@@ -273,11 +273,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 }
                 try {
                     if (updatedAction.id) {
-                        // nosemgrep: prefer-codegen-api
                         action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
                         const folder = updatedAction._create_in_folder ?? getLastNewFolder()
-                        // nosemgrep: prefer-codegen-api
                         action = await api.actions.create({
                             ...updatedAction,
                             steps: updatedSteps,

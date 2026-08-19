@@ -26,10 +26,10 @@ import {
 } from '~/types'
 
 import {
-    generatedDataModelingDags,
-    generatedDataModelingEdges,
-    generatedDataModelingJobs,
-    generatedDataModelingNodes,
+    dataModelingDagsApi,
+    dataModelingEdgesApi,
+    dataModelingJobsApi,
+    dataModelingNodesApi,
 } from 'products/data_modeling/frontend/dataModelingApi'
 
 import { getFormattedNodes } from './modeling/autolayout'
@@ -487,7 +487,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             [] as DataModelingDAG[],
             {
                 loadDags: async () => {
-                    const response = await generatedDataModelingDags.list()
+                    const response = await dataModelingDagsApi.list()
                     return response.results
                 },
             },
@@ -497,7 +497,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingNodes: async () => {
                     const dagId = values.selectedDagId ?? undefined
-                    const response = await generatedDataModelingNodes.list(dagId)
+                    const response = await dataModelingNodesApi.list(dagId)
                     return response.results
                 },
             },
@@ -507,7 +507,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingEdges: async () => {
                     const dagId = values.selectedDagId ?? undefined
-                    const response = await generatedDataModelingEdges.list(dagId)
+                    const response = await dataModelingEdgesApi.list(dagId)
                     return response.results
                 },
             },
@@ -1102,7 +1102,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setRunningNodeIds(new Set([...values.runningNodeIds, ...optimisticIds]))
 
             try {
-                const response = await generatedDataModelingNodes.run(nodeId, direction)
+                const response = await dataModelingNodesApi.run(nodeId, direction)
                 actions.runNodeSuccess(nodeId, direction, response.node_ids)
                 actions.startPollingRunningJobs()
             } catch (e) {
@@ -1111,7 +1111,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         materializeNode: async ({ nodeId }) => {
             try {
-                await generatedDataModelingNodes.materialize(nodeId)
+                await dataModelingNodesApi.materialize(nodeId)
                 actions.materializeNodeSuccess(nodeId)
                 actions.startPollingRunningJobs()
             } catch (e) {
@@ -1121,7 +1121,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         pollRunningJobs: async () => {
             actions.loadRecentJobs()
             try {
-                const running = await generatedDataModelingJobs.listRunning()
+                const running = await dataModelingJobsApi.listRunning()
                 actions.pollRunningJobsSuccess(running)
             } catch {
                 // keep stale data during transient failures
@@ -1151,7 +1151,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         loadRecentJobs: async () => {
             try {
-                const recent = await generatedDataModelingJobs.listRecent()
+                const recent = await dataModelingJobsApi.listRecent()
                 actions.loadRecentJobsSuccess(recent)
             } catch {
                 // silent failure

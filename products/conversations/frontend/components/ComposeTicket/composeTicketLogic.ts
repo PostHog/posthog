@@ -216,7 +216,6 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             }
 
             try {
-                // nosemgrep: prefer-codegen-api
                 const result = await api.conversationsTickets.compose({
                     message,
                     recipient_email: recipientEmail,

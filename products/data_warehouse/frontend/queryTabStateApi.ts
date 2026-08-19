@@ -6,7 +6,7 @@ import { queryTabStatePartialUpdate, queryTabStateUserRetrieve } from './generat
 
 const projectId = (): string => String(getCurrentTeamId())
 
-export const generatedQueryTabState = {
+export const queryTabStateApi = {
     async user(userId: string): Promise<QueryTabState> {
         return (await queryTabStateUserRetrieve(projectId(), { user_id: userId })) as unknown as QueryTabState
     },

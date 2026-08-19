@@ -9,10 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType } from '~/types'
 
-import {
-    generatedManagedViewsets,
-    generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -23,8 +20,8 @@ export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
 
     const onConfirmDisable = async (): Promise<boolean> => {
         try {
-            await generatedManagedViewsets.toggle('revenue_analytics', false)
-            await generatedRevenueAnalyticsJoins.sync(false)
+            await managedViewsetsApi.toggle('revenue_analytics', false)
+            await revenueAnalyticsJoinsApi.sync(false)
             lemonToast.success('Revenue analytics disabled successfully')
             loadCurrentTeam()
             return true

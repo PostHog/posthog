@@ -19,9 +19,14 @@ import {
 
 jest.mock('lib/utils/newInternalTab')
 jest.mock('~/generated/core/api', () => ({
+    ...jest.requireActual('~/generated/core/api'),
     propertyDefinitionsList: jest.fn(),
 }))
 jest.mock('~/queries/query')
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    ...jest.requireActual('products/data_warehouse/frontend/generated/api'),
+    warehouseSavedQueryFoldersList: jest.fn().mockResolvedValue([]),
+}))
 
 const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
 

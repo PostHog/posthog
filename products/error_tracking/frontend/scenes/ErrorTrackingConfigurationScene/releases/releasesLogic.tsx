@@ -103,7 +103,6 @@ export const releasesLogic = kea<releasesLogicType>([
         releaseResponse: {
             loadReleases: async (_, breakpoint) => {
                 await breakpoint(100)
-                // nosemgrep: prefer-codegen-api
                 const res = await api.errorTracking.releases.list({
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,

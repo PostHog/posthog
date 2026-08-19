@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { warehouseViewLinksApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -208,7 +208,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    const response = await generatedWarehouseViewLinks.list()
+                    const response = await warehouseViewLinksApi.list()
                     return response.results || []
                 },
             },

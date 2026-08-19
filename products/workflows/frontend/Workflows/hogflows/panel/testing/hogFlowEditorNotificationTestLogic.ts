@@ -364,7 +364,6 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         }
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
                         globals: {

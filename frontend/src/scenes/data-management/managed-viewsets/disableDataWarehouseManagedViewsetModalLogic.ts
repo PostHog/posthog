@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
-import { generatedManagedViewsets } from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export const VIEWSET_TITLES: Record<DataWarehouseManagedViewsetKind, string> = {
     revenue_analytics: 'Revenue analytics',
@@ -119,7 +119,7 @@ export const disableDataWarehouseManagedViewsetModalLogic = kea<disableDataWareh
             {
                 openModal: async ({ kind }) => {
                     try {
-                        const response = await generatedManagedViewsets.getViews(kind)
+                        const response = await managedViewsetsApi.getViews(kind)
                         return response.views
                     } catch (error) {
                         console.error('Failed to fetch views:', error)

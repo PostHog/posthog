@@ -24,7 +24,7 @@ import {
 // nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-export const generatedDataModelingDags = {
+export const dataModelingDagsApi = {
     async list(): Promise<PaginatedResponse<DataModelingDAG>> {
         return (await dataModelingDagsList(projectId())) as unknown as PaginatedResponse<DataModelingDAG>
     },
@@ -49,7 +49,7 @@ export const generatedDataModelingDags = {
     },
 }
 
-export const generatedDataModelingNodes = {
+export const dataModelingNodesApi = {
     async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
         return (await dataModelingNodesList(projectId(), {
             dag: dagId,
@@ -91,7 +91,7 @@ export const generatedDataModelingNodes = {
     },
 }
 
-export const generatedDataModelingEdges = {
+export const dataModelingEdgesApi = {
     async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
         return (await dataModelingEdgesList(projectId(), {
             dag: dagId,
@@ -99,7 +99,7 @@ export const generatedDataModelingEdges = {
     },
 }
 
-export const generatedDataModelingJobs = {
+export const dataModelingJobsApi = {
     async listRunning(): Promise<DataModelingJob[]> {
         return (await dataModelingJobsRunningRetrieve(projectId())) as unknown as DataModelingJob[]
     },

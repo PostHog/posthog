@@ -47,7 +47,7 @@ describe('setupPlanLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/marketing_analytics/setup_plan': () => [200, plan([suggestion()])],
-                '/api/environments/:team_id/marketing_analytics/utm_audit': () => [200, {}],
+                '/api/projects/:team_id/marketing_analytics/utm_audit': () => [200, {}],
             },
             post: {
                 '/api/projects/:team_id/marketing_analytics/apply_setup_ops': async ({ request }) => {
@@ -329,7 +329,7 @@ describe('setupPlanLogic', () => {
             failing = []
             useMocks({
                 post: {
-                    '/api/environments/:team_id/external_data_sources/:id/reload': (req: any) => {
+                    '/api/projects/:team_id/external_data_sources/:id/reload': (req: any) => {
                         const id = req.params.id as string
                         reloaded.push(id)
                         return failing.includes(id) ? [500, { detail: 'nope' }] : [200, {}]

@@ -48,10 +48,7 @@ import {
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
-import {
-    generatedExternalDataSchemas,
-    generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
@@ -394,7 +391,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         const applyUpdate = async (): Promise<void> => {
             setSaving(true)
             try {
-                await generatedExternalDataSchemas.update(schema.id, {
+                await externalDataSchemasApi.update(schema.id, {
                     should_sync: true,
                     sync_type: syncType,
                     incremental_field: noIncrementalField ? null : incrementalField,
@@ -557,7 +554,7 @@ function ApiVersionSection({
     const persist = async (resyncAfter: boolean): Promise<void> => {
         setSaving(true)
         try {
-            await generatedExternalDataSchemas.update(schema.id, { api_version: draftVersion })
+            await externalDataSchemasApi.update(schema.id, { api_version: draftVersion })
             if (resyncAfter) {
                 resyncSchema(schema)
                 lemonToast.success('API version saved — full resync queued')
@@ -713,7 +710,7 @@ function ColumnsAndRowFiltersSection({
         if (resyncAfter) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
-            void generatedExternalDataSchemas
+            void externalDataSchemasApi
                 .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
                 .then(() => {
                     updateSchema(next)
@@ -885,7 +882,7 @@ function ScheduleSection({
     const handleSave = async (): Promise<void> => {
         setSaving(true)
         try {
-            await generatedExternalDataSources.bulkUpdateSchemas(sourceId, [
+            await externalDataSourcesApi.bulkUpdateSchemas(sourceId, [
                 {
                     id: schema.id,
                     should_sync: schema.should_sync,

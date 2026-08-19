@@ -112,7 +112,6 @@ export const actionLogic = kea<actionLogicType>([
                     if (!props.id) {
                         throw new Error('Cannot fetch an unsaved action from the API.')
                     }
-                    // nosemgrep: prefer-codegen-api
                     return await api.actions.get(props.id)
                 },
             },

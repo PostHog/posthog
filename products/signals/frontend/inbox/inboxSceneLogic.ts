@@ -400,11 +400,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             {
                 loadRuns: async (_payload: void, breakpoint) => {
                     const [scoutResult, signalResult] = await Promise.allSettled([
-                        // nosemgrep: prefer-codegen-api
                         api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
                         // `internal: 'all'` so the pipeline's runs (research and implementation, both
                         // created internal) are included. They're hidden from the default task list.
-                        // nosemgrep: prefer-codegen-api
                         api.tasks.list({
                             origin_product: OriginProduct.SIGNAL_REPORT,
                             internal: 'all',
@@ -431,7 +429,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const report = await api.signalReports.get(id)
                         breakpoint()
                         return report

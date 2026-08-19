@@ -491,7 +491,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
-                    // nosemgrep: prefer-codegen-api
                     const subscription = await api.subscriptions.get(props.id)
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
@@ -525,7 +524,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         summaryQuota: {
             __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
             loadSummaryQuota: async () => {
-                // nosemgrep: prefer-codegen-api
                 return await api.subscriptions.summaryQuota()
             },
         },
@@ -569,9 +567,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const updatedSub: SubscriptionType =
                     props.id === 'new'
-                        // nosemgrep: prefer-codegen-api
                         ? await api.subscriptions.create(payload)
-                        // nosemgrep: prefer-codegen-api
                         : await api.subscriptions.update(props.id, payload)
 
                 actions.resetSubscription()

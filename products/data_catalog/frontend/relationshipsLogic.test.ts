@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { warehouseViewLinksApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -77,7 +77,7 @@ describe('relationshipsLogic', () => {
             results: proposals,
             count: proposals.filter((proposal) => proposal.status === 'proposed').length,
         })
-        jest.spyOn(generatedWarehouseViewLinks, 'list').mockResolvedValue({ results: joins })
+        jest.spyOn(warehouseViewLinksApi, 'list').mockResolvedValue({ results: joins })
         initKeaTests()
         logic = relationshipsLogic()
         logic.mount()
@@ -94,7 +94,7 @@ describe('relationshipsLogic', () => {
 
     it('loads only the lightweight badge count on mount, not the full proposal payloads', async () => {
         ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({ results: [], count: 3 })
-        jest.spyOn(generatedWarehouseViewLinks, 'list').mockResolvedValue({ results: [] })
+        jest.spyOn(warehouseViewLinksApi, 'list').mockResolvedValue({ results: [] })
         initKeaTests()
         logic = relationshipsLogic()
         logic.mount()
@@ -168,12 +168,12 @@ describe('relationshipsLogic', () => {
 
     it('reloads joins when the shared join modal saves', async () => {
         await mountWith([], [])
-        jest.mocked(generatedWarehouseViewLinks.list).mockClear()
+        jest.mocked(warehouseViewLinksApi.list).mockClear()
 
         viewLinkLogic.build().actions.submitViewLinkSuccess({} as any)
 
         await expectLogic(logic).toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
-        expect(generatedWarehouseViewLinks.list).toHaveBeenCalledTimes(1)
+        expect(warehouseViewLinksApi.list).toHaveBeenCalledTimes(1)
     })
 
     it('deletes a join against the singular view-link endpoint and reloads', async () => {
@@ -192,7 +192,7 @@ describe('relationshipsLogic', () => {
                 object: expect.objectContaining({ id: 'join-1' }),
             })
         )
-        jest.mocked(generatedWarehouseViewLinks.list).mockClear()
+        jest.mocked(warehouseViewLinksApi.list).mockClear()
         ;(deleteWithUndo as jest.Mock).mock.calls[0][0].callback()
         await expectLogic(logic).toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
     })

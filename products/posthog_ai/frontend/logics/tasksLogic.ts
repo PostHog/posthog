@@ -172,7 +172,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 // `breakpoint` cancels this invocation if a newer `loadTasks` action has been
                 // dispatched, so filter changes don't overwrite state with stale responses.
                 loadTasks: async (params: TaskListParams = {}, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tasks.list(params)
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
@@ -201,7 +200,6 @@ export const tasksLogic = kea<tasksLogicType>([
                     return [...values.tasks, ...response.results]
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
-                    // nosemgrep: prefer-codegen-api
                     const newTask = await api.tasks.create(data)
                     void addProductIntent({
                         product_type: ProductKey.TASKS,
@@ -210,7 +208,6 @@ export const tasksLogic = kea<tasksLogicType>([
                     return [...values.tasks, newTask]
                 },
                 deleteTask: async ({ taskId }: { taskId: string }) => {
-                    // nosemgrep: prefer-codegen-api
                     await api.tasks.delete(taskId)
                     return values.tasks.filter((t) => t.id !== taskId)
                 },
@@ -223,7 +220,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 // from `tasks` so the picker is not constrained by list pagination or by the
                 // filter currently applied to the task list.
                 loadRepositories: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tasks.repositories()
                     return response.repositories
                 },

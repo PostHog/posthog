@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
-import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
+import { warehouseTablesApi } from '../../warehouseTablesApi'
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
 export interface TableLogicProps {
@@ -251,17 +251,17 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         table: {
             loadTable: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await generatedWarehouseTablesApi.get(props.id)
+                    return await warehouseTablesApi.get(props.id)
                 }
                 return { ...NEW_WAREHOUSE_TABLE }
             },
             createTable: async (tablePayload) => {
-                return await generatedWarehouseTablesApi.create({
+                return await warehouseTablesApi.create({
                     ...tablePayload,
                 })
             },
             updateTable: async (tablePayload) => {
-                return await generatedWarehouseTablesApi.update(props.id, tablePayload)
+                return await warehouseTablesApi.update(props.id, tablePayload)
             },
         },
     })),

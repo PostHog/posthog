@@ -458,7 +458,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.messaging.getTemplates()
                     return response.results
                 },
@@ -799,7 +798,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     },
                 }
 
-                // nosemgrep: prefer-codegen-api
                 await api.messaging.createTemplate(templateData)
                 lemonToast.success('Template saved successfully')
                 actions.loadTemplates()

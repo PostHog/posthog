@@ -257,7 +257,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
+import { dataModelingNodesApi } from 'products/data_modeling/frontend/dataModelingApi'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
@@ -232,10 +232,10 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         node: {
             __default: null as DataModelingNode | null,
             loadNode: async () => {
-                return await generatedDataModelingNodes.get(props.id)
+                return await dataModelingNodesApi.get(props.id)
             },
             updateNodeDescription: async ({ description }) => {
-                const updated = await generatedDataModelingNodes.update(props.id, { description })
+                const updated = await dataModelingNodesApi.update(props.id, { description })
                 return updated
             },
         },
@@ -267,7 +267,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node) {
                     return null
                 }
-                const { nodes, edges } = await generatedDataModelingNodes.lineage({ nodeId: node.id })
+                const { nodes, edges } = await dataModelingNodesApi.lineage({ nodeId: node.id })
                 return { nodes, edges, currentNodeId: node.id }
             },
         },

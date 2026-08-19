@@ -21,7 +21,7 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 type TableListParams = WarehouseTablesListParams & { include_columns?: boolean }
 
-export const generatedWarehouseTablesApi = {
+export const warehouseTablesApi = {
     async list(params?: TableListParams): Promise<PaginatedResponse<DataWarehouseTable>> {
         return (await warehouseTablesList(
             projectId(),

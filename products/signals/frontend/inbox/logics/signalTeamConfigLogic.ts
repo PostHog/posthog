@@ -161,7 +161,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 null as SignalTeamConfig | null,
                 {
                     loadTeamConfig: async () => {
-                        // nosemgrep: prefer-codegen-api
                         return await api.signalTeamConfig.get()
                     },
                     // Partial update of the singleton, e.g. `{ default_slack_notification_channel: null }`
@@ -172,7 +171,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                         patch: Partial<SignalTeamConfig>
                         clearDraftOnSuccess: boolean
                     }) => {
-                        // nosemgrep: prefer-codegen-api
                         const update = updateQueue.then(() => api.signalTeamConfig.update(patch))
                         updateQueue = update.then(
                             () => undefined,

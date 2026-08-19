@@ -525,7 +525,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             null as SignalSourceConfig[] | null,
             {
                 loadSourceConfigs: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.signalSourceConfigs.list()
                     return response.results
                 },
@@ -987,7 +986,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 return values.dataWarehouseSources.results
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 return (await api.externalDataSources.list()).results
             } catch {
                 return []
@@ -1009,7 +1007,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
             await Promise.all(
                 schemas.map((schema: ExternalDataSourceSchema) =>
-                    // nosemgrep: prefer-codegen-api
                     api.externalDataSchemas.update(schema.id, { should_sync: true })
                 )
             )
@@ -1095,10 +1092,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         if (config !== undefined) {
                             updateData.config = config
                         }
-                        // nosemgrep: prefer-codegen-api
                         await api.signalSourceConfigs.update(existing.id, updateData)
                     } else if (enabled) {
-                        // nosemgrep: prefer-codegen-api
                         await api.signalSourceConfigs.create({
                             source_product: sourceProduct,
                             source_type: sourceType,
@@ -1156,10 +1151,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
                         )
                         if (existing && !existing.id.startsWith('new_')) {
-                            // nosemgrep: prefer-codegen-api
                             await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
                         } else if (desiredEnabled) {
-                            // nosemgrep: prefer-codegen-api
                             await api.signalSourceConfigs.create({
                                 source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
@@ -1200,10 +1193,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const desiredEnabled = !(existing?.enabled ?? false)
                 try {
                     if (existing && !existing.id.startsWith('new_')) {
-                        // nosemgrep: prefer-codegen-api
                         await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
                     } else if (desiredEnabled) {
-                        // nosemgrep: prefer-codegen-api
                         await api.signalSourceConfigs.create({
                             source_product: SignalSourceProduct.ErrorTracking,
                             source_type: sourceType,

@@ -287,7 +287,6 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchHistogram: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.durationHistogram(
                         {
                             dateRange: values.dateRange,
@@ -309,7 +308,6 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchLatencyHeatmap: async (_: void, breakpoint) => {
                     await breakpoint(100)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.latencyHeatmap({
                         dateRange: values.dateRange,
                         serviceNames: [props.serviceName],
@@ -327,7 +325,6 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchSamples: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.listSpans(
                         {
                             dateRange: values.dateRange,
@@ -354,7 +351,6 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchStats: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.aggregate(
                         {
                             dateRange: values.dateRange,
@@ -373,7 +369,6 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchSampleTrace: async ({ sample }: { sample: Span }, breakpoint) => {
                     await breakpoint(100) // debounce rapid pager clicks
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.getTrace(
                         sample.trace_id,
                         {

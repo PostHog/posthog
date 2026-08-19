@@ -222,7 +222,6 @@ export const alertsLogic = kea<alertsLogicType>([
                 loadAlerts: async () => {
                     const search = values.filters.search.trim()
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.alerts.list(undefined, {
                         limit: ALERTS_PER_PAGE,
                         offset: (values.page - 1) * ALERTS_PER_PAGE,
@@ -310,7 +309,6 @@ export const alertsLogic = kea<alertsLogicType>([
         deleteAlert: async ({ alert }) => {
             actions.setAlertDeleting(alert.id, true)
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.alerts.delete(alert.id)
                 actions.removeAlertFromList(alert.id)
                 actions.loadAlerts()
@@ -337,7 +335,6 @@ export const alertsLogic = kea<alertsLogicType>([
         toggleAlertEnabled: async ({ alert }) => {
             actions.setAlertToggling(alert.id, true)
             try {
-                // nosemgrep: prefer-codegen-api
                 const updatedAlert = await api.alerts.update(alert.id, { enabled: !alert.enabled })
                 actions.updateAlertInList(updatedAlert)
             } catch {

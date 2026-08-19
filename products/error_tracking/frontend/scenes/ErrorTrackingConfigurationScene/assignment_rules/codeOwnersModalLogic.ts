@@ -290,7 +290,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                                 // so the last owner gets the lowest key.
                                 order_key: rows.length - 1 - index,
                             }
-                            // nosemgrep: prefer-codegen-api
                             return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )

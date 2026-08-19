@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { generatedDataModelingEdges, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
+import { dataModelingEdgesApi, dataModelingNodesApi } from 'products/data_modeling/frontend/dataModelingApi'
 
 import { dataModelingLogic } from './dataModelingLogic'
 import type { Edge, Node } from './modeling/types'
@@ -47,8 +47,8 @@ describe('dataModelingLogic', () => {
     // The Models scene's DagsTab links here with ?dag=<id> to open a specific DAG's graph — a
     // regression here would silently send that link to the wrong (or persisted) DAG instead.
     it('selects the DAG from a ?dag= URL param and filters node/edge loads by it', async () => {
-        const nodesSpy = jest.spyOn(generatedDataModelingNodes, 'list')
-        const edgesSpy = jest.spyOn(generatedDataModelingEdges, 'list')
+        const nodesSpy = jest.spyOn(dataModelingNodesApi, 'list')
+        const edgesSpy = jest.spyOn(dataModelingEdgesApi, 'list')
 
         router.actions.push(urls.dataOps('modeling', 'dag-123'))
         logic = dataModelingLogic()

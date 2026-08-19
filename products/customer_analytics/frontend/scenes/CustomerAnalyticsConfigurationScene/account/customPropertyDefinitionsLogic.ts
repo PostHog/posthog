@@ -4,6 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
@@ -33,6 +34,8 @@ import type {
     CustomPropertyReferenceApi,
     CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { warehouseSavedQueriesList } from 'products/data_warehouse/frontend/generated/api'
+import { warehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
 
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
@@ -630,8 +633,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             [] as DataWarehouseSavedQuery[],
             {
                 loadSavedQueries: async (): Promise<DataWarehouseSavedQuery[]> => {
-                    const response = await api.dataWarehouseSavedQueries.list()
-                    return response.results
+                    const response = await warehouseSavedQueriesList(String(ApiConfig.getCurrentProjectId()))
+                    return response.results as unknown as DataWarehouseSavedQuery[]
                 },
             },
         ],
@@ -653,7 +656,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     const MAX_PAGES = 20
                     const collected: DataWarehouseTable[] = []
                     for (let offset = 0, page = 0; page < MAX_PAGES; page += 1, offset += PAGE_SIZE) {
-                        const response = await api.dataWarehouseTables.list({
+                        const response = await warehouseTablesApi.list({
                             include_columns: false,
                             limit: PAGE_SIZE,
                             offset,
@@ -691,7 +694,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     if (!tableId) {
                         return []
                     }
-                    const table = await api.dataWarehouseTables.get(tableId)
+                    const table = await warehouseTablesApi.get(tableId)
                     const columns: WarehouseColumn[] = (table.columns ?? []).map((column) => ({
                         name: column.name,
                         type: String(column.type),

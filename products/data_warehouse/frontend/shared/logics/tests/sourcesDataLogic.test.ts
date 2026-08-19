@@ -5,7 +5,7 @@ import { ApiError, PaginatedResponse } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourcesDataLogic } from '../sourcesDataLogic'
 
@@ -55,7 +55,7 @@ describe('sourcesDataLogic', () => {
             previous: null,
         }
 
-        jest.spyOn(generatedExternalDataSources, 'list').mockResolvedValue(mockResponse)
+        jest.spyOn(externalDataSourcesApi, 'list').mockResolvedValue(mockResponse)
 
         logic.mount()
 
@@ -68,7 +68,7 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSourcesLoading: false,
             })
 
-        expect(generatedExternalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+        expect(externalDataSourcesApi.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     })
 
     it.each([
@@ -76,7 +76,7 @@ describe('sourcesDataLogic', () => {
         ['network failure (no HTTP status)', new ApiError('TypeError: Failed to fetch', undefined)],
         ['aborted request', Object.assign(new Error('aborted'), { name: 'AbortError' })],
     ])('returns an empty paginated result on %s without surfacing loader failure', async (_label, error) => {
-        jest.spyOn(generatedExternalDataSources, 'list').mockRejectedValue(error)
+        jest.spyOn(externalDataSourcesApi, 'list').mockRejectedValue(error)
 
         logic.mount()
 

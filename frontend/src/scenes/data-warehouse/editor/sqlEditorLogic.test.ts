@@ -236,8 +236,9 @@ describe('sqlEditorLogic', () => {
                     }
                     return [200, { results: [] }]
                 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
+                '/api/projects/:team_id/warehouse_saved_query_folders/': [],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
                     if (params.id === MOCK_VIEW.id) {
                         return [
                             200,
@@ -246,18 +247,18 @@ describe('sqlEditorLogic', () => {
                     }
                     return [404]
                 },
-                '/api/environments/:team_id/data_modeling_dags/': { results: [] },
-                '/api/environments/:team_id/data_modeling_nodes/': { results: [] },
-                '/api/environments/:team_id/data_modeling_edges/': { results: [] },
-                '/api/environments/:team_id/data_modeling_jobs/recent/': [],
-                '/api/environments/:team_id/data_modeling_jobs/running/': [],
-                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/projects/:team_id/data_modeling_dags/': { results: [] },
+                '/api/projects/:team_id/data_modeling_nodes/': { results: [] },
+                '/api/projects/:team_id/data_modeling_edges/': { results: [] },
+                '/api/projects/:team_id/data_modeling_jobs/recent/': [],
+                '/api/projects/:team_id/data_modeling_jobs/running/': [],
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
                 '/api/projects/:team_id/external_data_sources/connections/': [],
                 '/api/user_home_settings/@me/': {},
             },
             post: {
                 '/api/environments/:team_id/query/': queryEndpointMock,
-                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
                     200,
                     {
                         id: 'created-view-id',
@@ -277,14 +278,14 @@ describe('sqlEditorLogic', () => {
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => [
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': ({ params }) => [
                     200,
                     { ...MOCK_VIEW, id: params.id, latest_history_id: 'updated-history-id' },
                 ],
             },
             delete: {
                 '/api/environments/:team_id/query/:id/': [204],
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': [204],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': [204],
             },
         })
 
@@ -1632,7 +1633,7 @@ describe('sqlEditorLogic', () => {
             let viewRequestCount = 0
             useMocks({
                 get: {
-                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async () => {
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/': async () => {
                         viewRequestCount += 1
                         if (viewRequestCount === 1) {
                             markFirstViewRequestStarted()
@@ -2110,7 +2111,7 @@ describe('sqlEditorLogic', () => {
                             },
                         ],
                     ],
-                    '/api/environments/:team_id/external_data_sources/': [
+                    '/api/projects/:team_id/external_data_sources/': [
                         200,
                         {
                             results: [
@@ -2180,7 +2181,7 @@ describe('sqlEditorLogic', () => {
                             },
                         ],
                     ],
-                    '/api/environments/:team_id/external_data_sources/': [
+                    '/api/projects/:team_id/external_data_sources/': [
                         200,
                         {
                             results: [
@@ -2798,7 +2799,7 @@ describe('sqlEditorLogic', () => {
             let createBody: Record<string, any> | undefined
             useMocks({
                 post: {
-                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                    '/api/projects/:team_id/warehouse_saved_queries/': async ({ request }) => {
                         createBody = (await request.json()) as Record<string, any>
                         return [
                             200,
@@ -2912,7 +2913,7 @@ describe('sqlEditorLogic', () => {
             // it, otherwise the sources sidebar sits on "Loading..." forever.
             // Non-forced so the only `{ force: true }` load in the action history is the editor's —
             // the schema query hangs, so `databaseLoading` stays true regardless.
-            useMocks({ post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) } })
+            useMocks({ post: { '/api/projects/:team_id/query/': () => new Promise(() => {}) } })
             databaseLogic.actions.loadDatabase()
             await expectLogic(databaseLogic).toMatchValues({ databaseLoading: true })
 

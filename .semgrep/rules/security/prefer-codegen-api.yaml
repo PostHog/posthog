@@ -65,7 +65,6 @@ rules:
               - '/products/ai_observability/frontend/'
               - '/products/alerts/frontend/'
               - '/products/conversations/frontend/'
-              - '/products/customer_analytics/frontend/'
               - '/products/dashboards/frontend/'
               - '/products/early_access_features/frontend/'
               - '/products/endpoints/frontend/'
@@ -90,4 +89,3 @@ rules:
               - '/frontend/src/scenes/onboarding/legacy/error-tracking/'
               - '/frontend/src/scenes/session-recordings/player/inspector/'
               - '/frontend/src/scenes/settings/environment/'
-              - '/frontend/src/scenes/web-analytics/tabs/marketing-analytics/'
