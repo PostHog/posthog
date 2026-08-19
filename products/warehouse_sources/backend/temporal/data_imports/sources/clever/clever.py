@@ -101,6 +101,10 @@ def clever_source(
             "base_url": CLEVER_BASE_URL,
             "auth": {"type": "bearer", "token": bearer_token},
             "paginator": CleverPaginator(),
+            # Clever responses carry student, guardian, and staff PII (names, DOBs, contact
+            # info, addresses) that the name-based sample scrubbers aren't guaranteed to catch,
+            # so keep raw bodies out of HTTP sample capture even where an operator enables it.
+            "session": make_tracked_session(capture=False, redact_values=(bearer_token,)),
         },
         "resource_defaults": {
             "write_disposition": {
