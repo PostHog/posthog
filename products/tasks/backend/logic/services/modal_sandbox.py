@@ -118,6 +118,42 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 # a snapshot baked under the default app.
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
+CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.json"
+CPU_BILLING_SAMPLER = """
+import json
+import os
+import time
+
+path, request_cores = __import__('sys').argv[1], float(__import__('sys').argv[2])
+
+def cpu_usage_usec():
+    with open('/sys/fs/cgroup/cpu.stat') as handle:
+        for line in handle:
+            key, value = line.split()
+            if key == 'usage_usec':
+                return int(value)
+    raise RuntimeError('usage_usec missing')
+
+previous_cpu = cpu_usage_usec()
+previous_time = time.time_ns()
+billed_usec = 0
+with open(path, 'w') as handle:
+    json.dump({'billed_usec': billed_usec, 'cpu_usec': previous_cpu, 'time_ns': previous_time}, handle)
+while True:
+    time.sleep(2)
+    current_cpu = cpu_usage_usec()
+    current_time = time.time_ns()
+    actual_usec = current_cpu - previous_cpu
+    floor_usec = round(request_cores * (current_time - previous_time) / 1000)
+    billed_usec += max(actual_usec, floor_usec)
+    temporary_path = f'{path}.tmp'
+    with open(temporary_path, 'w') as handle:
+        json.dump({'billed_usec': billed_usec, 'cpu_usec': current_cpu, 'time_ns': current_time}, handle)
+    os.replace(temporary_path, path)
+    previous_cpu = current_cpu
+    previous_time = current_time
+"""
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
@@ -1773,6 +1809,32 @@ class ModalSandbox(SandboxBase):
             if key == "usage_usec":
                 return int(value)
         return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        request_cores = self.config.effective_cpu_request_cores
+        command = (
+            f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
+            f"setsid /usr/bin/python3 -c {shlex.quote(CPU_BILLING_SAMPLER)} "
+            f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
+            ">/dev/null 2>&1 </dev/null & "
+            f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
+        )
+        result = self.execute(command, timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        payload = json.loads(self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH))
+        billed_usec = payload.get("billed_usec")
+        previous_cpu = payload.get("cpu_usec")
+        previous_time = payload.get("time_ns")
+        if not all(isinstance(value, int) for value in (billed_usec, previous_cpu, previous_time)):
+            return None
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        elapsed_ns = max(0, time.time_ns() - previous_time)
+        floor_usec = round(self.config.effective_cpu_request_cores * elapsed_ns / 1000)
+        return billed_usec + max(current_cpu - previous_cpu, floor_usec)
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

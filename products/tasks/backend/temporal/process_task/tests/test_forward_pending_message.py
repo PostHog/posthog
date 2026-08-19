@@ -142,7 +142,7 @@ class TestForwardPendingUserMessage(TestCase):
 
         def measure(*args):
             calls.append("measure")
-            return {"sb-fwd": (1_234_567, measured_at)}
+            return {"sb-fwd": (1_234_567, 1_500_000, measured_at)}
 
         def send(*args, **kwargs):
             calls.append("send")
@@ -157,6 +157,7 @@ class TestForwardPendingUserMessage(TestCase):
         assert session.user_attributed_at is not None
         assert session.last_user_activity_at is not None
         assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
         assert session.provider_cpu_usage_attribution_measured_at == measured_at
         assert calls == ["measure", "send"]
 

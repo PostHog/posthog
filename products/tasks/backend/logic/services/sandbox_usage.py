@@ -53,6 +53,15 @@ def measure_sandbox_cpu_usage(sandbox: SandboxBase) -> tuple[int | None, datetim
     return value, timezone.now()
 
 
+def measure_sandbox_billed_cpu_usage(sandbox: SandboxBase) -> int | None:
+    try:
+        value = sandbox.read_billed_cpu_usage_usec()
+    except Exception:
+        logger.exception("sandbox_usage.billed_cpu_usage_read_failed", sandbox_id=sandbox.id)
+        return None
+    return value if isinstance(value, int) else None
+
+
 def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
     @wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:
@@ -66,7 +75,7 @@ def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
 
 
 @_best_effort
-def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[str, tuple[int, datetime]]:
+def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[str, tuple[int, int | None, datetime]]:
     run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
     sessions = SandboxSession.objects.for_team(team_id).filter(
         task_run_id=run_uuid,
@@ -74,7 +83,7 @@ def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[s
         user_attributed_at__isnull=True,
         vm_runtime=True,
     )
-    measurements: dict[str, tuple[int, datetime]] = {}
+    measurements: dict[str, tuple[int, int | None, datetime]] = {}
     for session in sessions:
         try:
             sandbox = Sandbox.get_by_id(session.sandbox_id)
@@ -83,7 +92,7 @@ def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[s
             continue
         value, measured_at = measure_sandbox_cpu_usage(sandbox)
         if value is not None and measured_at is not None:
-            measurements[session.sandbox_id] = (value, measured_at)
+            measurements[session.sandbox_id] = (value, measure_sandbox_billed_cpu_usage(sandbox), measured_at)
     return measurements
 
 
@@ -94,6 +103,7 @@ def open_sandbox_session(
     config: SandboxConfig,
     sandbox_created_at: datetime | None = None,
     cpu_usage_attribution_usec: int | None = None,
+    billed_cpu_usage_attribution_usec: int | None = None,
     cpu_usage_attribution_measured_at: datetime | None = None,
     required: bool = False,
 ) -> None:
@@ -135,6 +145,9 @@ def open_sandbox_session(
                     "provider_cpu_usage_attribution_usec": (
                         None if state.get("await_user_message") else cpu_usage_attribution_usec
                     ),
+                    "provider_billed_cpu_usage_attribution_usec": (
+                        None if state.get("await_user_message") else billed_cpu_usage_attribution_usec
+                    ),
                     "provider_cpu_usage_attribution_measured_at": (
                         None if state.get("await_user_message") else cpu_usage_attribution_measured_at
                     ),
@@ -173,6 +186,7 @@ def close_sandbox_session(
     *,
     reason: str,
     cpu_usage_usec: int | None = None,
+    billed_cpu_usage_usec: int | None = None,
     cpu_usage_measured_at: datetime | None = None,
 ) -> None:
     """Stamp the sandbox's end. Idempotent — the first stamp wins."""
@@ -188,6 +202,8 @@ def close_sandbox_session(
         if cpu_usage_usec is not None:
             updates["provider_cpu_usage_usec"] = cpu_usage_usec
             updates["provider_usage_measured_at"] = cpu_usage_measured_at or timezone.now()
+        if billed_cpu_usage_usec is not None:
+            updates["provider_billed_cpu_usage_usec"] = billed_cpu_usage_usec
         stamped = (
             SandboxSession.objects.unscoped()
             .filter(
@@ -204,7 +220,7 @@ def close_sandbox_session(
 def record_task_run_user_activity(
     run_id: str | UUID,
     team_id: int,
-    cpu_attribution: dict[str, tuple[int, datetime]] | None = None,
+    cpu_attribution: dict[str, tuple[int, int | None, datetime]] | None = None,
 ) -> None:
     """Stamp a user message against the run's open sandbox sessions.
 
@@ -223,7 +239,7 @@ def record_task_run_user_activity(
     unattributed_sessions = list(open_sessions.filter(user_attributed_at__isnull=True, vm_runtime=True))
     for session in unattributed_sessions:
         measurement = (cpu_attribution or {}).get(session.sandbox_id)
-        attribution_time = measurement[1] if measurement else now
+        attribution_time = measurement[2] if measurement else now
         updates: dict[str, object] = {
             "user_attributed_at": attribution_time,
             "client_provenance": Case(
@@ -233,7 +249,8 @@ def record_task_run_user_activity(
         }
         if measurement:
             updates["provider_cpu_usage_attribution_usec"] = measurement[0]
-            updates["provider_cpu_usage_attribution_measured_at"] = measurement[1]
+            updates["provider_billed_cpu_usage_attribution_usec"] = measurement[1]
+            updates["provider_cpu_usage_attribution_measured_at"] = measurement[2]
         open_sessions.filter(id=session.id, user_attributed_at__isnull=True).update(**updates)
 
     open_sessions.filter(user_attributed_at__isnull=True).update(
