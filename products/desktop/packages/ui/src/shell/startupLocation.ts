@@ -8,7 +8,15 @@ type StartupLocationClient = Pick<
   "provisionDefaultTaskChannels"
 >;
 
-const storageKey = (identity: string): string => `startup-location:${identity}`;
+const storageKey = (identity: string): string =>
+  `startup-location:v2:${identity}`;
+/**
+ * Where installs from before the default spaces existed kept their location. Reading it
+ * once is what brings those installs through provisioning, since nothing else does now
+ * that listing is a pure read.
+ */
+const legacyStorageKey = (identity: string): string =>
+  `startup-location:${identity}`;
 
 interface StartupLocation {
   href: string;
@@ -35,6 +43,7 @@ export async function resolveStartupLocation(
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: saved, firstRun: null };
 
+  const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   const provisioned =
     primedProvision ?? (await client.provisionDefaultTaskChannels());
   primedProvision = null;
@@ -42,6 +51,13 @@ export async function resolveStartupLocation(
     isGeneralChannel(channel),
   );
   if (!general) throw new Error("#general was not provisioned");
+
+  // Someone who was already using the app goes back to where they were, and the spaces
+  // this call created for them arrive without any of the first-run treatment.
+  if (legacy) {
+    void stateStorage.removeItem(legacyStorageKey(identity));
+    return { href: legacy, firstRun: null };
+  }
 
   // First run means the user's default spaces did not exist until now, as
   // reported by the server. A reinstall or new machine only loses the saved
