@@ -8453,11 +8453,16 @@ export class SessionService {
       this.d.store.clearTailOptimisticItems(taskRunId);
     }
     this.cloudRunIdleTracker.delete(taskRunId);
+    // The reconciled log is the complete chain, so any hydration window is
+    // gone; resetting the window start also trips loadOlderCloudTranscript's
+    // stale-window guard if a prepend was in flight, instead of duplicating
+    // entries the reconcile already committed.
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
       logUrl,
       processedLineCount,
+      transcriptWindowStart: 0,
     });
     this.updatePromptStateFromEvents(taskRunId, events);
   }
