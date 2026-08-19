@@ -1,8 +1,9 @@
 import re
 import base64
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.settings import (
     PAGE_SIZE,
@@ -41,7 +42,7 @@ USER_AGENT = "PostHog Data Warehouse (support@posthog.com)"
 EPOCH_START = "1970-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@frozen
 class ClinikoResumeConfig:
     next_url: str
 
@@ -102,6 +103,12 @@ def _client_config(api_key: str) -> ClientConfig:
         # Cliniko's `links.next` is a full, ready-to-follow URL, so a JSON-body next-URL
         # paginator (rather than manual page counting) fits this and resumes for free.
         "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        # Pin every request to base_url's host and refuse redirects: the Basic auth header
+        # carries the Cliniko API key, so a spoofed `links.next` target or a cross-origin 3xx
+        # must not carry that credential off-host (SSRF). `allowed_hosts=[]` means "same host
+        # as base_url only" and also pins paginator and resume URLs.
+        "allowed_hosts": [],
+        "allow_redirects": False,
     }
 
 

@@ -77,7 +77,9 @@ class TestGetResource:
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         endpoint = resource["endpoint"]
         assert endpoint["params"]["sort"] == "updated_at:asc"
-        q_filter = endpoint["params"]["q[]"]
+        # `endpoint["params"]` values are typed as a resolve/incremental/Any union, so the
+        # cast makes the runtime shape (an incremental filter dict, including `convert`) explicit.
+        q_filter = cast(dict[str, Any], endpoint["params"]["q[]"])
         assert q_filter["type"] == "incremental"
         assert q_filter["convert"](datetime(2024, 1, 1, tzinfo=UTC)) == "updated_at:>2024-01-01T00:00:00Z"
 
