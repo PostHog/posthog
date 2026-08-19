@@ -112,6 +112,14 @@ class TestVitalsTimeseriesGate(APIBaseTest):
             ),
             ("sampled_source", {"source_overrides": {"samplingFactor": 0.5}}),
             (
+                "weekday_filtered_range",
+                {
+                    "source_overrides": {
+                        "dateRange": DateRange(date_from="2024-01-01", date_to="2024-01-07", daysOfWeek=[1, 2, 3])
+                    }
+                },
+            ),
+            (
                 "breakdown",
                 {"source_overrides": {"breakdownFilter": BreakdownFilter(breakdown="$browser")}},
             ),

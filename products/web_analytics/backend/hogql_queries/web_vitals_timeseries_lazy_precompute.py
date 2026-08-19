@@ -148,6 +148,11 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
         # buckets hold the full-population quantile state, so a sampled source
         # would drift (same reason the sibling web_trends gate rejects it).
         return None
+    if source.dateRange is not None and source.dateRange.daysOfWeek:
+        # Live trends filters events to the selected weekdays (and drops the
+        # deselected day buckets for day intervals); the bucket read merges every
+        # day in range and emits the full axis, so it can't reproduce that.
+        return None
     tf = source.trendsFilter
     if tf is not None:
         # Only the canonical line graph is servable. Total-value displays
