@@ -185,11 +185,6 @@ describe('logsViewerLogic', () => {
                 args: [10],
                 expected: 'ORDER BY max(timestamp) DESC, instance_id DESC',
             },
-            {
-                description: 'bounds the rows read per instance so one instance cannot exhaust query memory',
-                args: [10],
-                expected: 'LIMIT 500 BY instance_id',
-            },
         ] as { description: string; args: [number, number?]; expected: string }[])(
             '$description',
             ({ args, expected }) => {

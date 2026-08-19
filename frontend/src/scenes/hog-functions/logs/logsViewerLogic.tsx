@@ -29,8 +29,6 @@ export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
 export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
-// Cap the rows read per instance so one high-volume instance cannot pull in millions of rows.
-export const LOG_GROUP_PER_INSTANCE_LIMIT = 500
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -184,7 +182,6 @@ export const buildGroupedLogsQuery = (
             OFFSET ${groupOffset}
         )
         ORDER BY timestamp DESC
-        LIMIT ${LOG_GROUP_PER_INSTANCE_LIMIT} BY instance_id
         LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
 }
 
