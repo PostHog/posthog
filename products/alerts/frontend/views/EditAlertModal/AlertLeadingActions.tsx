@@ -37,26 +37,28 @@ export function AlertLeadingActions({
 }: AlertLeadingActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <LemonButton
-                type="secondary"
-                status="danger"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: `Delete "${alertForm.name || 'this alert'}"?`,
-                        description: 'This alert will be permanently deleted. This action cannot be undone.',
-                        primaryButton: {
-                            children: 'Delete',
-                            type: 'primary',
-                            status: 'danger',
-                            onClick: onDeleteAlert,
-                            'data-attr': 'alert-delete-confirm',
-                        },
-                        secondaryButton: { children: 'Cancel' },
-                    })
-                }}
-            >
-                Delete alert
-            </LemonButton>
+            {alert ? (
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alertForm.name || 'this alert'}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: onDeleteAlert,
+                                'data-attr': 'alert-delete-confirm',
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
+                    Delete alert
+                </LemonButton>
+            ) : null}
             <SnoozeButton
                 onChange={onSnoozeAlert}
                 value={alert?.snoozed_until}
