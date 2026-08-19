@@ -14,6 +14,7 @@ import {
     EVALUATION_SUMMARY_MAX_RUNS,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { SummarizeRequestApi } from './generated/api.schemas'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -293,26 +294,29 @@ export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
 }
 
 /**
+ * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
+ * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
+ * rarely spans longer than this.
+ */
+const SUMMARIZATION_LOOKUP_WINDOW_DAYS = 1
+
+/**
  * Date window for summarization requests that reference a trace or event by ID.
  *
- * The backend refetches the entity itself, and scans a default 30 days when given no range.
- * Anchoring the window on the entity's own timestamp keeps that lookup cheap. Ten minutes
- * either side covers clock skew and nothing else: `TraceQueryDateRange` widens what it scans
- * by a week forward for traces that stay open across days, so buffering for that here would
- * double it. An unusable timestamp yields an empty range, which leaves the backend default
- * in place.
+ * The endpoint refetches the entity itself, so the window is all it has to find it by. Callers that
+ * cannot produce a usable timestamp get an empty range, which leaves the endpoint's own default in
+ * place rather than sending a window that excludes the entity.
  */
-export function getSummarizationLookupDateRange(createdAt: string | undefined): {
-    date_from?: string
-    date_to?: string
-} {
+export function getSummarizationLookupDateRange(
+    createdAt: string | undefined
+): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
     const timestamp = createdAt ? dayjs(createdAt) : null
     if (!timestamp?.isValid()) {
         return {}
     }
     return {
-        date_from: timestamp.subtract(10, 'minute').toISOString(),
-        date_to: timestamp.add(10, 'minute').toISOString(),
+        date_from: timestamp.subtract(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+        date_to: timestamp.add(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
     }
 }
 

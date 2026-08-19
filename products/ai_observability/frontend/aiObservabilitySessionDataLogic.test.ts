@@ -158,8 +158,8 @@ describe('aiObservabilitySessionDataLogic', () => {
             mode: 'minimal',
             force_refresh: false,
             trace_id: 'trace-1',
-            date_from: '2025-12-31T23:50:00.000Z',
-            date_to: '2026-01-01T00:10:00.000Z',
+            date_from: '2025-12-31T00:00:00.000Z',
+            date_to: '2026-01-02T00:00:00.000Z',
         })
         expect(logic.values.traceSummaries['trace-1'].title).toBe('A short title')
     })
