@@ -6,16 +6,18 @@ import { type RefObject, useState } from "react";
 import {
   cellFromPoint,
   clampRect,
+  type GridCell,
   type GridRect,
   rectFromCells,
+  sameCell,
 } from "./gridGeometry";
 
 export type GridDragState =
-  | { kind: "draw"; anchor: { col: number; row: number }; rect: GridRect }
+  | { kind: "draw"; anchor: GridCell; rect: GridRect }
   | {
       kind: "move";
       placementId: string;
-      grabbed: { col: number; row: number };
+      grabbed: GridCell;
       origin: GridRect;
       rect: GridRect;
     }
@@ -34,13 +36,6 @@ export interface GridDragOutcome {
  * snapped as the pointer moves (move/resize rects stay clamped to the grid);
  * the caller decides what a completed drag means.
  */
-type GridCell = { col: number; row: number };
-
-function sameCell(a: GridCell | null, b: GridCell | null): boolean {
-  if (!a || !b) return a === b;
-  return a.col === b.col && a.row === b.row;
-}
-
 export function useGridDrag({
   surfaceRef,
   grid,
@@ -183,7 +178,10 @@ export function useGridDrag({
 
   return {
     drag,
-    hover,
+    // Derived rather than reset: a hover left behind by the pointer resting on
+    // the surface when edit mode ends would otherwise paint a cell the canvas
+    // no longer lets you fill.
+    hover: interactive ? hover : null,
     onPointerLeave,
     onSurfacePointerDown,
     onPointerMove,

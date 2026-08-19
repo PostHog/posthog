@@ -22,7 +22,9 @@ const actions: PlacementTileActions = {
 };
 
 // A drawn box sits on the grid at the size it was drawn, so the stories frame
-// the tile the way the canvas does rather than letting it fill the page.
+// the tile the way the canvas does rather than letting it fill the page. The
+// chrome mirrors the wrapper in GridCanvasView; keep the two in step, since
+// these stories are what say the smallest box still fits its contents.
 function Tile({
   height,
   placement,
