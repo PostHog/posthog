@@ -439,7 +439,16 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 footer={
                     <>
                         {!preflight?.email_service_available ? (
-                            <LemonButton center type="secondary" onClick={onClose}>
+                            // Done is an explicit close, so it discards the draft like Cancel does below.
+                            // The generic close path (Escape, backdrop, re-authentication redirect) keeps the rows.
+                            <LemonButton
+                                center
+                                type="secondary"
+                                onClick={() => {
+                                    resetInvites()
+                                    onClose()
+                                }}
+                            >
                                 Done
                             </LemonButton>
                         ) : (
