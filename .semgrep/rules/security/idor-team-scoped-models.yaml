@@ -87,6 +87,7 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
                               |CanvasState
                               |ChangeRequest
@@ -299,6 +300,8 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCanvas
+                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -453,6 +456,7 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
                         |CanvasState
                         |ChangeRequest
@@ -659,6 +663,8 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCanvas
+                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
