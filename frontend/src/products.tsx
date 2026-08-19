@@ -1980,7 +1980,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
         flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
