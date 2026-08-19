@@ -369,6 +369,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_repository",
+            "task_mcp_installations",
         ]
     )
     key = serializers.CharField()
@@ -459,6 +462,19 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+        elif item_type == "task_repository":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+        elif item_type == "task_model":
+            if not isinstance(value, dict) or not all(
+                isinstance(v, str) for k, v in value.items() if k in ("model", "reasoning_effort") and v is not None
+            ):
+                raise serializers.ValidationError(
+                    {"input": "Value must be an object with 'model' and 'reasoning_effort' strings."}
+                )
+        elif item_type == "task_mcp_installations":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})

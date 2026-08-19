@@ -62,6 +62,20 @@ const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
     config: { template_id: 'template-native-push', inputs: {} },
 }
 
+const AI_TASK_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Create AI task',
+    description: 'Start an AI agent task with instructions from this workflow.',
+    config: {
+        template_id: 'template-posthog-create-task',
+        // Pinned rather than relying on the template default: the engine only reads
+        // action.config.inputs at execution time, and this value is what turns a 409
+        // "task limit reached" reply into a graceful skip instead of a failed step.
+        inputs: { non_failure_status_codes: { value: [409] } },
+    },
+    output_variable: { key: 'task', result_path: null, label: 'Task' },
+}
+
 const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
@@ -310,6 +324,14 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE}>
                     <span className="inline-flex items-center gap-1.5">
                         {PUSH_NOTIFICATION_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
+            )}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE}>
+                    <span className="inline-flex items-center gap-1.5">
+                        {AI_TASK_ACTION_NODE.name}
                         <LemonTag type="completion">Beta</LemonTag>
                     </span>
                 </HogFlowEditorToolbarNode>

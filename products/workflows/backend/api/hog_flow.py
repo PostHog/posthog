@@ -18,6 +18,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -474,6 +475,38 @@ _FIXED_TEMPLATE_IDS = {
     "function_sms": "template-twilio",
     "function_push": "template-native-push",
 }
+
+# Pre-release templates rejected as "Template not found" unless the team has the named feature
+# flag, so agents and direct API callers can't reach a step the builder doesn't offer yet. The
+# flag key is shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx. Remove an entry when
+# its feature goes GA.
+_FLAG_GATED_TEMPLATE_IDS = {
+    "template-posthog-create-task": "workflow-ai-task-action",
+}
+
+
+def _gated_template_enabled(flag_key: str, team: "Team") -> bool:
+    # A flag-eval blip hides the pre-release step rather than exposing it: fail closed.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag_key,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+            )
+        )
+    except Exception:
+        logger.warning(
+            "workflows.hog_flow.gated_template_flag_check_failed_defaulting_off",
+            team_id=team.id,
+            flag=flag_key,
+            exc_info=True,
+        )
+        return False
 
 
 class _TriggerSourceTemplate(NamedTuple):
@@ -1184,6 +1217,13 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
+            gating_flag = _FLAG_GATED_TEMPLATE_IDS.get(template_id)
+            if template is not None and gating_flag is not None:
+                # Outside a request (internal re-saves, direct construction) there is no team to
+                # evaluate the flag against, and the flow was already allowed to hold this step.
+                get_team = self.context.get("get_team")
+                if get_team is not None and not _gated_template_enabled(gating_flag, get_team()):
+                    template = None
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})

@@ -27,6 +27,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
+    _gated_template_enabled,
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
@@ -4602,3 +4603,71 @@ class TestHogFlowSecretInputs(APIBaseTest):
         rev_inputs = next(a for a in revision["content"]["actions"] if a["type"] == "function")["config"]["inputs"]
         assert "api_key" not in rev_inputs
         assert "LEGACY-SECRET" not in json.dumps(revision)
+
+
+def _create_task_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-posthog-create-task"
+    template["name"] = "Create AI task"
+    template["inputs_schema"] = [
+        {"key": "prompt", "type": "string", "label": "Instructions", "secret": False, "required": True}
+    ]
+    return template
+
+
+class TestFlagGatedTemplates(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(_create_task_template())
+
+    def _post_flow_with_create_task_action(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+        }
+        # The MCP client header selects strict validation - the path agents and API callers
+        # actually use. Web-client draft saves stay lenient; the gate holds at publish there.
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, status.HTTP_201_CREATED),
+            ("flag_off", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_gated_template_requires_feature_flag(self, _name, flag_enabled, expected_status):
+        # The builder hides the AI task step behind a flag, but agents and API callers write
+        # workflows through this endpoint directly - without the server-side gate they could
+        # attach the step on any team.
+        with patch(
+            "products.workflows.backend.api.hog_flow._gated_template_enabled", return_value=flag_enabled
+        ) as mock_gate:
+            response = self._post_flow_with_create_task_action()
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_gate.call_args.args[0] == "workflow-ai-task-action"
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "Template not found" in response.json()["detail"]
+
+    def test_flag_eval_failure_hides_the_gated_template(self):
+        # A flag-service blip must hide the pre-release step, not expose it.
+        with patch(
+            "products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled",
+            side_effect=Exception("flag service down"),
+        ):
+            assert _gated_template_enabled("workflow-ai-task-action", self.team) is False
