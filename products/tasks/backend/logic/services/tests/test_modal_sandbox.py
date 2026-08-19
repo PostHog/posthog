@@ -1077,7 +1077,7 @@ class TestModalSandboxResourceUsage:
         sandbox.config = SandboxConfig(name="usage", vm_runtime=True, burstable_resources=True)
         sandbox._sandbox = MagicMock()
         sandbox._sandbox.filesystem.read_text.side_effect = [
-            '{"billed_usec": 2000000, "cpu_usec": 1000000, "time_ns": 1000000000}',
+            "2000000 1000000 1000000000",
             "usage_usec 2500000\n",
         ]
         monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)

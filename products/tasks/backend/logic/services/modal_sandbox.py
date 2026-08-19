@@ -118,9 +118,8 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 # a snapshot baked under the default app.
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
-CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.json"
+CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
 CPU_BILLING_SAMPLER = """
-import json
 import os
 import time
 
@@ -138,7 +137,7 @@ previous_cpu = cpu_usage_usec()
 previous_time = time.time_ns()
 billed_usec = 0
 with open(path, 'w') as handle:
-    json.dump({'billed_usec': billed_usec, 'cpu_usec': previous_cpu, 'time_ns': previous_time}, handle)
+    handle.write(f'{billed_usec} {previous_cpu} {previous_time}')
 while True:
     time.sleep(2)
     current_cpu = cpu_usage_usec()
@@ -148,7 +147,7 @@ while True:
     billed_usec += max(actual_usec, floor_usec)
     temporary_path = f'{path}.tmp'
     with open(temporary_path, 'w') as handle:
-        json.dump({'billed_usec': billed_usec, 'cpu_usec': current_cpu, 'time_ns': current_time}, handle)
+        handle.write(f'{billed_usec} {current_cpu} {current_time}')
     os.replace(temporary_path, path)
     previous_cpu = current_cpu
     previous_time = current_time
@@ -1823,12 +1822,10 @@ class ModalSandbox(SandboxBase):
         return result.exit_code == 0
 
     def read_billed_cpu_usage_usec(self) -> int | None:
-        payload = json.loads(self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH))
-        billed_usec = payload.get("billed_usec")
-        previous_cpu = payload.get("cpu_usec")
-        previous_time = payload.get("time_ns")
-        if not all(isinstance(value, int) for value in (billed_usec, previous_cpu, previous_time)):
+        values = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH).split()
+        if len(values) != 3:
             return None
+        billed_usec, previous_cpu, previous_time = (int(value) for value in values)
         current_cpu = self.read_cpu_usage_usec()
         if current_cpu is None:
             return None
