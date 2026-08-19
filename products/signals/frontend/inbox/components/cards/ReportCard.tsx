@@ -23,7 +23,7 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
+import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     knownSourceProductEntries,
     SourceProductIconRow,
@@ -197,7 +197,7 @@ export function ReportCard({
                 <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                    {!hasPr && (!isReady || !report.actionability) && (
+                    {!hasPr && !isStatusRedundantWithActionability(report.status, report.actionability) && (
                         <SignalReportStatusBadge status={report.status} />
                     )}
                     {!hasPr && report.actionability && (

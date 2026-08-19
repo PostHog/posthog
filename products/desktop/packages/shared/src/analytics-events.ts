@@ -57,6 +57,11 @@ export type CommandMenuAction =
   | "open-artifact"
   | "open-channel"
   | "open-command-center"
+  | "save-feed"
+  | "complete-filter"
+  | "show-all-matches"
+  | "repair-query"
+  | "open-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"
@@ -258,6 +263,7 @@ export interface CommandMenuActionProperties {
 }
 
 export type SidebarNavItem =
+  | "home"
   | "new_task"
   | "search"
   | "inbox"
@@ -540,6 +546,15 @@ export interface OnboardingGithubConnectStartedProperties {
 export interface OnboardingGithubConnectFailedProperties {
   reason: "timeout" | "error";
   error_type?: string;
+}
+
+export interface OnboardingGithubConnectPendingAdminProperties {
+  flow_type: OnboardingGithubConnectFlow;
+}
+
+export interface OnboardingGithubConnectAbandonedProperties {
+  flow_type: OnboardingGithubConnectFlow;
+  seconds_since_started: number;
 }
 
 export interface OnboardingAbandonedProperties {
@@ -984,6 +999,16 @@ export type ChannelActionType =
   | "open_mention"
   | "activity_tab_change";
 
+export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+
+export interface TaskFeedActionProperties {
+  action_type: TaskFeedActionType;
+  surface: "sidebar" | "feed_home" | "command_menu";
+  feed_id: string;
+  /** Length of the saved query. Do not record its text. */
+  query_length?: number;
+}
+
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
   surface: ChannelsSurface;
@@ -1405,6 +1430,9 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
+  ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
+    "Onboarding github connect pending admin",
+  ONBOARDING_GITHUB_CONNECT_ABANDONED: "Onboarding github connect abandoned",
   ONBOARDING_GITHUB_CONNECTED: "Onboarding github connected",
   ONBOARDING_CLI_CHECK_COMPLETED: "Onboarding cli check completed",
   ONBOARDING_CLI_RUN_COMPLETED: "Onboarding cli run completed",
@@ -1472,6 +1500,7 @@ export const ANALYTICS_EVENTS = {
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
+  TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_RENDERED: "Canvas rendered",
@@ -1587,6 +1616,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED]: OnboardingGithubConnectAbandonedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED]: never;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_CHECK_COMPLETED]: OnboardingCliCheckCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_RUN_COMPLETED]: OnboardingCliRunCompletedProperties;
@@ -1654,6 +1685,7 @@ export type EventPropertyMap = {
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
+  [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;

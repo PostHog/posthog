@@ -821,6 +821,11 @@ export interface AutocompleteCompletionItem {
      * an icon is chosen by the editor.
      */
     kind: AutocompleteCompletionItemKind
+    /**
+     * Overrides the editor's default ordering for this item. Set when the backend can rank a
+     * suggestion, for example a function whose return type fits the comparison being written.
+     */
+    sortText?: string
 }
 
 export interface HogQLAutocompleteResponse {
@@ -3827,6 +3832,7 @@ export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBrea
     issueId: ErrorTrackingIssue['id']
     breakdownProperties: string[]
     dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
@@ -9008,6 +9014,8 @@ export const externalDataSources = [
     'Hootsuite',
     'WisprFlow',
     'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

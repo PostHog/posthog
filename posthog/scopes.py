@@ -25,6 +25,7 @@ APIScopeObject = Literal[
     "batch_export",
     "batch_import",
     "batch_import_support",
+    "billing",
     "business_knowledge",
     "canvas",
     "clickhouse_test_cluster_perf",
@@ -65,6 +66,7 @@ APIScopeObject = Literal[
     "insight",
     "insight_variable",
     "integration",
+    "interactive_run",
     "internal_run",
     "legal_document",
     "link",
@@ -151,6 +153,12 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Narrows `internal_run`: the run behind this token was started by a person
+        # pressing a button, not by one of PostHog's own schedulers. Both markers are
+        # minted server-side, so neither can be self-granted; the LLM gateway meters
+        # user-started runs against their own, much smaller budget because their volume
+        # is chosen by the customer rather than by us.
+        "interactive_run",
         # Provenance marker on tokens minted server-side for a sandbox/agent run
         # (never via the consent flow or a personal API key). The LLM gateway requires
         # it on the internal products that share the PostHog Desktop OAuth app so a user's
