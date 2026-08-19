@@ -13,9 +13,11 @@ export const orgMembersQueryKey = (orgId: string | null) =>
 /** Members of the current organization, sorted by display name. */
 export function useOrgMembers(options?: { enabled?: boolean }): {
   members: UserBasic[];
+  error: Error | null;
   isLoading: boolean;
   isError: boolean;
   isComplete: boolean;
+  refetch: () => void;
 } {
   const currentOrgId = useAuthStateValue((state) => state.currentOrgId);
   const query = useAuthenticatedQuery(
@@ -36,8 +38,12 @@ export function useOrgMembers(options?: { enabled?: boolean }): {
   );
   return {
     members,
+    error: query.error ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     isComplete: query.data?.isComplete ?? false,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }

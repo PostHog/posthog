@@ -9796,6 +9796,9 @@ database "posthog" {
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
@@ -9812,9 +9815,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     engine "distributed" {
       cluster_name    = "posthog"

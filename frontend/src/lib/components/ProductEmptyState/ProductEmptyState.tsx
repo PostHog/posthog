@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { IconBook, IconGear } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
@@ -45,22 +46,32 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const Preview = config.Preview
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
-    // One definition for both slots: the lone hero CTA without a wizard, or an equal-weight
-    // alternative under the terminal card when the wizard is present.
-    const primaryActionButton = config.primaryAction ? (
+    const { primaryAction } = config
+    const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
-            to={config.primaryAction.to}
+            to={primaryAction.to}
             onClick={() => {
                 captureClick('primary action clicked')
-                config.primaryAction?.onClick?.()
+                primaryAction.onClick?.()
             }}
             className="self-start"
-            data-attr="product-empty-state-primary-action"
+            data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
         >
-            {config.primaryAction.label}
+            {primaryAction.label}
         </LemonButton>
     ) : null
+    const guardedPrimaryAction =
+        primaryActionButton && primaryAction?.accessControl ? (
+            <AccessControlAction
+                resourceType={primaryAction.accessControl.resourceType}
+                minAccessLevel={primaryAction.accessControl.minAccessLevel}
+            >
+                {primaryActionButton}
+            </AccessControlAction>
+        ) : (
+            primaryActionButton
+        )
 
     return (
         <div
@@ -102,19 +113,21 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                                 copyLabel={`${config.productName} wizard command`}
                                 onCopy={() => captureClick('wizard command copied')}
                             />
-                            {primaryActionButton ? (
+                            {guardedPrimaryAction ? (
                                 <>
                                     <div className="flex items-center gap-3">
                                         <div className="h-px flex-1 bg-border-primary" />
                                         <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
                                         <div className="h-px flex-1 bg-border-primary" />
                                     </div>
-                                    {primaryActionButton}
+                                    {guardedPrimaryAction}
                                 </>
                             ) : null}
                         </>
-                    ) : primaryActionButton ? (
-                        primaryActionButton
+                    ) : config.PrimaryAction ? (
+                        <config.PrimaryAction />
+                    ) : guardedPrimaryAction ? (
+                        guardedPrimaryAction
                     ) : manualUrl ? (
                         <LemonButton
                             type="primary"
@@ -131,7 +144,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
                     <div className="flex items-center gap-4">
-                        {showWizard && !config.primaryAction && manualUrl ? (
+                        {showWizard && !primaryActionButton && manualUrl ? (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconGear />}
@@ -156,20 +169,24 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                                 Read the docs
                             </LemonButton>
                         ) : null}
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={skipEmptyState}
-                            data-attr="product-empty-state-skip"
-                        >
-                            Skip for now
-                        </LemonButton>
+                        {config.skippable !== false ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={skipEmptyState}
+                                data-attr="product-empty-state-skip"
+                            >
+                                Skip for now
+                            </LemonButton>
+                        ) : null}
                     </div>
                 </div>
             </div>
 
             <div
-                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
+                // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
+                // token here rather than asking every preview to branch on the theme itself.
+                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
                 style={{
                     backgroundImage:
                         'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',

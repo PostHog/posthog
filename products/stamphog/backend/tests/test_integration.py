@@ -1256,7 +1256,7 @@ _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
         (
             _OWNERS_YAML_HEAD + "teams:\n  other-team:\n    slack: '#elsewhere'\n",
             [{"id": "C-LOGS", "name": "logs"}],
-            ("C-LOGS", False, ChannelResolutionSource.SLACK_NAME_MATCH),
+            ("C-LOGS", True, ChannelResolutionSource.SLACK_NAME_MATCH),
         ),
         (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n", [{"id": "C-LOGS", "name": "logs"}], None),
     ],
@@ -1436,13 +1436,12 @@ def test_unreadable_repo_behind_the_winner_still_provisions(team, stamphog_chain
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_chain: StamphogChain) -> None:
-    # A bare Slack name match provisions the channel DISABLED and posts nothing: any workspace
-    # member can pre-create a public channel named after a GitHub team slug, so auto-posting to a
-    # name-matched channel would hand a squatter private repo titles and summaries. A human enables
-    # the channel in the UI; the merged PR stays unlinked so the next run after enabling picks it
-    # up. Repo-declared channels (maintainer's explicit pick) still provision enabled — see the
-    # STAMPHOG_CONFIG test below.
+def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A team's first digest must land without anyone wiring it up: the name match provisions the
+    # channel enabled, the app joins a channel it was never invited to, and the merged PR goes out
+    # on that same run rather than waiting on a human to flip a toggle nobody is watching.
     repo_config = _repo_config(team.id)
     integration = Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
@@ -1459,23 +1458,15 @@ def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_ch
     PullRequestAudience.objects.for_team(team.id).create(
         team_id=team.id, pull_request=pr, audience_key="team-devex", reason=AudienceReason.AUTHORED
     )
-    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}])
+    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}], needs_join=["C-DEVEX"])
 
     send_daily_digests()
 
     channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
-    assert channel.enabled is False
+    assert channel.enabled is True
     assert channel.resolution_source == ChannelResolutionSource.SLACK_NAME_MATCH
     assert channel.slack_integration_id == integration.id
-
-    assert not DigestRun.objects.for_team(team.id).filter(digest_channel=channel).exists()
-    assert fakes.FakeSlackIntegration.posted_messages == []
-    pr.refresh_from_db()
-    assert pr.digest_run_id is None
-
-    # A human enabling the channel is the confirmation step — the next daily run then posts.
-    DigestChannel.objects.for_team(team.id).filter(id=channel.id).update(enabled=True)
-    send_daily_digests()
+    assert fakes.FakeSlackIntegration.joined_channels == ["C-DEVEX"]
 
     run = DigestRun.objects.for_team(team.id).get(digest_channel=channel)
     assert run.status == DigestRunStatus.COMPLETED

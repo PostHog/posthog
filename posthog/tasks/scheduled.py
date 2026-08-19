@@ -48,6 +48,7 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    fail_stuck_video_exports,
     find_flags_with_enriched_analytics,
     ingestion_lag,
     kill_stale_queued_task_runs,
@@ -803,6 +804,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        # Hourly rather than daily: until this runs, a dead video export still reads as in progress
+        # to whoever is waiting on it.
+        sender.add_periodic_task(
+            crontab(minute=str(randrange(0, 60))),
+            fail_stuck_video_exports.s(),
+            name="fail stuck video exports",
         )
 
         # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables

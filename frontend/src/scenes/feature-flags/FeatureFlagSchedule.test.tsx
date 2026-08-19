@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, ScheduledChangeOperationType } from '~/types'
@@ -81,6 +83,54 @@ describe('FeatureFlagSchedule', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    // A bad sum is only rejected when the change fires, long after it was scheduled.
+    it.each([
+        {
+            name: 'sums to 100',
+            percentages: [50, 50],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: false,
+        },
+        {
+            name: 'falls short',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        {
+            name: 'exceeds 100',
+            percentages: [60, 60],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        // Variants are read from the flag whatever the operation, so a legacy flag stored at 70
+        // must still be schedulable for a change that leaves them alone.
+        {
+            name: 'falls short but the operation leaves variants untouched',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateStatus,
+            expectedDisabled: false,
+        },
+    ])('variant rollout $name: Schedule disabled=$expectedDisabled', ({ percentages, operation, expectedDisabled }) => {
+        const featureFlag = buildFeatureFlag({ active: true, rolloutPercentage: 100 })
+        featureFlag.filters.multivariate = {
+            variants: percentages.map((rollout_percentage, index) => ({
+                key: `variant-${index}`,
+                name: '',
+                rollout_percentage,
+            })),
+        }
+        renderSchedule(featureFlag, operation)
+
+        act(() => {
+            featureFlagLogic(logicProps).actions.setScheduleDateMarker(dayjs('2030-01-01T00:00:00Z'))
+        })
+
+        // LemonButton uses aria-disabled, not the disabled attribute.
+        const scheduleButton = screen.getByText('Schedule').closest('button')
+        expect(scheduleButton).toHaveAttribute('aria-disabled', String(expectedDisabled))
     })
 
     it.each([

@@ -4,6 +4,7 @@ import type { ComponentType, CSSProperties, ReactNode } from 'react'
 import type { FeatureFlagKey } from 'lib/constants'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
+import type { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 /**
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
@@ -44,10 +45,27 @@ export interface ProductEmptyStateWizard {
     pinProjectId?: boolean
 }
 
+export interface ProductEmptyStateAccessControl {
+    resourceType: AccessControlResourceType
+    minAccessLevel: AccessControlLevel
+}
+
 export interface ProductEmptyStatePrimaryAction {
     label: string
     to?: string
     onClick?: () => void
+    /**
+     * Permission the action requires, mirroring the gated scene's own create button.
+     * Without it a viewer gets an enabled button and only finds out they can't create
+     * when the form fails to save.
+     */
+    accessControl?: ProductEmptyStateAccessControl
+    /**
+     * `data-attr` on the button, defaulting to `product-empty-state-primary-action`.
+     * Set it to the attr the gated scene's create button carries, so end-to-end specs
+     * keep one selector across both surfaces.
+     */
+    dataAttr?: string
 }
 
 export interface ProductEmptyStateConfig {
@@ -77,6 +95,12 @@ export interface ProductEmptyStateConfig {
      * (in place of the "Configure manually" link), for products with both a terminal and an in-app path.
      */
     primaryAction?: ProductEmptyStatePrimaryAction
+    /**
+     * Rendered in the primary-action slot instead of the `primaryAction` button, for
+     * actions that need hooks - e.g. a create flow that opens PostHog AI via `useMaxTool`.
+     * Takes precedence over `primaryAction`.
+     */
+    PrimaryAction?: ComponentType
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -86,6 +110,12 @@ export interface ProductEmptyStateConfig {
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
+    /**
+     * Whether the "Skip for now" escape hatch shows. Defaults to true. Set false for
+     * creation-first products where the gated scene is just an empty list, so skipping
+     * has nothing to reveal and the primary action is the only next step.
+     */
+    skippable?: boolean
 }
 
 /**

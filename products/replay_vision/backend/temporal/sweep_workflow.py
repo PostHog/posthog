@@ -192,7 +192,11 @@ class SweepScannerWorkflow(PostHogWorkflow):
             return
 
         await self._advance_watermark(
-            inputs.scanner_id, swept_at, last_seen_session_id, deep_swept_through=find_result.deep_swept_through
+            inputs.scanner_id,
+            swept_at,
+            last_seen_session_id,
+            deep_swept_through=find_result.deep_swept_through,
+            deep_keyset_session_id=find_result.deep_keyset_session_id,
         )
 
     async def _advance_watermark(
@@ -201,6 +205,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
         swept_at: dt.datetime,
         last_seen_session_id: str = "",
         deep_swept_through: dt.datetime | None = None,
+        deep_keyset_session_id: str = "",
     ) -> None:
         await wf.execute_activity(
             advance_scanner_watermark_activity,
@@ -209,6 +214,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 new_last_swept_at=swept_at,
                 new_last_seen_session_id=last_seen_session_id,
                 new_last_deep_swept_at=deep_swept_through,
+                new_last_deep_seen_session_id=deep_keyset_session_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=3),

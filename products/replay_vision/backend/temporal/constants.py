@@ -51,10 +51,26 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # pass that picks up sessions whose matching events were older than the fast pass's narrow window.
 # Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
 # waits, so tuning either one moves the same cost-against-latency tradeoff.
-DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
-# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
-# share: it is catch-up work, and a tick that overruns retries both queries.
-DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=12)
+# ClickHouse budget for one deep query; the pass shares the sweep activity's ~200s timeout with the
+# fast query, so it only gets this when enough of the activity is left to spend it.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 120
+
+# Most ground one deep pass covers. The events scan pads ~50h around whatever window it is given, so
+# an unbounded window is both slow and unbounded in cost; a scanner further behind takes more passes
+# rather than one huge one. Sized against the longest interval below, not the floor: the padding
+# dominates a single pass, so widening the window is much cheaper than shortening the gap.
+DEEP_SWEEP_MAX_WINDOW = dt.timedelta(hours=54)
+# Ceiling on the deep pass's cadence stretch. Must stay below DEEP_SWEEP_MAX_WINDOW / DEEP_SWEEP_INTERVAL
+# with margin: a pass covering less ground than the gap before it falls behind for good.
+DEEP_SWEEP_MAX_FACTOR = 3
+# The deep pass is priced on its average daily reads over this window, which has to outlast the
+# longest interval above or a stretched pass ages out of its own measurement and resets to the floor.
+DEEP_SPEND_WINDOW_DAYS = 8
+# Daily ClickHouse read budget for the deep pass alone; above it the pass stretches its interval.
+# Half the frequent sweep's budget: it is background catch-up, and giving each pass the full budget
+# would double the per-scanner ceiling this throttling exists to hold.
+DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
 # One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
 # the first sweep tick, so the scanner has observations to show without waiting for new sessions.
