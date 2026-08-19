@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PER_PAGE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanycamEndpointConfig:
     name: str
     path: str  # Path under https://api.companycam.com/v2

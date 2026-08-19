@@ -28,7 +28,7 @@ def base_url(api_version: str) -> str:
     return f"https://api.companycam.com/{api_version}"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CompanycamResumeConfig:
     # Next 1-indexed page to fetch, for page/per_page-paginated endpoints.
     page: Optional[int] = None
