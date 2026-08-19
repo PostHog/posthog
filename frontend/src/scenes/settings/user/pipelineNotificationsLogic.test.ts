@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -30,13 +32,12 @@ describe('pipelineNotificationsLogic', () => {
         userLogic.mount()
         organizationLogic.mount()
         organizationLogic.actions.loadCurrentOrganizationSuccess({
-            id: 'org-1',
-            name: 'Org',
+            ...MOCK_DEFAULT_ORGANIZATION,
             teams: [
-                { id: 1, name: 'Project A' },
-                { id: 2, name: 'Project B' },
+                { ...MOCK_DEFAULT_TEAM, id: 1, name: 'Project A' },
+                { ...MOCK_DEFAULT_TEAM, id: 2, name: 'Project B' },
             ],
-        } as any)
+        })
         logic = pipelineNotificationsLogic()
         logic.mount()
     })
