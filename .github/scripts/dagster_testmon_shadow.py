@@ -3,16 +3,12 @@
 import os
 import sys
 import json
+import sqlite3
 import argparse
 from pathlib import Path
 
 import pytest
 from pytest import ExitCode
-
-from pytest_split import plugin as pytest_split_plugin
-from pytest_split.algorithms import Algorithms
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class SelectionCollector:
@@ -23,37 +19,19 @@ class SelectionCollector:
         self.selected_tests = [item.nodeid for item in session.items]
 
 
-def supports_optimal_chunks() -> bool:
-    return "optimal_chunks" in Algorithms.names() and hasattr(pytest_split_plugin, "PytestSplitFilePlugin")
+def baseline_tests(datafile: Path) -> list[str]:
+    with sqlite3.connect(f"file:{datafile}?mode=ro", uri=True) as connection:
+        rows = connection.execute("SELECT DISTINCT test_name FROM test_execution ORDER BY test_name")
+        return [test_name for (test_name,) in rows]
 
 
-def dagster_roots() -> list[str]:
-    roots = ["posthog/dags"]
-    roots.extend(path.relative_to(REPO_ROOT).as_posix() for path in sorted((REPO_ROOT / "products").glob("*/dags")))
-    return roots
-
-
-def build_pytest_arguments(
-    roots: list[str], group: int, concurrency: int, split_plan: Path, use_optimal_chunks: bool
-) -> list[str]:
-    splitting_arguments = ["--splitting-algorithm=duration_based_chunks", f"--durations-path={split_plan}"]
-    if use_optimal_chunks:
-        splitting_arguments = [
-            "--splitting-algorithm=optimal_chunks",
-            "--split-granularity=file",
-            f"--split-plan-path={split_plan}",
-        ]
-
+def build_pytest_arguments(test_names: list[str]) -> list[str]:
     return [
-        *roots,
-        "--splits",
-        str(concurrency),
-        "--group",
-        str(group),
-        *splitting_arguments,
+        *test_names,
         "--collect-only",
         "--testmon",
         "--testmon-forceselect",
+        "--testmon-nocollect",
         "-p",
         "no:cov",
         "-q",
@@ -66,33 +44,35 @@ def selection_status(exit_code: ExitCode, selected_tests: list[str]) -> str:
     return "error"
 
 
-def collect_selection(
-    datafile: Path, split_plan: Path, roots: list[str], group: int, concurrency: int
-) -> dict[str, object]:
-    if not datafile.exists() or not split_plan.exists():
-        return {
-            "concurrency": concurrency,
-            "group": group,
-            "pytest_exit_code": None,
-            "selected_test_count": None,
-            "selected_tests": [],
-            "status": "unavailable",
-        }
+def unavailable_selection(group: int, concurrency: int) -> dict[str, object]:
+    return {
+        "baseline_test_count": None,
+        "concurrency": concurrency,
+        "group": group,
+        "pytest_exit_code": None,
+        "selected_test_count": None,
+        "selected_tests": [],
+        "status": "unavailable",
+    }
+
+
+def collect_selection(datafile: Path, group: int, concurrency: int) -> dict[str, object]:
+    if not datafile.exists():
+        return unavailable_selection(group, concurrency)
+
+    try:
+        test_names = baseline_tests(datafile)
+    except sqlite3.Error:
+        return unavailable_selection(group, concurrency)
+    if not test_names:
+        return unavailable_selection(group, concurrency)
 
     collector = SelectionCollector()
     os.environ["TESTMON_DATAFILE"] = str(datafile)
-    exit_code = pytest.main(
-        build_pytest_arguments(
-            roots=roots,
-            group=group,
-            concurrency=concurrency,
-            split_plan=split_plan,
-            use_optimal_chunks=supports_optimal_chunks(),
-        ),
-        plugins=[collector],
-    )
+    exit_code = pytest.main(build_pytest_arguments(test_names), plugins=[collector])
     selected_tests = sorted(collector.selected_tests)
     return {
+        "baseline_test_count": len(test_names),
         "concurrency": concurrency,
         "group": group,
         "pytest_exit_code": int(exit_code),
@@ -122,14 +102,10 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, required=True)
     parser.add_argument("--datafile", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--split-plan", type=Path, required=True)
-    parser.add_argument("--root", action="append", dest="roots")
     args = parser.parse_args()
 
     result = collect_selection(
         datafile=args.datafile,
-        split_plan=args.split_plan,
-        roots=args.roots or dagster_roots(),
         group=args.group,
         concurrency=args.concurrency,
     )
