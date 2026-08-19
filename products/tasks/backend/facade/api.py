@@ -53,6 +53,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -60,9 +61,11 @@ from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
@@ -180,6 +183,7 @@ __all__ = [
     "create_task",
     "create_task_automation",
     "create_task_without_run",
+    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -242,6 +246,9 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_activity_for_users",
+    "set_task_activity_target",
+    "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -1346,6 +1353,66 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
         title=title,
         description=description,
         channel=channel,
+    )
+
+
+def create_shared_channel_task_without_run(
+    *,
+    team_id: int,
+    channel_id: str | UUID,
+    title: str,
+    description: str,
+    origin_product: "Task.OriginProduct",
+    state: dict[str, Any] | None = None,
+    signal_report_id: str | UUID | None = None,
+) -> UUID:
+    """Create a shared channel task without starting an agent run."""
+    channel = Channel.objects.filter(
+        id=channel_id,
+        team_id=team_id,
+        channel_type=Channel.ChannelType.PUBLIC,
+        deleted=False,
+    ).first()
+    if channel is None:
+        raise ValueError("Shared channel not found")
+    task = Task.objects.create(
+        team_id=team_id,
+        channel=channel,
+        title=title,
+        description=description,
+        origin_product=origin_product,
+        state=state or {},
+        signal_report_id=signal_report_id,
+    )
+    return task.id
+
+
+def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
+    """Project one task into each recipient's personal Activity feed."""
+    activity_at = django_timezone.now()
+    for user_id in set(user_ids):
+        TaskActivity.record(
+            team_id=team_id,
+            user_id=user_id,
+            task_id=task_id,
+            kind=kind,
+            activity_at=activity_at,
+        )
+
+
+def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
+    if scope != "desktop_canvas":
+        raise ValueError("Unsupported Activity target scope")
+    task = Task.objects.get(id=task_id, team_id=team_id)
+    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
+    task.save(update_fields=["state", "updated_at"])
+
+
+def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
+    Task.objects.filter(id=task_id, team_id=team_id).update(
+        title=title[:255],
+        description=description,
+        updated_at=django_timezone.now(),
     )
 
 
@@ -4555,6 +4622,67 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
+    # loop persist onto the latest run's output (same latest-run subquery shape
+    # as the status filter, so "the task's PR" means what the API's latest_run
+    # shows). KeyTextTransform, so the comparison is text = text.
+    pr_state = filters.get("pr_state")
+    if pr_state:
+        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
+            :1
+        ]
+        qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
+        if pr_state == "merged":
+            # Runs merged before pr_state existed only carry the older
+            # pr_merged flag; honor both spellings.
+            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+                "_pr_merged"
+            )[:1]
+            qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
+                Q(_latest_run_pr_state="merged") | Q(_latest_run_pr_merged="true")
+            )
+        else:
+            qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    ci_status = filters.get("ci_status")
+    if ci_status:
+        latest_run_ci_status = latest_run.annotate(_ci_status=KeyTextTransform("ci_status", "output")).values(
+            "_ci_status"
+        )[:1]
+        qs = qs.annotate(_latest_run_ci_status=Subquery(latest_run_ci_status)).filter(_latest_run_ci_status=ci_status)
+
+    # Pins are per-user, so "pinned" means the requesting user's pins — and
+    # without a user (service callers) nothing is pinned.
+    if str(filters.get("pinned")).lower() == "true":
+        if user_id is None:
+            qs = qs.none()
+        else:
+            qs = qs.filter(Exists(TaskPin.objects.filter(task=OuterRef("pk"), user_id=user_id)))
+
+    commented_by = filters.get("commented_by")
+    if commented_by:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessage.objects.for_team(team_id).filter(
+                    task=OuterRef("pk"),
+                    author_id=commented_by,
+                    author_kind=TaskThreadMessage.AuthorKind.HUMAN,
+                )
+            )
+        )
+
+    mentions = filters.get("mentions")
+    if mentions:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessageMention.objects.for_team(team_id)
+                .filter(task=OuterRef("pk"), mentioned_user_id=mentions)
+                # Same rule as list_mentions: legacy turn_complete rows are hidden
+                # from threads, so their indexed mentions must not match either.
+                .exclude(message__event="turn_complete")
+            )
+        )
+
     # `internal` controls default visibility, not access — task visibility (applied above) is the real
     # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
     # and the default excludes internal tasks so the main task list stays clean.
@@ -6954,6 +7082,22 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
+@frozen
+class _ActivityTarget:
+    scope: str | None
+    id: str | None
+
+
+def _activity_target(task: Task) -> _ActivityTarget:
+    target = (task.state or {}).get("activity_target")
+    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
+        return _ActivityTarget(scope=None, id=None)
+    target_id = target.get("id")
+    if not isinstance(target_id, str) or not target_id:
+        return _ActivityTarget(scope=None, id=None)
+    return _ActivityTarget(scope="desktop_canvas", id=target_id)
+
+
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -7013,6 +7157,8 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
+                target_scope=_activity_target(row.task).scope,
+                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows
