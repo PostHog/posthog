@@ -1,10 +1,11 @@
 """ServiceM8 API client: header-cursor pagination, `$filter` incremental sync, and rest_source wiring."""
 
-import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -24,7 +25,7 @@ INITIAL_CURSOR = "-1"
 NEXT_CURSOR_HEADER = "x-next-cursor"
 
 
-@dataclasses.dataclass
+@frozen
 class ServiceM8ResumeConfig:
     cursor: str
 

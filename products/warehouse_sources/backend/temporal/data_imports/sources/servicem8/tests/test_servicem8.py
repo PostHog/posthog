@@ -50,22 +50,33 @@ class TestBuildFilterParam:
 class TestGetResource:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_every_endpoint_is_addressable(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=False, db_incremental_field_last_value=None)
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, db_incremental_field_last_value=None),
+        )
 
         assert resource["name"] == endpoint
         assert resource["endpoint"]["path"].endswith(".json")
         assert resource["write_disposition"] == "replace"
 
     def test_incremental_endpoint_uses_merge_upsert(self) -> None:
-        resource = get_resource(
-            "Job", should_use_incremental_field=True, db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC)
+        resource = cast(
+            dict[str, Any],
+            get_resource(
+                "Job",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            ),
         )
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert resource["endpoint"]["params"]["$filter"] == "edit_date gt '2024-01-01 00:00:00'"
 
     def test_full_refresh_endpoint_has_no_filter(self) -> None:
-        resource = get_resource("Job", should_use_incremental_field=False, db_incremental_field_last_value=None)
+        resource = cast(
+            dict[str, Any],
+            get_resource("Job", should_use_incremental_field=False, db_incremental_field_last_value=None),
+        )
 
         assert resource["endpoint"]["params"]["$filter"] is None
 
