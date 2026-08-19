@@ -33,7 +33,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
     routers.projects.register(r"task_activity", channels.TaskActivityViewSet, "project_task_activity", ["team_id"])
-    routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
     routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
