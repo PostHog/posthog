@@ -17,7 +17,6 @@
 mod integration_utils;
 
 use axum::http::StatusCode;
-use axum::Router;
 use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
 use integration_utils::build_router_for_mode;
@@ -37,17 +36,32 @@ fn ai_batch_payload() -> String {
     .to_string()
 }
 
-/// A route is "registered" when a handler answered it. The handler may still
-/// reject the payload for its own reasons — the multipart and OTEL endpoints
-/// both 400 a JSON body — and which reason it picks is not what this file is
-/// about, so the status is not pinned.
+/// What a deployment must answer this file's payload on a given path.
 ///
-/// What is pinned is that something answered: a 405 means the router matched
-/// the path but not the method, and a 5xx means no handler completed. Treating
-/// either as "registered" would let a positive case pass against a route that
-/// is broken rather than served.
-async fn is_registered(router: Router, path: &str) -> bool {
-    let status = TestClient::new(router)
+/// [`Answer::Served`] names the real status rather than "anything but a 404",
+/// so a positive case proves the intended handler ran: a 405 (the router
+/// matched the path but not the method), a 5xx (no handler completed), and a
+/// status from some other handler all fail it. [`Answer::Absent`] is the 404 a
+/// router returns for a path it never registered.
+#[derive(Debug, Clone, Copy)]
+enum Answer {
+    Served(StatusCode),
+    Absent,
+}
+
+impl Answer {
+    fn status(self) -> StatusCode {
+        match self {
+            Answer::Served(status) => status,
+            Answer::Absent => StatusCode::NOT_FOUND,
+        }
+    }
+}
+
+/// Post the batch payload to `path` on a router built for `mode`, and pin what
+/// comes back.
+async fn assert_answer(mode: CaptureMode, path: &str, expected: Answer) {
+    let status = TestClient::new(build_router_for_mode(mode))
         .post(path)
         .body(ai_batch_payload())
         .header("Content-Type", "application/json")
@@ -59,39 +73,37 @@ async fn is_registered(router: Router, path: &str) -> bool {
         .await
         .status();
 
-    assert!(
-        !status.is_server_error(),
-        "{path} answered {status}; a registration check cannot tell a broken \
-         handler from an unregistered route"
-    );
-    assert_ne!(
+    assert_eq!(
         status,
-        StatusCode::METHOD_NOT_ALLOWED,
-        "{path} matched the router but not POST"
+        expected.status(),
+        "{mode:?} answered {path} with {status}, expected {expected:?}"
     );
-
-    status != StatusCode::NOT_FOUND
 }
 
 /// capture-ai must serve the AI batch path and nothing analytics-shaped.
+///
+/// The multipart and OTEL handlers answer 401 rather than 200: both read the
+/// project token from an `Authorization: Bearer` header, and this file's payload
+/// carries it in the body as `api_key`, the way the batch endpoints take it.
+/// That is still a status only those handlers produce — reaching their auth step
+/// means the router dispatched there — and pinning it is what makes these rows
+/// assert something. Feeding each path a body it fully accepts would prove more,
+/// but the payload shapes (multipart, protobuf) are what the endpoint suites
+/// already cover; this file is about which paths exist.
 #[rstest]
-#[case::ai_batch("/i/v0/ai/batch", true)]
-#[case::ai_batch_trailing_slash("/i/v0/ai/batch/", true)]
-#[case::ai_multipart("/i/v0/ai", true)]
-#[case::ai_otel("/i/v0/ai/otel", true)]
-#[case::analytics_batch("/batch", false)]
-#[case::analytics_event("/e", false)]
-#[case::analytics_capture("/capture", false)]
-#[case::analytics_track("/track", false)]
-#[case::analytics_engage("/engage", false)]
-#[case::analytics_v1("/i/v1/analytics/events", false)]
+#[case::ai_batch("/i/v0/ai/batch", Answer::Served(StatusCode::OK))]
+#[case::ai_batch_trailing_slash("/i/v0/ai/batch/", Answer::Served(StatusCode::OK))]
+#[case::ai_multipart("/i/v0/ai", Answer::Served(StatusCode::UNAUTHORIZED))]
+#[case::ai_otel("/i/v0/ai/otel", Answer::Served(StatusCode::UNAUTHORIZED))]
+#[case::analytics_batch("/batch", Answer::Absent)]
+#[case::analytics_event("/e", Answer::Absent)]
+#[case::analytics_capture("/capture", Answer::Absent)]
+#[case::analytics_track("/track", Answer::Absent)]
+#[case::analytics_engage("/engage", Answer::Absent)]
+#[case::analytics_v1("/i/v1/analytics/events", Answer::Absent)]
 #[tokio::test]
-async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expected: bool) {
-    assert_eq!(
-        is_registered(build_router_for_mode(CaptureMode::Ai), path).await,
-        expected,
-        "capture-ai registration for {path} should be {expected}"
-    );
+async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expected: Answer) {
+    assert_answer(CaptureMode::Ai, path, expected).await;
 }
 
 /// capture-analytics serves the analytics paths and none of the AI ones. It
@@ -99,24 +111,20 @@ async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expecte
 /// everything to one endpoint and divert by event name — so a passing
 /// `/batch` case here is what keeps that route alive.
 #[rstest]
-#[case::analytics_batch("/batch", true)]
-#[case::analytics_batch_trailing_slash("/batch/", true)]
-#[case::analytics_event("/e", true)]
-#[case::analytics_capture("/capture", true)]
-#[case::analytics_track("/track", true)]
-#[case::ai_batch("/i/v0/ai/batch", false)]
-#[case::ai_multipart("/i/v0/ai", false)]
-#[case::ai_otel("/i/v0/ai/otel", false)]
+#[case::analytics_batch("/batch", Answer::Served(StatusCode::OK))]
+#[case::analytics_batch_trailing_slash("/batch/", Answer::Served(StatusCode::OK))]
+#[case::analytics_event("/e", Answer::Served(StatusCode::OK))]
+#[case::analytics_capture("/capture", Answer::Served(StatusCode::OK))]
+#[case::analytics_track("/track", Answer::Served(StatusCode::OK))]
+#[case::ai_batch("/i/v0/ai/batch", Answer::Absent)]
+#[case::ai_multipart("/i/v0/ai", Answer::Absent)]
+#[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
 #[tokio::test]
 async fn events_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
-    #[case] expected: bool,
+    #[case] expected: Answer,
 ) {
-    assert_eq!(
-        is_registered(build_router_for_mode(CaptureMode::Events), path).await,
-        expected,
-        "capture-analytics registration for {path} should be {expected}"
-    );
+    assert_answer(CaptureMode::Events, path, expected).await;
 }
 
 /// Import is an analytics deployment restricted to backfills, so it serves the
@@ -124,22 +132,18 @@ async fn events_mode_registers_only_the_analytics_paths(
 /// belong to capture-ai, and they build their own context with
 /// `historical_migration: false`, which would sidestep the import gates.
 #[rstest]
-#[case::analytics_batch("/batch", true)]
-#[case::analytics_event("/e", true)]
-#[case::analytics_v0_event("/i/v0/e", true)]
-#[case::ai_batch("/i/v0/ai/batch", false)]
-#[case::ai_multipart("/i/v0/ai", false)]
-#[case::ai_multipart_trailing_slash("/i/v0/ai/", false)]
-#[case::ai_otel("/i/v0/ai/otel", false)]
-#[case::ai_otel_trailing_slash("/i/v0/ai/otel/", false)]
+#[case::analytics_batch("/batch", Answer::Served(StatusCode::OK))]
+#[case::analytics_event("/e", Answer::Served(StatusCode::OK))]
+#[case::analytics_v0_event("/i/v0/e", Answer::Served(StatusCode::OK))]
+#[case::ai_batch("/i/v0/ai/batch", Answer::Absent)]
+#[case::ai_multipart("/i/v0/ai", Answer::Absent)]
+#[case::ai_multipart_trailing_slash("/i/v0/ai/", Answer::Absent)]
+#[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
+#[case::ai_otel_trailing_slash("/i/v0/ai/otel/", Answer::Absent)]
 #[tokio::test]
 async fn import_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
-    #[case] expected: bool,
+    #[case] expected: Answer,
 ) {
-    assert_eq!(
-        is_registered(build_router_for_mode(CaptureMode::Import), path).await,
-        expected,
-        "capture-import registration for {path} should be {expected}"
-    );
+    assert_answer(CaptureMode::Import, path, expected).await;
 }
