@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cl
     shard_from_api_key,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -65,21 +66,27 @@ class TestGetResource:
 
         assert resource["name"] == "patients"
         assert resource["write_disposition"] == "replace"
-        endpoint = resource["endpoint"]
+        # `EndpointResource.endpoint` is typed `str | Endpoint | None`; `get_resource` always sets
+        # a dict, so the cast makes that runtime shape explicit for indexing below.
+        endpoint = cast(Endpoint, resource["endpoint"])
         assert endpoint["path"] == "/patients"
         assert endpoint["data_selector"] == "patients"
-        assert endpoint["params"]["q[]"] is None
-        assert endpoint["params"]["sort"] == "created_at:asc"
+        # `endpoint["params"]` is typed `Optional[dict[...]]`; `get_resource` always sets one, so
+        # the cast makes that runtime shape explicit for indexing below.
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["q[]"] is None
+        assert params["sort"] == "created_at:asc"
 
     def test_incremental_sets_merge_disposition_and_filter(self) -> None:
         resource = get_resource("invoices", should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        endpoint = resource["endpoint"]
-        assert endpoint["params"]["sort"] == "updated_at:asc"
-        # `endpoint["params"]` values are typed as a resolve/incremental/Any union, so the
+        endpoint = cast(Endpoint, resource["endpoint"])
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["sort"] == "updated_at:asc"
+        # `params` values are typed as a resolve/incremental/Any union, so the
         # cast makes the runtime shape (an incremental filter dict, including `convert`) explicit.
-        q_filter = cast(dict[str, Any], endpoint["params"]["q[]"])
+        q_filter = cast(dict[str, Any], params["q[]"])
         assert q_filter["type"] == "incremental"
         assert q_filter["convert"](datetime(2024, 1, 1, tzinfo=UTC)) == "updated_at:>2024-01-01T00:00:00Z"
 
