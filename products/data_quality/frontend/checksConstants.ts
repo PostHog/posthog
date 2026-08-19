@@ -79,7 +79,7 @@ export function checkTypeLabel(checkType: string): string {
 }
 
 /** The check's own name when it has one, otherwise a description of the assertion it makes. */
-export function checkDisplayName(check: DataQualityCheckApi): string {
+export function checkDisplayName(check: Pick<DataQualityCheckApi, 'name' | 'check_type' | 'column_name'>): string {
     if (check.name) {
         return check.name
     }

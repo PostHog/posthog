@@ -1,12 +1,10 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
-import { DataQualitySubjectRef, DataQualitySubjectType, checksApi } from './checksApi'
+import { DataQualitySubjectRef, DataQualitySubjectType, apiErrorDetail, checksApi } from './checksApi'
 import { checkDisplayName } from './checksConstants'
 import type {
     DataQualityCheckApi,
@@ -14,7 +12,8 @@ import type {
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
 } from './generated/api.schemas'
-import { POLL_TIMEOUT_MS, isTerminalSuiteRun, latestFailingRowsQuery, pollDelayMs, suiteRunSummary } from './suiteRuns'
+import { openFailingRowsInSqlEditor } from './openFailingRows'
+import { isTerminalSuiteRun, suiteRunOutcome, suiteRunPollListeners, suiteRunSummary } from './suiteRuns'
 
 const CHECKS_LIMIT = 100
 const SUITE_RUNS_LIMIT = 20
@@ -43,10 +42,6 @@ function subjectRef(props: DataQualityChecksLogicProps): DataQualitySubjectRef {
 
 function isForbidden(error: unknown): boolean {
     return error instanceof ApiError && error.status === 403
-}
-
-function apiErrorDetail(error: unknown): string | null {
-    return error instanceof ApiError ? error.detail : null
 }
 
 function checkSortRank(check: DataQualityCheckApi): number {
@@ -354,6 +349,21 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        ...suiteRunPollListeners({
+            retrieve: (suiteRunId) => checksApi.suiteRunRetrieve(subjectRef(props), suiteRunId),
+            // A permanent 403 -- the flag turned off mid-run, or query access revoked -- takes the
+            // panel's access-denied path immediately, like every other request here.
+            onPollError: (error) => {
+                if (!isForbidden(error)) {
+                    return false
+                }
+                actions.setAccessDenied()
+                return true
+            },
+            cache,
+            values,
+            actions,
+        }),
         loadChecksFailure: ({ errorObject }) => {
             if (isForbidden(errorObject)) {
                 actions.setAccessDenied()
@@ -407,27 +417,11 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             }
         },
         openFailingRows: async ({ checkId }) => {
-            // The rows that failed only exist in the run's compiled query, and runs load lazily.
-            let runs = values.checkRunsByCheckId[checkId]
-            if (!runs) {
-                try {
-                    runs = await checksApi.runs(subjectRef(props), checkId)
-                    actions.setCheckRuns(checkId, runs)
-                } catch (error) {
-                    lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
-                    return
-                }
-            }
-            const query = latestFailingRowsQuery(runs)
-            if (!query) {
-                lemonToast.info(
-                    runs.length
-                        ? 'The query for this check is no longer kept. Run the check to see its failing rows.'
-                        : "This check hasn't run yet. Run it to see its failing rows."
-                )
-                return
-            }
-            router.actions.push(urls.sqlEditor({ query }))
+            await openFailingRowsInSqlEditor({
+                cachedRuns: values.checkRunsByCheckId[checkId],
+                fetchRuns: () => checksApi.runs(subjectRef(props), checkId),
+                onRunsFetched: (runs) => actions.setCheckRuns(checkId, runs),
+            })
         },
         loadSuiteRunCheckRuns: async ({ suiteRunId }) => {
             if (values.pendingCheckActions.loadingSuiteRunRuns[suiteRunId]) {
@@ -480,67 +474,6 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 actions.setRunAllInFlight(false)
             }
         },
-        setActiveSuiteRun: ({ suiteRun }) => {
-            cache.disposables.dispose('suiteRunPoll')
-            cache.pollElapsedMs = 0
-            if (!suiteRun) {
-                return
-            }
-            if (isTerminalSuiteRun(suiteRun)) {
-                actions.finishSuiteRun(suiteRun)
-                return
-            }
-            actions.scheduleSuiteRunPoll()
-        },
-        scheduleSuiteRunPoll: () => {
-            const delay = pollDelayMs(cache.pollElapsedMs)
-            cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => {
-                    cache.pollElapsedMs += delay
-                    actions.pollActiveSuiteRun()
-                }, delay)
-                return () => clearTimeout(timeoutId)
-            }, 'suiteRunPoll')
-        },
-        pollActiveSuiteRun: async () => {
-            const running = values.activeSuiteRun
-            if (!running) {
-                return
-            }
-            let polled: DataQualitySuiteRunApi
-            try {
-                polled = await checksApi.suiteRunRetrieve(subjectRef(props), running.id)
-            } catch (error) {
-                // A permanent 403 — the flag turned off mid-run, or query access revoked — takes the
-                // panel's access-denied path immediately, like every other request here.
-                if (isForbidden(error)) {
-                    actions.setAccessDenied()
-                    return
-                }
-                // Other failures are treated as transient and not worth a toast; the next poll retries
-                // until the timeout, so a persistently failing request stops rather than polling forever.
-                if (cache.pollElapsedMs >= POLL_TIMEOUT_MS) {
-                    actions.setPollTimedOut()
-                    return
-                }
-                actions.scheduleSuiteRunPoll()
-                return
-            }
-            // A newer run may have started while this retrieve was in flight. A stale terminal
-            // response would otherwise finish the old run and dispose the newer run's poll.
-            if (cache.disposables.isDisposed || values.activeSuiteRun?.id !== running.id) {
-                return
-            }
-            if (isTerminalSuiteRun(polled)) {
-                actions.finishSuiteRun(polled)
-                return
-            }
-            if (cache.pollElapsedMs >= POLL_TIMEOUT_MS) {
-                actions.setPollTimedOut()
-                return
-            }
-            actions.scheduleSuiteRunPoll()
-        },
         finishSuiteRun: ({ suiteRun }) => {
             cache.disposables.dispose('suiteRunPoll')
             actions.loadChecks()
@@ -554,11 +487,12 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             if (values.suiteRunsRequested) {
                 actions.loadSuiteRuns()
             }
-            if (suiteRun.status === 'empty') {
+            const outcome = suiteRunOutcome(suiteRun)
+            if (outcome === 'empty') {
                 lemonToast.info('No enabled checks to run')
-            } else if (suiteRun.status === 'failed' && !suiteRun.checks_failed) {
-                lemonToast.error(suiteRun.error || 'The checks could not be run. Try again.')
-            } else if (suiteRun.checks_failed || suiteRun.checks_errored) {
+            } else if (outcome === 'errored') {
+                lemonToast.error(suiteRun.error || "Couldn't run checks. Try again.")
+            } else if (outcome === 'warning') {
                 lemonToast.warning(suiteRunSummary(suiteRun))
             } else {
                 lemonToast.success(suiteRunSummary(suiteRun))

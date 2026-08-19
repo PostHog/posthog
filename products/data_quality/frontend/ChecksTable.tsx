@@ -4,16 +4,10 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 
 import { CheckRunsTable } from './CheckRunsTable'
-import {
-    CHECK_STATUS_TAG_TYPES,
-    SEVERITY_TAG_TYPES,
-    checkDisplayName,
-    checkTypeLabel,
-    failingForLabel,
-} from './checksConstants'
+import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
+import { CheckStatusCell } from './CheckStatusCell'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import type { DataQualityCheckApi } from './generated/api.schemas'
@@ -158,28 +152,6 @@ export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Elemen
                 },
             ]}
         />
-    )
-}
-
-/** The status, plus how long it has been broken -- a red tag alone never says "since when". */
-function CheckStatusCell({ check }: { check: DataQualityCheckApi }): JSX.Element {
-    const failingFor = failingForLabel(check)
-    if (!check.last_status) {
-        return <LemonTag type="muted">Not run yet</LemonTag>
-    }
-    return (
-        <div className="flex items-center gap-1.5">
-            <LemonTag type={CHECK_STATUS_TAG_TYPES[check.last_status] ?? 'default'}>{check.last_status}</LemonTag>
-            {failingFor && (
-                <Tooltip
-                    title={
-                        check.last_succeeded_at ? `Last passed ${dayjs(check.last_succeeded_at).fromNow()}` : undefined
-                    }
-                >
-                    <span className="text-secondary text-xs whitespace-nowrap">{failingFor}</span>
-                </Tooltip>
-            )}
-        </div>
     )
 }
 
