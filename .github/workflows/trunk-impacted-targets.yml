@@ -276,11 +276,12 @@ jobs:
               with:
                   # Run only trusted base-branch code with the token that can edit PR comments.
                   ref: ${{ github.event.pull_request.base.sha }}
-
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  # The poster is two committed scripts that use only Node built-ins, so it
+                  # needs neither the full tree nor a Node install. Fetch just those paths and
+                  # run the runner's preinstalled Node.
+                  sparse-checkout: |
+                      .github/scripts
+                      frontend/bin/ci-report
 
             - name: Post Trunk lane to CI report
               env:
