@@ -883,7 +883,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
             ])
         )
-        expect(flags).toHaveLength(31)
+        expect(flags).toHaveLength(32)
     })
 
     it('every loops tool is gated on the loops flag', () => {
