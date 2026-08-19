@@ -318,6 +318,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         assert body["scrollPage"] is True
         assert body["blockConsentModals"] is True
         assert "blockAds" not in body
+        # Asserted as a literal because customers allow the render through their WAF by matching
+        # this exact header, so renaming it breaks their firewall rules.
+        assert body["setExtraHTTPHeaders"] == {"X-PostHog-Heatmap-Screenshot": "1"}
         # (connect, read) timeout tuple wired from settings
         assert mock_requests.post.call_args.kwargs["timeout"] == (30.0, 210.0)
 

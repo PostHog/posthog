@@ -32,6 +32,13 @@ HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
 HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
 HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
+# Identifies the render to sites behind a WAF, so they can allow it without allowing headless
+# browsers in general. Browserless loads the page from its own worker fleet rather than from
+# PostHog's egress IPs, so source IP is a poor signal for customers to write firewall rules against.
+# The name is published in the heatmaps docs, which makes it a public contract.
+# Do not put a secret in this value, because extra headers are applied to every request the page
+# makes, including cross-origin subresources.
+HEATMAP_SCREENSHOT_HEADER = "X-PostHog-Heatmap-Screenshot"
 
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
@@ -398,6 +405,9 @@ def _browserless_screenshot(
         "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
         "scrollPage": True,
         "bestAttempt": True,
+        # Part of the documented /screenshot schema, so unlike the cloud-only fields below it is
+        # also accepted by the self-hosted image.
+        "setExtraHTTPHeaders": {HEATMAP_SCREENSHOT_HEADER: "1"},
     }
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
