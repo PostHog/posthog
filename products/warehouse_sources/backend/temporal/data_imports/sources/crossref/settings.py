@@ -34,7 +34,7 @@ INCREMENTAL_OPTIONS: dict[str, CrossrefIncrementalOption] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class CrossrefEndpointConfig:
     name: str
     path: str

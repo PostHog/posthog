@@ -163,6 +163,13 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
         resumable_source_manager: ResumableSourceManager[CrossrefResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if (
+            inputs.schema_name is not None
+            and ENDPOINTS[inputs.schema_name].requires_scope
+            and not self._has_scope(config)
+        ):
+            raise ValueError(_SCOPE_REQUIRED_MESSAGE)
+
         return crossref_source(
             endpoint=inputs.schema_name,
             logger=inputs.logger,

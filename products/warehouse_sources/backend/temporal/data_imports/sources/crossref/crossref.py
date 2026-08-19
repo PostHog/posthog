@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.s
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CrossrefResumeConfig:
     cursor: str
 

@@ -184,3 +184,19 @@ class TestCrossrefSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_crossref_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
+    def test_source_for_pipeline_rejects_unscoped_works_even_if_stored_config_lost_its_scope(
+        self, mock_crossref_source
+    ):
+        # Setup-time validation can't stop a scope from being cleared after Works is already
+        # enabled, so source_for_pipeline must re-check it on every run before an unscoped sync
+        # of the full 160M+ row Works registry can happen.
+        inputs = mock.MagicMock()
+        inputs.schema_name = "Works"
+        config = CrossrefSourceConfig()  # no member_id/funder_id/issn
+
+        with pytest.raises(ValueError, match="Set a member ID, funder ID, or journal ISSN"):
+            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+
+        mock_crossref_source.assert_not_called()
