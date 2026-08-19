@@ -29,13 +29,12 @@ function task(runId: string, status: "failed" | "in_progress"): Task {
 
 function signalsTaskWithoutRun(): Task {
   return {
-    id: "task-123",
+    ...task("pending-run", "in_progress"),
     title: "Generate report canvas",
     description: "Generate a canvas",
-    repository: null,
     origin_product: "signal_report",
-    latest_run: null,
-  } as Task;
+    latest_run: undefined,
+  };
 }
 
 describe("useRefreshedTask", () => {
