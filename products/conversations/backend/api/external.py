@@ -46,14 +46,20 @@ class _ExternalTicketThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+# Both the GET and the PATCH on ExternalTicketView draw from these buckets, and the key is the
+# team's secret token, so every workflow in a project shares one budget. A single ticket event
+# fans out to every workflow subscribed to it, and each of those may read and write the ticket
+# several times, so the ceiling has to cover a project's whole automation fan-out rather than a
+# single caller. These are also a sliding window log rather than a token bucket, which means
+# exhausting the hourly budget in a burst locks the project out until those requests age out.
 class ExternalTicketBurstThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_burst"
-    rate = "60/minute"
+    rate = "600/minute"
 
 
 class ExternalTicketSustainedThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_sustained"
-    rate = "600/hour"
+    rate = "6000/hour"
 
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
