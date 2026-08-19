@@ -879,6 +879,12 @@ def _fill_empty_buckets(
     return result
 
 
+_DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
+    "list_destinations": ["logs:read"],
+    "create_destination": ["logs:write"],
+}
+
+
 @extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
@@ -888,14 +894,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     posthog_feature_flag = "logs-alerting"
     permission_classes = [PostHogFeatureFlagPermission]
 
-    # create_destination and list_destinations share the `destinations` URL, so they share one
-    # set of @action initkwargs and cannot each declare their own required_scopes.
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        if view.action == "list_destinations":
-            return ["logs:read"]
-        if view.action == "create_destination":
-            return ["logs:write"]
-        return None
+        return _DESTINATIONS_URL_REQUIRED_SCOPES.get(view.action)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -983,8 +983,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    # required_scopes is set in dangerously_get_required_scopes, not here. Setting it on the
-    # decorator would apply logs:write to list_destinations too, which shares this URL.
     @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)

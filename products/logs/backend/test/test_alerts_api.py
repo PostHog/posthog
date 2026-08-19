@@ -1040,15 +1040,15 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()["hog_function_ids"]
 
-    def _make_foreign_hog_function(self, *, team: Team, alert_id: str, url: str) -> HogFunction:
+    def _make_webhook_hog_function(self, *, team: Team, alert_id: str, inputs: dict) -> HogFunction:
         return HogFunction.objects.create(
             team=team,
-            name="Other team destination",
+            name="Directly created destination",
             type="destination",
             template_id="template-webhook",
             enabled=True,
             inputs_schema=[{"key": "url", "type": "string"}],
-            inputs={"url": {"value": url}},
+            inputs=inputs,
             hog="return event",
             filters={
                 "events": [{"id": "$logs_alert_firing", "type": "events"}],
@@ -1056,7 +1056,24 @@ class TestLogsAlertAPI(APIBaseTest):
             },
         )
 
-    def test_list_destinations_returns_slack_config(self):
+    def test_list_destinations_returns_slack_ids_unredacted(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"],
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"},
+        )
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()["results"]
+        assert len(destinations) == 1
+        assert destinations[0]["type"] == "slack"
+        assert destinations[0]["slack_workspace_id"] == 42
+        assert destinations[0]["slack_channel_id"] == "C123"
+
+    def test_list_destinations_omits_slack_channel_name(self):
         self._sync_destination_templates()
         created = self._create_via_api()
         self._create_destination(
@@ -1067,15 +1084,7 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()["results"]
-        assert len(destinations) == 1
-        assert destinations[0]["type"] == "slack"
-        # Slack config is returned whole: the workspace is an integration ID, and the channel ID
-        # is useless without it, so neither is a credential the way a webhook URL is.
-        assert destinations[0]["slack_workspace_id"] == 42
-        assert destinations[0]["slack_channel_id"] == "C123"
-        # Creation writes slack_channel_name into the HogFunction name, not its inputs.
-        assert "slack_channel_name" not in destinations[0]
+        assert "slack_channel_name" not in response.json()["results"][0]
 
     def test_list_destinations_pages_in_creation_order_without_overlap(self):
         self._sync_destination_templates()
@@ -1148,7 +1157,6 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         destinations = response.json()["results"]
-        # Two destinations, four HogFunctions each, not eight single-function entries.
         assert len(destinations) == 2
         by_type = {destination["type"]: destination for destination in destinations}
         assert sorted(by_type["slack"]["hog_function_ids"]) == sorted(slack_ids)
@@ -1165,6 +1173,21 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         destinations = response.json()["results"]
         assert sorted(destination["slack_channel_id"] for destination in destinations) == ["C1", "C2"]
+
+    def test_list_destinations_keeps_rows_with_unreadable_inputs_apart(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        unreadable = [
+            self._make_webhook_hog_function(team=self.team, alert_id=created["id"], inputs={}) for _ in range(2)
+        ]
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()["results"]
+        assert sorted(destination["hog_function_ids"] for destination in destinations) == sorted(
+            [str(hog_function.id)] for hog_function in unreadable
+        )
 
     def test_list_destinations_returns_empty_list_without_destinations(self):
         created = self._create_via_api()
@@ -1193,7 +1216,6 @@ class TestLogsAlertAPI(APIBaseTest):
         self._sync_destination_templates()
         created_a = self._create_via_api()
         created_b = self._create_via_api(name="Another alert")
-        # Distinct hosts, not distinct paths: the read redacts the path away.
         self._create_destination(created_a["id"], {"type": "webhook", "webhook_url": "https://a.example.com/hook"})
         self._create_destination(created_b["id"], {"type": "webhook", "webhook_url": "https://b.example.com/hook"})
 
@@ -1207,7 +1229,9 @@ class TestLogsAlertAPI(APIBaseTest):
         created = self._create_via_api()
         self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://ours.example.com/hook"})
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        self._make_foreign_hog_function(team=other_team, alert_id=created["id"], url="https://theirs.example.com/hook")
+        self._make_webhook_hog_function(
+            team=other_team, alert_id=created["id"], inputs={"url": {"value": "https://theirs.example.com/hook"}}
+        )
 
         response = self.client.get(self._destinations_url(created["id"]))
 
@@ -2408,8 +2432,6 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         assert response.status_code == 403, response.json()
 
     # --- list_destinations action (GET detail, requires logs:read) ---
-    # Shares the `destinations` URL with create_destination, so these also prove the
-    # per-method scope split holds in both directions.
 
     def test_list_destinations_allowed_with_logs_read_scope(self):
         key = self.create_personal_api_key_with_scopes(["logs:read"])

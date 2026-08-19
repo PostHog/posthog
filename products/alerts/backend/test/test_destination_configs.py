@@ -1,4 +1,15 @@
-from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
+import pytest
+
+from products.alerts.backend.destination_configs import (
+    AlertDestinationAction,
+    AlertDestinationData,
+    DestinationType,
+    EventKindSpec,
+    build_alert_destination_config,
+    read_alert_destination_data,
+    slack_blocks,
+    teams_text,
+)
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -54,3 +65,50 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
+
+
+def _build_payload(data: AlertDestinationData) -> dict:
+    config = build_alert_destination_config(
+        team=None,
+        spec=DEFAULT_SPEC,
+        alert_id="alert-1",
+        alert_name="Alert",
+        data=data,
+        slack_context_elements=(),
+    )
+    return config.payload
+
+
+class TestDestinationDataSurvivesTheHogFunctionRoundTrip:
+    @pytest.mark.parametrize(
+        "data",
+        [
+            pytest.param(
+                {"type": DestinationType.SLACK, "slack_workspace_id": 7, "slack_channel_id": "C1"}, id="slack"
+            ),
+            pytest.param({"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"}, id="webhook"),
+            pytest.param({"type": DestinationType.DISCORD, "webhook_url": "https://example.com/discord"}, id="discord"),
+            pytest.param({"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"}, id="teams"),
+        ],
+    )
+    def test_read_recovers_everything_build_was_given(self, data: AlertDestinationData) -> None:
+        payload = _build_payload(data)
+
+        assert read_alert_destination_data(destination_type=data["type"], inputs=payload["inputs"]) == data
+
+    def test_build_puts_slack_channel_name_in_the_name_so_read_cannot_recover_it(self) -> None:
+        payload = _build_payload(
+            {
+                "type": DestinationType.SLACK,
+                "slack_workspace_id": 7,
+                "slack_channel_id": "C1",
+                "slack_channel_name": "alerts",
+            }
+        )
+
+        assert "Slack #alerts" in payload["name"]
+        assert read_alert_destination_data(destination_type=DestinationType.SLACK, inputs=payload["inputs"]) == {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 7,
+            "slack_channel_id": "C1",
+        }

@@ -272,10 +272,21 @@ def list_active_alert_destinations(
 
 @dataclass(frozen=True, kw_only=True)
 class AlertDestinationGroup:
-    """One destination as the user configured it, plus the HogFunctions standing in for it."""
-
     hog_function_ids: tuple[str, ...]
     data: AlertDestinationData
+
+
+def _destination_type_for_template(template_id: str | None) -> DestinationType | None:
+    destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+    return DestinationType(destination_type_value) if destination_type_value else None
+
+
+def _destination_group_key(
+    *, destination_type: DestinationType, data: AlertDestinationData, hog_function_id: str
+) -> tuple:
+    shared_config = tuple(sorted((key, value) for key, value in data.items() if key != "type"))
+    unique_to_this_row = (("hog_function_id", hog_function_id),)
+    return (destination_type.value, shared_config or unique_to_this_row)
 
 
 def list_alert_destination_groups(
@@ -285,13 +296,6 @@ def list_alert_destination_groups(
     allowed_event_ids: Collection[str],
     allowed_destination_types: Collection[DestinationType],
 ) -> list[AlertDestinationGroup]:
-    """The alert's destinations, one entry each rather than one per HogFunction.
-
-    Creating a destination fans out into one HogFunction per event kind, so regroup them by
-    the config they share. Note this groups more finely than `soft_delete_alert_destinations`,
-    which groups by template alone, so two destinations of one type list separately here but
-    cannot yet be deleted individually.
-    """
     rows = (
         HogFunction.objects.filter(
             _allowed_event_filter(allowed_event_ids),
@@ -309,18 +313,11 @@ def list_alert_destination_groups(
     ids_by_key: dict[tuple, list[str]] = {}
     data_by_key: dict[tuple, AlertDestinationData] = {}
     for hog_function_id, template_id, inputs in rows:
-        # template_id is nullable on the model, so narrow it even though the filter above
-        # only matches the destination templates.
-        destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
-        if destination_type_value is None:
+        destination_type = _destination_type_for_template(template_id)
+        if destination_type is None:
             continue
-        destination_type = DestinationType(destination_type_value)
         data = read_alert_destination_data(destination_type=destination_type, inputs=inputs or {})
-        config: dict[str, Any] = {key: value for key, value in data.items() if key != "type"}
-        # A row with no readable config can't be matched against its siblings, so give it a
-        # key of its own instead of merging unrelated destinations together.
-        config_key = tuple(sorted(config.items())) if config else (("id", str(hog_function_id)),)
-        key = (destination_type.value, config_key)
+        key = _destination_group_key(destination_type=destination_type, data=data, hog_function_id=str(hog_function_id))
         ids_by_key.setdefault(key, []).append(str(hog_function_id))
         data_by_key.setdefault(key, data)
 
