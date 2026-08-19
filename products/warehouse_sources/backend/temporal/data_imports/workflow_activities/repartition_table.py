@@ -262,7 +262,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Log the rollout-flag verdict (and the recorded/budget sizes) so it's clear from the Syncs UI why a
     # table does or doesn't repartition — a disabled flag is the most common reason for a no-op. Note
-    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate no longer trusts
+    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate does not trust
     # it, the live size is read below. Evaluate the flag once and thread the result into the
     # pre-extraction detection path so it isn't re-evaluated inside maybe_flag_for_repartition.
     enabled = is_auto_repartition_enabled(schema)
