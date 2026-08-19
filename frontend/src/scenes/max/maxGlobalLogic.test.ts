@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -179,5 +179,26 @@ describe('maxGlobalLogic', () => {
                 await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
             }
         )
+    })
+})
+
+// This global logic mounts on team-less pages such as the invite signup page. A team-scoped fetch
+// there throws "Team ID is not known" and stacks red error toasts on a first-impression onboarding
+// surface, so the mount-time fetch must be skipped until a team is resolved.
+describe('maxGlobalLogic without a current team', () => {
+    it('skips the mount-time conversation fetch', async () => {
+        useMocks(maxMocks)
+        initKeaTests()
+        ApiConfig.setCurrentTeamId(null)
+        const listSpy = jest.spyOn(api.conversations, 'list')
+
+        const logic = maxGlobalLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(logic.values.conversationHistory).toEqual([])
+        logic.unmount()
+        jest.restoreAllMocks()
     })
 })

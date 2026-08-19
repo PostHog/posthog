@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -323,6 +323,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
+                    // This global logic mounts on every scene, including team-less pages such as
+                    // the invite signup page. There api.conversations.list() throws "Team ID is not
+                    // known" before it reaches the network. Skip the fetch until a team is resolved.
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return values.conversationHistory
+                    }
                     const response = await api.conversations.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
