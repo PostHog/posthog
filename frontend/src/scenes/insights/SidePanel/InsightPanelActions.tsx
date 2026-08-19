@@ -152,6 +152,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
             {canExport ? (
                 <SceneExportDropdownMenu
+                    insightShortId={insight.short_id}
                     dropdownMenuItems={[
                         {
                             format: ExporterFormat.PNG,
