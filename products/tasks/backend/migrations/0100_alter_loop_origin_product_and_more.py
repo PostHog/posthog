@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0098_task_workflow_indexes"),
+        ("tasks", "0099_task_workflow_indexes"),
     ]
 
     operations = [

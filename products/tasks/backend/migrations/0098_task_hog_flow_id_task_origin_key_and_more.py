@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1305_alter_identityproviderconfig_saml_relay_state_and_more"),
         ("signals", "0094_delete_session_analysis_source_configs"),
-        ("tasks", "0096_taskworkflowdispatch"),
+        ("tasks", "0097_sandboxsession_billed_cpu_usage"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

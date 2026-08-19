@@ -6,7 +6,7 @@ from posthog.migration_helpers import CreateIndexConcurrently, SafeAddIndexConcu
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [("tasks", "0097_task_hog_flow_id_task_origin_key_and_more")]
+    dependencies = [("tasks", "0098_task_hog_flow_id_task_origin_key_and_more")]
 
     operations = [
         SafeAddIndexConcurrently(

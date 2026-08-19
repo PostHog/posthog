@@ -2,8 +2,10 @@
 
 Source health is computed purely from ExternalDataSource / ExternalDataSchema /
 ExternalDataJob rows, so each platform below is staged into a different
-`last_sync_status`. TikTok is deliberately not created: its traffic makes the
-diagnose service report `events_only`.
+`last_sync_status`.
+
+Every native platform gets a source here, so no platform lands in `events_only`
+and `connect_source` is the one suggestion kind this fixture never produces.
 """
 
 import datetime as dt
