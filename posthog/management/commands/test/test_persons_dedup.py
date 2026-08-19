@@ -312,10 +312,10 @@ class TestPersonsDedupDeleteOnly:
 
 class TestPersonsDedupBatching:
     # Every other case here stages one or two victims against the default batch size of 500,
-    # so the drain loop only ever runs once. The largest production team stages 436k victims
-    # and runs it ~220 times: a bug in the take/retire cycle -- retiring the wrong rows, or
-    # not truncating the batch table -- would strand most of that team while still reporting
-    # success. These are the only cases where a second populated batch happens at all.
+    # so the drain loop only ever runs once. A real team runs it hundreds of times, where a
+    # bug in the take/retire cycle -- retiring the wrong rows, or not truncating the batch
+    # table -- would strand most of that team while still reporting success. These are the
+    # only cases where a second populated batch happens at all.
     def test_drains_every_batch_when_victims_exceed_batch_size(self, persons_conn, tmp_path):
         for n in range(5):
             _add_orphan_pair(persons_conn, _uuid(40 + n), f"did-40-{n}")
@@ -482,7 +482,7 @@ class TestPersonsDedupRepair:
         assert _dup_groups(persons_conn) == 1
 
     def test_all_orphan_group_keeps_the_identified_row(self, persons_conn, tmp_path):
-        # 18,508 of the 199,314 EU duplicate groups have no member owning a distinct ID, so
+        # A sizeable share of real duplicate groups have no member owning a distinct ID, so
         # the leading (n_did > 0) term in the survivor ranking cannot break the tie and the
         # rest of it decides alone. Nothing else exercises that branch, and getting it wrong
         # discards the richer row while keeping an empty one.

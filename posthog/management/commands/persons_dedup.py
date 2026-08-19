@@ -210,11 +210,17 @@ DELETE FROM {VICTIMS_TABLE} v USING {VICTIMS_TABLE}_batch b
 WHERE v.team_id = b.team_id AND v.id = b.id
 """
 
-# Drop from the staged set the batch members a concurrent writer made undeletable: one that
-# gained a reference since staging, or one that no longer exists because something else
-# removed it. Aborting the whole run instead would discard a staging scan that costs minutes
-# on the large teams, and on a team still receiving writes it can prevent the run finishing
-# at all. Only the staged set is touched -- no person row is modified.
+# Drop from the staged set the batch members a concurrent writer made undeletable. Aborting
+# the whole run instead would discard a staging scan that costs minutes on the large teams,
+# and on a team still receiving writes it can stop the run finishing at all. Only the staged
+# set is touched -- no person row is modified. Three ways a victim stops being one:
+#   1. it no longer exists, because something else removed it;
+#   2. it gained a reference since staging, so it is now reachable;
+#   3. its group lost the survivor, so the staged victims are all that remains of the key.
+#      Deleting them would remove it entirely, and it is no longer a duplicate anyway.
+# Case 3 must be here as well as in the gate: without it, a concurrent delete of an unstaged
+# survivor fails GATE_NO_SURVIVOR_SQL, matches none of the other predicates, and aborts the
+# team over a batch that is merely no longer worth deleting.
 PRUNE_BATCH_SQL = f"""
 DELETE FROM {VICTIMS_TABLE} v
 USING {VICTIMS_TABLE}_batch b
@@ -226,6 +232,10 @@ WHERE v.team_id = b.team_id AND v.id = b.id
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
    OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
                WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
+   OR (SELECT count(*) FROM posthog_person p
+        WHERE p.team_id = v.team_id AND p.uuid = v.uuid)
+      <= (SELECT count(*) FROM {VICTIMS_TABLE}_batch b2
+           WHERE b2.team_id = v.team_id AND b2.uuid = v.uuid)
   )
 """
 
