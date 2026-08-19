@@ -52,7 +52,7 @@ if (typeof(record) == 'array') {
         'httpResponse': {
             'status': 400,
             'body': {
-                'error': 'Send one log record per request — one request emits one $http_log event. Batched arrays are not supported.'
+                'error': 'Send one log record per request. One request emits one $http_log event, and batched arrays are not supported.'
             }
         }
     }
@@ -108,6 +108,8 @@ if (empty(host)) {
 
 if (empty(pathWithQuery)) {
     pathWithQuery := '/'
+} else if (substring(pathWithQuery, 1, 1) != '/') {
+    pathWithQuery := f'/{pathWithQuery}'
 }
 
 fun parseQueryParams(u) {
@@ -128,10 +130,14 @@ fun parseQueryParams(u) {
         if (empty(pair)) {
             continue
         }
-        let kv := splitByString('=', pair, 2)
-        let key := kv[1]
-        if (length(kv) > 1 and notEmpty(kv[2])) {
-            params[key] := tryDecodeURLComponent(kv[2]) ?? kv[2]
+        // Split on the first '=' only, so values containing '=' (base64, signed tokens) survive.
+        let eqIdx := position(pair, '=')
+        if (eqIdx > 0) {
+            let key := substring(pair, 1, eqIdx - 1)
+            let value := substring(pair, eqIdx + 1, length(pair) - eqIdx)
+            if (notEmpty(key) and notEmpty(value)) {
+                params[key] := tryDecodeURLComponent(value) ?? value
+            }
         }
     }
     return params

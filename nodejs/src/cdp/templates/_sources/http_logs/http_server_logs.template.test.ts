@@ -28,7 +28,7 @@ describe('http log source templates', () => {
             {},
             {
                 request: createRequest({
-                    url: 'https://example.com/pricing?utm_source=newsletter&utm_campaign=launch',
+                    url: 'https://example.com/pricing?utm_source=newsletter&utm_campaign=launch&utm_term=a==b',
                     method: 'GET',
                     status_code: 200,
                     ip: '203.0.113.7',
@@ -45,7 +45,7 @@ describe('http log source templates', () => {
         expect(response.capturedPostHogEvents[0].event).toEqual('$http_log')
         expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
         expect(response.capturedPostHogEvents[0].properties).toMatchObject({
-            $current_url: 'https://example.com/pricing?utm_source=newsletter&utm_campaign=launch',
+            $current_url: 'https://example.com/pricing?utm_source=newsletter&utm_campaign=launch&utm_term=a==b',
             $host: 'example.com',
             $pathname: '/pricing',
             $referrer: 'https://www.google.com/',
@@ -54,6 +54,7 @@ describe('http log source templates', () => {
             $process_person_profile: false,
             utm_source: 'newsletter',
             utm_campaign: 'launch',
+            utm_term: 'a==b',
             method: 'GET',
             status_code: 200,
             log_timestamp_ms: 1735689600000,
