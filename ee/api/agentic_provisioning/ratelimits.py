@@ -77,16 +77,18 @@ BLOCKED = 0
 # Multipliers for budgets that must not scale with tier (polling caps).
 FLAT_MULTIPLIERS: dict[PartnerTier, int] = dict.fromkeys(TIER_MULTIPLIERS, 1)
 
-# Error codes whose requests provably did no work: pure rejections raised
-# before any side effect or outbound call. Any invalid_* code counts as no-work
-# too (see _did_no_work), so validation codes need no entry here. Codes like
+# Error codes whose requests provably did no work: rejections raised before the
+# endpoint writes anything or calls out. Any invalid_* code counts as no-work too
+# (see _did_no_work), so validation codes need no entry here. Codes like
 # github_unavailable are deliberately absent because the outbound call already
-# happened.
+# happened, and so is not_found: the endpoints that raise it do so only after
+# resolving the resource, so refunding it would make repeated probes free. An
+# endpoint that rejects before resolving anything can name its own code in
+# refund_on.
 DID_NO_WORK_CODES: frozenset[str] = frozenset(
     {
         "forbidden",
         "unauthorized",
-        "not_found",
         "no_team",
         "team_not_found",
         "grant_not_found",
@@ -390,7 +392,14 @@ def account_creation_daily_ceiling(partner: OAuthApplication, budget: Budget) ->
     """Durable backstop on account creation: the Redis bucket forgets on
     eviction or failover, this Postgres count of accounts the partner actually
     created in the last day does not. Sized to the bucket's own daily
-    throughput, so it only bites when the bucket lost state."""
+    throughput, so it only bites when the bucket lost state.
+
+    Counts live mappings, so removing a provisioned resource lowers the count
+    again while the organization and user it created remain. A partner willing
+    to remove what it provisioned can therefore keep creating through an outage.
+    Closing that needs an append-only record of creations, which the mapping row
+    is not; the bound accepted here is the coarse one this backstop was for.
+    """
     # Not serialized: locking the partner row would put every account request behind
     # one writer to hold a cap that is already coarse (a day of bucket throughput), and
     # overshoot is bounded by how many requests one partner has in flight at once.
