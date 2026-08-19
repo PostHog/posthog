@@ -16,9 +16,11 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
+from structlog.testing import capture_logs
 
 from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
@@ -53,7 +55,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
@@ -2722,19 +2724,77 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
 
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
+    def test_missing_installation_id_records_install_request(self, mock_from_code, client: HttpClient):
+        # Team-flow counterpart of the personal flow's pending-approval recording
+        # (test_user_integration.py): same durable GitHubInstallRequest row, reached from the
+        # team-connect entry point instead of the personal one.
+        client.force_login(self.user)
+        mock_from_code.return_value = self._github_user_authorization()
+        state_token = "pending-token-with-code"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": "request", "code": "gh-code", "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_install_pending=1" in response["Location"]
+        install_request = GitHubInstallRequest.objects.get(user=self.user)
+        assert install_request.github_user_id == 42
+        assert install_request.github_login == "testuser"
+        assert install_request.status == GitHubInstallRequest.Status.PENDING
+
+    def test_abandoned_install_records_no_install_request(self, client: HttpClient):
+        # Backing out of the install screen (no setup_action=request) reaches the same
+        # missing-installation_id branch, but must not leave a durable pending row: nothing
+        # would ever clear it, so the client would poll a wait that never started.
+        client.force_login(self.user)
+        state_token = "abandoned-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": "", "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert not GitHubInstallRequest.objects.filter(user=self.user).exists()
+
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
     @patch("posthog.api.github_callback.team_services.report_user_action")
-    def test_pending_without_callback_state_is_not_reported(self, mock_report):
-        # No stored authorize state: anyone logged in can hit this URL directly. It still redirects,
-        # but recording it would let a hand-typed URL inflate the approval-request metric, and would
-        # attribute it to whichever project the user happens to have open.
+    def test_pending_without_callback_state_is_not_reported_or_recorded(self, mock_report, mock_from_code):
+        # No stored authorize state: anyone logged in can be sent to this URL cross-site. It still
+        # redirects, but recording it would let a hand-typed URL inflate the approval-request metric
+        # and attribute it to whichever project the user happens to have open. A durable row is worse
+        # still: with an attacker's OAuth code in the link it would be keyed to their GitHub account.
+        mock_from_code.return_value = self._github_user_authorization()
         client = HttpClient()
         client.force_login(self.user)
 
-        response = client.get("/integrations/github/callback/", {"setup_action": "request"})
+        response = client.get("/integrations/github/callback/", {"setup_action": "request", "code": "gh-code"})
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
         assert mock_report.call_count == 0
+        assert not GitHubInstallRequest.objects.filter(user=self.user).exists()
 
     @parameterized.expand(
         [
@@ -4073,6 +4133,84 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_201_CREATED
         mock_oauth_response.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "include_install_signature,expected_event,expected_level,expected_label",
+        [
+            (False, "stripe.marketplace_install_no_signature", "info", "absent"),
+            (True, "stripe.marketplace_install_signature_verified", "info", "verified"),
+        ],
+    )
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_marketplace_callback_logs_signature_state(
+        self,
+        mock_oauth_response,
+        MockStripeIntegration,
+        include_install_signature,
+        expected_event,
+        expected_level,
+        expected_label,
+        stripe_settings,
+        client: HttpClient,
+    ):
+        mock_oauth_response.return_value = self._create_stripe_integration()
+        MockStripeIntegration.return_value = MagicMock()
+
+        config: dict = {
+            "code": "oauth_code_123",
+            "stripe_user_id": "acct_123",
+            "account_id": "acct_123",
+            "user_id": "usr_abc",
+        }
+        if include_install_signature:
+            config["install_signature"] = self._make_install_signature(
+                state="", user_id="usr_abc", account_id="acct_123"
+            )
+
+        counter_labels = {"signature_state": expected_label}
+        before = REGISTRY.get_sample_value("stripe_marketplace_install_total", counter_labels) or 0.0
+
+        client.force_login(self.user)
+        with capture_logs() as logs:
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations",
+                {"kind": "stripe", "config": config},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        entries = [entry for entry in logs if entry["event"] == expected_event]
+        assert len(entries) == 1
+        assert entries[0]["log_level"] == expected_level
+        assert entries[0]["team_id"] == self.team.pk
+        assert entries[0]["stripe_user_id"] == "acct_123"
+        assert entries[0]["user_id"] == self.user.pk
+
+        after = REGISTRY.get_sample_value("stripe_marketplace_install_total", counter_labels) or 0.0
+        assert after - before == 1.0
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_posthog_initiated_install_emits_no_marketplace_log(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        mock_oauth_response.return_value = self._create_stripe_integration()
+        MockStripeIntegration.return_value = MagicMock()
+
+        client.force_login(self.user)
+        with capture_logs() as logs:
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations",
+                {
+                    "kind": "stripe",
+                    "config": {"state": "next=/foo&token=abc123", "code": "oauth_code_999"},
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert not [entry for entry in logs if entry["event"].startswith("stripe.marketplace_install")]
+
     # The Stripe Apps OAuth flow (used by stripe_api_access_type: oauth) doesn't sign the
     # callback redirect — only the install-link OAuth mechanism emits install_signature.
     # The conflict guard is the defense-in-depth here, not signature verification.
@@ -4460,6 +4598,35 @@ class TestStripeIntegrationOAuthTokens:
         secret_payloads = {call.kwargs["params"]["name"]: call.kwargs["params"]["payload"] for call in calls}
         assert secret_payloads["posthog_project_id"] == str(self.team.pk)
         assert secret_payloads["posthog_oauth_client_id"] == self.oauth_app.client_id
+
+    @patch("stripe.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_write_posthog_secrets_mints_read_only_token(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_test"
+        MockStripeClient.return_value = MagicMock()
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_scope",
+            created_by=self.user,
+        )
+        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+
+        token = OAuthAccessToken.objects.filter(application=self.oauth_app).latest("id")
+
+        assert set(token.scope.split()) == {
+            "customer_journey:read",
+            "experiment:read",
+            "feature_flag:read",
+            "insight:read",
+            "query:read",
+        }
+        assert not [scope for scope in token.scope.split() if scope.endswith(":write")]
+        assert token.scoped_teams == [self.team.pk]
 
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
