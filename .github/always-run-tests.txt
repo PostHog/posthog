@@ -1,9 +1,12 @@
-# Pytest files that repo-checks runs on every backend-affecting PR, outside test
-# selection. List a test here when its input is the whole INSTALLED_APPS import
-# graph (startup import budget, receiver baseline), so any file in the repo can
-# break it while the diff touches nothing it appears to own. Product isolation
-# and draft narrowing skip the Django suite for exactly such diffs, which is how
-# a product-only PR turned master red without a single failing check.
+# Pytest paths that repo-checks runs on every backend-affecting PR, outside test
+# selection. List a path here when its tests take the whole repo as input (the
+# INSTALLED_APPS import graph, signal registries, repo-wide AST scans), so any
+# file in the repo can break them while the diff touches nothing they appear to
+# own. Product isolation and draft narrowing skip the Django suite for exactly
+# such diffs, which is how a product-only PR turned master red without a single
+# failing check.
+# New guards belong in posthog/test/repo_invariants/, which the entry below
+# picks up automatically; list another path only when a guard can't live there.
 # Only list tests that pass with no Postgres, ClickHouse, or Redis available:
 # repo-checks runs without service containers.
-posthog/test/test_startup_import_budget.py
+posthog/test/repo_invariants

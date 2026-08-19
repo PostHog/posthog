@@ -116,6 +116,31 @@ export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual
     return readOptions?.consistency === ConsistencyLevel.STRONG ? 'strong' : 'eventual'
 }
 
+/** Methods the router always forwards to the owning partition's leader. */
+const LEADER_ROUTED_METHODS = new Set(['UpdatePersonProperties', 'FencePerson', 'ReleaseFence', 'FoldPersonDocument'])
+
+/**
+ * The person routing key for a leader-bound call, or null when the call is
+ * replica-bound. The router hashes this key out of the request headers and
+ * never decodes the body, so a leader-bound call that omits it is rejected
+ * with InvalidArgument rather than routed. Replica-bound reads must travel
+ * without the key, which is why `GetPerson` carries it only under strong
+ * consistency, the one case the router sends to a leader.
+ */
+export function resolvePersonRoutingKey(
+    methodName: string,
+    message: unknown
+): { teamId: bigint; personId: bigint } | null {
+    const leaderBound =
+        LEADER_ROUTED_METHODS.has(methodName) ||
+        (methodName === 'GetPerson' && resolveConsistencyHeader(message) === 'strong')
+    if (!leaderBound) {
+        return null
+    }
+    const { teamId, personId } = message as { teamId: bigint; personId: bigint }
+    return { teamId, personId }
+}
+
 export interface PersonHogClientConfig {
     /** Host and port of the personhog gRPC server, e.g. "localhost:50051". */
     addr: string
@@ -194,6 +219,27 @@ export class PersonHogClient {
     }
 
     static fromConfig(config: PersonHogClientConfig): PersonHogClient {
+        const { transport, stateMonitor } = createPersonhogTransport(config)
+        return new PersonHogClient(transport, stateMonitor)
+    }
+
+    close(): void {
+        this.stateMonitor?.close()
+    }
+}
+
+/**
+ * The transport every personhog gRPC client shares: caller headers,
+ * consistency and routing-key stamping, and an HTTP/2 session kept alive
+ * and monitored.
+ * The identity server's clients build on it too, so the wire behavior
+ * cannot drift between endpoints.
+ */
+export function createPersonhogTransport(config: PersonHogClientConfig): {
+    transport: Transport
+    stateMonitor: SessionStateMonitor
+} {
+    {
         const scheme = config.useTls ? 'https' : 'http'
         const interceptors: Interceptor[] = []
         if (config.clientName) {
@@ -214,6 +260,14 @@ export class PersonHogClient {
         }
         interceptors.push((next) => async (req) => {
             req.header.set('x-read-consistency', resolveConsistencyHeader(req.message))
+            return await next(req)
+        })
+        interceptors.push((next) => async (req) => {
+            const routingKey = resolvePersonRoutingKey(req.method.name, req.message)
+            if (routingKey) {
+                req.header.set('x-team-id', routingKey.teamId.toString())
+                req.header.set('x-person-id', routingKey.personId.toString())
+            }
             return await next(req)
         })
 
@@ -238,10 +292,6 @@ export class PersonHogClient {
             sessionManager: stateMonitor,
             interceptors,
         })
-        return new PersonHogClient(transport, stateMonitor)
-    }
-
-    close(): void {
-        this.stateMonitor?.close()
+        return { transport, stateMonitor }
     }
 }

@@ -64,11 +64,13 @@ The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly i
 
 ## The regression guard
 
-`posthog/test/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
+`posthog/test/repo_invariants/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
 
 1. No `FORBIDDEN_AT_SETUP` heavy module (the lazy router aggregator, the generated `posthog.schema`, the query-runner layer, the AI core, `chdb`, `scipy`, …) is in `sys.modules`.
 2. Every model registers at app-population — importing the router adds none.
 3. No signal receiver connects _only_ when the router is built.
+
+It runs in the `repo-checks` CI job on every backend-touching PR regardless of test selection, because a products-only diff skips the Django suite entirely.
 
 **When a guard fails, fix the import — do not widen the list.**
 Defer the offending import, add the missing `models/__init__` import, or wire the receiver at `ready()`.
@@ -80,7 +82,7 @@ Confirm the module is absent from a bare `django.setup()` first, then add it.
 
 **The forward-looking guard: new heavy imports.**
 `FORBIDDEN_AT_SETUP` only catches modules someone already named; `test_no_new_heavy_imports_at_setup` catches the heavy import nobody has named yet.
-It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/setup_import_baseline.txt` costs ≥100ms.
+It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/repo_invariants/setup_import_baseline.txt` costs ≥100ms.
 There are deliberately no per-entry time budgets — absolute timings flake in CI — time is only the materiality gate for _new arrivals_: known names are never timed, and a new arrival is deterministic (the PR that adds the import, adds it).
 Two captures are taken and the per-name minimum used, because a cold first boot pays page-cache misses that can double a package's apparent cost.
 When it fires: defer the import (the failure message carries the playbook); baseline a package only when every process genuinely needs it during setup, with a justifying comment.
@@ -118,7 +120,7 @@ A 30-second `importtime` run settles it; guessing does not.
 **How it stays right over time.**
 The guard runs in two places in CI.
 It runs in the Django suite, but test selection skips that suite for diffs that only touch isolated product internals, and those diffs can still break a whole-graph invariant (a product-only PR once put `temporalio` on the startup path and turned master red with every check green).
-So the `repo-checks` job also runs every file listed in `.github/always-run-tests.txt` on each backend-affecting PR, outside test selection; a new whole-graph guard that passes without Postgres, ClickHouse, and Redis belongs in that list.
+So the `repo-checks` job also runs every path listed in `.github/always-run-tests.txt` on each backend-affecting PR, outside test selection; the list carries `posthog/test/repo_invariants/`, so a new whole-graph guard that passes without Postgres, ClickHouse, and Redis belongs in that directory, and in the list only when it cannot live there.
 The standing rule when it goes red is always _defer, don't widen_ — the list is a ratchet, and every entry that moves the wrong way gives back a permanent slice of the win.
 Re-profile occasionally even when the guard is green: the guard only catches the specific heavy modules it names, and the floor drifts up as the codebase grows.
 When the floor has crept, the lever is the same as it ever was — find the heaviest cumulative import that is not actually needed at setup, and defer it.
