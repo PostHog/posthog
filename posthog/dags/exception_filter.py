@@ -30,7 +30,7 @@ def install() -> None:
     """Route the dags process autocapture through drop_interrupt_exceptions."""
     import posthoganalytics  # noqa: PLC0415 — lets tests import the pure filter without the SDK
 
-    posthoganalytics.before_send = drop_interrupt_exceptions
+    posthoganalytics.before_send = drop_interrupt_exceptions  # ty: ignore[invalid-assignment]
     # Push before_send onto the client the excepthook already holds; without this
     # the filter would only apply after the next module-level capture forces setup().
     posthoganalytics.setup()
