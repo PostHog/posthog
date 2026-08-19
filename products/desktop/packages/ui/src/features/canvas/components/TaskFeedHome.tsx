@@ -26,7 +26,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const navigate = useNavigate();
   const feed = useProjectTaskFeed(feedId);
   const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
-  const { tasks, isLoading, issues } = useTaskFeedResults(feed?.query);
+  const { tasks, isComplete, isLoading, issues } = useTaskFeedResults(
+    feed?.query,
+  );
   const [editOpen, setEditOpen] = useState(false);
 
   const trackedFeedId = feed?.id;
@@ -93,10 +95,17 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
             <Skeleton className="h-3 w-12 shrink-0 self-center" />
           ) : (
             <span className="shrink-0 text-muted-foreground text-xs">
-              {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+              {isComplete
+                ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`
+                : "Partial results"}
             </span>
           )}
         </div>
+        {!isLoading && !isComplete && (
+          <span className="text-muted-foreground text-xs">
+            Some matching tasks may not be shown.
+          </span>
+        )}
         {issues.map((issue) => (
           <span
             key={`${issue.raw}-${issue.message}`}
@@ -134,7 +143,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const intro = (
     <div>
       {queryBar}
-      {!isLoading && tasks.length === 0 && (
+      {!isLoading && isComplete && tasks.length === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
           <Text className="font-medium">No tasks match this saved search</Text>
           <Text className="text-muted-foreground text-sm">

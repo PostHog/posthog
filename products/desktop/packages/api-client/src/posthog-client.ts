@@ -260,6 +260,8 @@ export interface TaskListOptions {
    * few and a long-running session never makes the page.
    */
   ordering?: "-last_activity_at" | "-created_at";
+  /** Zero-based offset for fetching a later task-list page. */
+  offset?: number;
 }
 
 export interface TaskSearchResult {
@@ -2321,6 +2323,30 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async getTasksWithStatus(
+    options?: TaskListOptions,
+    pagination?: { maxPages?: number },
+  ): Promise<{ tasks: Task[]; isComplete: boolean }> {
+    const maxPages = pagination?.maxPages ?? 1;
+    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const tasks: Task[] = [];
+    let count = 0;
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+      const page = await this.getTasksPage({
+        ...options,
+        limit: pageSize,
+        offset: tasks.length,
+      });
+      tasks.push(...page.tasks);
+      count = page.count;
+      if (tasks.length >= count) return { tasks, isComplete: true };
+      if (page.tasks.length === 0) break;
+    }
+
+    return { tasks, isComplete: tasks.length >= count };
+  }
+
   async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/search/`;
@@ -2345,6 +2371,10 @@ export class PostHogAPIClient {
     const params: Record<string, string | number | boolean> = {
       limit: options?.limit ?? 500,
     };
+
+    if (options?.offset !== undefined) {
+      params.offset = options.offset;
+    }
 
     if (options?.repository) {
       params.repository = options.repository;

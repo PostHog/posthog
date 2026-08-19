@@ -141,9 +141,11 @@ export function TaskFeedModal({
                 ) : (
                   trimmedQuery !== "" &&
                   previewQuery !== "" &&
-                  (preview.tasks.length === 1
-                    ? "1 task matches"
-                    : `${preview.tasks.length} tasks match`)
+                  (preview.isComplete
+                    ? preview.tasks.length === 1
+                      ? "1 task matches"
+                      : `${preview.tasks.length} tasks match`
+                    : "Some matches may not be shown")
                 )}
               </span>
             </div>

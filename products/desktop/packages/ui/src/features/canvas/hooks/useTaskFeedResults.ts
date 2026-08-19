@@ -17,6 +17,7 @@ import {
 } from "./spaceQueryPolicy";
 
 const TASK_FEED_POLL_INTERVAL_MS = 15_000;
+const TASK_FEED_MAX_PAGES = 5;
 
 export function taskFeedResultsQueryKey(query: string) {
   return ["task-feed-results", query] as const;
@@ -75,6 +76,7 @@ export function useFeedQueryPlan(query: string | undefined): {
 
 export function useTaskFeedResults(query: string | undefined): {
   tasks: Task[];
+  isComplete: boolean;
   isLoading: boolean;
   issues: FeedQueryIssue[];
 } {
@@ -82,31 +84,25 @@ export function useTaskFeedResults(query: string | undefined): {
   const { plan, isLoading: planLoading } = useFeedQueryPlan(normalized);
 
   const requests = plan?.requests ?? [];
-  const result = useAuthenticatedQuery<Task[]>(
+  const result = useAuthenticatedQuery<{ tasks: Task[]; isComplete: boolean }>(
     taskFeedResultsQueryKey(normalized),
     async (client) => {
       const pages = await Promise.all(
         requests.map((request) =>
-          client.getTasks({
-            search: request.search,
-            createdBy: request.createdBy,
-            channel: request.channel,
-            repository: request.repository,
-            status: request.status,
-            originProduct: request.originProduct,
-            archived: request.archived,
-            prState: request.prState,
-            ciStatus: request.ciStatus,
-            pinned: request.pinned,
-            commentedBy: request.commentedBy,
-            mentions: request.mentions,
+          client.getTasksWithStatus(request, {
+            maxPages: TASK_FEED_MAX_PAGES,
           }),
         ),
       );
-      const byId = new Map(pages.flat().map((task) => [task.id, task]));
-      return [...byId.values()].sort((a, b) =>
-        b.created_at.localeCompare(a.created_at),
+      const byId = new Map(
+        pages.flatMap((page) => page.tasks).map((task) => [task.id, task]),
       );
+      return {
+        tasks: [...byId.values()].sort((a, b) =>
+          b.created_at.localeCompare(a.created_at),
+        ),
+        isComplete: pages.every((page) => page.isComplete),
+      };
     },
     {
       enabled: normalized !== "" && !!plan,
@@ -117,13 +113,14 @@ export function useTaskFeedResults(query: string | undefined): {
   );
 
   const tasks = useMemo(() => {
-    const fetched = result.data ?? [];
+    const fetched = result.data?.tasks ?? [];
     if (!plan) return [];
     return fetched.filter((task) => plan.matches(task));
   }, [result.data, plan]);
 
   return {
     tasks,
+    isComplete: result.data?.isComplete ?? false,
     isLoading: planLoading || result.isLoading,
     issues: plan?.issues ?? [],
   };

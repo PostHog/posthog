@@ -61,6 +61,7 @@ export interface FeedQueryPalette {
   scope: TypeValue | null;
   hasFilterTokens: boolean;
   matchCount: number | null;
+  partialResults: boolean;
   shownCount: number;
   hasRepairs: boolean;
   searchText: string;
@@ -106,7 +107,9 @@ export function useFeedQueryCommands({
     () => parseFeedQuery(previewQuery),
     [previewQuery],
   );
-  const noMatches = runsQuery && !counting && results.tasks.length === 0;
+  const partialResults = runsQuery && !counting && !results.isComplete;
+  const noMatches =
+    runsQuery && !counting && results.isComplete && results.tasks.length === 0;
   const splittable =
     noMatches && previewParsed.text !== "" && previewParsed.tokens.length > 0;
   const filtersOnlyQuery = splittable
@@ -160,6 +163,7 @@ export function useFeedQueryCommands({
         scope: null,
         hasFilterTokens: false,
         matchCount: null,
+        partialResults: false,
         shownCount: 0,
         hasRepairs: false,
         searchText,
@@ -222,7 +226,10 @@ export function useFeedQueryCommands({
       });
     }
 
-    const matchCount = runsQuery && !counting ? results.tasks.length : null;
+    const matchCount =
+      runsQuery && !counting && results.isComplete
+        ? results.tasks.length
+        : null;
     const shown = runsQuery ? results.tasks.slice(0, limit) : [];
     if (shown.length > 0) {
       const items = shown.map((task): Command => {
@@ -310,6 +317,7 @@ export function useFeedQueryCommands({
       scope,
       hasFilterTokens,
       matchCount,
+      partialResults,
       shownCount: shown.length,
       hasRepairs,
       searchText,
@@ -326,7 +334,9 @@ export function useFeedQueryCommands({
     hasFilterTokens,
     runsQuery,
     counting,
+    results.isComplete,
     results.tasks,
+    partialResults,
     savedHits,
     limit,
     channelNames,

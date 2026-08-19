@@ -1,7 +1,9 @@
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+let taskResultsComplete = true;
 
 // The palette pulls half the app in; everything irrelevant to the feed-query
 // mode is stubbed to its empty state.
@@ -71,6 +73,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
           },
         ]
       : [],
+    isComplete: taskResultsComplete,
     isLoading: false,
     issues: [],
   }),
@@ -91,6 +94,10 @@ import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsS
 import { CommandMenu } from "./CommandMenu";
 
 describe("CommandMenu feed queries", () => {
+  afterEach(() => {
+    taskResultsComplete = true;
+  });
+
   it("offers Save as feed and the matching tasks for a token query", async () => {
     const user = userEvent.setup();
     render(
@@ -117,6 +124,25 @@ describe("CommandMenu feed queries", () => {
     await user.keyboard("{Meta>}s{/Meta}");
     expect(
       await screen.findByText("Save search", { selector: "h2" }),
+    ).toBeTruthy();
+  });
+
+  it("labels incomplete task search results", async () => {
+    taskResultsComplete = false;
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "created-by:@me ",
+    );
+
+    expect(
+      await screen.findByText("Some matching tasks may not be shown."),
     ).toBeTruthy();
   });
 

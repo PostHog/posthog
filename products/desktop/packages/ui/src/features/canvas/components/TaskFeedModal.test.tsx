@@ -6,6 +6,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useFeedQueryPlan: () => ({ plan: undefined }),
   useTaskFeedResults: () => ({
     tasks: [{ id: "task-1" }],
+    isComplete: true,
     isLoading: false,
     issues: [],
   }),

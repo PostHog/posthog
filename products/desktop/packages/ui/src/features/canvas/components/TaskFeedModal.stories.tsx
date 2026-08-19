@@ -44,7 +44,10 @@ function SeedResults({
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
-  queryClient.setQueryData(taskFeedResultsQueryKey(query), tasks);
+  queryClient.setQueryData(taskFeedResultsQueryKey(query), {
+    tasks,
+    isComplete: true,
+  });
   return <>{children}</>;
 }
 

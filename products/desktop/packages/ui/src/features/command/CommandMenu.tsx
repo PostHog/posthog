@@ -706,6 +706,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     searchText,
     keyChips,
     matchCount,
+    partialResults,
     shownCount,
     hasRepairs,
   } = feedQuery;
@@ -859,7 +860,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             )}
             {showMatchSummary ? (
               <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
-                {matchSummary(matchCount, shownCount, hasRepairs)}
+                {partialResults
+                  ? "Some matching tasks may not be shown."
+                  : matchSummary(matchCount, shownCount, hasRepairs)}
               </div>
             ) : (
               query !== "" && (
