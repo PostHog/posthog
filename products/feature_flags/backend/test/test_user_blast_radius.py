@@ -1,7 +1,6 @@
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
-from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.errors import InternalCHQueryError, wrap_clickhouse_query_error
@@ -18,25 +17,30 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
             raise PropertyValidationError("Value must be set for property type person & operator gt")
         self.assertIn("Value must be set", str(ctx.exception))
 
-    @parameterized.expand(
-        [
-            ("cannot_parse_text", 6),
-            ("cannot_parse_number", 72),
-        ]
-    )
-    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code):
+    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self):
         # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
-        # execution; these codes wrap to InternalCHQueryError (not Exposed), so they used to 500.
-        # The 400 body must carry only the useful message: the DB::Exception framing and any
+        # execution; CANNOT_PARSE_NUMBER wraps to InternalCHQueryError (not Exposed), so it used to
+        # 500. The 400 body must carry only the useful message: the DB::Exception framing and any
         # server stack trace tail are stripped, matching what ExposedCHQueryError exposes.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
-        err = wrap_clickhouse_query_error(ServerException(raw, code=code))
+        err = wrap_clickhouse_query_error(ServerException(raw, code=72))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
         self.assertIn("Cannot parse NaN", message)
         self.assertNotIn("Stack trace", message)
         self.assertNotIn("DB::Exception", message)
+
+    def test_cannot_parse_text_surfaces_the_rebuilt_message_not_the_value(self):
+        # CANNOT_PARSE_TEXT arrives already wrapped as an ExposedCHQueryError, because the ClickHouse
+        # message quotes the offending row value. Sizing must echo the rebuilt text, not the value.
+        raw = "DB::Exception: Cannot parse string 'sk_live_hunter2' as Float64: syntax error."
+        err = wrap_clickhouse_query_error(ServerException(raw, code=6))
+        with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
+            raise err
+        message = str(ctx.exception)
+        self.assertIn("read as Float64", message)
+        self.assertNotIn("sk_live_hunter2", message)
 
     def test_other_internal_clickhouse_errors_stay_server_faults(self):
         # Only the deterministic cannot-parse-value codes are the caller's input; anything else

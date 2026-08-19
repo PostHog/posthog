@@ -573,31 +573,46 @@ class TestResolver(BaseTest):
         [
             (
                 "select 1 as token union all select 'abc' as token",
-                "Cannot find a common type for column `token` between set operation branches of type "
-                "Integer and String. Cast the column in every branch, e.g. `toString(token)`",
+                "Cannot find a common type for column `token` between the branches of this UNION, of "
+                "type Integer and String. Cast the column in every branch, e.g. `toString(token)`",
+                "'abc' as token",
             ),
             (
                 "select now() as ts union all select 1 as ts",
-                "Cannot find a common type for column `ts` between set operation branches of type "
+                "Cannot find a common type for column `ts` between the branches of this UNION, of type "
                 "DateTime and Integer. Cast the column in every branch, e.g. `toString(ts)`",
+                "1 as ts",
             ),
             # A container branch gets no cast example - stringifying an array would "work" but hides
             # what is far more likely a mistake.
             (
                 "select [1, 2] as items union all select 'abc' as items",
-                "Cannot find a common type for column `items` between set operation branches of type Array and String",
+                "Cannot find a common type for column `items` between the branches of this UNION, of "
+                "type Array and String",
+                "'abc' as items",
+            ),
+            # Three types read as a list, and in branch order, so the reader can line each type up
+            # with the branch they wrote.
+            (
+                "select 1 as x union all select 'abc' as x union all select [1] as x",
+                "Cannot find a common type for column `x` between the branches of this UNION, of type "
+                "Integer, String, and Array",
+                "'abc' as x",
             ),
         ]
     )
-    def test_set_operation_column_type_mismatch_warns_naming_the_column(self, query: str, expected: str):
+    def test_set_operation_column_type_mismatch_warns_naming_the_column(
+        self, query: str, expected: str, expected_marked: str
+    ):
         node = parse_select(query)
         resolve_types(node, self.context, dialect="clickhouse")
 
         assert [warning.message for warning in self.context.warnings] == [expected]
-        # The SQL editor renders the warning as a marker over this span, so an unpositioned warning
-        # leaves the reader back where they started.
-        assert self.context.warnings[0].start is not None
-        assert self.context.warnings[0].end is not None
+        # The SQL editor renders the warning as a marker over this span. Spanning every branch would
+        # mark the whole union and leave the reader back where they started, so it points at the
+        # branch that broke unification.
+        warning = self.context.warnings[0]
+        assert query[warning.start : warning.end] == expected_marked
 
     @parameterized.expand(
         [

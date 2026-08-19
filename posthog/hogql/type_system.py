@@ -833,9 +833,13 @@ class SetOperationColumnTypeMismatch:
 
     @property
     def message(self) -> str:
+        if len(self.type_names) == 2:
+            types = " and ".join(self.type_names)
+        else:
+            types = f"{', '.join(self.type_names[:-1])}, and {self.type_names[-1]}"
         message = (
-            f"Cannot find a common type for column `{self.column_name}` between set operation "
-            f"branches of type {' and '.join(self.type_names)}"
+            f"Cannot find a common type for column `{self.column_name}` between the branches of "
+            f"this UNION, of type {types}"
         )
         if self.cast_hint is None:
             return message
@@ -851,11 +855,11 @@ def describe_set_operation_type_mismatch(
     """Name a set operation column that could not be unified, so the reader learns which column is at
     fault instead of bisecting the query by hand.
 
-    This describes rather than raises. ClickHouse resolves a set operation column with no common
-    supertype to a Variant of the branch types instead of failing, so a query that reaches here still
-    runs, and refusing it would reject queries that work today - the reader gets told which column
-    went loose and how to pin it down. Branches whose inferred type is a guess rather than a fact are
-    skipped, and unanalyzable branches could be any type at all - see _branch_type_is_untrustworthy."""
+    This describes rather than raises, because a warning reaches the editor as the reader types while
+    raising would reject the query outright. ClickHouse fails such a column with NO_COMMON_TYPE at
+    execution, so the warning is the earlier and more specific half of the same diagnosis. Branches
+    whose inferred type is a guess rather than a fact are skipped, and unanalyzable branches could be
+    any type at all - see _branch_type_is_untrustworthy."""
     if not isinstance(column_type, ast.UnknownType) or column_type.unanalyzable:
         return None
     known = [
@@ -865,20 +869,22 @@ def describe_set_operation_type_mismatch(
     ]
     if len(known) < 2 or any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
         return None
-    type_names = sorted({branch_type.print_type() for branch_type, _ in known})
+    # Branch order, not sorted: the reader maps the first type named to the first branch they wrote.
+    type_names = tuple(dict.fromkeys(branch_type.print_type() for branch_type, _ in known))
     if len(type_names) < 2:
         return None
-    positions = [
-        (expr.start, expr.end)
-        for _, expr in known
-        if expr is not None and expr.start is not None and expr.end is not None
-    ]
+    # The first branch that departs from the leading type is the one that broke unification. Spanning
+    # every branch instead would mark the whole UNION, which is what the reader already knew.
+    culprit = next(
+        (expr for branch_type, expr in known if expr is not None and branch_type.print_type() != type_names[0]),
+        None,
+    )
     return SetOperationColumnTypeMismatch(
         column_name=column_name,
-        type_names=tuple(type_names),
+        type_names=type_names,
         cast_hint=_cast_hint_for_families({runtime_type_from_constant_type(t).family for t, _ in known}),
-        start=min((position[0] for position in positions), default=None),
-        end=max((position[1] for position in positions), default=None),
+        start=culprit.start if culprit is not None else None,
+        end=culprit.end if culprit is not None else None,
     )
 
 

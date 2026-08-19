@@ -87,12 +87,22 @@ class TestWrapClickhouseQueryError:
                 "exception: In scope SELECT toInt64('sk_live_hunter2').",
                 "as Int64",
             ),
-            # A value can contain the phrasing the target type is read from, so only the closed set of
-            # type names may survive - never a fragment of the value around one.
+            # A value can contain the phrasing the target type is read from, and ClickHouse quotes the
+            # value again in the trailing scope fragment, so the real target is the last one before it.
             (
-                "Cannot parse string 'sk_live_hunter2 as Int64' as Float64: syntax error at begin of string.",
+                "Cannot parse string 'sk_live_hunter2 as Int8: x' as Float64: syntax error at begin of "
+                "string. In scope SELECT toFloat64('sk_live_hunter2 as Int8: x').",
                 "as Float64",
             ),
+            # Parameterized targets report their base name rather than dropping the type.
+            (
+                "Cannot parse string 'sk_live_hunter2' as Decimal(10, 2): syntax error at begin of string.",
+                "as Decimal",
+            ),
+            # Text columns hold newlines, which must not stop the value from being consumed.
+            ("Cannot parse string 'sk_live\nhunter2' as Int64: syntax error.", "as Int64"),
+            # Past the scan bound the type is dropped rather than risking a match inside the value.
+            (f"Cannot parse string '{'sk_live_hunter2' * 500}' as Int64: syntax error.", "read."),
             ("Something new ClickHouse phrases another way about sk_live_hunter2.", "read."),
         ]
     )

@@ -1330,12 +1330,10 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        # Still a 500 - the stand-in message is filled in after the status code is decided, so an
-        # internal failure must not start reading as a user error the caller could act on.
+        # Filling the message must not reclassify the failure: a populated error_message otherwise
+        # takes the 400 branch.
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
-        # Clients render an empty error_message as a bare "Unknown error", so it carries a stand-in
-        # naming the query to quote to support.
         self.assertIn(self.valid_query_id, response.json()["query_status"]["error_message"])
 
     def test_failed_query_with_exposed_error(self):

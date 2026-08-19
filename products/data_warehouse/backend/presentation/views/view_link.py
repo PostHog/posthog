@@ -20,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import look_up_clickhouse_error_code_meta
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -410,8 +410,9 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
 
-            is_safe = look_up_clickhouse_error_code_meta(e).user_safe
-            if is_safe:
+            # The exception class is the source of truth, not the user_safe flag: a code can be
+            # unsafe raw and still arrive here as an ExposedCHQueryError carrying a rebuilt message.
+            if isinstance(e, ExposedCHQueryError):
                 response_data["detail"] = str(e)
         except QueryError as e:
             capture_exception(e)

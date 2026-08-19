@@ -88,11 +88,12 @@ MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
     "This managed warehouse connection is no longer available. Select a source and run the query again."
 )
 MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE = "managed_warehouse_connection_unavailable"
-# Stand-in for a failure whose real message isn't safe to show. Says what to do next, because the
-# alternative the clients fall back to is a bare "Unknown error".
+# Stand-in for a failure whose real message isn't safe to show, because the alternative the clients
+# fall back to is a bare "Unknown error". It also covers cancellations and deterministic query
+# errors, so it neither assigns blame nor invites an immediate retry.
 INTERNAL_QUERY_FAILURE_MESSAGE = (
-    "Something went wrong running this query. That's usually a problem on our side rather than with "
-    "your query. Try again, and if it keeps failing, contact support with query ID {query_id}."
+    "Something went wrong running this query. Try again in a few minutes, and if it keeps failing, "
+    "contact support with query ID {query_id}."
 )
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
@@ -426,9 +427,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
-                # An internal failure carries no user-safe message, and the clients that read this
-                # field render an empty one as "Unknown error". Fill it in after the status code is
-                # decided, so the response still reports a 500 rather than reading as a user error.
+                # Filled in after the status code is decided, so the response still reports a 500
+                # rather than taking the 400 branch above and reading as a user error.
                 query_status_response.query_status.error_message = INTERNAL_QUERY_FAILURE_MESSAGE.format(query_id=pk)
         elif query_status.complete:
             http_code = status.HTTP_200_OK

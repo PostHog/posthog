@@ -269,6 +269,7 @@ def _unify_select_set_columns(
     branches: list[ast.SelectQuery | ast.SelectSetQuery],
     dialect: HogQLDialect,
     context: HogQLContext,
+    warn_on_mismatch: bool,
 ) -> dict[str, ast.Type]:
     if not select_types:
         return {}
@@ -286,6 +287,10 @@ def _unify_select_set_columns(
             branch_types.append(branch_type.resolve_constant_type(context))
         column_type = least_common_supertype(branch_types, dialect=dialect)
         columns[column_name] = column_type
+        # Locating the select-list expressions walks every branch, so only pay for it once a column
+        # has actually failed to unify, which is the rare case.
+        if not warn_on_mismatch or not isinstance(column_type, ast.UnknownType):
+            continue
         mismatch = describe_set_operation_type_mismatch(
             column_name,
             column_type,
@@ -451,7 +456,15 @@ class Resolver(CloningVisitor):
         select_types = [branch.type for branch in branches]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, branches, self.dialect, self.context),  # type: ignore[arg-type]
+            # A view body is parsed with its own offsets, so a warning raised inside one would mark
+            # an unrelated span of the query the reader actually wrote.
+            columns=_unify_select_set_columns(
+                select_types,  # type: ignore[arg-type]
+                branches,
+                self.dialect,
+                self.context,
+                warn_on_mismatch=self.current_view_depth == 0,
+            ),
         )
 
         self.ctes = parent_ctes
