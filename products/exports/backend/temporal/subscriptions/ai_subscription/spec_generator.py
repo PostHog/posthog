@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
@@ -551,7 +552,13 @@ def generate_query_plan(
 
     rendered_prompt = render_prompt(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
-        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
+        {
+            "context_blob": context_blob,
+            "cleaned_prompt": cleaned_prompt,
+            # Substituted, not written into the prompt text, so the cap the planner is told matches
+            # the cap the pipeline enforces.
+            "max_charts": str(MAX_CHARTS_PER_REPORT),
+        },
     )
 
     result = llm.invoke([("system", rendered_prompt)])

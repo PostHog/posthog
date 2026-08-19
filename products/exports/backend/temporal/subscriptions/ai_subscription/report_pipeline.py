@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import structlog
 
@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     HogQLFix,
     QueryPlan,
     QueryPlanStep,
+    StepChart,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
@@ -113,6 +114,24 @@ def _all_queries_failed_notice(total_steps: int) -> str:
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
         "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
+
+
+def _validate_step_chart(
+    spec: Optional[StepChart],
+    response: Any,
+    *,
+    hogql: str,
+    fallback_title: str,
+    step_index: int,
+) -> tuple[Optional[ValidatedChart], Optional[str]]:
+    """Validate a step's chart spec, or return nothing when the planner asked for no chart."""
+    if spec is None:
+        return None, None
+    # The planner's short label when it wrote one, else its rationale sentence cut to the same
+    # length — a caption has to stay label-shaped, and `description` is capped at 500. Both are LLM
+    # output rendered into email and Slack, so both get stripped.
+    title = strip_llm_framing_markers(spec.title or fallback_title, max_len=MAX_CHART_TITLE_LENGTH)
+    return validate_chart(spec, response, hogql=hogql, title=title, step_index=step_index)
 
 
 def _charts_truncated_footnote(shown: int, total: int) -> str:
@@ -227,7 +246,29 @@ async def generate_ai_report(
                 freshly_planned = True
             execution = await _execute_plan(spec, team, user, window, trace_correlation_id)
             failed_count, diagnostics, charts = execution.failed_count, execution.diagnostics, execution.charts
-            report = await _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
+            chart_spec_failures = sum(
+                1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
+            )
+            # Rank before rendering: a render costs a browserless worker and a second query
+            # execution, so charts that lose the ranking must never be built. Python's sort is
+            # stable, so equal importance keeps plan order.
+            ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
+            selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
+            if dropped:
+                _capture_charts_truncated(
+                    team=team,
+                    trace_correlation_id=trace_correlation_id,
+                    requested=len(charts),
+                    selected=len(selected),
+                )
+            # Synthesis and rendering read disjoint halves of the execution (the formatted text vs
+            # the validated charts), so running them together keeps the render off the critical
+            # path. Serially they added their full budget to an activity whose timeout, once hit,
+            # discards the planner and synthesis spend and retries all of it.
+            report, (rendered_charts, chart_failures) = await asyncio.gather(
+                _synthesize(spec, execution.rendered, team, user, trace_correlation_id),
+                render_charts(selected, team=team, user=user),
+            )
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
             # the error budget so user-supplied bad input doesn't burn the SLO.
@@ -235,22 +276,6 @@ async def generate_ai_report(
             raise
 
         total_steps = len(spec.plan.steps)
-        # Only a spec-invalid drop blocks freezing, and only from before the render phase writes its
-        # own reasons here. A chart dropped because this week's data was thin or wide would otherwise
-        # re-plan the subscription every delivery forever, billing a planner call each time.
-        chart_spec_failures = sum(
-            1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
-        )
-        # Rank before rendering: a render costs a browserless worker and a second query execution, so
-        # the charts that lose the ranking must never be built. Python's sort is stable, so equal
-        # importance keeps plan order.
-        ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
-        selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
-        if dropped:
-            _capture_charts_truncated(
-                team=team, trace_correlation_id=trace_correlation_id, requested=len(charts), selected=len(selected)
-            )
-        rendered_charts, chart_failures = await render_charts(selected, team=team, user=user)
         # A render failure is as diagnosable as a validation failure: both mean the reader got no
         # picture, and only the diagnostic says which.
         for step_index, reason in chart_failures:
@@ -527,23 +552,20 @@ async def _run_steps(
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
                 step.hogql = current_hogql
-                chart, chart_dropped_reason = (
-                    validate_chart(
+                # Guarded separately from the query: an exception on the chart path must not be
+                # reported as a failed query, and must never trigger a HogQL fix retry for SQL
+                # that already ran.
+                try:
+                    chart, chart_dropped_reason = _validate_step_chart(
                         step.chart,
                         query_result.response,
                         hogql=executable_hogql,
-                        # The planner's short label when it wrote one, else its rationale sentence
-                        # cut to the same length — a caption has to stay label-shaped, and
-                        # `description` is capped at 500. Both are LLM output rendered into email
-                        # and Slack, so both get stripped.
-                        title=strip_llm_framing_markers(
-                            step.chart.title or safe_description, max_len=MAX_CHART_TITLE_LENGTH
-                        ),
+                        fallback_title=safe_description,
                         step_index=step_index,
                     )
-                    if step.chart is not None
-                    else (None, None)
-                )
+                except Exception:
+                    logger.warning("ai_report.chart_validation_error", step_index=step_index, exc_info=True)
+                    chart, chart_dropped_reason = None, "validation_error"
                 return StepOutcome(
                     rendered=f"### {safe_description}\n\n{safe_formatted}",
                     diagnostic=QueryStepDiagnostic(

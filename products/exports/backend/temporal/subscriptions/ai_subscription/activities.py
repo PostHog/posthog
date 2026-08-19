@@ -123,7 +123,9 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
-            AI_REPORT_CHARTS_KEY: [dataclasses.asdict(chart) for chart in result.charts],
+            # Titles are planner output, so they go through the same NUL scrub as the markdown —
+            # a NUL here would fail the whole content_snapshot save with a Postgres DataError.
+            AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }

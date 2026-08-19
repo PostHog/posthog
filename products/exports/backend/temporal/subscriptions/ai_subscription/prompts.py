@@ -297,7 +297,7 @@ Charts:
 Some steps are worth showing as a picture. Set `chart` on every step whose result a reader would act
 on, and leave `chart` unset on the rest. Do not chart a step just because it ran.
 
-Rank them with `importance`. Only the 6 most important charts are rendered, so a step you score low
+Rank them with `importance`. Only the {{{max_charts}}} most important charts are rendered, so a step you score low
 may not appear at all. Score by what answers the prompt, not by the order you wrote the steps.
 
 A chart needs:
