@@ -157,4 +157,6 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
             )
 
-        return Response({"models": models, "providers": providers})
+        # Serializing rather than returning the dicts directly keeps the wire shape tied to the
+        # response schema the generated frontend and MCP types are built from.
+        return Response(LLMModelsListResponseSerializer({"models": models, "providers": providers}).data)
