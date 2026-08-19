@@ -82,8 +82,14 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
 - Gated by `CommunityPublishFeatureFlagPermission`, which applies the same
   `llm-analytics-community-skills` check as the browse endpoints to this action alone. Skills is GA,
   so the flag cannot sit on the viewset.
-- Session auth only, and throttled at 6/hour and 20/day. The API-shaped `BurstRateThrottle` would not
-  fire here at all: it only counts personal-API-key traffic.
+- Throttled at 6/hour and 20/day, **keyed by team rather than by credential**. `_ensure_web_authenticated`
+  also accepts a personal API key, and the inherited throttle key prefers the key hash, so one member
+  with several keys would otherwise get a fresh budget with each of them. The API-shaped
+  `BurstRateThrottle` would not fire here at all: it only counts personal-API-key traffic.
+- The slug is held to the same rule ingest applies (`SKILL_NAME_PATTERN`, no reserved name), and body,
+  file count, and per-file size to the same caps, so a publish that ingest would silently drop is
+  refused before the pull request exists. The manifest is also checked for paths that differ only by
+  case and for a name used as both a file and a folder, neither of which a git tree can hold.
 - `display_name` is capped at 64 characters to match `CommunitySkill.name`. A longer name would pass
   review and then be dropped by ingest, so the skill would never appear in the catalog.
 - `author_handle` is validated against GitHub's username shape, and is self-reported. Nothing checks it

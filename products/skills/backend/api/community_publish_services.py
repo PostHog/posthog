@@ -21,12 +21,22 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
+from .skill_services import (
+    MAX_SKILL_BODY_BYTES,
+    MAX_SKILL_FILE_BYTES,
+    MAX_SKILL_FILE_COUNT,
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
+)
+
 logger = structlog.get_logger(__name__)
 
-# Mirror the community-skills repo's slug rule (scripts/build_registry.py) so we never open a PR the
-# repo's own validation would reject.
-SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 MAX_SLUG_LENGTH = 64
+# GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
+# content in that single request, so a skill above the cap can only ever fail with a 502. Held well
+# under it: the content is JSON-escaped on the way out, so the request is larger than the sum of the
+# files.
+MAX_PUBLISH_TREE_BYTES = 5_000_000
 # GitHub usernames are alphanumeric with single inner hyphens, up to 39 characters. The handle is
 # self-reported and lands in a public PR body and in the listing, so hold it to the shape of a real
 # username rather than letting free text through.
@@ -102,10 +112,15 @@ def publisher_branch_key(publisher_id: str) -> str:
 
 
 def _validate_slug(slug: str) -> str:
-    if not SLUG_PATTERN.match(slug) or "--" in slug or len(slug) > MAX_SLUG_LENGTH:
+    # The same rule community_skill_sync._validate_entry_shape applies to a registry entry, so a slug
+    # that would be dropped on ingest is refused here instead of merging into a catalog that skips
+    # it. fullmatch, not match: `$` also matches before a trailing newline.
+    if not SKILL_NAME_PATTERN.fullmatch(slug) or "--" in slug or len(slug) > MAX_SLUG_LENGTH:
         raise CommunitySkillPublishError(
             f"'{slug}' is not a valid community skill slug (lowercase letters, numbers, single hyphens)."
         )
+    if slug.lower() in RESERVED_SKILL_NAMES:
+        raise CommunitySkillPublishError(f"'{slug}' is a reserved name and can't be published to the community.")
     return slug
 
 
@@ -181,6 +196,7 @@ def render_community_skill_files(
     `references/playbook.md` becomes `skills/<slug>/references/playbook.md`).
     """
     _validate_slug(slug)
+    _validate_publishable_size(body=body, files=files or [])
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -215,7 +231,52 @@ def render_community_skill_files(
         seen_paths.add(path.lower())
         rendered.append(RenderedFile(path=path, content=file["content"]))
 
+    _reject_blob_directory_collisions(seen_paths)
     return rendered
+
+
+def _validate_publishable_size(*, body: str, files: list[dict[str, str]]) -> None:
+    """Hold a publish to the limits the catalog and GitHub will hold it to anyway.
+
+    The per-skill limits are ingest's (`community_skill_sync._validate_entry_within_caps`), where
+    breaching one drops the whole entry: the pull request merges and the skill never appears. The
+    aggregate is GitHub's, where breaching it fails the tree write with a 502 nobody can act on.
+    """
+    if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+        raise CommunitySkillPublishError(f"The skill body must be under {MAX_SKILL_BODY_BYTES // 1_000_000} MB.")
+    if len(files) > MAX_SKILL_FILE_COUNT:
+        raise CommunitySkillPublishError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
+
+    total = len(body.encode("utf-8"))
+    for file in files:
+        size = len(file["content"].encode("utf-8"))
+        if size > MAX_SKILL_FILE_BYTES:
+            raise CommunitySkillPublishError(f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB.")
+        total += size
+    if total > MAX_PUBLISH_TREE_BYTES:
+        raise CommunitySkillPublishError(
+            f"This skill is too large to publish. Trim it to under "
+            f"{MAX_PUBLISH_TREE_BYTES // 1_000_000} MB of body and files, then publish again."
+        )
+
+
+def _reject_blob_directory_collisions(paths: set[str]) -> None:
+    """Refuse a manifest where one path is a file and also a directory in another path.
+
+    A git tree can't hold `references` as both a blob and a tree, so GitHub rejects the whole tree
+    and the skill can't be published at all. Saying which path collides beats the API's error.
+    """
+    directories = {parent for path in paths for parent in _parent_directories(path)}
+    collisions = sorted(directories & paths)
+    if collisions:
+        raise CommunitySkillPublishError(
+            f"'{collisions[0].split('/', 2)[-1]}' is used as both a file and a folder. Rename one of them."
+        )
+
+
+def _parent_directories(path: str) -> list[str]:
+    parts = path.split("/")
+    return ["/".join(parts[:index]) for index in range(1, len(parts))]
 
 
 def get_community_skills_publisher() -> GitHubIntegration | None:

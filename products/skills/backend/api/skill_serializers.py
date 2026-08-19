@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from django.db import transaction
@@ -18,6 +17,8 @@ from .community_publish_services import (
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
 from .skill_services import (
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
     resolve_owner_users,
     resolve_skill_owners,
@@ -25,10 +26,6 @@ from .skill_services import (
     set_skill_owners,
 )
 
-# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
-# form, and the rest mirror the tab slugs registered under /skills/<slug> in
-# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
@@ -49,7 +46,6 @@ MAX_SKILL_OWNERS = 25
 # null, never a guess. Sized to sit under observed transport truncation with room for the
 # response envelope (outline, file manifest, metadata).
 DEFAULT_BODY_PAGE_LENGTH = 8000
-SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 # Tools that opt a scout skill into the report channel. Local copy of
 # products/signals/backend/scout_harness/skill_loader.REPORT_CHANNEL_TOOLS — skills must not
 # import signals internals, and drift fails closed: a report tool unknown here keeps owners

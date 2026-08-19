@@ -15,6 +15,7 @@ from products.skills.backend.api.community_publish_services import (
     render_community_skill_files,
     render_skill_md,
 )
+from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
 
 # Mirror of the community-skills repo's frontmatter parser (scripts/build_registry.py) so these
 # tests fail if we ever render a SKILL.md the repo's own CI would reject.
@@ -96,7 +97,9 @@ class TestRenderCommunitySkillFiles:
         assert paths == {"skills/make-pr/SKILL.md", "skills/make-pr/references/playbook.md"}
 
     def test_rejects_bad_slug(self) -> None:
-        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65]:
+        # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
+        # request whose skill never appears in the catalog. A trailing newline needs `fullmatch`.
+        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65, "new", "review-hog", "make-pr\n"]:
             try:
                 render_community_skill_files(slug=bad, name="n", description="d", body="b")
             except CommunitySkillPublishError:
@@ -110,6 +113,9 @@ class TestRenderCommunitySkillFiles:
             # Ingest case-folds paths and drops the whole entry on a collision, so publishing both
             # opens a pull request that merges and then never appears in the catalog.
             ("paths differing only by case", ["references/Guide.md", "references/guide.md"]),
+            # A git tree can't hold `references` as both a blob and a directory, so GitHub rejects
+            # the whole tree and the skill can't be published at all.
+            ("a name used as both file and folder", ["references", "references/guide.md"]),
         ]
     )
     def test_rejects_unpublishable_bundled_file_paths(self, _label: str, paths: list[str]) -> None:
@@ -120,6 +126,34 @@ class TestRenderCommunitySkillFiles:
                 description="d",
                 body="b",
                 files=[{"path": path, "content": "x", "content_type": "text/plain"} for path in paths],
+            )
+
+
+class TestPublishableSize:
+    @parameterized.expand(
+        [
+            # Ingest's own per-entry caps: breaching one drops the whole entry, so the pull request
+            # merges and the skill never appears in the catalog.
+            ("body over the catalog cap", "x" * (MAX_SKILL_BODY_BYTES + 1), 1, 10),
+            ("more files than the catalog takes", "b", MAX_SKILL_FILE_COUNT + 1, 10),
+            ("one file over the catalog cap", "b", 1, MAX_SKILL_FILE_BYTES + 1),
+            # GitHub's cap on a single create-tree request, which inlines every file's content.
+            ("files summing over the tree cap", "b", 6, MAX_SKILL_FILE_BYTES),
+        ]
+    )
+    def test_rejects_a_skill_no_publish_could_survive(
+        self, _label: str, body: str, file_count: int, file_size: int
+    ) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(
+                slug="make-pr",
+                name="n",
+                description="d",
+                body=body,
+                files=[
+                    {"path": f"references/{index}.md", "content": "x" * file_size, "content_type": "text/markdown"}
+                    for index in range(file_count)
+                ],
             )
 
 

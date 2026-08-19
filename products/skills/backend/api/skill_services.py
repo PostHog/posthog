@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,13 @@ MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+# Here rather than in skill_serializers so the publish path can hold a slug to the same rule without
+# importing the serializers that import it.
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
 class LLMSkillNotFoundError(Exception):

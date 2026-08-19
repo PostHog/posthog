@@ -182,15 +182,26 @@ class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission)
         return super().has_permission(request, view)
 
 
-class CommunityPublishBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+class _CommunityPublishThrottle(PersonalApiKeyOrUserRateThrottle):
     # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
     # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
-    # PersonalApiKeyRateThrottle, which ignores session traffic — and this endpoint is session-only.
+    # PersonalApiKeyRateThrottle, which ignores session traffic.
+    def get_cache_key(self, request, view):
+        # Per team, not per credential. The inherited key prefers the personal API key hash, so one
+        # member holding several keys would get a fresh budget with each of them — and the skill
+        # being published belongs to the team either way.
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is None:
+            return super().get_cache_key(request, view)
+        return self.cache_format % {"scope": self.scope, "ident": f"team-{team_id}"}
+
+
+class CommunityPublishBurstThrottle(_CommunityPublishThrottle):
     scope = "community_skill_publish_burst"
     rate = "6/hour"
 
 
-class CommunityPublishSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     scope = "community_skill_publish_sustained"
     rate = "20/day"
 
