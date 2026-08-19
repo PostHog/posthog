@@ -46,7 +46,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -75,6 +75,7 @@ from products.feature_flags.backend.api.feature_flag import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
+from products.surveys.backend.api.survey_appearance import nh3_clean_with_allow_list, validate_survey_appearance
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -980,45 +981,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return data
 
     def validate_appearance(self, value):
-        if value is None:
-            return value
-
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Appearance must be an object")
-
-        thank_you_message = value.get("thankYouMessageHeader")
-        if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3_clean_with_allow_list(thank_you_message)
-
-        thank_you_description = value.get("thankYouMessageDescription")
-        if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
-
-        thank_you_close_button = value.get("thankYouMessageCloseButtonText")
-        if thank_you_close_button and nh3.is_html(thank_you_close_button):
-            value["thankYouMessageCloseButtonText"] = nh3_clean_with_allow_list(thank_you_close_button)
-
-        thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
-        if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
-            raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
-
-        survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
-        if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
-            raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
-
-        survey_white_label = value.get("whiteLabel")
-        if survey_white_label is not None and not isinstance(survey_white_label, bool):
-            raise serializers.ValidationError("whiteLabel must be a boolean")
-
-        # Check if the organization has the white labelling feature available
-        use_survey_white_labelling = self.context["get_organization"]().is_feature_available(
-            AvailableFeature.WHITE_LABELLING
+        current_appearance = getattr(self.instance, "appearance", None) if self.instance is not None else None
+        return validate_survey_appearance(
+            value,
+            current_appearance=current_appearance,
+            organization=self.context["get_organization"](),
         )
-
-        if survey_white_label and not use_survey_white_labelling:
-            raise serializers.ValidationError("You need to upgrade to PostHog Enterprise to use white labelling")
-
-        return value
 
     def validate_conditions(self, value):
         if value is None:
@@ -3677,150 +3645,3 @@ def create_flag_with_survey_errors():
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise
-
-
-def nh3_clean_with_allow_list(to_clean: str):
-    return nh3.clean(
-        to_clean,
-        link_rel="noopener",
-        tags={
-            "a",
-            "abbr",
-            "acronym",
-            "area",
-            "article",
-            "aside",
-            "b",
-            "bdi",
-            "bdo",
-            "blockquote",
-            "br",
-            "caption",
-            "center",
-            "cite",
-            "code",
-            "col",
-            "colgroup",
-            "data",
-            "dd",
-            "del",
-            "details",
-            "dfn",
-            "div",
-            "dl",
-            "dt",
-            "em",
-            "figcaption",
-            "figure",
-            "footer",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "header",
-            "hgroup",
-            "hr",
-            "i",
-            "img",
-            "ins",
-            "kbd",
-            "li",
-            "map",
-            "mark",
-            "nav",
-            "ol",
-            "p",
-            "pre",
-            "q",
-            "rp",
-            "rt",
-            "rtc",
-            "ruby",
-            "s",
-            "samp",
-            "small",
-            "span",
-            "strike",
-            "strong",
-            "sub",
-            "summary",
-            "sup",
-            "table",
-            "tbody",
-            "td",
-            "th",
-            "thead",
-            "time",
-            "tr",
-            "tt",
-            "u",
-            "ul",
-            "var",
-            "wbr",
-        },
-        attributes={
-            "*": {"style", "lang", "title", "width", "height"},
-            # below are mostly defaults to ammonia, but we need to add them explicitly
-            # because this python binding doesn't allow additive allowing
-            "a": {"href", "hreflang", "target"},
-            "bdo": {"dir"},
-            "blockquote": {"cite"},
-            "col": {"align", "char", "charoff", "span"},
-            "colgroup": {"align", "char", "charoff", "span"},
-            "del": {"cite", "datetime"},
-            "hr": {"align", "size", "width"},
-            "img": {"align", "alt", "height", "src", "width"},
-            "ins": {"cite", "datetime"},
-            "ol": {"start", "type"},
-            "q": {"cite"},
-            "table": {
-                "align",
-                "bgcolor",
-                "border",
-                "cellpadding",
-                "cellspacing",
-                "frame",
-                "rules",
-                "summary",
-                "width",
-            },
-            "tbody": {"align", "char", "charoff", "valign"},
-            "td": {
-                "abbr",
-                "align",
-                "axis",
-                "bgcolor",
-                "char",
-                "charoff",
-                "colspan",
-                "headers",
-                "height",
-                "nowrap",
-                "rowspan",
-                "scope",
-                "valign",
-                "width",
-            },
-            "tfoot": {"align", "char", "charoff", "valign"},
-            "th": {
-                "abbr",
-                "align",
-                "axis",
-                "bgcolor",
-                "char",
-                "charoff",
-                "colspan",
-                "headers",
-                "height",
-                "nowrap",
-                "rowspan",
-                "scope",
-                "valign",
-                "width",
-            },
-            "thead": {"align", "char", "charoff", "valign"},
-            "tr": {"align", "bgcolor", "char", "charoff", "valign"},
-        },
-    )

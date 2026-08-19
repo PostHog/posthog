@@ -355,7 +355,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "whiteLabel": False,
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
-    "position": "bottom-right",
+    "position": "right",
     "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",

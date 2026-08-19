@@ -4541,6 +4541,105 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use white labelling"
 
 
+class TestSurveyStylingEntitlement(APIBaseTest):
+    """The SURVEYS_STYLING entitlement is enforced on the server, not only in the frontend."""
+
+    def _grant_styling(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SURVEYS_STYLING, "name": AvailableFeature.SURVEYS_STYLING}
+        ]
+        self.organization.save()
+
+    def test_free_org_cannot_create_survey_with_custom_styling(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Styled survey",
+                "type": "popover",
+                "appearance": {"backgroundColor": "#123456"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "You need to upgrade your plan to customize survey styling"
+
+    def test_free_org_can_create_survey_with_free_appearance_fields(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Plain survey",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks!",
+                    "surveyPopupDelaySeconds": 5,
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_free_org_can_save_survey_without_changing_styling(self):
+        # A survey styled while entitled must remain editable after the entitlement is gone,
+        # as long as the styling fields are not changed.
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Previously styled",
+            type="popover",
+            appearance={"backgroundColor": "#123456"},
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"appearance": {"backgroundColor": "#123456", "thankYouMessageHeader": "Thanks!"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["appearance"]["thankYouMessageHeader"] == "Thanks!"
+
+    def test_free_org_cannot_change_styling_on_update(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Previously styled",
+            type="popover",
+            appearance={"backgroundColor": "#123456"},
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"appearance": {"backgroundColor": "#654321"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "You need to upgrade your plan to customize survey styling"
+
+    def test_entitled_org_can_set_custom_styling(self):
+        self._grant_styling()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Styled survey",
+                "type": "popover",
+                "appearance": {"backgroundColor": "#123456"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["appearance"]["backgroundColor"] == "#123456"
+
+
 class TestSurveyWithActions(APIBaseTest):
     def test_can_use_actions_with_properties(self):
         action = Action.objects.create(
@@ -6099,6 +6198,12 @@ class TestExternalSurveyValidation(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # These tests exercise external-survey validation, not the styling paywall, so grant
+        # the styling entitlement to let their custom appearance colors save.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SURVEYS_STYLING, "name": AvailableFeature.SURVEYS_STYLING}
+        ]
+        self.organization.save()
         # Create a feature flag for testing
         self.test_flag = FeatureFlag.objects.create(
             team=self.team,
