@@ -254,6 +254,12 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
                 scope="desktop_canvas",
                 target_id=canvas_id,
             )
+        canvas_api.set_canvas_provenance(
+            team_id=team_id,
+            canvas_id=session.canvas_id,
+            source_product="signal_report",
+            source_resource_id=report.id,
+        )
         title = report.title or "Report"
         tasks_facade.update_shared_task_context(
             team_id=team_id,

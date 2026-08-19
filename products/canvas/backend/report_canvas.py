@@ -50,6 +50,22 @@ def create_report_canvas(
     return canvas.id
 
 
+def set_canvas_provenance(
+    *, team_id: int, canvas_id: str | UUID, source_product: str, source_resource_id: str | UUID
+) -> None:
+    updated = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id)
+        .update(
+            source_product=source_product,
+            source_resource_id=str(source_resource_id),
+            updated_at=timezone.now(),
+        )
+    )
+    if updated != 1:
+        raise Canvas.DoesNotExist(canvas_id)
+
+
 def set_generation_task(*, team_id: int, canvas_id: str | UUID, task_id: str | UUID) -> None:
     updated = Canvas.objects.for_team(team_id).filter(id=canvas_id).update(generation_task_id=task_id)
     if updated != 1:

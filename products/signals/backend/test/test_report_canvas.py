@@ -106,6 +106,37 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert attempt.status == SignalReportCanvasGeneration.Status.GENERATING
         assert attempt.generation_task_id == generation_task_id
 
+    def test_repairs_provenance_when_reusing_an_existing_report_canvas(self) -> None:
+        report = self._report()
+        with team_scope(self.team.id):
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+            discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
+            SignalReportCanvas.objects.create(
+                team=self.team,
+                report=report,
+                canvas_id=canvas.id,
+                discussion_task_id=discussion.id,
+                generated_fingerprint="stable",
+                generation_status=SignalReportCanvas.GenerationStatus.READY,
+            )
+
+        with (
+            patch("products.signals.backend.report_canvas.report_canvases_enabled", return_value=True),
+            patch("products.signals.backend.report_canvas._report_fingerprint", return_value="stable"),
+            patch("products.signals.backend.report_canvas._fetch_report_signals", return_value=[]),
+        ):
+            generation = ensure_and_start_report_canvas_generation(
+                team_id=self.team.id,
+                report_id=str(report.id),
+            )
+
+        assert generation is not None
+        assert generation.skipped is True
+        canvas.refresh_from_db()
+        assert canvas.source_product == "signal_report"
+        assert canvas.source_resource_id == str(report.id)
+
     def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
         report = self._report()
         SignalReportArtefact.append_status(
