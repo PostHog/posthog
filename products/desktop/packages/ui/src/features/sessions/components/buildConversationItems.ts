@@ -77,6 +77,7 @@ export interface LastTurnInfo {
 
 export interface BuildResult {
   items: ConversationItem[];
+  stablePrefixItemCount: number;
   lastTurnInfo: LastTurnInfo | null;
   isCompacting: boolean;
   /** A `/clear` is in flight (its status row shows the dedicated spinner), so
@@ -124,7 +125,15 @@ interface TurnState {
 
 export interface ItemBuilder {
   items: ConversationItem[];
-  toolCallRows: Map<string, { items: ConversationItem[]; index: number }>;
+  toolCallRows: Map<
+    string,
+    {
+      items: ConversationItem[];
+      index: number;
+      ancestors: { items: ConversationItem[]; index: number }[];
+      rootIndex: number;
+    }
+  >;
   currentTurn: TurnState | null;
   /** Index in `items` where the current turn's first item sits. Lets an
    *  incremental consumer treat everything before it (completed turns) as
@@ -139,11 +148,7 @@ export interface ItemBuilder {
    *  event for the same id mutates the same card, regardless of which turn is
    *  currently active. */
   progressCards: Map<string, ProgressCardState>;
-  /** Lowest item index touched by a progress event since it was last reset.
-   *  An incremental consumer resets this before feeding a batch of events and
-   *  reads it after to detect a card being mutated inside an already frozen
-   *  (completed) turn, which would otherwise go unseen. */
-  lowestTouchedProgressIndex: number;
+  lowestTouchedItemIndex: number;
   /** Count of tool calls that have reached a terminal status (completed /
    *  failed / cancelled). Increments once per tool call when it first settles.
    *  Drives the generating indicator's status word so it advances on real work
@@ -168,7 +173,7 @@ export function createItemBuilder(): ItemBuilder {
     isCompacting: false,
     isClearing: false,
     progressCards: new Map(),
-    lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
+    lowestTouchedItemIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
     lastActivityAt: null,
     runStartedRunIds: new Set(),
@@ -245,7 +250,12 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   };
   const index = b.items.push(item) - 1;
   if (update.sessionUpdate === "tool_call") {
-    b.toolCallRows.set(update.toolCallId, { items: b.items, index });
+    b.toolCallRows.set(update.toolCallId, {
+      items: b.items,
+      index,
+      ancestors: [],
+      rootIndex: index,
+    });
   }
 }
 
@@ -296,6 +306,7 @@ export function buildConversationItems(
 
   return {
     items: b.items,
+    stablePrefixItemCount: 0,
     lastTurnInfo,
     isCompacting: b.isCompacting,
     isClearing: b.isClearing,
@@ -353,6 +364,7 @@ export function buildAgentConversationItems(
 
   return {
     items: b.items,
+    stablePrefixItemCount: 0,
     lastTurnInfo: readLastTurnInfo(b),
     isCompacting: b.isCompacting,
     isClearing: b.isClearing,
@@ -556,8 +568,8 @@ function handlePromptRequest(
     }
     // The shifted cards may live inside a turn the incremental builder already
     // froze; flag the mutation so it falls back to a full rebuild.
-    if (insertIndex < b.lowestTouchedProgressIndex) {
-      b.lowestTouchedProgressIndex = insertIndex;
+    if (insertIndex < b.lowestTouchedItemIndex) {
+      b.lowestTouchedItemIndex = insertIndex;
     }
   }
 
@@ -659,21 +671,42 @@ function completePromptTurn(
 
 function replaceTurnContextRows(b: ItemBuilder, context: TurnContext): void {
   const visited = new Set<ConversationItem[]>();
-  const replaceRows = (items: ConversationItem[]): void => {
-    if (visited.has(items)) return;
+  const replaceRows = (
+    items: ConversationItem[],
+    rootIndex: number,
+  ): boolean => {
+    if (visited.has(items)) return false;
     visited.add(items);
+    let replaced = false;
     for (let index = 0; index < items.length; index++) {
       const item = items[index];
       if (item.type !== "session_update") continue;
       if (item.turnContext === context) {
         items[index] = { ...item };
+        replaced = true;
       }
       for (const children of item.turnContext.childItems.values()) {
-        replaceRows(children);
+        replaced = replaceRows(children, rootIndex) || replaced;
       }
     }
+    if (replaced && rootIndex < b.lowestTouchedItemIndex) {
+      b.lowestTouchedItemIndex = rootIndex;
+    }
+    return replaced;
   };
-  replaceRows(b.items);
+  for (let index = 0; index < b.items.length; index++) {
+    const item = b.items[index];
+    if (item.type !== "session_update") continue;
+    if (item.turnContext === context) {
+      b.items[index] = { ...item };
+      if (index < b.lowestTouchedItemIndex) {
+        b.lowestTouchedItemIndex = index;
+      }
+    }
+    for (const children of item.turnContext.childItems.values()) {
+      replaceRows(children, index);
+    }
+  }
 }
 
 function handleNotification(
@@ -686,7 +719,12 @@ function handleNotification(
     const params = msg.params as UserShellExecuteParams;
     const existing = b.shellExecutes.get(params.id);
     if (existing) {
-      existing.item.result = params.result;
+      const item = { ...existing.item, result: params.result };
+      b.items[existing.index] = item;
+      b.shellExecutes.set(params.id, { item, index: existing.index });
+      if (existing.index < b.lowestTouchedItemIndex) {
+        b.lowestTouchedItemIndex = existing.index;
+      }
     } else {
       const item: UserShellExecute = {
         type: "user_shell_execute",
@@ -750,8 +788,8 @@ function handleNotification(
       b.runStartedRunIds.add(runId);
       const card = b.progressCards.get(`setup:${runId}`);
       if (card) {
-        if (card.itemIndex < b.lowestTouchedProgressIndex) {
-          b.lowestTouchedProgressIndex = card.itemIndex;
+        if (card.itemIndex < b.lowestTouchedItemIndex) {
+          b.lowestTouchedItemIndex = card.itemIndex;
         }
         syncProgressCard(card, b);
       }
@@ -952,8 +990,8 @@ function handleProgress(
   const status = normalizeStepStatus(params.status);
   const card = ensureProgressCardForGroup(b, params.group, ts);
   if (!card) return;
-  if (card.itemIndex < b.lowestTouchedProgressIndex) {
-    b.lowestTouchedProgressIndex = card.itemIndex;
+  if (card.itemIndex < b.lowestTouchedItemIndex) {
+    b.lowestTouchedItemIndex = card.itemIndex;
   }
   card.steps.set(params.step, {
     key: params.step,
@@ -996,6 +1034,9 @@ function markRuntimeStatusComplete(b: ItemBuilder, status: string) {
       // stuck with its spinner and a still-ticking timer. A new reference forces
       // the completion to render (and the row to unmount).
       b.items[i] = { ...item, update: { ...item.update, isComplete: true } };
+      if (i < b.lowestTouchedItemIndex) {
+        b.lowestTouchedItemIndex = i;
+      }
       return;
     }
   }
@@ -1069,7 +1110,18 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
   };
   const index = children.push(item) - 1;
   if (update.sessionUpdate === "tool_call") {
-    b.toolCallRows.set(update.toolCallId, { items: children, index });
+    const parentRow = b.toolCallRows.get(parentId);
+    b.toolCallRows.set(update.toolCallId, {
+      items: children,
+      index,
+      ancestors: parentRow
+        ? [
+            ...parentRow.ancestors,
+            { items: parentRow.items, index: parentRow.index },
+          ]
+        : [],
+      rootIndex: parentRow?.rootIndex ?? b.currentTurnStartIndex,
+    });
   }
   reissueToolCallRow(b, parentId);
 }
@@ -1148,6 +1200,16 @@ function reissueToolCallRow(
     ...item,
     update: { ...update, sessionUpdate: "tool_call" },
   };
+  for (let index = row.ancestors.length - 1; index >= 0; index--) {
+    const ancestor = row.ancestors[index];
+    const ancestorItem = ancestor.items[ancestor.index];
+    if (ancestorItem) {
+      ancestor.items[ancestor.index] = { ...ancestorItem };
+    }
+  }
+  if (row.rootIndex < b.lowestTouchedItemIndex) {
+    b.lowestTouchedItemIndex = row.rootIndex;
+  }
 }
 
 function processSessionUpdate(

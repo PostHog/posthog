@@ -85,14 +85,19 @@ function progressMsg(
   };
 }
 
-function shellExecuteMsg(ts: number, id: string, command: string): AcpMessage {
+function shellExecuteMsg(
+  ts: number,
+  id: string,
+  command: string,
+  result?: { stdout: string; stderr: string; exitCode: number },
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
     message: {
       jsonrpc: "2.0",
       method: "_array/user_shell_execute",
-      params: { id, command, cwd: "/repo" },
+      params: { id, command, cwd: "/repo", result },
     },
   };
 }
@@ -548,6 +553,79 @@ describe("createIncrementalConversationBuilder", () => {
     expect(row2).not.toBe(row1);
     expect(row2.update).not.toBe(row1.update);
     expect(row2.turnContext.childItems.get("agent1")?.length).toBe(1);
+  });
+
+  it("reissues every ancestor when a nested child tool call arrives", () => {
+    const inc = createIncrementalConversationBuilder();
+    const base = [
+      userPromptMsg(1, 1, "go"),
+      toolCallMsg(2, "agent1"),
+      childToolCallMsg(3, "child1", "agent1"),
+    ];
+    const first = inc.update(base, true);
+    const rootBefore = first.items.find(
+      (item) =>
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "tool_call" &&
+        item.update.toolCallId === "agent1",
+    );
+    if (rootBefore?.type !== "session_update") {
+      throw new Error("expected root tool row");
+    }
+    const childBefore = rootBefore.turnContext.childItems.get("agent1")?.[0];
+
+    const second = inc.update(
+      [...base, childToolCallMsg(4, "child2", "child1")],
+      true,
+    );
+    const rootAfter = second.items.find(
+      (item) =>
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "tool_call" &&
+        item.update.toolCallId === "agent1",
+    );
+    if (rootAfter?.type !== "session_update") {
+      throw new Error("expected root tool row");
+    }
+    const childAfter = rootAfter.turnContext.childItems.get("agent1")?.[0];
+    if (childAfter?.type !== "session_update") {
+      throw new Error("expected child tool row");
+    }
+
+    expect(rootAfter).not.toBe(rootBefore);
+    expect(childAfter).not.toBe(childBefore);
+    expect(childAfter.turnContext.childItems.get("child1")?.length).toBe(1);
+  });
+
+  it("replaces an older shell row when its result crosses a turn boundary", () => {
+    const inc = createIncrementalConversationBuilder();
+    const base = [
+      shellExecuteMsg(1, "shell-1", "pnpm test"),
+      userPromptMsg(2, 1, "next"),
+      agentChunk(3, "working"),
+    ];
+    const first = inc.update(base, true);
+    const shellBefore = first.items[0];
+
+    const second = inc.update(
+      [
+        ...base,
+        shellExecuteMsg(4, "shell-1", "pnpm test", {
+          stdout: "passed",
+          stderr: "",
+          exitCode: 0,
+        }),
+      ],
+      true,
+    );
+    const shellAfter = second.items[0];
+
+    expect(shellAfter).not.toBe(shellBefore);
+    expect(shellAfter).toMatchObject({
+      type: "user_shell_execute",
+      result: { stdout: "passed", exitCode: 0 },
+    });
+    expect(second.stablePrefixItemCount).toBe(0);
   });
 
   it("re-issues a thought row's identity when its turn completes in the same batch a new turn starts", () => {

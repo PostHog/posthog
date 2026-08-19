@@ -134,6 +134,25 @@ describe("createCloudEventSummaryTracker", () => {
 
     expect(first.toolCalls.get("tool-1")?.status).toBe("in_progress");
   });
+
+  it("refreshes changed files when a replacement has the same revision", () => {
+    const tracker = createCloudEventSummaryTracker();
+    tracker.update([
+      toolEvent("tool-1", {
+        kind: "write",
+        locations: [{ path: "src/old.ts", line: null }],
+      }),
+    ]);
+
+    const replacement = tracker.update([
+      toolEvent("tool-2", {
+        kind: "write",
+        locations: [{ path: "src/new.ts", line: null }],
+      }),
+    ]);
+
+    expect(replacement.changedFiles).toMatchObject([{ path: "src/new.ts" }]);
+  });
 });
 
 function diffObj(

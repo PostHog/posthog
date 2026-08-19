@@ -1313,15 +1313,18 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
       conversationItems={items}
       footerEvents={[]}
       footerState={footerState}
+      stablePrefixItemCount={0}
     />
   );
 }
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const { items, stablePrefixItemCount } = useConversationItems(
+    events,
+    props.isPromptPending,
+    { showDebugLogs },
+  );
 
   return (
     <ChatThreadRenderer
@@ -1329,6 +1332,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
       {...props}
       conversationItems={items}
       footerEvents={events}
+      stablePrefixItemCount={stablePrefixItemCount}
     />
   );
 }
@@ -1336,11 +1340,13 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
   footerEvents: AcpMessage[];
+  stablePrefixItemCount: number;
 }
 
 function ChatThreadRenderer({
   conversationItems,
   footerEvents,
+  stablePrefixItemCount,
   groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
@@ -1380,8 +1386,8 @@ function ChatThreadRenderer({
     [groupToolCalls],
   );
   const rows = useMemo<TurnRow[]>(
-    () => rowGrouper.update(items),
-    [items, rowGrouper],
+    () => rowGrouper.update(items, stablePrefixItemCount),
+    [items, rowGrouper, stablePrefixItemCount],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and

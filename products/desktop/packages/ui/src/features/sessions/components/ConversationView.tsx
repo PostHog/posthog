@@ -146,6 +146,7 @@ export function ConversationView({
   // terminal and status events still flush immediately.
   const {
     items: conversationItems,
+    stablePrefixItemCount,
     lastTurnInfo,
     isCompacting,
     isClearing,
@@ -200,8 +201,8 @@ export function ConversationView({
   threadGrouperRef.current ??= createIncrementalThreadGrouper();
   const threadGrouper = threadGrouperRef.current;
   const grouping = useMemo<ThreadGrouping>(
-    () => threadGrouper.update(items, groupOverrides),
-    [items, groupOverrides, threadGrouper],
+    () => threadGrouper.update(items, groupOverrides, stablePrefixItemCount),
+    [items, groupOverrides, stablePrefixItemCount, threadGrouper],
   );
   const threadRows = grouping.rows;
   const rowKeepMounted = grouping.keepMounted;

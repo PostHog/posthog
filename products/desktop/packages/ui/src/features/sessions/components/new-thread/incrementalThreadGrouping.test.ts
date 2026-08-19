@@ -97,10 +97,10 @@ describe("createIncrementalThreadGrouper", () => {
     const grouper = createIncrementalThreadGrouper();
     const overrides = {};
     const items = [userMessage("u1"), toolItem("t1", completeContext)];
-    const first = grouper.update(items, overrides);
+    const first = grouper.update(items, overrides, items.length);
 
     const next = [...items, agentMessage("m1")];
-    const second = grouper.update(next, overrides);
+    const second = grouper.update(next, overrides, items.length);
 
     expectGroupingEquivalent(second, buildThreadGroups(next, overrides));
     expect(second.rows[0]).toBe(first.rows[0]);

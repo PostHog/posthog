@@ -94,6 +94,7 @@ export function createIncrementalConversationBuilder() {
         finalizeBuilder(builder, isPromptPending);
         const result: BuildResult = {
           items: builder.items,
+          stablePrefixItemCount: 0,
           lastTurnInfo: readLastTurnInfo(builder),
           isCompacting: builder.isCompacting,
           isClearing: builder.isClearing,
@@ -134,7 +135,8 @@ export function createIncrementalConversationBuilder() {
     }
 
     const builder = b as ItemBuilder;
-    builder.lowestTouchedProgressIndex = Number.POSITIVE_INFINITY;
+    const hadProcessedEvents = processedCount > 0;
+    builder.lowestTouchedItemIndex = Number.POSITIVE_INFINITY;
     // A rebuild re-reads the whole array, so order it first. An append continues
     // a sequence already in ts-order and takes the new events as they came.
     const ordered =
@@ -156,11 +158,9 @@ export function createIncrementalConversationBuilder() {
         ? builder.currentTurnStartIndex
         : builder.items.length;
 
-    // A progress card living in the frozen region was mutated by this batch —
-    // an event reached back across a turn boundary. The append-only view can't
-    // show that, so rebuild fully this frame (the persistent builder stays
-    // valid for the next one).
-    if (builder.lowestTouchedProgressIndex < activeStart) {
+    // An event reached back across a turn boundary. Rebuild the visible snapshot
+    // so cached rows observe it; the persistent builder remains valid.
+    if (hadProcessedEvents && builder.lowestTouchedItemIndex < activeStart) {
       return buildConversationItems(events, isPromptPending, options);
     }
 
@@ -181,6 +181,7 @@ export function createIncrementalConversationBuilder() {
     // renderers, not via row identity.
     return {
       items: builder.items.slice(),
+      stablePrefixItemCount: activeStart,
       lastTurnInfo: readLastTurnInfoForOutput(builder),
       isCompacting: builder.isCompacting,
       isClearing: builder.isClearing,

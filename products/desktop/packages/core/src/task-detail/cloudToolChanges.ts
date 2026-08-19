@@ -281,7 +281,10 @@ export function createCloudEventSummaryTracker(): {
       if (change.changedFilesChanged) state.changedFilesRevision++;
     },
     getResult: (state) => {
-      if (state.changedFilesRevision !== projectedChangedFilesRevision) {
+      if (
+        state !== projectedState ||
+        state.changedFilesRevision !== projectedChangedFilesRevision
+      ) {
         projectedChangedFilesRevision = state.changedFilesRevision;
         projectedChangedFiles = extractCloudToolChangedFiles(state.toolCalls);
       }

@@ -56,8 +56,8 @@ describe("createIncrementalChatRowGrouper", () => {
     const firstItems = [userMessage("u1"), agentMessage("a1")];
     const first = grouper.update(firstItems);
     const secondItems = [...firstItems, userMessage("u2"), agentMessage("a2")];
-    const second = grouper.update(secondItems);
-    const third = grouper.update([...secondItems, agentMessage("a3")]);
+    const second = grouper.update(secondItems, 2);
+    const third = grouper.update([...secondItems, agentMessage("a3")], 2);
 
     expect(second[0]).toBe(first[0]);
     expect(second[1]).toBe(first[1]);
@@ -102,19 +102,42 @@ describe("createIncrementalChatRowGrouper", () => {
   it("replaces an optimistic boundary whose confirmed item has a new id", () => {
     const grouper = createIncrementalChatRowGrouper(groupRows);
     const prefix = [userMessage("u1"), agentMessage("a1")];
-    grouper.update([...prefix, userMessage("optimistic-u2")]);
+    grouper.update([...prefix, userMessage("optimistic-u2")], 2);
 
     expect(
-      grouper.update([
-        ...prefix,
-        userMessage("confirmed-u2"),
-        agentMessage("a2"),
-      ]),
+      grouper.update(
+        [...prefix, userMessage("confirmed-u2"), agentMessage("a2")],
+        2,
+      ),
     ).toMatchObject([
       { id: "u1" },
       { type: "agent_turn", items: [{ id: "a1" }] },
       { id: "confirmed-u2" },
       { type: "agent_turn", items: [{ id: "a2" }] },
     ]);
+  });
+
+  it("does not inspect the completed prefix on a streamed append", () => {
+    const grouper = createIncrementalChatRowGrouper(groupRows);
+    const items = [
+      userMessage("u1"),
+      agentMessage("a1"),
+      userMessage("u2"),
+      agentMessage("a2"),
+    ];
+    grouper.update(items, 2);
+    const inspected = new Set<number>();
+    const next = new Proxy([...items, agentMessage("a3")], {
+      get(target, property, receiver) {
+        if (typeof property === "string" && /^\d+$/.test(property)) {
+          inspected.add(Number(property));
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    grouper.update(next, 2);
+
+    expect(inspected.has(0)).toBe(false);
   });
 });
