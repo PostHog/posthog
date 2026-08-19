@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "ignoreWorkspaces": ["apps/mobile"],
+  "ignoreWorkspaces": ["apps/mobile", "apps/web"],
   "workspaces": {
     ".": {
       "entry": ["mprocs.yaml", "scripts/*.{mjs,js,ts}"]
