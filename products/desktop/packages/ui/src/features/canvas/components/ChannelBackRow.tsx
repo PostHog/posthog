@@ -40,9 +40,9 @@ function RowStar({ channel }: { channel: Channel }) {
         });
         toggleStar();
       }}
-      // Parks in the row's reserved well: 8px padding + 6px gap = 14px from the
+      // Parks in the row's reserved well: 8px padding + 3px gap = 11px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-[3px] text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
     </Button>
@@ -62,6 +62,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.channelType !== "personal";
   const glyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
     size: 14,
     space: spacesLayout,
     className: "text-muted-foreground",
@@ -91,7 +92,10 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               // the star. Padding rather than a spacer element: quill hides an
               // empty one (`empty:hidden`), which is how the shortcut hint ended
               // up sitting beneath the star.
-              className={cn("w-full gap-1.5 text-left", showStar && "pr-8")}
+              className={cn(
+                "w-full gap-1.5 pr-1 text-left",
+                showStar && "pr-8",
+              )}
             >
               <CaretLeftIcon
                 size={12}

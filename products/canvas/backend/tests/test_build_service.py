@@ -15,7 +15,7 @@ from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task, TaskThreadMessage
 
 
 def _builder_result(files: dict[str, str], capabilities: dict | None = None) -> dict:
@@ -87,6 +87,32 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         entry_key = f"{build.artifact_object_prefix}/index.html"
         assert self.storage.objects[entry_key] == b"<html></html>"
 
+    def test_draft_build_ready_does_not_advance_pointer(self):
+        published = self._publish()
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
+
+        _version, draft_build, _widening = build_service.create_draft_version(
+            self.canvas,
+            project=synthetic_source_project("export default function C() { return 2 }"),
+            prompt=None,
+            task_id=None,
+            created_by=None,
+        )
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html>2</html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(draft_build.id))
+
+        draft_build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        assert draft_build.status == CanvasBuild.STATUS_READY
+        assert draft_build.artifact_object_prefix
+        assert self.canvas.published_build_id == published.id
+
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
         second = self._publish()  # supersedes the first build, moves the head
@@ -125,6 +151,48 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert failing.status == CanvasBuild.STATUS_FAILED
         assert failing.diagnostics[0]["code"] == "bundle_error"
         assert self.canvas.published_build_id == build.id
+
+    def test_failed_build_files_report_in_authoring_task_thread(self):
+        # A failed build must reach the authoring task's thread — dropping this
+        # hook makes build failures silent again (telemetry only, nobody told).
+        # A cancelled build is churn, not a defect, and must not be reported.
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(generation_task_id=task.id)
+        flag = patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+        failing = self._publish()
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value={
+                "contractVersion": 1,
+                "status": "failed",
+                "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+            },
+        ):
+            build_service.run_canvas_build(self.team.id, str(failing.id))
+
+        reports = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task_id=task.id, event="canvas_error_reported"
+        )
+        assert reports.count() == 1
+        payload = reports.get().payload
+        assert payload["origin"] == "build"
+        assert payload["build_id"] == str(failing.id)
+        assert payload["error_codes"] == ["bundle_error"]
+
+        cancelled = self._publish()
+        build_service.act_on_build(self.canvas, cancelled.id, "cancel")
+        assert reports.count() == 1
 
     def test_builder_crash_fails_with_generic_unavailable(self):
         build = self._publish()

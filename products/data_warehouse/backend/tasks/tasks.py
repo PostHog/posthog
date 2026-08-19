@@ -47,10 +47,10 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# Live introspection of a large catalog can far exceed the digest bound; the
-# select_for_update guards make an overlap harmless, but keep the lock long enough
-# that it stays the normal exclusion mechanism.
-MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
+# A team can have both a legacy and a project-reader catalog, and each metadata query
+# has a 10-minute database timeout. Cover both serial queries so another task cannot
+# overlap the catalog writes near the old lock boundary.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 30 * 60
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
 

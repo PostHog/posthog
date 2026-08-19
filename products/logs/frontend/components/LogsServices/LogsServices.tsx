@@ -3,7 +3,16 @@ import { combineUrl } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconShare } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTable, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTag,
+    Tooltip,
+    lemonToast,
+} from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
@@ -14,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
-import { logsServicesLogic, ServiceRow } from './logsServicesLogic'
+import { logsServicesLogic, SERVICES_PAGE_SIZE, ServiceRow } from './logsServicesLogic'
 
 /** Collapsed Rules column shows this many rule chips before "+ N more". */
 const RULES_PREVIEW_COUNT = 3
@@ -152,9 +161,19 @@ function copyServiceDeepLink(serviceName: string): void {
 }
 
 export function LogsServices(): JSX.Element {
-    const { services, servicesDataLoading, sparklineByService, dateFrom, servicesSummary } =
-        useValues(logsServicesLogic)
-    const { setDateFrom } = useActions(logsServicesLogic)
+    const {
+        services,
+        pageRows,
+        page,
+        searchTerm,
+        servicesDataLoading,
+        sorting,
+        sparklineByService,
+        dateFrom,
+        servicesSummary,
+        totalServices,
+    } = useValues(logsServicesLogic)
+    const { setDateFrom, setPage, setSearchTerm, setSorting } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
 
@@ -194,13 +213,13 @@ export function LogsServices(): JSX.Element {
                     {row.service_name}
                 </span>
             ),
-            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
+            sorter: true,
         },
         {
             title: 'Log volume',
             dataIndex: 'log_count',
             render: (_, row) => humanFriendlyNumber(row.log_count),
-            sorter: (a, b) => a.log_count - b.log_count,
+            sorter: true,
             align: 'right',
         },
         {
@@ -231,7 +250,7 @@ export function LogsServices(): JSX.Element {
                 const type = row.error_rate > 0.1 ? 'danger' : row.error_rate > 0.01 ? 'warning' : 'success'
                 return <LemonTag type={type}>{pct}%</LemonTag>
             },
-            sorter: (a, b) => a.error_rate - b.error_rate,
+            sorter: true,
             align: 'right',
         },
         ...(samplingRulesUi
@@ -301,24 +320,58 @@ export function LogsServices(): JSX.Element {
                     {servicesSummary.top_services_volume_share_pct.toFixed(1)}% of traffic in this window.
                 </LemonBanner>
             )}
+            {totalServices > services.length && (
+                <LemonBanner type="info" className="mb-0">
+                    Showing the top {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
+                    {searchTerm ? 'matching services' : 'services'} by volume.{' '}
+                    {searchTerm ? 'Refine your search to see the rest.' : 'Use search to find the rest.'}
+                </LemonBanner>
+            )}
             <div className="flex items-center justify-between gap-2">
                 <h3 className="m-0">Services</h3>
-                <LemonSelect
+                <div className="flex items-center gap-2">
+                    <LemonInput
+                        size="small"
+                        type="search"
+                        placeholder="Search services"
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                    />
+                    <LemonSelect
+                        size="small"
+                        value={dateFrom}
+                        onChange={(value) => value && setDateFrom(value)}
+                        options={DATE_OPTIONS}
+                    />
+                </div>
+            </div>
+            {/* The scene container is a fixed height, so this region scrolls. Without it the
+                table is squeezed and clips its own last rows and the pagination control. */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {/* Pagination and sorting are controlled by the logic (which passes in the
+                    pre-sorted page slice) so it knows which rows are visible and can lazy-load
+                    their sparklines; the backend only sparklines the top rows per request. */}
+                <LemonTable
+                    columns={columns}
+                    dataSource={pageRows}
+                    loading={servicesDataLoading}
+                    sorting={sorting}
+                    onSort={(newSorting) => setSorting(newSorting)}
+                    useURLForSorting={false}
+                    pagination={{
+                        controlled: true,
+                        pageSize: SERVICES_PAGE_SIZE,
+                        currentPage: page,
+                        entryCount: services.length,
+                        onForward: () => setPage(page + 1),
+                        onBackward: () => setPage(page - 1),
+                        useUrl: false,
+                    }}
+                    emptyState={searchTerm ? 'No services match your search' : 'No services found in this time range'}
+                    rowKey="service_name"
                     size="small"
-                    value={dateFrom}
-                    onChange={(value) => value && setDateFrom(value)}
-                    options={DATE_OPTIONS}
                 />
             </div>
-            <LemonTable
-                columns={columns}
-                dataSource={services}
-                loading={servicesDataLoading}
-                defaultSorting={{ columnKey: 'log_count', order: -1 }}
-                emptyState="No services found in this time range"
-                rowKey="service_name"
-                size="small"
-            />
         </div>
     )
 }

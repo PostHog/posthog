@@ -50,6 +50,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.star !== undefined) {
+            body['star'] = params.star
+        }
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
@@ -548,6 +551,11 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                     'origin_product',
                     'repository',
                     'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
                     'created_at',
                     'updated_at',
                 ])

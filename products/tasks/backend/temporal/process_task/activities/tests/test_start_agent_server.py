@@ -6,8 +6,10 @@ from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandb
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
+    _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _network_enforcement_observation,
     _record_boot_total,
     _resolve_protected_base_branch,
     start_agent_server,
@@ -45,6 +47,11 @@ def _context(
     repository: str | None = None,
     branch: str | None = None,
     state: dict | None = None,
+    allowed_domains: list[str] | None = None,
+    agentsh_domain_allowlist: list[str] | None = None,
+    network_policy_fingerprint: str | None = None,
+    use_modal_vm_sandbox: bool = False,
+    use_modal_network_allowlist: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -57,8 +64,93 @@ def _context(
         distinct_id="distinct-id",
         state=state,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        allowed_domains=allowed_domains,
+        agentsh_domain_allowlist=agentsh_domain_allowlist,
+        network_policy_fingerprint=network_policy_fingerprint,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        use_modal_network_allowlist=use_modal_network_allowlist,
         _branch=branch,
     )
+
+
+@pytest.mark.parametrize(
+    "context,expected_observation,expected_agentsh_domains",
+    [
+        (_context(), "unrestricted", None),
+        (_context(allowed_domains=["example.com"]), "agentsh_ready", ["example.com"]),
+        (
+            _context(
+                allowed_domains=["example.com"],
+                agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+            ),
+            "agentsh_ready",
+            ["example.com", "api.posthog.com"],
+        ),
+        (
+            _context(
+                allowed_domains=["example.com"],
+                agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+                use_modal_network_allowlist=True,
+            ),
+            "modal_requested_sandbox_created_agentsh_ready",
+            ["example.com", "api.posthog.com"],
+        ),
+        (
+            _context(
+                allowed_domains=["example.com"],
+                agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+                use_modal_vm_sandbox=True,
+                use_modal_network_allowlist=True,
+                network_policy_fingerprint="policy-hash",
+            ),
+            "modal_requested_sandbox_created_agentsh_ready",
+            ["example.com", "api.posthog.com"],
+        ),
+    ],
+)
+def test_network_enforcement_observation_matches_completed_checks(
+    context: TaskProcessingContext,
+    expected_observation: str,
+    expected_agentsh_domains: list[str] | None,
+) -> None:
+    assert _network_enforcement_observation(context) == expected_observation
+    assert _agentsh_domains_for(context) == expected_agentsh_domains
+
+
+async def test_start_failure_does_not_report_network_enforcement_observation(mocker) -> None:
+    context = _context(
+        allowed_domains=["example.com"],
+        agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+        network_policy_fingerprint="policy-hash",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=mocker.Mock(),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=mocker.Mock(),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
+        side_effect=RuntimeError("health check failed"),
+    )
+    record_observation = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
+    )
+
+    with pytest.raises(RuntimeError, match="health check failed"):
+        await start_agent_server(
+            StartAgentServerInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                sandbox_url="https://sandbox.example",
+            )
+        )
+
+    record_observation.assert_not_called()
 
 
 def _mock_github_integration(mocker, pr_base: str | None):
@@ -196,6 +288,8 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         internal=True,
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
+        mcp_credential_owner_id=17,
+        mcp_gateway_server_allowlist=["srv-1"],
     )
     task_queryset = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
@@ -244,6 +338,8 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         allowed_installation_ids=None,
         origin_product="support_reply",
         task_agent_key="support",
+        credential_owner_id=17,
+        allowed_gateway_server_ids=["srv-1"],
     )
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
@@ -267,6 +363,8 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         internal=False,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
@@ -323,6 +421,8 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         internal=False,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",

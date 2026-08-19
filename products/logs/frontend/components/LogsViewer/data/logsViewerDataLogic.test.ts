@@ -164,6 +164,32 @@ describe('logsViewerDataLogic', () => {
 
             expect(logic.values.newLogUuids.size).toBe(0)
         })
+
+        it('unmounting mid-poll does not throw ([KEA] Can not find path ...)', async () => {
+            // beforeUnmount aborts the in-flight live-tail request. pollForNewLogs' finally
+            // block used to run unconditionally after that abort, dispatching actions against
+            // a logic that had already been torn down and crashing with a Kea "path not found"
+            // error. Guarding the finally block on signal.aborted (mirroring the existing catch
+            // block) fixes it.
+            let resolveQuery: (() => void) | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () =>
+                        new Promise((resolve) => {
+                            resolveQuery = () => resolve([200, { results: [], maxExportableLogs: 5000 }])
+                        }),
+                },
+            })
+
+            logic.actions.setLiveTailRunning(true)
+            await expectLogic(logic).toDispatchActions(['setLiveTailAbortController'])
+
+            expect(() => logic.unmount()).not.toThrow()
+
+            // Let the aborted request's rejection propagate through pollForNewLogs' catch/finally.
+            resolveQuery?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        })
     })
 
     describe('sparklineData selector', () => {

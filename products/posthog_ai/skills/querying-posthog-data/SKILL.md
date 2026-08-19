@@ -30,7 +30,7 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 
 When the user asks for a governed business number (MRR, activation rate, active users, ...), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
 
-1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). The table is usually empty; an empty result just means no governed definition exists, so derive the number normally.
+1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). Do this before the first `query-*` or `execute-sql` call that would produce the number. An empty result means no governed definition exists, and an unknown-table error means this project has no data catalog at all; either way, derive the number yourself and label it noncanonical.
 
    ```sql
    SELECT name, description, status, is_drifted, definition_kind, unit

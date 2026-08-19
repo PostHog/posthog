@@ -28,6 +28,7 @@ import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -190,10 +191,11 @@ function IdleInput(): JSX.Element {
     )
 }
 
-function HomepageAiInput(): JSX.Element {
+export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
+    const [approving, setApproving] = useState(false)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
@@ -215,7 +217,13 @@ function HomepageAiInput(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={() => void acceptDataProcessing().catch(console.error)}
+                        loading={approving}
+                        onClick={() => {
+                            setApproving(true)
+                            void acceptDataProcessing()
+                                .catch(console.error)
+                                .finally(() => setApproving(false))
+                        }}
                         sideIcon={<IconArrowRight />}
                     >
                         I allow AI analysis in this organization

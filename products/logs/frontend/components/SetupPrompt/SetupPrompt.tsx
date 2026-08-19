@@ -154,7 +154,12 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                         </div>
                         <span className="text-sm text-secondary">
                             Missing an integration?{' '}
-                            <button id="logs-feedback-button" className="text-link font-semibold cursor-pointer">
+                            <button
+                                id="logs-missing-integration-button"
+                                type="button"
+                                className="text-link font-semibold cursor-pointer"
+                                onClick={() => posthog.capture('logs missing integration clicked')}
+                            >
                                 Let us know
                             </button>
                         </span>

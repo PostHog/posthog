@@ -15,6 +15,7 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from dataclasses import replace
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
@@ -235,12 +236,7 @@ def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> con
 
 
 def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Repo:
-    repo = logic.update_repo(
-        repo_id=input.repo_id,
-        team_id=team_id,
-        baseline_file_paths=input.baseline_file_paths,
-        enable_pr_comments=input.enable_pr_comments,
-    )
+    repo = logic.update_repo(input, team_id=team_id)
     return _to_repo(repo)
 
 
@@ -345,32 +341,9 @@ def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[s
 
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
-    snapshots = [
-        {
-            "identifier": s.identifier,
-            "content_hash": s.content_hash,
-            "width": s.width,
-            "height": s.height,
-            "metadata": dict(s.metadata) if s.metadata else {},
-        }
-        for s in input.snapshots
-    ]
-
-    run, uploads = logic.create_run(
-        repo_id=input.repo_id,
-        team_id=team_id,
-        run_type=input.run_type,
-        commit_sha=input.commit_sha,
-        branch=input.branch,
-        pr_number=input.pr_number,
-        snapshots=snapshots,
-        baseline_hashes=input.baseline_hashes,
-        unchanged_count=input.unchanged_count,
-        removed_identifiers=list(input.removed_identifiers),
-        purpose=input.purpose,
-        metadata=_sanitize_run_metadata(input.metadata),
-        is_partial=input.is_partial,
-    )
+    # Sanitize metadata at the facade boundary before handing the DTO to logic.
+    input = replace(input, metadata=_sanitize_run_metadata(input.metadata))
+    run, uploads = logic.create_run(input, team_id=team_id)
 
     upload_targets = [
         contracts.UploadTarget(

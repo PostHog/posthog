@@ -1,11 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPosthogProjectHeaderLines,
+  buildPosthogProjectHeaderRecord,
   buildPosthogPropertiesBlob,
   buildPosthogPropertiesHeaderLines,
   buildPosthogPropertiesHeaderRecord,
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderRecord,
 } from "./posthog-property-headers";
+
+describe("PostHog project headers", () => {
+  it("builds record and line forms from the same header contract", () => {
+    expect(buildPosthogProjectHeaderRecord(42)).toEqual({
+      "X-PostHog-Project-Id": "42",
+    });
+    expect(buildPosthogProjectHeaderLines(42)).toBe("X-PostHog-Project-Id: 42");
+  });
+
+  it("combines the project scope with per-property headers", () => {
+    expect(
+      buildPosthogScopedPropertyHeaderRecord({ task_id: "task-1" }, 42),
+    ).toEqual({
+      "x-posthog-property-task_id": "task-1",
+      "X-PostHog-Project-Id": "42",
+    });
+    expect(
+      buildPosthogScopedPropertyHeaderLines({ task_id: "task-1" }, 42),
+    ).toBe("x-posthog-property-task_id: task-1\nX-PostHog-Project-Id: 42");
+  });
+});
 
 describe("buildPosthogPropertyHeaderRecord", () => {
   it("returns each property as an x-posthog-property-<key> entry", () => {

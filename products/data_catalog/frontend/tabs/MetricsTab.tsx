@@ -64,7 +64,12 @@ export function MetricsTab(): JSX.Element {
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
         LemonDialog.open({
             title: 'Delete metric?',
-            content: <div className="text-sm text-secondary">Deleting {metric.name} cannot be undone.</div>,
+            content: (
+                <div className="text-sm text-secondary">
+                    This deletes {metric.name} and makes its name available for a new metric. Queries and links that
+                    reference it will stop working.
+                </div>
+            ),
             primaryButton: {
                 children: 'Delete',
                 type: 'primary',

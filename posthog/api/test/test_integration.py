@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -39,12 +39,14 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
+    GitHubInstallationAccess,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
     Integration,
     SlackIntegration,
     StripeIntegration,
+    github_account_type,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
@@ -611,23 +613,34 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
-class TestAwsS3Integration:
+class TestAWSIntegration:
+    @pytest.fixture(
+        params=[
+            (Integration.IntegrationKind.AWS_S3),
+            (Integration.IntegrationKind.AWS_REDSHIFT),
+        ],
+        ids=lambda kind: kind.value,
+    )
+    def aws_integration_kind(self, request):
+        return request.param
+
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
+    def setup_integration(self, db, aws_integration_kind):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
+        self.integration_kind = aws_integration_kind
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
@@ -638,10 +651,10 @@ class TestAwsS3Integration:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["kind"] == "aws-s3"
+        assert response.json()["kind"] == self.integration_kind
 
         integration = Integration.objects.get(id=response.json()["id"])
-        assert integration.kind == "aws-s3"
+        assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
@@ -656,17 +669,17 @@ class TestAwsS3Integration:
         assert "aws_secret_access_key" not in response_body
         assert "AKIAEXAMPLE" not in response_body
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials")
+    @patch("posthog.models.integration.validate_aws_credentials")
     def test_create_rejects_invalid_credentials(self, mock_validate, client: HttpClient):
-        from posthog.models.integration import S3CredentialIntegrationError
+        from posthog.models.integration import IntegrationError
 
-        mock_validate.side_effect = S3CredentialIntegrationError("AWS credentials are not valid: nope")
+        mock_validate.side_effect = IntegrationError("AWS credentials are not valid: nope")
         client.force_login(self.user)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
@@ -679,11 +692,11 @@ class TestAwsS3Integration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "AWS credentials are not valid" in response.json()["detail"]
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
         }
 
@@ -700,20 +713,20 @@ class TestAwsS3Integration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "A name is required for an AWS S3 integration",
+                "A name is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Access key ID is required for an AWS S3 integration",
+                "Access key ID is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k"},
-                "Secret access key is required for an AWS S3 integration",
+                "Secret access key is required for AWS integration",
             ),
-            ({}, "A name is required for an AWS S3 integration"),
+            ({}, "A name is required for AWS integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Secret access key is required for an AWS S3 integration",
+                "Secret access key is required for AWS integration",
             ),
         ],
     )
@@ -722,22 +735,38 @@ class TestAwsS3Integration:
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
-            {"kind": "aws-s3", "config": invalid_config},
+            {"kind": self.integration_kind, "config": invalid_config},
             content_type="application/json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == expected_error_message
+        assert (
+            response.json()["detail"] == expected_error_message
+            # Default Redshift error message on {}
+            or response.json()["detail"] == "Missing required inputs"
+        )
 
 
-class TestAwsS3RoleBasedIntegration:
+class TestAWSRoleBasedIntegration:
+    @pytest.fixture(
+        params=[
+            (Integration.IntegrationKind.AWS_S3),
+            (Integration.IntegrationKind.AWS_REDSHIFT),
+        ],
+        ids=lambda kind: kind.value,
+    )
+    def aws_integration_kind(self, request):
+        return request.param
+
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
+    def setup_integration(self, db, aws_integration_kind):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
+
+        self.integration_kind = aws_integration_kind
 
     def test_create_with_valid_config(self, client: HttpClient):
         client.force_login(self.user)
@@ -746,7 +775,7 @@ class TestAwsS3RoleBasedIntegration:
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_role_arn": role,
@@ -756,10 +785,10 @@ class TestAwsS3RoleBasedIntegration:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["kind"] == "aws-s3"
+        assert response.json()["kind"] == self.integration_kind
 
         integration = Integration.objects.get(id=response.json()["id"])
-        assert integration.kind == "aws-s3"
+        assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
@@ -773,7 +802,7 @@ class TestAwsS3RoleBasedIntegration:
         )
         client.force_login(another_user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_role_arn": "something"},
         }
 
@@ -785,12 +814,12 @@ class TestAwsS3RoleBasedIntegration:
         client.force_login(self.user)
         second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
         assert second.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot create AWS S3 integration: Invalid role" in second.json()["detail"]
+        assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
 
     def test_create_rejects_duplicate_name(self, client: HttpClient):
         client.force_login(self.user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_role_arn": "something"},
         }
 
@@ -889,13 +918,13 @@ class TestS3CompatibleIntegration:
         [
             (
                 {"endpoint_url": "https://e.com", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, endpoint URL, access key ID, and secret access key must be provided",
+                "A name is required for S3-compatible integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, endpoint URL, access key ID, and secret access key must be provided",
+                "Endpoint URL is required for S3-compatible integration",
             ),
-            ({}, "Name, endpoint URL, access key ID, and secret access key must be provided"),
+            ({}, "A name is required for S3-compatible integration"),
         ],
     )
     def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
@@ -2074,9 +2103,46 @@ class TestGithubAccountTypeHelper:
         ]
     )
     def test_github_account_type(self, _name, owner_type, expected):
-        from posthog.api.integration import _github_account_type
+        assert github_account_type(owner_type) == expected
 
-        assert _github_account_type(owner_type) == expected
+
+class TestGitHubIntegrationCreatedReporting:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "reporting@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.event_usage.report_user_action")
+    @patch("posthog.models.integration.GitHubIntegration.fetch_installation_access")
+    def test_reports_integration_created_once_per_installation(self, mock_fetch, mock_report):
+        mock_fetch.return_value = GitHubInstallationAccess(
+            installation_id="12345",
+            installation_info={"account": {"type": "Organization", "login": "acme"}},
+            access_token="ghs_token",
+            token_expires_at=(timezone.now() + timedelta(hours=1)).isoformat(),
+            repository_selection="selected",
+        )
+
+        GitHubIntegration.integration_from_installation_id("12345", self.team.id, self.user)
+
+        assert mock_report.call_count == 1
+        args, kwargs = mock_report.call_args
+        assert args[1] == "integration created"
+        assert args[2] == {
+            "integration_kind": "github",
+            "is_overwrite": False,
+            "repo_owner_type": "Organization",
+            "account_type": "organization",
+        }
+        assert kwargs["team"] == self.team
+
+        # Reconnects and repeat installs re-run this, and must not read as new connections.
+        GitHubIntegration.integration_from_installation_id("12345", self.team.id, self.user)
+
+        assert mock_report.call_count == 1
 
 
 class TestGitHubIntegrationStateValidation:
@@ -2191,6 +2257,24 @@ class TestGitHubIntegrationStateValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
 
+    @override_settings(TIKTOK_ADS_CLIENT_ID="tiktok-app-id", TIKTOK_ADS_CLIENT_SECRET="tiktok-secret")
+    @patch("posthog.api.integration.report_user_action")
+    def test_oauth_authorize_captures_handoff(self, mock_report, client: HttpClient):
+        # An authorize-page rejection (e.g. TikTok's "app has been blocked") never returns to us, so
+        # this hand-off event is the only leg we can record for the OAuth-start funnel.
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/",
+            {"kind": "tiktok-ads"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith("https://business-api.tiktok.com/portal/auth")
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "integration authorize started"
+        assert mock_report.call_args.args[2] == {"integration_kind": "tiktok-ads"}
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
@@ -2244,18 +2328,20 @@ class TestGitHubIntegrationStateValidation:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
+    # Deliberately does not mock `integration_from_installation_id`: this serializer branch reaches it,
+    # and mocking it hides whichever of the two emitters is wrong.
     @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.event_usage.report_user_action")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
-    def test_create_github_integration_reports_account_type(
+    @patch("posthog.models.integration.GitHubIntegration.fetch_installation_access")
+    def test_create_github_integration_reports_created_exactly_once(
         self,
-        mock_user_integration,
-        mock_from_install,
+        mock_fetch,
         mock_from_code,
         mock_verify,
-        mock_report,
+        mock_model_report,
+        mock_serializer_report,
         client: HttpClient,
     ):
         from posthog.models.integration import GitHubUserAuthorization
@@ -2280,12 +2366,12 @@ class TestGitHubIntegrationStateValidation:
             refresh_token_expires_in=None,
         )
         mock_verify.return_value = True
-        mock_from_install.return_value = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
-            sensitive_config={"access_token": "ghs_test"},
+        mock_fetch.return_value = GitHubInstallationAccess(
+            installation_id="12345",
+            installation_info={"account": {"type": "Organization", "login": "acme"}},
+            access_token="ghs_token",
+            token_expires_at=(timezone.now() + timedelta(hours=1)).isoformat(),
+            repository_selection="selected",
         )
 
         response = client.post(
@@ -2295,8 +2381,12 @@ class TestGitHubIntegrationStateValidation:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        mock_report.assert_called_once()
-        props = mock_report.call_args.args[2]
+        # The serializer reports every other kind, but must stay silent for github.
+        assert mock_serializer_report.call_count == 0
+        # The same request also links the personal account, so filter to the team event.
+        created_calls = [c for c in mock_model_report.call_args_list if c.args[1] == "integration created"]
+        assert len(created_calls) == 1
+        props = created_calls[0].args[2]
         assert props["integration_kind"] == "github"
         assert props["repo_owner_type"] == "Organization"
         assert props["account_type"] == "organization"
@@ -2631,6 +2721,60 @@ class TestGitHubTeamIntegrationComplete:
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
+
+    @patch("posthog.api.github_callback.team_services.report_user_action")
+    def test_pending_without_callback_state_is_not_reported(self, mock_report):
+        # No stored authorize state: anyone logged in can hit this URL directly. It still redirects,
+        # but recording it would let a hand-typed URL inflate the approval-request metric, and would
+        # attribute it to whichever project the user happens to have open.
+        client = HttpClient()
+        client.force_login(self.user)
+
+        response = client.get("/integrations/github/callback/", {"setup_action": "request"})
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_install_pending=1" in response["Location"]
+        assert mock_report.call_count == 0
+
+    @parameterized.expand(
+        [
+            # GitHub sends setup_action=request when the user asked an org owner to approve the install.
+            ("owner_approval_requested", "request", "request", True),
+            ("left_without_installing", "", None, False),
+        ]
+    )
+    @patch("posthog.api.github_callback.team_services.report_user_action")
+    def test_missing_installation_id_reports_pending(
+        self, _name, setup_action, expected_setup_action, expected_requested_approval, mock_report
+    ):
+        client = HttpClient()
+        client.force_login(self.user)
+        state_token = "pending-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": setup_action, "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert mock_report.call_count == 1
+        args, kwargs = mock_report.call_args
+        assert args[1] == "integration install pending"
+        assert args[2] == {
+            "integration_kind": "github",
+            "setup_action": expected_setup_action,
+            "requested_approval": expected_requested_approval,
+        }
+        assert kwargs["team"] == self.team
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -5161,6 +5305,20 @@ class TestIntegrationDeletionWorkflowGuard:
         assert "Welcome Email Sequence" in response.content.decode()
         assert Integration.objects.filter(id=self.integration.id).exists()
 
+    def test_destroy_blocked_when_active_workflow_sender_rotation_references_integration(self, client: HttpClient):
+        actions = self._email_actions(self.integration.id + 1)
+        actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationIds"] = [
+            self.integration.id + 1,
+            self.integration.id,
+        ]
+        self._create_flow(actions=actions)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Welcome Email Sequence" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
     @pytest.mark.parametrize("flow_status", ["draft", "archived"])
     def test_destroy_allowed_when_workflow_not_active(self, flow_status: str, client: HttpClient):
         self._create_flow(status=flow_status)
@@ -5418,6 +5576,7 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
                 "reason_length": len("We need Slack alerts"),
             },
             team=self.team,
+            request=ANY,
         )
 
     @parameterized.expand(
@@ -5500,7 +5659,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_member_can_create_integration(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/integrations",

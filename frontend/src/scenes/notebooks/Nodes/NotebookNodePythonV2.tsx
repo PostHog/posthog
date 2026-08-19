@@ -34,6 +34,12 @@ export type NotebookNodePythonV2Attributes = {
     runStatus?: NotebookNodeRunTerminalStatus | null
 }
 
+const PYTHON_EDITOR_MIN_HEIGHT = 160
+// About 20 lines at Monaco's 18px line height. An MCP-written cell is often far longer than that,
+// and an editor that grows with the code pushes the output and the next cell off the screen.
+// Past the cap the editor scrolls, and the drag handle expands it.
+const PYTHON_EDITOR_MAX_HEIGHT = 360
+
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
     const firstPage = result.first_page ?? []
@@ -288,14 +294,20 @@ const Settings = ({
                     {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
-            <div className="min-h-0 flex-1">
+            <div
+                className="min-h-0 flex-1"
+                // The editor owns pointer drags in here. Without this the resize handle drags the
+                // node around the markdown notebook instead of resizing the editor.
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
                 <CodeEditorResizeable
                     language="python"
                     value={typeof attributes.code === 'string' ? attributes.code : ''}
                     onChange={(value) => updateAttributes({ code: value ?? '' })}
                     onPressCmdEnter={() => runRef.current()}
-                    allowManualResize={false}
-                    minHeight={160}
+                    minHeight={PYTHON_EDITOR_MIN_HEIGHT}
+                    maxHeight={PYTHON_EDITOR_MAX_HEIGHT}
                     embedded
                 />
             </div>

@@ -475,7 +475,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls. The classifier is trained on English, so labels are unreliable for other languages. For a multilingual agent, use an LLM judge instead.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}

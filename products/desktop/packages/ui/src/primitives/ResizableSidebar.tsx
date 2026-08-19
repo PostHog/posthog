@@ -1,6 +1,5 @@
 import { SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { PEEK_CLOSE_MARGIN } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
-import { Box, Flex } from "@radix-ui/themes";
 import React from "react";
 
 // Linear-style drag-to-close: dragging the handle clamps at SIDEBAR_MIN_WIDTH,
@@ -10,12 +9,7 @@ import React from "react";
 const DRAG_COLLAPSE_AT = SIDEBAR_MIN_WIDTH * 0.5;
 const DRAG_REOPEN_AT = DRAG_COLLAPSE_AT + 16;
 
-// Every moving part of the open/close choreography — the box width, the
-// panel's translateX, and the title bar in __root — must share this exact
-// curve (Tailwind's ease-out) and duration, or the panel's edge drifts ahead
-// of the content edge mid-animation and the layers visibly overlap.
-const SLIDE_EASING = "cubic-bezier(0, 0, 0.2, 1)";
-const SLIDE_WIDTH_TRANSITION = `width 0.2s ${SLIDE_EASING}, min-width 0.2s ${SLIDE_EASING}, max-width 0.2s ${SLIDE_EASING}`;
+export const SLIDE_MS = 200;
 
 interface ResizableSidebarProps {
   children: React.ReactNode;
@@ -28,6 +22,10 @@ interface ResizableSidebarProps {
   // Floor for drag-resize. Defaults to SIDEBAR_MIN_WIDTH; callers whose chrome
   // needs more room can raise it.
   minWidth?: number;
+  // What the column keeps while closed. Zero collapses it away, which is what
+  // a sidebar wants; a caller that pins chrome over this column gives that
+  // chrome's width, so the content pane never reaches under it.
+  collapsedWidth?: number;
   // Enables drag-to-close/reopen. Without it, dragging just clamps at min.
   setOpen?: (open: boolean) => void;
   // While closed, the panel can "peek" — slide out over the content as a
@@ -49,6 +47,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   setIsResizing,
   side,
   minWidth = SIDEBAR_MIN_WIDTH,
+  collapsedWidth = 0,
   setOpen,
   peek = false,
   onPeekEnter,
@@ -67,12 +66,26 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   // re-registers the listeners with the post-close open/peek values, so the
   // closure state can't be trusted for the width restore.
   const dragEndedClosedRef = React.useRef(false);
+  // The panel's anchored edge in window coordinates — its left for a left-hand
+  // panel, its right for a right-hand one. Width is the pointer's distance from
+  // it, so a panel that doesn't start at the window edge still tracks the
+  // cursor. Captured on mousedown: resizing moves the far edge, never this one.
+  const boxRef = React.useRef<HTMLDivElement | null>(null);
+  const anchorRef = React.useRef(0);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     dragOriginRef.current = open ? "docked" : "overlay";
     dragStartWidthRef.current = width;
     dragEndedClosedRef.current = false;
+    const rect = boxRef.current?.getBoundingClientRect();
+    anchorRef.current = rect
+      ? side === "left"
+        ? rect.left
+        : rect.right
+      : side === "left"
+        ? 0
+        : window.innerWidth;
     setIsResizing(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -101,9 +114,12 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
 
-      // Distance from the sidebar's window edge, regardless of side.
+      // Distance from the panel's own anchored edge, regardless of side, which
+      // is the width the pointer is asking for.
       const pointer =
-        side === "left" ? e.clientX : window.innerWidth - e.clientX;
+        side === "left"
+          ? e.clientX - anchorRef.current
+          : anchorRef.current - e.clientX;
       const maxWidth = window.innerWidth * 0.5;
       const clamped = Math.max(minWidth, Math.min(maxWidth, pointer));
 
@@ -153,7 +169,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
       }
       if (!open && peek) {
         const pointer =
-          side === "left" ? e.clientX : window.innerWidth - e.clientX;
+          side === "left"
+            ? e.clientX - anchorRef.current
+            : anchorRef.current - e.clientX;
         if (pointer > width + PEEK_CLOSE_MARGIN) onPeekLeave?.();
       }
     };
@@ -183,7 +201,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   const isLeft = side === "left";
   // Closed = overlay mode: the box collapses to 0 width but the panel stays
   // mounted as an absolutely positioned layer that peek slides in and out.
-  const isOverlay = !open;
+  // A column that keeps a width while closed stays docked: there is no edge to
+  // peek out from, and its caller draws in the space it holds.
+  const isOverlay = !open && collapsedWidth === 0;
   const overlayVisible = isOverlay && peek;
 
   // While the panel slides, the resize handle sweeps under a stationary
@@ -212,24 +232,18 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   }, [handleArmed]);
 
   return (
-    <Box
+    <div
+      ref={boxRef}
       style={{
-        width: open ? `${width}px` : "0",
-        minWidth: open ? `${width}px` : "0",
-        maxWidth: open ? `${width}px` : "0",
-        // Suppress only while dragging the docked sidebar so it tracks the
-        // pointer frame-for-frame; a drag-to-close (open flips false mid-drag)
-        // re-enables it so the collapse animates instead of jump-cutting.
-        // min/max-width must animate too — they clamp the rendered width, so
-        // left un-transitioned they snap the box to 0 and the content jumps.
-        transition: isResizing && open ? "none" : SLIDE_WIDTH_TRANSITION,
+        width: open ? `${width}px` : `${collapsedWidth}px`,
+        minWidth: open ? `${width}px` : `${collapsedWidth}px`,
+        maxWidth: open ? `${width}px` : `${collapsedWidth}px`,
         borderLeft: !isLeft && open ? "1px solid var(--border)" : "none",
         borderRight: isLeft && open ? "1px solid var(--border)" : "none",
       }}
       className="relative h-full shrink-0"
     >
-      <Flex
-        direction="column"
+      <div
         style={{
           width: `${width}px`,
           ...(isOverlay
@@ -253,7 +267,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         }}
         className={
           isOverlay
-            ? `absolute inset-y-0 z-50 h-full min-w-0 border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
+            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
                 isLeft ? "left-0 border-r" : "right-0 border-l"
               } ${
                 // Shadow only while shown — at translateX(-100%) the panel's
@@ -261,16 +275,22 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
                 // a sliver over the content.
                 overlayVisible ? "shadow-lg" : ""
               }`
-            : "relative h-full min-w-0 transition-transform duration-200 ease-out motion-reduce:transition-none"
+            : "relative flex h-full min-w-0 flex-col transition-transform duration-200 ease-out motion-reduce:transition-none"
         }
       >
         {children}
         {/* Resize handle lives inside the panel so it rides along in both the
             docked and floating states. */}
         {(open || overlayVisible) && (
-          <Box
+          <button
+            type="button"
+            aria-label={`Resize ${side} sidebar`}
+            // Mouse/drag-only affordance: there is no keyboard resize model,
+            // so keep it out of the tab order rather than expose a focusable
+            // control that announces a resize action and does nothing.
+            tabIndex={-1}
             onMouseDown={handleMouseDown}
-            className={`no-drag group absolute top-0 bottom-0 flex w-2 cursor-col-resize justify-center bg-transparent ${
+            className={`no-drag group absolute top-0 bottom-0 flex w-2 cursor-col-resize justify-center border-0 bg-transparent p-0 ${
               handleArmed || isResizing ? "" : "pointer-events-none"
             }`}
             style={{
@@ -288,16 +308,16 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
                     : "bg-transparent"
               }`}
             />
-          </Box>
+          </button>
         )}
-      </Flex>
+      </div>
       {/* Full-screen shield while dragging: keeps the col-resize cursor no
           matter what the pointer crosses (content sets its own cursors, and
           webview tabs would swallow the drag entirely). Outside the panel so
           the panel's pointer-events:none while drag-closed can't disable it. */}
       {isResizing && (
-        <Box className="fixed inset-0 z-[200] cursor-col-resize" />
+        <div className="fixed inset-0 z-[200] cursor-col-resize" />
       )}
-    </Box>
+    </div>
   );
 };

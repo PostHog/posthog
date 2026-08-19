@@ -15,12 +15,8 @@ import type {
   ConversationItem,
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
@@ -65,6 +61,7 @@ import {
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import {
   DIFF_WORKER_FACTORY,
@@ -147,7 +144,9 @@ export function ConversationView({
     items: conversationItems,
     lastTurnInfo,
     isCompacting,
+    isClearing,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -294,7 +293,7 @@ export function ConversationView({
       const nextMessage = userMessages[nextIndex];
       if (!nextMessage) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextMessage.id);
       scrollToUserMessage(nextMessage.id, nextMessage.index);
     },
@@ -326,9 +325,12 @@ export function ConversationView({
   const handleJumpToMessage = useCallback(
     (id: string) => {
       const message = userMessages.find((entry) => entry.id === id);
-      if (!message) return;
+      // Reported, not swallowed: a request for a message this list has not built yet is
+      // retried by the caller rather than dropped.
+      if (!message) return false;
       setKeyboardFocusedMessageId(id);
       scrollToUserMessage(id, message.index);
+      return true;
     },
     [userMessages, scrollToUserMessage],
   );
@@ -476,7 +478,6 @@ export function ConversationView({
 
   const footer = (
     <div className={compact ? "pb-1" : "pb-16"}>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}
@@ -491,7 +492,9 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );

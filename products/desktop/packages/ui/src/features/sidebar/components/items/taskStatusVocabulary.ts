@@ -10,6 +10,7 @@ import {
   getOriginProductMeta,
   type TaskIconProps,
 } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
+import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 
 /**
  * The task state a status dot / badge stack is drawn from: what the shipped
@@ -212,6 +213,13 @@ export interface TaskBadge {
   label: string;
   /** Set only where colour earns its keep — currently PR state. */
   tone?: DotTone;
+  /**
+   * Where the badge points, for the surfaces that can offer it. A row can't:
+   * it is a `<button>`, so its badges stay spans. The hover card is not, so it
+   * draws a badge with a url as something you can click through to — the PR, or
+   * the Slack thread the task was filed from.
+   */
+  url?: string;
 }
 
 /**
@@ -224,10 +232,12 @@ export interface TaskBadge {
  * nothing else to say carries no badges at all, which is the honest shape:
  * nothing has happened to it yet.
  *
- * Origins deliberately share ONE glyph. Eight product marks at avatar size is a
- * vocabulary nobody learns — and the badge's job in a nav row is "this didn't
- * come from you", which is the same fact whether Slack or error tracking filed
- * it. The tooltip names the actual product for anyone who needs it.
+ * Origins share ONE glyph, with Slack as the exception. Eight product marks at
+ * avatar size is a vocabulary nobody learns — and the badge's job in a nav row
+ * is "this didn't come from you", which is the same fact whether Slack or error
+ * tracking filed it. The tooltip names the actual product for anyone who needs
+ * it. Slack keeps its own mark because it's the one origin where the row came
+ * from a person in a thread, and readers already know that logo on sight.
  *
  * The PR badge is the exception that gets colour: merged / ready / closed is the
  * outcome people actually scan a task list for, and it's a three-value
@@ -236,19 +246,25 @@ export interface TaskBadge {
 export function taskBadges(props: TaskStatusInput): TaskBadge[] {
   const badges: TaskBadge[] = [];
   const origin = getOriginProductMeta(props.originProduct);
+  const isSlack = props.originProduct === "slack";
   if (origin) {
     badges.push({
       key: "origin",
-      Icon: ArrowSquareIn,
+      Icon: isSlack ? SlackMark : ArrowSquareIn,
       label: `Source: ${origin.label}`,
+      // Slack is the one origin that hands back a place to go: the thread the
+      // task was filed from. Other products name themselves and stop there.
+      url: isSlack ? (props.slackThreadUrl ?? undefined) : undefined,
     });
   }
+  const prUrl = props.prUrl ?? undefined;
   if (props.prState === "merged") {
     badges.push({
       key: "pr",
       Icon: GitMerge,
       label: "Merged",
       tone: "purple",
+      url: prUrl,
     });
   } else if (props.prState === "open") {
     badges.push({
@@ -256,6 +272,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "PR ready for review",
       tone: "green",
+      url: prUrl,
     });
   } else if (props.prState === "closed") {
     badges.push({
@@ -263,6 +280,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "PR closed unmerged",
       tone: "red",
+      url: prUrl,
     });
   } else if (props.prState === "draft") {
     // Mid grey: a draft is a real PR, so it earns a solid glyph, but it isn't
@@ -272,6 +290,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "Draft PR",
       tone: "gray",
+      url: prUrl,
     });
   } else if (props.prUrl) {
     // A PR we know exists but haven't resolved the state of. Uncoloured on
@@ -279,7 +298,12 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
     // saying "there's a PR, go look". Showing the badge is not optional — a
     // task that opened a PR and shows no sign of it reads as having done
     // nothing.
-    badges.push({ key: "pr", Icon: GitPullRequest, label: "Pull request" });
+    badges.push({
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "Pull request",
+      url: props.prUrl,
+    });
   } else if (props.hasDiff) {
     badges.push({
       key: "branch",

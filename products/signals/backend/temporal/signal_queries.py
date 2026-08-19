@@ -19,7 +19,12 @@ from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.signal_metadata import (
+    EMBEDDING_MODEL,
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
+)
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -28,12 +33,6 @@ logger = structlog.get_logger(__name__)
 
 
 WAIT_POLL_INTERVAL_SECONDS = 10
-
-# Every signal document is emitted under this key triple — the recently-seen lookup in
-# wait_for_signal_in_clickhouse_activity relies on exact key equality with the emit sites.
-SIGNAL_DOCUMENT_PRODUCT = "signals"
-SIGNAL_DOCUMENT_TYPE = "signal"
-SIGNAL_DOCUMENT_RENDERING = "plain"
 
 # For this long, ClickHouse is polled only when the recently-seen store confirms the
 # emission (or on the final attempt) — the wait is store-exclusive to keep ClickHouse

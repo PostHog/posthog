@@ -266,6 +266,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
 from .clover.source import CloverSource
@@ -332,9 +333,11 @@ from .dbt.source import DbtSource
 from .debugbear.source import DebugbearSource
 from .decagon.source import DecagonSource
 from .deel.source import DeelSource
+from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
 from .deno_deploy.source import DenoDeploySource
+from .depot.source import DepotSource
 from .deputy.source import DeputySource
 from .descope.source import DescopeSource
 from .develocity.source import DevelocitySource
@@ -352,6 +355,7 @@ from .docuseal.source import DocusealSource
 from .docusign.source import DocusignSource
 from .dodopayments.source import DodoPaymentsSource
 from .doit.source import DoItSource
+from .dokploy.source import DokploySource
 from .dolibarr.source import DolibarrSource
 from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
@@ -566,6 +570,7 @@ from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
 from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
+from .hootsuite.source import HootsuiteSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
 from .hubplanner.source import HubplannerSource
@@ -760,6 +765,7 @@ from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
 from .motion.source import MotionSource
 from .moxie.source import MoxieSource
+from .msg91.source import MSG91Source
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -889,7 +895,8 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
-from .planetscale.source import PlanetScaleSource
+from .planetscale_mysql.source import PlanetScaleMySQLSource
+from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource
 from .planning_center.source import PlanningCenterSource
 from .platform_sh.source import PlatformShSource
@@ -938,6 +945,7 @@ from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource
 from .raken.source import RakenSource
+from .rakuten_advertising.source import RakutenAdvertisingSource
 from .ramp.source import RampSource
 from .rapid7_insightvm.source import Rapid7InsightvmSource
 from .raygun.source import RaygunSource
@@ -990,6 +998,7 @@ from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
 from .salestrics.source import SalestricsSource
+from .samcart.source import SamCartSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
@@ -1000,6 +1009,7 @@ from .savvycal.source import SavvyCalSource
 from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
+from .schematic.source import SchematicSource
 from .search_ads_360.source import SearchAds360Source
 from .sec_edgar.source import SecEdgarSource
 from .secoda.source import SecodaSource
@@ -1191,6 +1201,7 @@ from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
+from .uploadcare.source import UploadcareSource
 from .uppromote.source import UpPromoteSource
 from .upstash.source import UpstashSource
 from .uptick.source import UptickSource
@@ -1229,11 +1240,13 @@ from .webflow.source import WebflowSource
 from .weights_and_biases.source import WeightsAndBiasesSource
 from .whatsapp_business_management.source import WhatsappBusinessManagementSource
 from .when_i_work.source import WhenIWorkSource
+from .whmcs.source import WHMCSSource
 from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
+from .wisprflow.source import WisprFlowSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
@@ -1275,6 +1288,7 @@ from .zenefits.source import ZenefitsSource
 from .zenloop.source import ZenloopSource
 from .zep.source import ZepSource
 from .zero.source import ZeroSource
+from .zitadel.source import ZitadelSource
 from .zluri.source import ZluriSource
 from .zoho_analytics.source import ZohoAnalyticsSource
 from .zoho_bigin.source import ZohoBiginSource

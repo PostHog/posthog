@@ -3,24 +3,23 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import {
+    signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
-import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { SCOUT_AUTHOR_PROMPT } from '../utils/scoutRunsWindow'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
@@ -28,6 +27,9 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
 }))
 
+const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
+    typeof signalsScoutChatTasksCreate
+>
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutMetadataGet = signalsScoutMetadataGet as jest.MockedFunction<typeof signalsScoutMetadataGet>
@@ -45,6 +47,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     run_cron_schedule: null,
     output_destinations: {},
     structured_output_schema: null,
+    mcp_gateway_server_ids: [],
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
@@ -69,6 +72,7 @@ describe('scoutFleetLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutMetadataGet.mockReset().mockResolvedValue({
@@ -209,24 +213,16 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    it('runs the task it creates, rather than leaving the user on an unstarted one', async () => {
-        const repositories = jest.spyOn(api.tasks, 'repositories')
-        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-1' } as any)
-        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-1' } as any)
+    it('starts the chat task server-side and navigates to it', async () => {
+        mockSignalsScoutChatTasksCreate.mockResolvedValue({ task_id: 'task-1' })
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
-        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
 
-        expect(run).toHaveBeenCalledWith('task-1', {
-            run_source: RunSourceEnumApi.Manual,
-            mode: TaskExecutionModeEnumApi.Interactive,
-            // Without the prompt as the first turn, an interactive run boots the agent idle.
-            pending_user_message: SCOUT_AUTHOR_PROMPT,
+        expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
+            chat_type: 'author_scout',
         })
         expect(router.values.location.pathname).toContain('task-1')
-        // Pinning a repo would make the run clone it in full, and these prompts never touch code.
-        expect(repositories).not.toHaveBeenCalled()
-        expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.anything() }))
     })
 
     it('starts nothing when the organization has not approved AI data processing', async () => {
@@ -234,25 +230,21 @@ describe('scoutFleetLogic', () => {
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,
         })
-        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-3' } as any)
-        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-3' } as any)
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
-        // The tasks run endpoint has no consent check of its own, so dropping the guard here would
+        // The endpoint enforces no consent check of its own, so dropping the guard here would
         // start an agent sandbox for an organization that declined AI data processing.
-        expect(create).not.toHaveBeenCalled()
-        expect(run).not.toHaveBeenCalled()
+        expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('still opens the task when kicking off its run fails', async () => {
-        jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-2' } as any)
-        jest.spyOn(api.tasks, 'run').mockRejectedValue(new Error('over the usage limit'))
+    it('resets the in-flight chat type when the kickoff fails', async () => {
+        mockSignalsScoutChatTasksCreate.mockRejectedValue(new Error('over the usage limit'))
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
-        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
-        expect(router.values.location.pathname).toContain('task-2')
+        expect(logic.values.runningChatType).toBeNull()
     })
 })

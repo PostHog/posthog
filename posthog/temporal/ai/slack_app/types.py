@@ -10,24 +10,24 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
 
 @dataclass
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
-@dataclass
+@frozen
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Resolved at routing time: dispatch never reaches this workflow without a
+    # PostHog user, on either the ``app_mention`` or the untagged-reply path.
+    user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity below. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
-    user_id: int | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
@@ -35,6 +35,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # True when the thread's author already confirmed this untagged reply from the
+    # ephemeral prompt. The classifier ran before the prompt was posted and the
+    # answer is in, so the run skips both on the way back through.
+    untagged_followup_confirmed: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
@@ -145,18 +149,17 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     command_prefix: str = "@PostHog"
 
 
-@dataclass
+@frozen
 class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
-    repos, so the workflow classifies the ask and only gates on a personal GitHub
-    install when it actually needs code. `agent_needed` → there are multiple
-    candidates and no explicit mention. `needs_user_github` is no longer emitted and
-    survives only so workflow executions that recorded it still replay.
+    repos, so the mention becomes a repo-less task and the agent decides whether the
+    ask needs code. `agent_needed` → there are multiple candidates and no explicit
+    mention.
     """
 
-    mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
+    mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
 

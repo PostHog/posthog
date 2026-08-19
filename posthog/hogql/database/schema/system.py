@@ -161,6 +161,107 @@ batch_exports: PostgresTable = PostgresTable(
     },
 )
 
+batch_export_on_demands: PostgresTable = PostgresTable(
+    name="batch_export_on_demands",
+    postgres_table_name="posthog_batchexportondemand",
+    access_scope="batch_export",
+    description="Batch exports triggered on demand rather than on a schedule; one row per on-demand export.",
+    fields={
+        "id": StringDatabaseField(name="id", description="On-demand batch export UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "destination_id": StringDatabaseField(
+            name="destination_id", description="Identifier of the destination config the export writes to."
+        ),
+        "source_id": StringDatabaseField(
+            name="source_id",
+            nullable=True,
+            description="Source of the data to export, if any; when set, takes precedence over model.",
+        ),
+        "model": StringDatabaseField(
+            name="model",
+            nullable=True,
+            description="Data model exported, e.g. 'events', 'persons', 'sessions' or 'hogql'.",
+        ),
+        "filters": StringJSONDatabaseField(
+            name="filters", nullable=True, description="Filters applied to the exported data."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(
+            name="created_at", description="When the on-demand batch export was created."
+        ),
+        "last_updated_at": DateTimeDatabaseField(
+            name="last_updated_at", description="When the on-demand batch export was last updated."
+        ),
+    },
+)
+
+
+class _BatchExportRunsTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    predicates: list[Expr] = [
+        parse_expr(
+            "batch_export_id IN (SELECT id FROM system.batch_exports)"
+            " OR batch_export_on_demand_id IN (SELECT id FROM system.batch_export_on_demands)"
+        )
+    ]
+
+
+batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
+    name="batch_export_runs",
+    postgres_table_name="posthog_batchexportrun",
+    access_scope="batch_export",
+    description="Batch export run history; one row per run.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Run UUID."),
+        "batch_export_id": StringDatabaseField(
+            name="batch_export_id",
+            nullable=True,
+            description="Batch export this run belongs to; joins to batch_exports.id. May be NULL if the run corresponds to an on-demand batch export.",
+        ),
+        "batch_export_on_demand_id": StringDatabaseField(
+            name="batch_export_on_demand_id",
+            nullable=True,
+            description="On-demand batch export this run belongs to; joins to batch_export_on_demands.id. May be NULL if the run corresponds to a regularly scheduled batch export.",
+        ),
+        "backfill_id": StringDatabaseField(
+            name="backfill_id",
+            nullable=True,
+            description="Backfill this run belongs to, if any; joins to batch_export_backfills.id.",
+        ),
+        "data_interval_start": DateTimeDatabaseField(
+            name="data_interval_start",
+            nullable=True,
+            description="Start of the time range covered by the run (NULL means no lower bound).",
+        ),
+        "data_interval_end": DateTimeDatabaseField(
+            name="data_interval_end",
+            nullable=False,
+            description="End of the time range covered by the run",
+        ),
+        "status": StringDatabaseField(
+            name="status", description="Run status, e.g. Running, Completed, Failed, Cancelled."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the run was created."),
+        "finished_at": DateTimeDatabaseField(
+            name="finished_at", nullable=True, description="When the run finished; NULL while still running."
+        ),
+        "last_updated_at": DateTimeDatabaseField(
+            name="last_updated_at", description="When the run row was last updated."
+        ),
+        "records_completed": IntegerDatabaseField(
+            name="records_completed",
+            nullable=True,
+            description="Total number of records exported (NULL while still running or if the run failed).",
+        ),
+        "bytes_exported": IntegerDatabaseField(
+            name="bytes_exported",
+            nullable=True,
+            description="Total number of bytes exported (NULL while still running or if the run failed).",
+        ),
+    },
+)
+
+
 alerts: PostgresTable = PostgresTable(
     name="alerts",
     postgres_table_name="posthog_alertconfiguration",
@@ -270,12 +371,16 @@ dashboards: PostgresTable = PostgresTable(
     name="dashboards",
     postgres_table_name="posthog_dashboard",
     access_scope="dashboard",
+    access_control_creator_id_field="created_by_id",
     description="Dashboards: collections of insight tiles; one row per dashboard.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Dashboard id."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Dashboard name."),
         "description": StringDatabaseField(name="description", description="Dashboard description."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the dashboard."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the dashboard was created."),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
@@ -341,6 +446,7 @@ datasets: PostgresTable = PostgresTable(
     name="datasets",
     postgres_table_name="llm_analytics_dataset_v2",
     access_scope="dataset",
+    access_control_creator_id_field="created_by_id",
     description="AI observability datasets used to curate inputs and expected outputs; one row per dataset.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Dataset UUID."),
@@ -457,6 +563,7 @@ insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
     access_scope="insight",
+    access_control_creator_id_field="created_by_id",
     description="Saved insights (the model is historically named 'dashboarditem'); one row per insight, including its query definition.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Insight id."),
@@ -509,12 +616,16 @@ experiments: PostgresTable = PostgresTable(
     name="experiments",
     postgres_table_name="posthog_experiment",
     access_scope="experiment",
+    access_control_creator_id_field="created_by_id",
     description="A/B test experiments; one row per experiment, linked to the feature flag that controls variant assignment.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Experiment id."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Experiment name."),
         "description": StringDatabaseField(name="description", description="Experiment description/hypothesis."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the experiment."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the experiment was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the experiment was last updated."),
         "filters": StringJSONDatabaseField(
@@ -548,6 +659,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
     access_scope="external_data_source",
+    access_control_creator_id_field="created_by_id",
     description="Configured data warehouse sources (Stripe, Postgres, Hubspot, etc.); one row per connected source. "
     "Covers both synced sources, whose tables are queryable by name from this catalog, and direct "
     "connections, whose tables are live-queried by passing the source's id as the query's connection id — "
@@ -618,6 +730,9 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         ),
         "prefix": StringDatabaseField(
             name="prefix", description="Table-name prefix applied to all tables synced from this source."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the source."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the source was connected."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the source config was last updated."),
@@ -804,6 +919,7 @@ endpoints: PostgresTable = PostgresTable(
     postgres_table_name="endpoints_endpoint",
     predicates=[parse_expr("deleted != true")],
     access_scope="endpoint",
+    access_control_creator_id_field="created_by_id",
     description="Data-modeling endpoints: named, callable saved queries; one row per endpoint (deleted endpoints are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Endpoint UUID."),
@@ -822,6 +938,9 @@ endpoints: PostgresTable = PostgresTable(
         "derived_from_insight": StringDatabaseField(
             name="derived_from_insight", description="Short id of the insight this endpoint was created from, if any."
         ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the endpoint."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the endpoint was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the endpoint was last updated."),
         "last_executed_at": DateTimeDatabaseField(
@@ -836,6 +955,7 @@ feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
     access_scope="feature_flag",
+    access_control_creator_id_field="created_by_id",
     description="Feature flags; one row per flag, with its targeting filters and rollout configuration.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Flag id."),
@@ -848,6 +968,9 @@ feature_flags: PostgresTable = PostgresTable(
         "rollout_percentage": IntegerDatabaseField(
             name="rollout_percentage",
             description="Top-level rollout percentage (0-100); detailed rules live in filters.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the flag."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the flag was created."),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
@@ -983,6 +1106,7 @@ session_recording_playlists: PostgresTable = PostgresTable(
     name="session_recording_playlists",
     postgres_table_name="posthog_sessionrecordingplaylist",
     access_scope="session_recording_playlist",
+    access_control_creator_id_field="created_by_id",
     description="Saved playlists/collections of session recordings, defined by filters or pinned recordings; one row per playlist.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Playlist id."),
@@ -1078,6 +1202,7 @@ surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
     access_scope="survey",
+    access_control_creator_id_field="created_by_id",
     description="In-app surveys; one row per survey, including its questions and display configuration.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Survey id."),
@@ -1091,6 +1216,9 @@ surveys: PostgresTable = PostgresTable(
         ),
         "end_date": DateTimeDatabaseField(
             name="end_date", description="When the survey was stopped; NULL if still running."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the survey."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the survey was created."),
     },
@@ -1189,6 +1317,7 @@ actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
     access_scope="action",
+    access_control_creator_id_field="created_by_id",
     description="Actions: named event matchers that group raw events into meaningful user actions; one row per action.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Action id."),
@@ -1200,6 +1329,9 @@ actions: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the action has been deleted, 0 otherwise.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the action."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the action was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the action was last updated."),
@@ -1257,6 +1389,7 @@ hog_flows: PostgresTable = PostgresTable(
     name="hog_flows",
     postgres_table_name="posthog_hogflow",
     access_scope="hog_flow",
+    access_control_creator_id_field="created_by_id",
     description="Hog flows: multi-step automation/messaging workflows; one row per flow, with its graph of actions and edges.",
     fields={
         "id": StringDatabaseField(name="id", description="Flow UUID."),
@@ -1273,6 +1406,9 @@ hog_flows: PostgresTable = PostgresTable(
         ),
         "edges": StringJSONDatabaseField(name="edges", description="JSON edges connecting actions in the flow graph."),
         "actions": StringJSONDatabaseField(name="actions", description="JSON nodes/actions that make up the flow."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the flow."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the flow was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the flow was last updated."),
     },
@@ -1325,6 +1461,9 @@ message_categories: PostgresTable = PostgresTable(
     name="message_categories",
     postgres_table_name="posthog_messagecategory",
     access_scope="hog_flow",
+    # Team-level messaging data not tied to any single flow, so a per-flow grant never keys these
+    # rows: resource-level "hog_flow" access is what MessagePreferencesViewSet checks too.
+    resource_level_access_only=True,
     description="Message categories recipients can opt out of; one row per category. Join its id against the keys of message_recipient_preferences.preferences.",
     fields={
         "id": StringDatabaseField(name="id", description="Category UUID, used as the key in recipient preferences."),
@@ -1354,6 +1493,9 @@ message_recipient_preferences: PostgresTable = PostgresTable(
     name="message_recipient_preferences",
     postgres_table_name="posthog_messagerecipientpreference",
     access_scope="hog_flow",
+    # Team-level messaging data not tied to any single flow, so a per-flow grant never keys these
+    # rows: resource-level "hog_flow" access is what MessagePreferencesViewSet checks too.
+    resource_level_access_only=True,
     description="Messaging preferences per recipient; one row per recipient. The preferences map records opt-outs and opt-ins per message category.",
     fields={
         "id": StringDatabaseField(name="id", description="Preference row UUID."),
@@ -1423,6 +1565,7 @@ notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
     access_scope="notebook",
+    access_control_creator_id_field="created_by_id",
     description="Notebooks: rich-text documents that embed insights, recordings, and queries; one row per notebook.",
     fields={
         "id": StringDatabaseField(name="id", description="Notebook UUID."),
@@ -1451,6 +1594,9 @@ notebooks: PostgresTable = PostgresTable(
             name="visibility", description="Visibility setting, e.g. 'private' or shared."
         ),
         "version": IntegerDatabaseField(name="version", description="Notebook version number."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the notebook."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the notebook was created."),
         "last_modified_at": DateTimeDatabaseField(
             name="last_modified_at", description="When the notebook was last modified."
@@ -1494,6 +1640,9 @@ error_tracking_issues: PostgresTable = PostgresTable(
         "created_at": DateTimeDatabaseField(name="created_at", description="When the issue was first created."),
         "status": StringDatabaseField(
             name="status", description="Issue status, e.g. 'active', 'resolved', 'suppressed'."
+        ),
+        "severity": StringDatabaseField(
+            name="severity", nullable=True, description="Assigned issue severity, or null when unassigned."
         ),
         "name": StringDatabaseField(name="name", description="Issue title (usually the exception type/message)."),
         "description": StringDatabaseField(name="description", description="Issue description."),
@@ -2022,6 +2171,7 @@ evaluation_directories: PostgresTable = PostgresTable(
     name="evaluation_directories",
     postgres_table_name="llm_analytics_evaluationdirectory",
     access_scope="evaluation",
+    access_control_creator_id_field="created_by_id",
     description="Directories used to organize online evaluations; one row per directory.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Directory UUID."),
@@ -2041,6 +2191,7 @@ evaluations: PostgresTable = PostgresTable(
     name="evaluations",
     postgres_table_name="llm_analytics_evaluation",
     access_scope="evaluation",
+    access_control_creator_id_field="created_by_id",
     description="Online evaluations that score AI generations or traces; one row per evaluation.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Evaluation UUID."),
@@ -2084,6 +2235,7 @@ review_queues: PostgresTable = PostgresTable(
     name="review_queues",
     postgres_table_name="llm_analytics_reviewqueue",
     access_scope="llm_analytics",
+    access_control_creator_id_field="created_by_id",
     description="AI observability review queues: named lists of traces queued for human review; one row per queue.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Queue UUID."),
@@ -2112,6 +2264,7 @@ review_queue_items: PostgresTable = PostgresTable(
     name="review_queue_items",
     postgres_table_name="llm_analytics_reviewqueueitem",
     access_scope="llm_analytics",
+    access_control_creator_id_field="created_by_id",
     description="Individual LLM traces queued in a review queue; one row per queued trace.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Queue item UUID."),
@@ -2143,6 +2296,7 @@ trace_reviews: PostgresTable = PostgresTable(
     name="trace_reviews",
     postgres_table_name="llm_analytics_tracereview",
     access_scope="llm_analytics",
+    access_control_creator_id_field="created_by_id",
     description="Human reviews of LLM traces; one row per review, with scores attached in trace_review_scores.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Review UUID."),
@@ -2221,6 +2375,7 @@ score_definitions: PostgresTable = PostgresTable(
     name="score_definitions",
     postgres_table_name="llm_analytics_scoredefinition",
     access_scope="llm_analytics",
+    access_control_creator_id_field="created_by_id",
     description="Definitions of scores/metrics used when reviewing LLM traces; one row per score definition.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Score definition UUID."),
@@ -2248,6 +2403,7 @@ early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
     access_scope="early_access_feature",
+    access_control_creator_id_field="created_by_id",
     description="Early access features users can opt into; one row per feature, backed by a feature flag.",
     fields={
         "id": StringDatabaseField(name="id", description="Early access feature UUID."),
@@ -2262,6 +2418,9 @@ early_access_features: PostgresTable = PostgresTable(
         ),
         "documentation_url": StringDatabaseField(
             name="documentation_url", description="Link to the feature's documentation."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the feature."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the feature was created."),
     },
@@ -2301,20 +2460,41 @@ usage_metrics: PostgresTable = PostgresTable(
 )
 
 
+task_public_channels: PostgresTable = PostgresTable(
+    name="_task_public_channels",
+    postgres_table_name="posthog_task_channel",
+    predicates=[parse_expr("channel_type = 'public'"), parse_expr("deleted != true")],
+    description="Internal list of live project-visible task spaces.",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "channel_type": StringDatabaseField(name="channel_type", hidden=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            hidden=True,
+        ),
+    },
+)
+
+
 tasks: PostgresTable = PostgresTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
-    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
-    # exposed to end users. They are excluded entirely from HogQL.
-    predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    predicates=[
+        parse_expr("internal != true"),
+        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+    ],
+    description="Tasks filed in public project spaces; private, unfiled, and internal tasks are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the task."
         ),
+        "channel_id": StringDatabaseField(name="channel_id", nullable=True, hidden=True),
         "github_integration_id": IntegerDatabaseField(
             name="github_integration_id",
             nullable=True,
@@ -2362,7 +2542,8 @@ task_runs: PostgresTable = PostgresTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
-    description="Execution runs of a task; one row per run attempt, with status and outputs.",
+    predicates=[parse_expr("task_id IN (SELECT id FROM system.tasks)")],
+    description="Execution runs of tasks filed in public project spaces.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2525,9 +2706,11 @@ canvases: PostgresTable = PostgresTable(
     name="canvases",
     postgres_table_name="posthog_canvas",
     access_scope="canvas",
-    # Mirror the REST API's default filter: soft-deleted canvases are not exposed.
-    predicates=[parse_expr("deleted != true")],
-    description="Canvases (agent-built sandboxed browser apps, filed into channels); one row per canvas (soft-deleted canvases are excluded).",
+    predicates=[
+        parse_expr("deleted != true"),
+        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+    ],
+    description="Canvases filed in public project spaces; private and soft-deleted canvases are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Canvas UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2611,6 +2794,8 @@ class SystemTables(TableNode):
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
+        "batch_export_on_demands": TableNode(name="batch_export_on_demands", table=batch_export_on_demands),
+        "batch_export_runs": TableNode(name="batch_export_runs", table=batch_export_runs),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
         "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
         "business_knowledge_documents": TableNode(
@@ -2688,6 +2873,7 @@ class SystemTables(TableNode):
         "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),

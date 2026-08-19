@@ -5,6 +5,7 @@ import {
   LinkIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
   Avatar,
@@ -36,7 +37,6 @@ import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPa
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   PageHeader,
@@ -58,9 +58,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
-  activityUnreadTotalForLabel,
   getUnreadActivityItems,
-  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -69,9 +67,9 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
   return (
     <>
       {" in "}
-      <Text as="span" size="1" weight="medium">
-        #{channelName}
-      </Text>
+      <span className="font-medium text-xs">
+        {channelDisplayReference(channelName)}
+      </span>
     </>
   );
 }
@@ -186,7 +184,6 @@ export function ActivityRow({
   onNavigate?: () => void;
   compact?: boolean;
 }) {
-  const commentsEnabled = useCommentsEnabled();
   const isAgentActivity =
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
@@ -209,17 +206,13 @@ export function ActivityRow({
       task_id: item.taskId,
     });
     onOpen(item);
-    if (commentsEnabled && item.commentId && item.commentTarget) {
+    if (item.commentId && item.commentTarget) {
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
-    if (
-      commentsEnabled &&
-      channelId &&
-      item.commentTarget?.scope === "desktop_canvas"
-    ) {
+    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);
       return;
@@ -339,7 +332,6 @@ export function ActivityRow({
 // in, or messaged in — newest activity first. Rows clear as they are opened, not
 // when the page is; merely landing here shouldn't dismiss what you haven't read.
 export function ActivityView() {
-  const commentsEnabled = useCommentsEnabled();
   const spacesLayout = useChannelsLayout();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -355,22 +347,14 @@ export function ActivityView() {
   const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const visibleItems = useMemo(
-    () => getVisibleActivityItems(items, commentsEnabled),
-    [commentsEnabled, items],
-  );
+  const visibleItems = items;
   const unreadItems = useMemo(
     () => getUnreadActivityItems(visibleItems),
     [visibleItems],
   );
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
-  const visibleUnreadCount = activityUnreadTotalForLabel({
-    commentsEnabled,
-    unreadCount,
-    loadedVisibleUnread: unreadItems.length,
-    hasNextPage,
-  });
+  const visibleUnreadCount = unreadCount;
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(

@@ -1,15 +1,11 @@
 from dataclasses import dataclass
 from typing import Any
 
-from django.conf import settings
-
 from temporalio import activity
 
-from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -85,32 +81,12 @@ class PostSlackUpdateInput:
     sandbox_cleaned: bool = False
 
 
-def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
-    """Fail closed: missing creator or any flag-service error suppresses the link.
-
-    The PostHog Desktop app is rolled out via cohort + invite redemption; surfacing
-    deep links to users who can't open them sends them into an install flow we
-    don't want to scale right now. Errors from the flag service therefore default
-    to "no access" rather than "show the link anyway".
-    """
-    if viewer is None:
-        return False
-    try:
-        return has_tasks_access(viewer)
-    except Exception:
-        logger.exception("post_slack_update_access_check_failed", user_id=getattr(viewer, "id", None))
-        return False
-
-
 @activity.defn
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
+    from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
-
-    # Deferred with the model import below: `facade.run_config` re-exports from
-    # `process_task.utils`, whose import graph reaches back to this module.
-    from products.tasks.backend.facade.run_config import parse_run_state
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -121,13 +97,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context)
-        creator_has_access = _viewer_has_posthog_code_access(task_run.task.created_by)
-        task_url: str | None = (
-            f"{settings.SITE_URL}/project/{task_run.task.team_id}/tasks/{task_run.task_id}?runId={task_run.id}"
-            if creator_has_access
-            else None
-        )
+        footer = load_run_footer(task_run.id)
+        handler = SlackThreadHandler(context, footer)
+        # The buttons lead where the footer's links do, so they answer to the same reader.
+        task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
@@ -161,13 +134,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            run_state = parse_run_state(task_run.state)
-            handler.post_or_update_progress(
-                stage,
-                task_url,
-                model=run_state.model,
-                reasoning_effort=run_state.reasoning_effort,
-            )
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 

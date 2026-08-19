@@ -135,9 +135,6 @@ jobs:
                       "common-s3": 31,
                       "cohort-core": 45,
                       "cohort-seeder": 60,
-                      "cyclotron-core": 17,
-                      "cyclotron-janitor": 139,
-                      "cyclotron-node": 31,
                       "cymbal": 168,
                       # Compile-heavy (deltalake dependency tree), light tests.
                       "deltalite-core": 180,
@@ -576,23 +573,28 @@ jobs:
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
+            # Ignored tests need the etcd this job already started, so
+            # they run here rather than in the plain test job.
             - name: Test the harness verification logic
-              run: cargo test -p personhog-test-harness
+              run: cargo test -p personhog-test-harness -- --include-ignored
 
             - name: Run the e2e gate
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
 
-            # The identity-service create path: persons are created through
-            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
-            # then initial properties through the router to the owning
-            # leader) and then updated through the router. Create acks are
-            # journaled and held to the same visibility invariant as update
-            # acks, through a leader kill and a scale-up. The identity
-            # service writes the real posthog_person table (its distinct id
-            # FKs require it), so the whole stack targets it here instead of
-            # the default personhog_person_tmp.
+            # The identity-service lifecycle path: persons are created
+            # through GetOrCreatePersonsByDistinctIds (stub insert on the
+            # primary, then initial properties through the router to the
+            # owning leader), updated through the router, and finally
+            # deleted through the lifecycle saga, whose outcomes the gate
+            # asserts (all deleted, then all not_found on a re-delete
+            # under a fresh op id). Create acks are journaled and held to
+            # the same visibility invariant as update acks, through a
+            # leader kill and a scale-up. The identity service writes the
+            # real posthog_person table (its distinct id FKs require it),
+            # so the whole stack targets it here instead of the default
+            # personhog_person_tmp.
             - name: Run the e2e gate creating persons via the identity service
               run: |
                   ./target/debug/personhog-test-harness gate \

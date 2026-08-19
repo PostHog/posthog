@@ -1,1 +1,1 @@
-0293_add_session_id_bloom_filter_index
+0298_logs34_mv_explicit_columns

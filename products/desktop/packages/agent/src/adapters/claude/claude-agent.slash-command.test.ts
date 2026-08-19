@@ -45,6 +45,7 @@ function installFakeSession(
 
   const session = {
     query,
+    sdkSessionId: sessionId,
     queryOptions: { sessionId, cwd: "/tmp/repo", abortController },
     buildInProcessMcpServers: () => ({}),
     localToolsServerNames: [] as string[],

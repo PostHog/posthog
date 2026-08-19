@@ -207,26 +207,19 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
         }
-        # The stage activity's return type changed from `str` (just the folder) to
-        # `InternalStageResult`. Guard with `workflow.patched` so workflows whose history
-        # recorded the old bare-string result still replay correctly during a rolling deploy.
-        # TODO: clean up once new code is fully rolled out
-        if workflow.patched("batch-exports-stage-result"):
-            stage_result = await workflow.execute_activity(
-                insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
-            )
-            batch_export_inputs.stage_folder = stage_result.stage_folder
-            batch_export_inputs.records_total = stage_result.records_total
-            if stage_result.records_total is not None:
-                workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
-        else:
-            # Pass the activity by name (not the typed callable): `execute_activity` overrides
-            # `result_type` with the callable's annotation, which would force the old recorded
-            # `str` result to deserialize as `InternalStageResult` and fail. The string form
-            # honors `result_type=str`.
-            batch_export_inputs.stage_folder = await workflow.execute_activity(
-                "insert_into_internal_stage_activity", stage_inputs, result_type=str, **stage_activity_kwargs
-            )
+        # All workers now run the `InternalStageResult` path, so the pre-patch bare-string
+        # branch is gone. `deprecate_patch` keeps the marker compatible for any execution
+        # still in flight that recorded it.
+        # See https://docs.temporal.io/develop/python/workflows/versioning#deprecated-patches
+        # TODO: delete this call once those histories have drained.
+        workflow.deprecate_patch("batch-exports-stage-result")
+        stage_result = await workflow.execute_activity(
+            insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
+        )
+        batch_export_inputs.stage_folder = stage_result.stage_folder
+        batch_export_inputs.records_total = stage_result.records_total
+        if stage_result.records_total is not None:
+            workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
         result = await workflow.execute_activity(
             activity,
             inputs,

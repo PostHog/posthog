@@ -10,7 +10,7 @@ import { captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_RUNS_WINDOW_SPAN, scoutRunsWindowLabel } from '../../../utils/scoutRunsWindow'
+import { SCOUT_NO_RECENT_RUNS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRowCard } from './ScoutRowCard'
@@ -22,7 +22,7 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
+    const { scoutConfigs, rollups, updatingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
 
@@ -92,7 +92,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-default uppercase tracking-wide">
-                            Last {SCOUT_RUNS_WINDOW_SPAN}
+                            {SCOUT_RUNS_PER_SCOUT_LABEL}
                         </span>
                         <span className="text-sm text-secondary">
                             {rollup && rollup.runCount > 0 ? (
@@ -107,10 +107,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                                     )}
                                 </>
                             ) : (
-                                'No runs in this window.'
-                            )}
-                            {!runsWindowComplete && (
-                                <span className="text-muted"> · {scoutRunsWindowLabel(runsWindowComplete)}</span>
+                                SCOUT_NO_RECENT_RUNS
                             )}
                         </span>
                     </div>
@@ -133,7 +130,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
  * that never authors a report, so it only appears for report-channel scouts.
  */
 function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element | null {
-    const { reportRows, touchedReports, scoutReportsLoading, runsWindowLoadedOnce } = useValues(
+    const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
         scoutDetailLogic({ skillName })
     )
 
@@ -142,7 +139,7 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
         return null
     }
 
-    const loading = !runsWindowLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
+    const loading = !scoutRunsLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
 
     return (
         <div className="flex flex-col gap-2">
@@ -170,29 +167,24 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
  * so the section is hidden entirely when nothing emitted, rather than showing an empty box.
  */
 function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element | null {
-    const {
-        emissionRows,
-        emissionsLoading,
-        emissionsLoadFailed,
-        emittedRuns,
-        runsWindowLoadedOnce,
-        runsWindowComplete,
-    } = useValues(scoutDetailLogic({ skillName }))
+    const { emissionRows, emissionsLoading, emissionsLoadFailed, emittedRuns, scoutRunsLoadedOnce } = useValues(
+        scoutDetailLogic({ skillName })
+    )
     const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
-    // No run in the window emitted anything — keep the section out entirely rather than show an
+    // No run in this scout's window emitted anything — keep the section out entirely rather than show an
     // empty box (mirrors the Reports section above). Only once the runs window has settled, though:
     // before that, `emittedRuns` is empty by default and hiding would skip the loading skeleton
     // for scouts that do have signals.
-    if (runsWindowLoadedOnce && emittedRuns.length === 0) {
+    if (scoutRunsLoadedOnce && emittedRuns.length === 0) {
         return null
     }
 
-    // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
+    // "Loading" until the fleet's per-scout runs have settled once AND this scout's emissions have
     // resolved — otherwise a fresh deep-link would flash the empty state before we know the
     // emitted runs. Gating on the fleet's first-load flag (not its per-poll loading) keeps the
     // quiet-scout empty state from flickering to a skeleton every 60s poll.
-    const loading = !runsWindowLoadedOnce || emissionsLoading
+    const loading = !scoutRunsLoadedOnce || emissionsLoading
     const hasRows = emissionRows.length > 0
     // The unique emission the deep-link resolves to: the newest row whose finding matches.
     const deepLinkedEmissionId = selectedScoutFindingId
@@ -212,9 +204,7 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                 </div>
             ) : !hasRows ? (
                 <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                    {runsWindowComplete
-                        ? `No signals emitted in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                        : `No signals emitted in the recent runs we could load (the last ${SCOUT_RUNS_WINDOW_SPAN} is truncated).`}
+                    {`No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
                 </div>
             ) : (
                 <>
@@ -231,11 +221,6 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                             isDeepLinked={emission.id === deepLinkedEmissionId}
                         />
                     ))}
-                    {!runsWindowComplete && (
-                        <span className="text-xs text-muted">
-                            Older signals beyond the loaded {SCOUT_RUNS_WINDOW_SPAN} window aren’t shown.
-                        </span>
-                    )}
                 </>
             )}
         </div>

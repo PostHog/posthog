@@ -139,6 +139,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -224,6 +228,10 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -285,6 +293,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -901,6 +913,180 @@ export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
         account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
     })
     .describe('Request body for adding or removing an event-stream member account.')
+
+export const featureRequestProductAreasCreateBodyNameMax = 200
+
+export const featureRequestProductAreasCreateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasCreateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasCreateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasCreateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasCreateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasCreateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasCreateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasUpdateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasPartialUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(featureRequestProductAreasPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasPartialUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasPartialUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestsCreateBodyTitleMax = 400
+
+export const featureRequestsCreateBodyDescriptionDefault = ``
+
+export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
+    description: zod
+        .string()
+        .default(featureRequestsCreateBodyDescriptionDefault)
+        .describe('Optional customer-facing request description in Markdown.'),
+    account_id: zod.uuid().describe('ID of the affected Customer Analytics account.'),
+    product_area_ids: zod.array(zod.uuid()).describe('One or more active product area IDs. Duplicate IDs are ignored.'),
+    idempotency_key: zod
+        .uuid()
+        .describe(
+            'Client-generated key that makes retries return the original request instead of creating a duplicate.'
+        ),
+})
+
+export const featureRequestsUpdateBodyTitleMax = 400
+
+export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    title: zod
+        .string()
+        .max(featureRequestsUpdateBodyTitleMax)
+        .optional()
+        .describe('Updated customer-facing request title.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
+    account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
+    product_area_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('One or more product area IDs. Existing inactive areas can remain linked.'),
+    request_status: zod
+        .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+        .describe(
+            "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        )
+        .optional()
+        .describe(
+            "Updated customer-facing lifecycle status.\n\n\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        ),
+    request_priority: zod
+        .union([
+            zod.enum(['high', 'medium', 'low']).describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
+        ),
+})
+
+export const featureRequestsPartialUpdateBodyTitleMax = 400
+
+export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    title: zod
+        .string()
+        .max(featureRequestsPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Updated customer-facing request title.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
+    account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
+    product_area_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('One or more product area IDs. Existing inactive areas can remain linked.'),
+    request_status: zod
+        .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+        .describe(
+            "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        )
+        .optional()
+        .describe(
+            "Updated customer-facing lifecycle status.\n\n\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        ),
+    request_priority: zod
+        .union([
+            zod.enum(['high', 'medium', 'low']).describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
+        ),
+})
+
+export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
 
 export const groupsTypesMetricsCreateBodyNameMax = 255
 

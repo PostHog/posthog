@@ -221,6 +221,10 @@ impl<S> ExceptionEvent<S> {
         &self.props
     }
 
+    pub(crate) fn exception_level(&self) -> Option<&str> {
+        self.props.get("$exception_level").and_then(Value::as_str)
+    }
+
     pub fn proposed_issue_name(&self) -> Option<&str> {
         self.proposed_issue_name.as_deref()
     }
@@ -309,6 +313,13 @@ impl ExceptionEvent<Resolved> {
 impl ExceptionEvent<Fingerprinted> {
     pub fn fingerprint(&self) -> &SelectedFingerprint {
         &self.state.fingerprint
+    }
+
+    pub(crate) fn exception_handled(&self) -> Option<bool> {
+        self.exception_list
+            .first()
+            .and_then(|exception| exception.mechanism.as_ref())
+            .and_then(|mechanism| mechanism.handled)
     }
 
     pub(crate) fn into_linked(self, issue: Issue) -> ExceptionEvent<Linked> {
@@ -735,6 +746,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),
@@ -767,6 +779,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),

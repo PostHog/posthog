@@ -5,6 +5,7 @@ from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
     call_scanner_provider_activity,
+    check_scanner_budget_activity,
     cleanup_gemini_file_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
@@ -27,6 +28,7 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
+    meter_scanner_read_bytes_activity,
     pause_backfill_schedule_activity,
     prepare_backfill_tick_activity,
     reap_backfill_schedules_activity,
@@ -47,6 +49,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
+from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_actions import (
@@ -65,6 +68,7 @@ WORKFLOWS = [
     ApplyScannerWorkflow,
     BackfillScannerWorkflow,
     EvaluatePromptSuggestionWorkflow,
+    MeterScannerReadsWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
@@ -89,6 +93,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
+    check_scanner_budget_activity,
     advance_scanner_watermark_activity,
     refresh_prompt_suggestion_activity,
     prepare_backfill_tick_activity,
@@ -106,6 +111,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     delete_scanner_schedule_activity,
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
+    meter_scanner_read_bytes_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     reap_stuck_vision_action_runs_activity,
@@ -125,6 +131,7 @@ __all__ = [
     "ApplyScannerWorkflow",
     "BackfillScannerWorkflow",
     "EvaluatePromptSuggestionWorkflow",
+    "MeterScannerReadsWorkflow",
     "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
@@ -140,6 +147,7 @@ __all__ = [
     "advance_scanner_watermark_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
+    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",
@@ -155,6 +163,7 @@ __all__ = [
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",
+    "meter_scanner_read_bytes_activity",
     "mark_observation_failed_activity",
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",

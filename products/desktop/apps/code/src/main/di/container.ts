@@ -121,6 +121,11 @@ import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+} from "@posthog/quick-ask/service/quick-ask";
+import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -246,6 +251,8 @@ import { ElectronDialog } from "../platform-adapters/electron-dialog";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import { MissionControlService } from "../platform-adapters/electron-mission-control";
+import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -277,7 +284,7 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { rendererStore } from "../utils/store";
+import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
@@ -307,6 +314,7 @@ import {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -662,7 +670,7 @@ container.load(localMcpModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
-// structurally (docs/cloud-mcp-relay.md).
+// structurally (docs/CLOUD-MCP-RELAY.md).
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
@@ -808,11 +816,29 @@ container.bind(LOGS_SERVICE).toDynamicValue((ctx) => {
 });
 container.bind(MAIN_ENCRYPTION_SERVICE).to(EncryptionService);
 container.bind(MAIN_DISCORD_PRESENCE_SERVICE).to(DiscordPresenceService);
+container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 
 // Canvas / dashboards (project-bluebird). The host-agnostic dashboard services
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(quickAskCoreModule);
+// Chromium's network stack, not Node's undici: it honors system proxies and
+// VPN routing, which undici intermittently fails against ("fetch failed").
+container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
+container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
+  const repositories = quickAskStore.get("defaultRepositories");
+  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
+  return {
+    channelId: quickAskStore.get("defaultChannelId") || null,
+    repositories,
+    githubIntegrationId:
+      repositories.length > 0 && integrationId ? integrationId : null,
+    adapter: quickAskStore.get("defaultAdapter") || null,
+    model: quickAskStore.get("defaultModel") || null,
+    reasoningEffort: quickAskStore.get("defaultEffort") || null,
+  };
+});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

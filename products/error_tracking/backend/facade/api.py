@@ -22,13 +22,17 @@ from ..models import (
 )
 from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
+from .contracts import (
+    CrashFreeSummary as CrashFreeSummary,
+    ExceptionSummary as ExceptionSummary,
+)
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = logic.ErrorTrackingInvalidBytecodeError
 
-SOURCE_MAPS_DOCS_URL = weekly_digest.SOURCE_MAPS_DOCS_URL
+SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
@@ -75,6 +79,7 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     return contracts.ErrorTrackingIssuePreview(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
@@ -86,6 +91,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
@@ -642,7 +648,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list[Any]:
     return weekly_digest.get_exception_counts(team_ids=team_ids)
 
 
-def get_exception_summary_for_team(team: Any) -> dict[str, Any]:
+def get_exception_summary_for_team(team: Any) -> ExceptionSummary | None:
     return weekly_digest.get_exception_summary_for_team(team)
 
 
@@ -658,11 +664,11 @@ def get_daily_exception_counts(team: Any) -> list[dict[str, Any]]:
     return weekly_digest.get_daily_exception_counts(team)
 
 
-def get_crash_free_sessions(team: Any) -> dict[str, Any]:
+def get_crash_free_sessions(team: Any) -> CrashFreeSummary | None:
     return weekly_digest.get_crash_free_sessions(team)
 
 
-def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict[str, Any]]) -> bool:
+def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, ExceptionSummary]) -> bool:
     return weekly_digest.auto_select_project_for_user(
         user=user,
         org_id=org_id,

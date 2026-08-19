@@ -73,6 +73,14 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
 GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 5
 
+# How far back a *first* sync starts its windowed drain. A first sync has no cursor to start from,
+# and the drain cannot begin at the 1970 incremental sentinel: empty windows are cheap but not free
+# (one request each), so stepping from 1970 would spend the whole run on requests that return
+# nothing. This bound only decides where the walk begins — every window from here forward is
+# imported, and once the cursor exists the drain continues from it. It is not an API limit: Google
+# serves older rows than this, so raising it costs first-sync catch-up time rather than correctness.
+GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
+
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
 # serialize past 64 MiB — when that happens the gRPC client aborts the call with a
@@ -513,6 +521,11 @@ def google_ads_source(
     name = NamingConvention.normalize_identifier(resource_name)
     table = get_schemas(config, team_id, api_version)[resource_name]
 
+    # Report tables always need a date filter, so a full-refresh schema is forced onto the
+    # incremental query path here. Record whether the pipeline itself is incremental first: only an
+    # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
+    # only sound when it does.
+    pipeline_is_incremental = should_use_incremental_field
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
         incremental_field = "segments.date"
@@ -558,15 +571,24 @@ def google_ads_source(
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
-        # Bounded windowed drain: only date-partitioned report tables (`requires_filter`) with an
-        # established cursor. A first sync (sentinel value) keeps the open-ended scan below so it
-        # doesn't crawl a window at a time from the 1970 initial value.
-        if (
-            table.requires_filter
-            and incremental_field_type == IncrementalFieldType.Date
-            and db_incremental_field_last_value is not None
-        ):
-            start = _incremental_value_as_date(db_incremental_field_last_value)
+        # Bounded windowed drain for date-partitioned report tables (`requires_filter`), including
+        # the first sync. Excluding first syncs is what stranded them: with no cursor they ran a
+        # single open-ended 1970..2100 scan over the whole account history, and a run that never
+        # finishes never lands a chunk, so the cursor stays empty and the next run repeats the same
+        # unbounded scan — the very death spiral the windows exist to break, except nothing could
+        # escape it. A first sync instead starts a bounded backfill window behind today.
+        #
+        # Only incremental pipelines take this path. The per-run window budget assumes the cursor
+        # lands between runs so the next run continues where this one stopped. A full-refresh run
+        # persists no cursor, so a budgeted drain restarts from the same backfill date every run,
+        # and the refresh then replaces the whole table with that same first slice of history:
+        # silent data loss that reports Completed.
+        if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
+            start = (
+                _incremental_value_as_date(db_incremental_field_last_value)
+                if db_incremental_field_last_value is not None
+                else dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+            )
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
             windows_with_data = 0
@@ -595,7 +617,9 @@ def google_ads_source(
             resumable_source_manager.clear_state()
             return
 
-        # First-ever sync (initial sentinel) or a non-date cursor: single open-ended ascending scan.
+        # Everything else runs a single open-ended ascending scan: non-date cursors have no date
+        # windows to walk, and full-refresh report tables must extract the whole range in one run
+        # because nothing persists between runs to continue a partial walk from.
         if db_incremental_field_last_value is None:
             last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(incremental_field_type)
         else:
@@ -643,6 +667,15 @@ _TRANSIENT_GRPC_STATUS_CODES = frozenset(
 # receive limit, not retrying, is what addresses it.
 _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
+# Google's own token-verification backend occasionally returns a bare ``UNKNOWN`` gRPC status
+# carrying this message when it has a momentary internal hiccup — a genuinely rejected credential
+# instead comes back as ``UNAUTHENTICATED`` / ``PERMISSION_DENIED`` (handled as non-retryable in
+# ``GoogleAdsSource.get_non_retryable_errors``). Reports of this exact message on the Google Ads API
+# support forum have been confirmed by Google as backend-side incidents, not request problems, and a
+# retry after backoff typically succeeds. Matched on this specific message rather than the bare
+# ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
+_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -656,6 +689,8 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
+    if isinstance(exc, google_api_exceptions.Unknown):
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.

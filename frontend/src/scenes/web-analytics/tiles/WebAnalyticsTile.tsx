@@ -68,6 +68,7 @@ import {
     ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
@@ -1120,6 +1121,8 @@ export const WebStatsTableTile = ({
         ]
     )
 
+    const canFilterRow = !includeHost && productTab !== ProductTab.PAGE_REPORTS
+
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
             // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
@@ -1132,7 +1135,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return { onClick: () => onClick(breakdownValue) }
+            return { onClick: () => onClick(breakdownValue), ...(canFilterRow && { title: 'Filter by this value' }) }
         }
 
         return {
@@ -1142,7 +1145,7 @@ export const WebStatsTableTile = ({
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
             showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination, canFilterRow])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1408,19 +1411,23 @@ interface HogQLTableTileProps {
     headerSlot?: React.ReactNode
 }
 
-// Bot tiles get their own variant so botAnalyticsLogic only mounts on the Bot Analytics tab —
-// `HogQLTableTile` is reused for any HogQLQuery DataTableNode and shouldn't depend on bot state.
-const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
-
-const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
-    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
-    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
-
-    const context = useMemo((): QueryContext => {
-        // Single-select toggle: clicking the same value clears it, any other click replaces.
+const useSingleSelectDrilldownContext = ({
+    insightProps,
+    filters,
+    setFilters,
+    filterKey,
+    filterType,
+}: {
+    insightProps: InsightLogicProps
+    filters: WebAnalyticsPropertyFilters
+    setFilters: (filters: WebAnalyticsPropertyFilters) => void
+    filterKey: string | undefined
+    filterType: PropertyFilterType.Event | PropertyFilterType.Session
+}): QueryContext =>
+    useMemo((): QueryContext => {
         const toggleFilter = (key: string, value: string): void => {
-            const existing = rawBotAnalyticsFilters.find((f) => 'key' in f && f.key === key)
-            const otherFilters = rawBotAnalyticsFilters.filter((f) => !('key' in f && f.key === key))
+            const existing = filters.find((f) => 'key' in f && f.key === key)
+            const otherFilters = filters.filter((f) => !('key' in f && f.key === key))
             const existingValues =
                 existing && 'value' in existing
                     ? Array.isArray(existing.value)
@@ -1428,28 +1435,19 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                         : [existing.value]
                     : []
             if (existingValues.length === 1 && existingValues[0] === value) {
-                setBotAnalyticsFilters(otherFilters)
+                setFilters(otherFilters)
                 return
             }
-            setBotAnalyticsFilters([
-                ...otherFilters,
-                {
-                    key,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                },
-            ])
+            setFilters([...otherFilters, { key, value: [value], operator: PropertyOperator.Exact, type: filterType }])
         }
 
-        const filterKey = tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname'
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps: (record: unknown) => {
                 const result = (record as { result?: unknown[] })?.result
                 const value = Array.isArray(result) ? (result[0] as string) : null
-                if (!value) {
+                if (!value || !filterKey) {
                     return {}
                 }
                 return {
@@ -1458,7 +1456,21 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                 }
             },
         }
-    }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
+    }, [insightProps, filters, setFilters, filterKey, filterType])
+
+const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
+
+const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
+    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
+
+    const context = useSingleSelectDrilldownContext({
+        insightProps,
+        filters: rawBotAnalyticsFilters,
+        setFilters: setBotAnalyticsFilters,
+        filterKey: tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname',
+        filterType: PropertyFilterType.Event,
+    })
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context, uniqueKey })
 
     return (

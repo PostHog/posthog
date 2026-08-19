@@ -26,6 +26,8 @@ const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/
 const SCOPED_AUTH_PATH_SUFFIXES = [
     // Verified in CdpApi.postHogFlowRescheduleParked against WORKFLOWS_RESCHEDULE_JWT_SECRET.
     '/reschedule_parked',
+    // Verified in CdpApi.postHogFlowCancelInvocations against the same key, audience-pinned.
+    '/invocations/cancel',
 ]
 
 export interface InternalApiAuthOptions {

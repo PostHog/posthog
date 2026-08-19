@@ -18,6 +18,13 @@ export const canvasCapabilitiesSchema = z.object({
     insights: z.array(z.string().min(1).max(128)).max(100),
     inlineQueries: z.boolean(),
     captureEvents: z.array(z.string().min(1).max(200)).max(100),
+    // Defaulted so manifests built before these verbs parse unchanged.
+    state: z
+      .array(z.enum(["user", "shared"]))
+      .max(2)
+      .default([]),
+    actions: z.array(z.string().min(1).max(64)).max(32).default([]),
+    agentRequests: z.boolean().default(false),
   }),
   network: z.object({
     origins: z.array(z.string().url().max(2_048)).max(20),

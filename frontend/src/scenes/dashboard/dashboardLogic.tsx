@@ -22,7 +22,7 @@ import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import {
@@ -45,6 +45,7 @@ import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -117,9 +118,12 @@ import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import {
     BreakdownColorConfig,
-    computeAutoBreakdownColors,
-    extractBreakdownValues,
+    applyAutoBreakdownColors,
+    breakdownConfigIdentityMatches,
+    buildSharedBreakdownValueLookup,
+    extractBreakdownValuesByTile,
     findBreakdownColorConfig,
+    hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
@@ -247,12 +251,14 @@ export interface dashboardLogicValues {
         layoutSize?: 'sm' | 'xs' | undefined
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
+    autoBreakdownColorsEnabled: boolean
     autoRefresh: {
         enabled: boolean
         interval: number
     }
     blockRefresh: boolean
     breadcrumbs: Breadcrumb[]
+    breakdownValuesIncomplete: boolean
     buttonTileId: number | 'new' | null
     canAutoPreview: boolean
     canEditDashboard: boolean
@@ -638,6 +644,17 @@ export interface dashboardLogicActions {
     resetUrlFilters: () => boolean
     resetUrlVariables: () => {
         value: true
+    }
+    restoreTemporaryColorState: (
+        colors: BreakdownColorConfig[],
+        themeId: {
+            themeId: number | null
+        } | null
+    ) => {
+        colors: BreakdownColorConfig[]
+        themeId: {
+            themeId: number | null
+        } | null
     }
     restoreUrlStateAtEditModeEntry: (
         snapshot: {
@@ -1103,12 +1120,17 @@ export interface dashboardLogicMeta {
             dataColorThemeId: number | null,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
+        autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        breakdownValuesIncomplete: (
+            itemsLoading: boolean,
+            insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+        ) => boolean
         effectiveBreakdownColors: (
             temporaryBreakdownColors: BreakdownColorConfig[],
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
-            itemsLoading: boolean,
-            featureFlags: FeatureFlagsSet,
+            breakdownValuesIncomplete: boolean,
+            autoBreakdownColorsEnabled: boolean,
             dataColorTheme: DataColorTheme | null
         ) => BreakdownColorConfig[]
         hasUnsavedColorChanges: (
@@ -1348,6 +1370,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+        restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
+            colors,
+            themeId,
+        }),
 
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
@@ -1455,11 +1481,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             persistedVariables,
                             values.effectiveDashboardVariableOverrides || {}
                         )
-                        // With tiles still loading the visible breakdown values are incomplete, so
-                        // fresh auto assignments and stale-entry pruning would both act on partial
-                        // data — persist only the saved colors with unsaved edits merged over them,
-                        // and leave materializing auto entries to a save with every tile loaded.
-                        const breakdownColorsToSave = values.itemsLoading
+                        // While tiles are still loading, or an errored/aborted tile is missing its
+                        // results, the visible breakdown values are incomplete, so fresh auto
+                        // assignments and stale-entry pruning would both act on partial data.
+                        // Persist only the saved colors with unsaved edits merged over them, and
+                        // leave materializing auto entries to a save with every tile's values known.
+                        const breakdownColorsToSave = values.breakdownValuesIncomplete
                             ? mergeBreakdownColorConfigs(
                                   values.temporaryBreakdownColors,
                                   persistedBreakdownColors
@@ -1821,11 +1848,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             [] as BreakdownColorConfig[],
             {
                 setBreakdownColorConfig: (state, { config }) => {
-                    const existingConfigIndex = state.findIndex(
-                        (c) =>
-                            String(c.breakdownValue) === String(config.breakdownValue) &&
-                            c.breakdownType === config.breakdownType
-                    )
+                    const existingConfigIndex = state.findIndex((c) => breakdownConfigIdentityMatches(c, config))
                     if (existingConfigIndex >= 0) {
                         return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
                     }
@@ -1835,6 +1858,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // and a failed save (which also fires saveEditModeChangesSuccess) must keep them.
                 setDashboardMode: (state, { source }) =>
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? [] : state,
+                restoreTemporaryColorState: (_, { colors }) => colors,
             },
         ],
         // Unsaved theme edit; null means untouched, so clearing the theme is distinguishable
@@ -1844,6 +1868,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDataColorThemeId: (_, { dataColorThemeId }) => ({ themeId: dataColorThemeId || null }),
                 setDashboardMode: (state, { source }) =>
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
+                restoreTemporaryColorState: (_, { themeId }) => themeId,
             },
         ],
         layoutZoom: [
@@ -2680,8 +2705,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
+                const experimentVariant = featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT]
+                if (experimentVariant === 'control') {
+                    return false
+                }
+                if (experimentVariant === 'test') {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION]
+            },
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -2944,23 +2977,38 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
             ): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
+        autoBreakdownColorsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS],
+        ],
+        // itemsLoading alone can't stand in for completeness: a refresh that errors or is
+        // aborted before the insight ever got results leaves the tile with result: null after
+        // loading settles, hiding its breakdown values from the sharing check.
+        breakdownValuesIncomplete: [
+            (s) => [s.itemsLoading, s.insightTiles],
+            (itemsLoading: boolean, insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): boolean =>
+                itemsLoading || hasUnresolvedBreakdownTiles(insightTiles),
+        ],
         // Persisted colors with unsaved edits merged over them, plus auto-assigned colors for
-        // uncovered breakdown values. This is both what tiles render and what a save persists.
+        // breakdown values shared by multiple tiles. This is both what tiles render and what a
+        // save persists. Values unique to one tile keep position-based colors (see
+        // computeTileFallbackTokens), so they don't consume palette slots here.
         effectiveBreakdownColors: [
             (s) => [
                 s.temporaryBreakdownColors,
                 s.dashboard,
                 s.insightTiles,
-                s.itemsLoading,
-                s.featureFlags,
+                s.breakdownValuesIncomplete,
+                s.autoBreakdownColorsEnabled,
                 s.dataColorTheme,
             ],
             (
                 temporaryBreakdownColors: BreakdownColorConfig[],
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
                 insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
-                itemsLoading: boolean,
-                featureFlags: FeatureFlagsSet,
+                breakdownValuesIncomplete: boolean,
+                autoBreakdownColorsEnabled: boolean,
                 dataColorTheme: DataColorTheme | null
             ): BreakdownColorConfig[] => {
                 const merged = mergeBreakdownColorConfigs(
@@ -2968,29 +3016,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard?.breakdown_colors ?? []
                 ).filter((config) => !!config.colorToken)
 
-                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
+                if (!autoBreakdownColorsEnabled) {
                     return merged
                 }
 
-                const visibleValues = extractBreakdownValues(insightTiles, null)
-                // Prune stale auto entries only once all tiles have loaded — a partial tile set
-                // would drop colors for values that are merely still loading.
-                const kept = itemsLoading
+                const tileBreakdownValues = extractBreakdownValuesByTile(insightTiles)
+                // Prune stale or no-longer-shared auto entries only when every tile's breakdown
+                // values are known: with a partial tile set (still loading, or errored/aborted
+                // without results) a genuinely shared value can look single-tile and would lose
+                // its color.
+                const isShared = buildSharedBreakdownValueLookup(tileBreakdownValues)
+                const kept = breakdownValuesIncomplete
                     ? merged
-                    : merged.filter(
-                          (config) =>
-                              config.source !== 'auto' ||
-                              visibleValues.some(
-                                  (value) =>
-                                      value.breakdownValue === config.breakdownValue &&
-                                      value.breakdownType === config.breakdownType
-                              )
-                      )
+                    : merged.filter((config) => config.source !== 'auto' || isShared(config))
                 // Size assignment to the active theme — getColorFromToken wraps tokens past the
                 // theme's color count, so assuming the default 15 slots on a smaller theme would
                 // hand out visually duplicate colors while palette slots remain free.
                 const paletteSize = dataColorTheme ? Object.keys(dataColorTheme).length : undefined
-                return [...kept, ...computeAutoBreakdownColors(visibleValues, kept, paletteSize)]
+                return applyAutoBreakdownColors(tileBreakdownValues, kept, paletteSize)
             },
         ],
         hasUnsavedColorChanges: [
@@ -3005,7 +3048,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,
                         config.breakdownValue,
-                        config.breakdownType
+                        config.breakdownType,
+                        config.breakdownProperty
                     )
                     return config.colorToken
                         ? persistedConfig?.colorToken !== config.colorToken
@@ -3277,7 +3321,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                   : newTile.widget
                     ? 'widget'
                     : 'insight'
-            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(
+                insertedTileType,
+                props.id,
+                newTile.id,
+                slot.x,
+                slot.y,
+                slot.w != null
+            )
 
             // In edit mode the change is saved with the rest of the edit session.
             if (values.layoutEditMode) {
@@ -3336,6 +3387,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }: { item: QueryBasedInsightModel }) => {
+            const targetDashboards = (item.dashboard_tiles || []).map((tile) => tile.dashboard_id)
+            if (!targetDashboards.includes(props.id)) {
+                // this update is not for this dashboard
+                return
+            }
+
+            const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
+
+            if (tileIndex === -1) {
+                // the rename landed before this dashboard had the tile in state, so the reducer
+                // could not patch it and the tile would show the stale name forever - reload instead
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }
+        },
         duplicateTile: () => {
             cache.widgetTileIdsBeforeDuplicate = new Set(values.widgetTiles.map((tile) => tile.id))
         },
@@ -3372,47 +3438,166 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const isWidgetTile = !!tile.widget
             const removedMessage = isWidgetTile ? 'widget removed' : 'has been removed from the dashboard'
             const toastId = `remove-tile-${tile.id}`
+            const otherDashboardIds = new Set(
+                (
+                    tile.insight?.dashboard_tiles
+                        ?.filter((dashboardTile) => !dashboardTile.deleted)
+                        .map((dashboardTile) => dashboardTile.dashboard_id) ??
+                    tile.insight?.dashboards ??
+                    []
+                ).filter((dashboardId) => dashboardId !== props.id)
+            )
+            const canDeleteInsight =
+                tile.insight?.user_access_level !== AccessControlLevel.Viewer &&
+                (!tile.insight?.user_access_level ||
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Insight,
+                        tile.insight.user_access_level,
+                        AccessControlLevel.Editor
+                    ))
+            const deleteInsight = (): void => {
+                if (!tile.insight) {
+                    return
+                }
 
-            lemonToast.info(
-                <>
-                    <b>{tileName}</b> {removedMessage}
-                </>,
-                {
-                    toastId,
-                    button: {
-                        label: 'Undo',
-                        dataAttr: 'undo-remove-tile-from-dashboard',
-                        action: async () => {
-                            try {
-                                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                                    tiles: [{ id: tile.id, deleted: false }],
-                                })
+                const otherDashboards = Array.from(otherDashboardIds).map((dashboardId) => ({
+                    id: dashboardId,
+                    name: dashboardsModel.values.rawDashboards[dashboardId]?.name || `Dashboard ${dashboardId}`,
+                }))
+                const dashboardIds = [props.id, ...otherDashboardIds]
+                const otherDashboardCount = otherDashboards.length
 
-                                if (tile.insight) {
-                                    const insight = tile.insight
-                                    const nextDashboards = insight.dashboards?.includes(props.id)
-                                        ? insight.dashboards
-                                        : [...(insight.dashboards || []), props.id]
-                                    dashboardsModel.actions.updateDashboardInsight(
-                                        { ...insight, dashboards: nextDashboards },
-                                        [props.id]
-                                    )
-                                }
-
-                                actions.loadDashboard({ action: DashboardLoadAction.Update })
-
-                                lemonToast.success(
-                                    <>
-                                        <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
-                                    </>,
-                                    { toastId }
-                                )
-                            } catch (e) {
-                                lemonToast.error('Could not restore tile: ' + String(e))
-                            }
+                LemonDialog.open({
+                    title: 'Delete insight everywhere?',
+                    shouldAwaitSubmit: true,
+                    description: (
+                        <div className="pt-2 space-y-4">
+                            {otherDashboards.length > 0 && (
+                                <div>
+                                    <div>This insight is also used on:</div>
+                                    <ul className="list-inside list-disc">
+                                        {otherDashboards.map((dashboard) => (
+                                            <li key={dashboard.id}>
+                                                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            <div>
+                                This deletes the insight and removes it from every dashboard. You can undo this action.
+                            </div>
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: 'Delete insight everywhere',
+                        status: 'danger',
+                        onClick: () => {
+                            eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalConfirmed(
+                                otherDashboardCount
+                            )
+                            return deleteInsightWithUndo({
+                                object: { ...tile.insight!, dashboards: dashboardIds },
+                                endpoint: `projects/${values.currentTeamId}/insights`,
+                                callback: (undo, insight) => {
+                                    const updatedInsight = {
+                                        ...insight,
+                                        deleted: !undo,
+                                        dashboards: undo ? insight.dashboards : [],
+                                    }
+                                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, dashboardIds)
+                                    if (!undo) {
+                                        lemonToast.dismiss(toastId)
+                                    }
+                                },
+                            })
                         },
                     },
+                    secondaryButton: { children: 'Cancel' },
+                })
+            }
+            const undoTileRemoval = async (): Promise<void> => {
+                try {
+                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                        tiles: [{ id: tile.id, deleted: false }],
+                    })
+
+                    if (tile.insight) {
+                        const insight = tile.insight
+                        const nextDashboards = insight.dashboards?.includes(props.id)
+                            ? insight.dashboards
+                            : [...(insight.dashboards || []), props.id]
+                        dashboardsModel.actions.updateDashboardInsight({ ...insight, dashboards: nextDashboards }, [
+                            props.id,
+                        ])
+                    }
+
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+
+                    lemonToast.success(
+                        <>
+                            <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
+                        </>,
+                        { toastId }
+                    )
+                } catch (e) {
+                    lemonToast.error('Could not restore tile: ' + String(e))
                 }
+            }
+
+            lemonToast.info(
+                tile.insight ? (
+                    <span className="flex flex-col gap-2">
+                        <span>
+                            <b>{tileName}</b> {removedMessage}
+                        </span>
+                        <span className="flex items-center gap-2">
+                            {canDeleteInsight && (
+                                <LemonButton
+                                    type="primary"
+                                    status="danger"
+                                    size="small"
+                                    data-attr="delete-removed-insight"
+                                    className="!m-0"
+                                    onClick={() => {
+                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
+                                            otherDashboardIds.size
+                                        )
+                                        deleteInsight()
+                                    }}
+                                >
+                                    Delete insight everywhere
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                data-attr="undo-remove-tile-from-dashboard"
+                                className="!m-0"
+                                onClick={() => {
+                                    void undoTileRemoval()
+                                    lemonToast.dismiss(toastId)
+                                }}
+                            >
+                                Undo
+                            </LemonButton>
+                        </span>
+                    </span>
+                ) : (
+                    <>
+                        <b>{tileName}</b> {removedMessage}
+                    </>
+                ),
+                tile.insight
+                    ? { toastId }
+                    : {
+                          toastId,
+                          button: {
+                              label: 'Undo',
+                              dataAttr: 'undo-remove-tile-from-dashboard',
+                              action: undoTileRemoval,
+                          },
+                      }
             )
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -4039,9 +4224,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (
                 mode === null &&
                 (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
-                    source === DashboardEventSource.SceneCommonButtons)
+                    source === DashboardEventSource.SceneCommonButtons ||
+                    source === DashboardEventSource.DashboardInsightColorsModal)
             ) {
-                // save edit mode changes when exiting via Save button or E key/Edit layout button
+                // save edit mode changes when exiting via Save button, E key/Edit layout button,
+                // or the colors modal's Save button
                 // Pending name/description are included in the saveEditModeChanges PATCH
                 // to avoid a race between two concurrent PATCHes to the same endpoint.
                 actions.saveEditModeChanges()

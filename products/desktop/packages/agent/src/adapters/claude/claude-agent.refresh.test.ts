@@ -99,6 +99,7 @@ function installFakeSession(
 
   const session = {
     query: oldQuery,
+    sdkSessionId: sessionId,
     queryOptions: {
       sessionId,
       cwd: "/tmp/repo",

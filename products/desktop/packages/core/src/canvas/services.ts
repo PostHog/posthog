@@ -5,11 +5,17 @@ import type {
 } from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
+  CanvasActionDefinition,
+  CanvasActionResult,
+  CanvasDraft,
   CanvasSource,
+  CanvasStateEntry,
+  CanvasStateScope,
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
 import type {
+  CanvasAgentRequestResult,
   CanvasCaptureConfig,
   CanvasCaptureInput,
   CanvasCaptureResult,
@@ -17,7 +23,7 @@ import type {
   CanvasDataResult,
   CanvasLoadInsightInput,
 } from "./freeformSchemas";
-import type { CanvasTemplate, CanvasTemplateSummary } from "./templateSchemas";
+import type { CanvasTemplateSummary } from "./templateSchemas";
 
 // Structural service interfaces the host-router routers depend on. The concrete
 // implementations live in the desktop app's main process and are bound to the
@@ -25,12 +31,6 @@ import type { CanvasTemplate, CanvasTemplateSummary } from "./templateSchemas";
 
 export interface ICanvasTemplatesService {
   list(): CanvasTemplateSummary[];
-  get(id: string): CanvasTemplate | undefined;
-  /**
-   * The freeform (React iframe) system prompt for a template, falling back to
-   * the generic freeform sandbox prompt.
-   */
-  freeformSystemPromptFor(id: string | undefined): string;
 }
 
 export interface IDashboardsService {
@@ -47,10 +47,44 @@ export interface IDashboardsService {
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  // File a rendering error against the build that threw it (best-effort).
+  reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void>;
+  // The canvas's readable ph.state entries (shared + the caller's own user rows).
+  listState(input: {
+    id: string;
+    scope?: CanvasStateScope;
+  }): Promise<CanvasStateEntry[]>;
+  // Write one ph.state key; a null value deletes it.
+  setState(input: {
+    id: string;
+    scope: CanvasStateScope;
+    key: string;
+    value: unknown;
+  }): Promise<void>;
+  // The action registry: every verb a canvas may declare and invoke.
+  listActions(): Promise<CanvasActionDefinition[]>;
+  // Invoke one registered action verb as the viewer.
+  invokeAction(input: {
+    id: string;
+    verb: string;
+    payload: Record<string, unknown>;
+  }): Promise<CanvasActionResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).
   listVersions(id: string): Promise<CanvasVersion[]>;
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  listDrafts(id: string): Promise<CanvasDraft[]>;
+  // Make a draft version the canvas's live head (and build it if needed).
+  promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord>;
   // Move the canvas's head back to an existing version and rebuild it.
   revertToVersion(input: {
     id: string;
@@ -65,6 +99,10 @@ export interface IDashboardsService {
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
+  requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult>;
 }
 
 export interface ICanvasDataService {

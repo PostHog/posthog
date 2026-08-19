@@ -104,6 +104,14 @@ class TestCloseSource:
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
 
+    def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
+        error_msg = (
+            "HTTPSConnectionPool(host='api.close.com', port=443): Max retries exceeded with "
+            'url: /api/v1/data/search/ (Caused by ReadTimeoutError("HTTPSConnectionPool(host='
+            "'api.close.com', port=443): Read timed out. (read timeout=60)\"))"
+        )
+        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())
+
     def test_get_resumable_source_manager_binds_data_class(self) -> None:
         inputs = MagicMock()
         inputs.logger = MagicMock()

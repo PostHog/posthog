@@ -22,6 +22,14 @@ from posthog.models import Team
 # ClickHouse query filters on it.
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
+# Every signal document is emitted under this key triple — the recently-seen lookup in
+# wait_for_signal_in_clickhouse_activity relies on exact key equality with the emit sites.
+# They live here rather than beside those emit sites so readers outside the temporal package
+# (the inbox-ranking dag) can share them without importing the workflow stack.
+SIGNAL_DOCUMENT_PRODUCT = "signals"
+SIGNAL_DOCUMENT_TYPE = "signal"
+SIGNAL_DOCUMENT_RENDERING = "plain"
+
 
 @dataclass(frozen=True)
 class ReportSignalMeta:

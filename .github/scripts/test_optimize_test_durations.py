@@ -3,6 +3,8 @@
 Run with: uv run --with pytest --with defusedxml pytest .github/scripts/test_optimize_test_durations.py
 """
 
+import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -10,10 +12,14 @@ import pytest
 from optimize_test_durations import (
     JUnitShard,
     MigrationTaxCorrector,
+    ShardTimings,
     _pick_outlier,
     average_durations,
+    main,
     outlier_merge_durations,
     run_average_files,
+    run_merge_files,
+    shard_sets_match,
 )
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
@@ -118,6 +124,18 @@ class TestAverageDurations:
         sources = [{"test_a": 2.0}, {"test_b": 5.0}, {"test_a": 6.0}]
         assert average_durations(sources)["test_a"] == 4.0
 
+    def test_segment_with_no_artifacts_refuses_to_write(self, tmp_path, monkeypatch):
+        # A run whose artifacts failed to download must not produce an empty durations
+        # file: it would contribute nothing to the union and drag a multi-run product
+        # average toward zero, un-sizing every product in it.
+        out = tmp_path / "products_durations"
+        monkeypatch.setattr(
+            sys, "argv", ["optimize_test_durations.py", str(tmp_path), str(out), "--segment", "Products"]
+        )
+        with pytest.raises(SystemExit):
+            main()
+        assert not out.exists()
+
     def test_run_average_files_refuses_empty_result(self, tmp_path):
         # Newest (anchor) run scoped to nothing must not silently wipe the plan,
         # even when older runs still carry data — refuse to write, don't emit {}.
@@ -141,6 +159,7 @@ class TestJUnitShardSegmentFilter:
             "junit-results-backend-core-2",
             "junit-results-backend-core-poe-1",
             "junit-results-backend-temporal-1",
+            "product-junit-results-1",
             "junit-results-backend-compat-1",  # unrelated, shouldn't match anything
         ):
             shard = tmp_path / name
@@ -159,6 +178,19 @@ class TestJUnitShardSegmentFilter:
     def test_temporal_only_matches_temporal(self, junit_dir: Path):
         names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Temporal")}
         assert names == {"junit-results-backend-temporal-1"}
+
+    def test_products_matches_product_junit_prefix(self, junit_dir: Path) -> None:
+        (junit_dir / "product-junit-results-1" / "second.xml").write_bytes(
+            b'<testsuite><testcase classname="products.tasks.test_two.TestThing" name="test_two" time="1.5"/></testsuite>'
+        )
+
+        shards = JUnitShard.load_all(junit_dir, segment="Products")
+
+        assert [shard.name for shard in shards] == ["product-junit-results-1"]
+        assert set(shards[0].call_times) == {
+            "posthog/test_foo.py::TestThing::test_one",
+            "products/tasks/test_two.py::TestThing::test_two",
+        }
 
     def test_unknown_segment_does_not_panic(self, junit_dir: Path):
         # Unknown segments fall back to lowercase passthrough — should just
@@ -251,6 +283,36 @@ class TestStatisticalCorrection:
         # carrier floored toward its real (small) value after tax subtraction
         assert result.corrected_durations["t0"] < 410.0
         assert result.carriers_found == 1
+
+
+def test_merge_files_replaces_stale_segment_entries(tmp_path: Path) -> None:
+    previous = tmp_path / "previous.json"
+    fresh = tmp_path / "fresh.json"
+    output = tmp_path / "output.json"
+    previous.write_text(json.dumps({"posthog/test.py::test_core": 1.0, "products/tasks/old.py::test_old": 90.0}))
+    fresh.write_text(json.dumps({"products/tasks/new.py::test_new": 10.0}))
+
+    run_merge_files([previous, fresh], output, replace_prefix="products/")
+
+    assert json.loads(output.read_text()) == {
+        "posthog/test.py::test_core": 1.0,
+        "products/tasks/new.py::test_new": 10.0,
+    }
+
+
+def test_shard_sets_match_requires_every_junit_artifact() -> None:
+    timings = [
+        ShardTimings(name="timing_data-Products-1", durations={}),
+        ShardTimings(name="timing_data-Products-2", durations={}),
+    ]
+    complete = [
+        JUnitShard(name="product-junit-results-1", call_times={}),
+        JUnitShard(name="product-junit-results-2", call_times={}),
+    ]
+    partial = [JUnitShard(name="product-junit-results-1", call_times={})]
+
+    assert shard_sets_match(timings, complete)
+    assert not shard_sets_match(timings, partial)
 
 
 if __name__ == "__main__":

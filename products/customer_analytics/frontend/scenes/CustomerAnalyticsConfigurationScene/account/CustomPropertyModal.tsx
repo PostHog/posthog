@@ -11,6 +11,7 @@ import {
     LemonModal,
     LemonSearchableSelect,
     LemonSelect,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -31,6 +32,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    ColumnPropertyMapping,
     CustomPropertySourceMode,
     CustomPropertyTargetType,
     customPropertyDefinitionsLogic,
@@ -54,6 +56,103 @@ const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] 
     { value: 'group', label: 'Group' },
 ]
 
+// The table an existing source reads, shown as text because the binding is create-only. Links to the
+// table's own page, where its sync history and import errors are.
+function ReadOnlyWarehouseTable({
+    entityPlural,
+    tableName,
+    schemaUrl,
+}: {
+    entityPlural: string
+    tableName: string | null
+    schemaUrl: string | null
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Warehouse table</LemonLabel>
+            {tableName ? (
+                schemaUrl ? (
+                    <Link to={schemaUrl} target="_blank" targetBlankIcon>
+                        <code>{tableName}</code>
+                    </Link>
+                ) : (
+                    <code>{tableName}</code>
+                )
+            ) : (
+                <span className="text-secondary">
+                    This table isn't available. It may have been deleted, or you may not have access to the source it
+                    belongs to.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                Rows from this table update matching {entityPlural} on every sync. You can't change the table after the
+                property is created.
+            </span>
+        </div>
+    )
+}
+
+// The group type an existing group property attaches to. Create-only on the backend, so it's shown as
+// text — but it still has to be shown, since it's part of what the property is.
+function ReadOnlyGroupType({ label, loading }: { label: string | null; loading: boolean }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Group type</LemonLabel>
+            {loading ? (
+                <LemonSkeleton className="h-4 w-24" />
+            ) : label ? (
+                <span>{label}</span>
+            ) : (
+                <span className="text-secondary">
+                    This group type isn't available. It may have been removed from the project.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                You can't change the group type after the property is created.
+            </span>
+        </div>
+    )
+}
+
+// An existing source's column mappings. Create-only on the backend, so they're listed rather than
+// edited: what a property reads is the thing you open the modal to check.
+function ReadOnlyColumnMappings({
+    entityLabel,
+    mappings,
+}: {
+    entityLabel: string
+    mappings: ColumnPropertyMapping[]
+}): JSX.Element {
+    const mapped = mappings.filter((mapping) => mapping.column && mapping.property)
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonLabel>Column mappings</LemonLabel>
+            {mapped.length ? (
+                <div className="flex flex-col gap-1">
+                    {mapped.map((mapping) => (
+                        <div key={mapping.column} className="flex flex-col border rounded px-2 py-1">
+                            <span className="flex items-center gap-2">
+                                <code>{mapping.column}</code>
+                                <span className="text-secondary">→</span>
+                                <code>{mapping.property}</code>
+                            </span>
+                            {mapping.description && (
+                                <span className="text-secondary text-xs">{mapping.description}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <span className="text-secondary">This source has no column mappings.</span>
+            )}
+            <span className="text-secondary text-xs">
+                Which warehouse column sets which {entityLabel} property. You can't change the mappings after the
+                property is created. To change them, delete this property and create a new one.
+            </span>
+        </div>
+    )
+}
+
 // Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
 // (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
 // also picks which group type. The binding + mappings are create-only on the backend, so they're
@@ -71,11 +170,13 @@ function PersonSourceEditor(): JSX.Element {
     } = useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
         useActions(customPropertyDefinitionsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { groupTypes, groupTypesLoading } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
-    const hasExistingSource = !!editingDefinition?.source
+    const entityPlural = isGroup ? 'groups' : 'people'
+    const existingSource = editingDefinition?.source
+    const hasExistingSource = !!existingSource
     // Deliberately not derived from `warehouseTables` — the picker's search narrows that list, and a
     // search with no matches would otherwise collapse the whole editor into the empty-state banner,
     // taking the search box with it. The picker shows its own "no options matching" instead.
@@ -99,6 +200,8 @@ function PersonSourceEditor(): JSX.Element {
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
     }))
+    const selectedGroupTypeLabel =
+        groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
 
     // Only block on missing tables while creating a source — an existing source still needs its
     // key column and enabled switch editable even if its table was later deleted or filtered out.
@@ -113,25 +216,41 @@ function PersonSourceEditor(): JSX.Element {
 
     return (
         <>
-            {isGroup && !hasExistingSource && (
-                <LemonField name="groupTypeIndex" label="Group type" help="Which group type this property attaches to.">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            value={value}
-                            onChange={onChange}
-                            options={groupTypeOptions}
-                            placeholder="Select a group type"
-                            fullWidth
-                        />
-                    )}
-                </LemonField>
-            )}
+            {/* group_type_index is create-only on the backend, so on edit it's read-only text rather
+                than a picker whose value would be dropped. */}
+            {isGroup &&
+                (editingDefinition ? (
+                    <ReadOnlyGroupType label={selectedGroupTypeLabel} loading={groupTypesLoading} />
+                ) : (
+                    <LemonField
+                        name="groupTypeIndex"
+                        label="Group type"
+                        help="Which group type this property attaches to."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSelect
+                                value={value}
+                                onChange={onChange}
+                                options={groupTypeOptions}
+                                placeholder="Select a group type"
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
+                ))}
             {hasExistingSource ? (
-                <LemonBanner type="info">
-                    The warehouse table and column mappings are fixed once a source is created. To change them, delete
-                    this property and create a new one. You can still update the {isGroup ? 'group key' : 'distinct ID'}{' '}
-                    column and toggle syncing.
-                </LemonBanner>
+                <ReadOnlyWarehouseTable
+                    entityPlural={entityPlural}
+                    tableName={existingSource?.table_name ?? null}
+                    schemaUrl={
+                        existingSource?.external_data_source && existingSource.external_data_schema
+                            ? urls.dataWarehouseSourceSchema(
+                                  existingSource.external_data_source,
+                                  existingSource.external_data_schema
+                              )
+                            : null
+                    }
+                />
             ) : (
                 <LemonField
                     name="warehouseTable"
@@ -185,7 +304,9 @@ function PersonSourceEditor(): JSX.Element {
                     />
                 )}
             </LemonField>
-            {!hasExistingSource && (
+            {hasExistingSource ? (
+                <ReadOnlyColumnMappings entityLabel={entityLabel} mappings={mappings} />
+            ) : (
                 <div className="flex flex-col gap-2">
                     <LemonLabel>Column mappings</LemonLabel>
                     <span className="text-secondary text-xs">

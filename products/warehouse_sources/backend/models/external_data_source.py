@@ -10,11 +10,17 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 
 logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
+MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
 
 
@@ -120,6 +126,111 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         metadata = self.connection_metadata
         return isinstance(metadata, dict) and metadata.get("system_managed") is True
 
+    @property
+    def has_managed_warehouse_prefix(self) -> bool:
+        return self.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
+
+    @property
+    def is_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.source_type == ExternalDataSourceType.POSTGRES
+            and self.access_method == self.AccessMethod.DIRECT
+            and self.has_managed_warehouse_prefix
+            and self.is_system_managed
+            and isinstance(metadata, dict)
+            and metadata.get("engine") == "duckdb"
+        )
+
+    @classmethod
+    def managed_warehouse_identity_q(cls) -> models.Q:
+        return models.Q(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=cls.AccessMethod.DIRECT,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            connection_metadata__engine="duckdb",
+            connection_metadata__system_managed=True,
+        )
+
+    @classmethod
+    def legacy_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind__in=MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+        )
+
+    @classmethod
+    def ready_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+            connection_metadata__reader_configured=True,
+        )
+
+    def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
+        job_inputs = self.job_inputs
+        if not isinstance(job_inputs, dict):
+            return False
+
+        port = job_inputs.get("port")
+        if isinstance(port, bool):
+            return False
+        if isinstance(port, int):
+            port_number = port
+        elif isinstance(port, str) and port.isdigit():
+            port_number = int(port)
+        else:
+            return False
+
+        user = job_inputs.get("user")
+        return (
+            isinstance(user, str)
+            and bool(user)
+            and (expected_user is None or user == expected_user)
+            and isinstance(job_inputs.get("host"), str)
+            and bool(job_inputs["host"].strip())
+            and isinstance(job_inputs.get("database"), str)
+            and bool(job_inputs["database"].strip())
+            and isinstance(job_inputs.get("password"), str)
+            and bool(job_inputs["password"])
+            and 1 <= port_number <= 65535
+        )
+
+    @property
+    def is_legacy_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.is_managed_warehouse
+            and isinstance(metadata, dict)
+            and metadata.get("credential_kind") in MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS
+        )
+
+    @property
+    def is_managed_warehouse_ready(self) -> bool:
+        metadata = self.connection_metadata
+        if (
+            not self.is_managed_warehouse
+            or not self.direct_query_enabled
+            or not isinstance(metadata, dict)
+            or metadata.get("credential_kind") != MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND
+            or metadata.get("reader_configured") is not True
+        ):
+            return False
+
+        return self._has_valid_managed_warehouse_connection_inputs(expected_user=f"posthog_team_{self.team_id}")
+
+    @property
+    def managed_warehouse_sql_mode(self) -> ManagedWarehouseSQLMode:
+        if self.is_managed_warehouse_ready:
+            return ManagedWarehouseSQLMode.BUILT_IN
+        if (
+            self.is_legacy_managed_warehouse
+            and self.direct_query_enabled
+            and self._has_valid_managed_warehouse_connection_inputs()
+        ):
+            return ManagedWarehouseSQLMode.EXTERNAL
+        return ManagedWarehouseSQLMode.UNAVAILABLE
+
     @classmethod
     def is_system_managed_prefix(cls, prefix: str | None) -> bool:
         return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
@@ -221,8 +332,33 @@ def get_direct_external_data_source_for_connection(
             id=source_uuid,
         )
         .exclude(deleted=True)
+        .defer("job_inputs")
         .first()
     )
     if source is None or not is_direct_capable(source):
         return None
+
+    if source.has_managed_warehouse_prefix and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+        return None
     return source
+
+
+def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | None) -> bool:
+    if not connection_id:
+        return False
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return False
+
+    source = (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        )
+        .exclude(deleted=True)
+        .first()
+    )
+    return source is not None and source.is_managed_warehouse_ready

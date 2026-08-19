@@ -18,6 +18,8 @@ import type {
     BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
+    DraftScannerRequestApi,
+    DraftScannerResponseApi,
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
@@ -1062,7 +1064,7 @@ export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
 }
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreate = async (
     projectId: string,
@@ -1138,6 +1140,26 @@ export const visionScannersCreatorsRetrieve = async (
     return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersDraftCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/draft/`
+}
+
+/**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreate = async (
+    projectId: string,
+    draftScannerRequestApi: DraftScannerRequestApi,
+    options?: RequestInit
+): Promise<DraftScannerResponseApi> => {
+    return apiMutator<DraftScannerResponseApi>(getVisionScannersDraftCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftScannerRequestApi),
     })
 }
 

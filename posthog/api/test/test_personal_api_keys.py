@@ -17,6 +17,7 @@ from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
@@ -985,6 +986,19 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         response = self._do_request(f"/api/projects/{self.team.id}/events/")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @parameterized.expand([("/api/projects/@current/",), ("/api/environments/@current/",)])
+    def test_denies_current_lookup_when_current_project_is_outside_the_scoped_org(self, url: str):
+        # A project transfer between organizations leaves `current_team` pointing at the moved
+        # project while `current_organization` still names the old one. The `@current` lookup must
+        # still scope to the key's organizations, not to that stale pair.
+        self.user.current_team = self.other_team
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self._do_request(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
 
 class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
@@ -1025,6 +1039,33 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_data_management_activity_ignores_the_users_current_project(self):
+        # The viewset is INTERNAL, so the `*` wildcard does not reach it — the action names its own scope
+        self.key.scopes = ["activity_log:read"]
+        self.key.save()
+        self.user.current_team = self.other_team
+        self.user.current_organization = self.other_organization
+        self.user.save()
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="EventDefinition",
+            activity="created",
+            item_id="in-scope",
+        )
+        ActivityLog.objects.create(
+            team_id=self.other_team.id,
+            organization_id=self.other_organization.id,
+            scope="EventDefinition",
+            activity="created",
+            item_id="out-of-scope",
+        )
+
+        response = self._do_request(f"/api/projects/{self.team.id}/data_management/activity")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["item_id"] for row in response.json()["results"]] == ["in-scope"]
 
 
 class TestPersonalAPIKeyAPIAccess(APIBaseTest):

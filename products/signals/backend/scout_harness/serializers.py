@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -41,7 +42,15 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
-from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    DEFAULT_RUNS_PER_SCOUT,
+    DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    MAX_FINDINGS_WINDOW_HOURS,
+    MAX_RUNS_PER_SCOUT,
+    MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    STALENESS_INTERVAL_MULTIPLE,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.structured_output import (
     MAX_RECORDS_PER_CALL,
@@ -507,6 +516,35 @@ class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
         help_text=(
             f"Lookback window in hours over runs' `created_at` "
             f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
+    )
+
+
+class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
+    """Query parameters for the `recent-per-scout` action."""
+
+    per_scout_limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_RUNS_PER_SCOUT,
+        help_text=(
+            f"How many of each scout's most recent runs to return (default {DEFAULT_RUNS_PER_SCOUT}, "
+            f"hard cap {MAX_RUNS_PER_SCOUT}). The count is per scout, so a scout's history depth "
+            f"does not depend on how often the rest of the fleet runs."
+        ),
+    )
+    max_age_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+        help_text=(
+            f"Floor for the staleness guard on `created_at`, in days (default "
+            f"{DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS}, hard cap {MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS}). "
+            f"Runs older than the guard are excluded even when a scout has fewer than "
+            f"`per_scout_limit` newer ones, so a scout that stopped running doesn't report its last "
+            f"runs as current. Each scout's own cadence extends its guard to cover "
+            f"{STALENESS_INTERVAL_MULTIPLE} runs' worth of its schedule, so a slow scout on a "
+            f"monthly cron or a 30-day interval keeps its history."
         ),
     )
 
@@ -2097,6 +2135,32 @@ def _validate_scout_model(value: str | None, context: dict, current: str | None 
     return value
 
 
+# One scout should never need anywhere near this many external tools; the cap only bounds
+# abuse of the JSON column.
+MAX_SCOUT_MCP_GATEWAY_SERVERS = 100
+
+_MCP_GATEWAY_SERVER_IDS_HELP = (
+    "MCP gateway servers (by id) this scout's runs may use, chosen from the connections "
+    "members shared to the whole team. Selection is per scout: an empty list gives the "
+    "scout no MCP servers. Applies from the scout's next run."
+)
+
+
+def _mcp_gateway_server_ids_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=read_only,
+        required=False,
+        max_length=MAX_SCOUT_MCP_GATEWAY_SERVERS,
+        help_text=_MCP_GATEWAY_SERVER_IDS_HELP,
+    )
+
+
+def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
+    # The JSON column stores canonical strings — UUID instances aren't JSON-serializable.
+    return [str(server_id) for server_id in value]
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2240,6 +2304,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         required=False,
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -2272,6 +2337,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "structured_output_schema",
             "network_access",
             "model",
+            "mcp_gateway_server_ids",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -2414,6 +2480,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2429,6 +2496,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2508,6 +2578,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "model",
             "auto_pause_exempt",
             "tags",
+            "mcp_gateway_server_ids",
         ]
 
 
@@ -2577,6 +2648,8 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
 
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
@@ -2595,6 +2668,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):

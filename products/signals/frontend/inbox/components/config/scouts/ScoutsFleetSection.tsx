@@ -11,15 +11,10 @@ import { pluralize } from 'lib/utils/strings'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction, captureScoutFleetViewed } from '../../../inboxAnalytics'
+import type { ScoutChatType } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    FleetSummary,
-    SCOUT_FLEET_OVERVIEW_PROMPT,
-    SCOUT_RECENT_SIGNALS_PROMPT,
-    SCOUT_RUNS_WINDOW_SPAN,
-    scoutRunsWindowLabel,
-} from '../../../utils/scoutRunsWindow'
+import { FleetSummary, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetFindingsCallout } from './FleetFindingsCallout'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
@@ -36,8 +31,8 @@ import { ScoutTagsFilter } from './ScoutTagsFilter'
  * Cloud port of desktop's `ScoutsFleetSection`.
  */
 export function ScoutsFleetSection(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { scoutConfigs, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
+    const { startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
 
@@ -63,35 +58,6 @@ export function ScoutsFleetSection(): JSX.Element {
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
         })
     }, [scoutConfigs, enabledCount, customScoutCount])
-
-    if (scoutConfigsLoading && scoutConfigs === null) {
-        return <LemonSkeleton className="h-12 w-full rounded" />
-    }
-
-    // A failed request must not masquerade as an empty troop – a missing scope or
-    // regional rollout gap would otherwise be indistinguishable from "no scouts yet".
-    if (scoutConfigs === null) {
-        return (
-            <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
-                <span className="flex-1 text-xs text-danger">
-                    Couldn't load the scout troop. The scout API may be unavailable or this project may not be enrolled
-                    yet.
-                </span>
-                <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
-                    Retry
-                </LemonButton>
-            </div>
-        )
-    }
-
-    if (scoutConfigs.length === 0) {
-        return (
-            <div className="flex flex-col gap-3">
-                <ScoutAlphaBanner />
-                <ScoutsEmptyState />
-            </div>
-        )
-    }
 
     return (
         <div className="flex flex-col gap-3">
@@ -126,7 +92,10 @@ export function ScoutsFleetSection(): JSX.Element {
  * nothing when no message is set. Dismissal is remembered per-message, so a reworded notice resurfaces.
  */
 function ScoutAlphaBanner(): JSX.Element | null {
-    const { scoutBannerMessage } = useValues(scoutFleetLogic)
+    const { scoutBannerMessage, scoutMetadata, scoutMetadataLoading } = useValues(scoutFleetLogic)
+    if (scoutMetadataLoading && scoutMetadata === null) {
+        return <LemonSkeleton className="h-12 w-full rounded" />
+    }
     if (!scoutBannerMessage) {
         return null
     }
@@ -172,29 +141,72 @@ function summarize(summary: FleetSummary | null): string {
  * leads with "what the troop is" before its controls.
  */
 function FleetStatsHeader(): JSX.Element {
-    const { scoutConfigs, enabledCount, lastRunAt, fleetSummary, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, enabledCount, lastRunAt, fleetSummary, scoutRunsLoadedOnce } =
+        useValues(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-default">
-                    {enabledCount} of {scoutConfigs?.length ?? enabledCount} scouts enabled
-                </span>
-                {lastRunAt ? (
-                    <span className="text-xs text-secondary">
-                        last dispatched <TZLabel time={lastRunAt} />
-                    </span>
-                ) : null}
+                {scoutConfigsLoading && scoutConfigs === null ? (
+                    <LemonSkeleton className="h-4 w-40 rounded" />
+                ) : (
+                    <>
+                        <span className="text-sm font-medium text-default">
+                            {enabledCount} of {scoutConfigs?.length ?? enabledCount} scouts enabled
+                        </span>
+                        {lastRunAt ? (
+                            <span className="text-xs text-secondary">
+                                last dispatched <TZLabel time={lastRunAt} />
+                            </span>
+                        ) : null}
+                    </>
+                )}
             </div>
-            <span className="text-xs text-muted">
-                {summarize(fleetSummary)} · {scoutRunsWindowLabel(runsWindowComplete)}
+            {scoutRunsLoadedOnce ? (
+                <span className="text-xs text-muted">
+                    {summarize(fleetSummary)} · {SCOUT_RUNS_PER_SCOUT_LABEL} per scout
+                </span>
+            ) : (
+                <LemonSkeleton className="h-3 w-72 rounded" />
+            )}
+        </div>
+    )
+}
+
+function ScoutsFleetListSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <LemonSkeleton.Button />
+                <LemonSkeleton.Button />
+                <LemonSkeleton className="h-7 w-48 rounded" />
+            </div>
+            <div className="flex flex-col gap-2">
+                <LemonSkeleton className="h-16 w-full rounded" />
+                <LemonSkeleton className="h-16 w-full rounded" />
+                <LemonSkeleton className="h-16 w-full rounded" />
+            </div>
+        </div>
+    )
+}
+
+function ScoutFleetError({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+            <span className="flex-1 text-xs text-danger">
+                Couldn't load the scout troop. The scout API may be unavailable or this project may not be enrolled yet.
             </span>
+            <LemonButton type="secondary" size="small" status="danger" onClick={onRetry}>
+                Retry
+            </LemonButton>
         </div>
     )
 }
 
 function ScoutsFleetList(): JSX.Element {
     const {
+        scoutConfigs,
+        scoutConfigsLoading,
         visibleConfigs,
         rollups,
         hideDisabled,
@@ -206,13 +218,27 @@ function ScoutsFleetList(): JSX.Element {
     const { setHideDisabled, setScoutTagFilter, updateScoutConfig, deleteScout, loadScoutConfigs } =
         useActions(scoutFleetLogic)
 
+    if (scoutConfigsLoading && scoutConfigs === null) {
+        return <ScoutsFleetListSkeleton />
+    }
+
+    // A failed request must not masquerade as an empty troop – a missing scope or
+    // regional rollout gap would otherwise be indistinguishable from "no scouts yet".
+    if (scoutConfigs === null) {
+        return <ScoutFleetError onRetry={() => loadScoutConfigs()} />
+    }
+
+    if (scoutConfigs.length === 0) {
+        return <ScoutsEmptyState />
+    }
+
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
                 <ScoutCreateButton type="secondary" size="xsmall" onCreated={() => loadScoutConfigs()} />
                 <ScoutSuggestButton type="secondary" size="xsmall" />
-                <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
-                <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
+                <ScoutChatCta label="How is my scout troop performing?" chatType="fleet_overview" />
+                <ScoutChatCta label="What signals were emitted recently?" chatType="recent_signals" />
                 <span className="flex-1" />
                 {scoutTagOptions.length > 0 ? (
                     <div className="flex items-center gap-2">
@@ -269,9 +295,9 @@ function ScoutsFleetList(): JSX.Element {
 
             <div className="flex flex-col gap-1">
                 <span className="text-xs text-muted">
-                    Run counts and emitted totals cover the last {SCOUT_RUNS_WINDOW_SPAN} of troop runs. New scouts are
-                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.
+                    Run counts and emitted totals cover each scout’s {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on
+                    different schedules are comparable. New scouts are created as{' '}
+                    <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog project.
                 </span>
                 <ScoutHelperSkillLinks />
             </div>
@@ -284,11 +310,19 @@ function ScoutsFleetList(): JSX.Element {
  * question, then navigates to it – same one-click shape as the inbox
  * discuss / create-PR flows.
  */
-function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
+function ScoutChatCta({
+    label,
+    chatType,
+    icon,
+}: {
+    label: string
+    chatType: ScoutChatType
+    icon?: JSX.Element
+}): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
-    const isRunning = runningChatPrompt === prompt
-    const anyRunning = runningChatPrompt !== null
+    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const isRunning = runningChatType === chatType
+    const anyRunning = runningChatType !== null
     return (
         <LemonButton
             type="secondary"
@@ -296,7 +330,7 @@ function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; 
             icon={icon ?? <IconSparkles />}
             loading={isRunning}
             disabledReason={anyRunning ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined)}
-            onClick={() => startScoutChatTask(prompt, label, label)}
+            onClick={() => startScoutChatTask(chatType, label)}
         >
             {label}
         </LemonButton>

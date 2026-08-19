@@ -1,10 +1,20 @@
-/* Tiptap placeholder - targets empty first paragraph */
+/* Tiptap placeholder - targets empty first paragraph. Laid out like the comment composer's
+   (mention-composer.css): taken out of flow and clipped to a single line. Floated with height:0 it
+   still wraps, and a wrapped placeholder overflows .cli-editor-scroll without being able to grow it,
+   so an empty composer in a narrow side panel gets a scrollbar and a half-cut second line. */
+.cli-editor p.is-editor-empty:first-child {
+  position: relative;
+}
+
 .cli-editor p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
   pointer-events: none;
-  float: left;
-  height: 0;
+  content: attr(data-placeholder);
 }
 
 /* Ensure Tiptap NodeView wrappers render inline for mention chips */

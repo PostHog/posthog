@@ -1,4 +1,5 @@
-import { Box, ScrollArea, Text } from "@radix-ui/themes";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
+import { Box, ScrollArea } from "@radix-ui/themes";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
 interface ChannelContextTabProps {
@@ -16,10 +17,10 @@ export function ChannelContextTab({
   return (
     <ScrollArea type="auto" scrollbars="vertical" className="h-full">
       <Box p="4">
-        <Text className="mb-3 block text-[12px] text-gray-9">
+        <p className="mb-3 text-[12px] text-gray-9">
           Sent with this task's prompt as background context
-          {channelName ? ` from #${channelName}` : ""}.
-        </Text>
+          {channelName ? ` from ${channelDisplayReference(channelName)}` : ""}.
+        </p>
         <Box className="text-[13px]">
           <MarkdownRenderer content={body} />
         </Box>

@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleState
@@ -15,6 +16,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from .access import has_tasks_access
 from .models import Task, TaskAutomation, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,16 @@ def delete_automation_schedule(automation: TaskAutomation) -> None:
 
 def run_task_automation(automation_id: str, trigger_workflow_id: str | None = None) -> tuple[Task, TaskRun]:
     automation_id = str(automation_id)
+
+    # Scheduled fires bypass the HTTP gate, so re-check the creator (fail closed if deleted) before
+    # the run transaction, recording the reason to last_error instead of rolling it back.
+    automation = TaskAutomation.objects.select_related("task", "task__created_by").get(id=automation_id)
+    creator = automation.task.created_by
+    if creator is None or not has_tasks_access(creator):
+        automation.last_error = "PostHog Desktop access is required to run task automations"
+        automation.save(update_fields=["last_error", "updated_at"])
+        raise PermissionDenied("PostHog Desktop access is required to run task automations")
+
     with transaction.atomic():
         automation = TaskAutomation.objects.select_for_update(of=("self",)).select_related("task").get(id=automation_id)
         task = automation.task
