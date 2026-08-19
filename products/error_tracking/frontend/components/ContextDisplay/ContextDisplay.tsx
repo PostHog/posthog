@@ -3,7 +3,7 @@ import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { BUILT_IN_ERROR_TRACKING_PROPERTIES } from '../builtInProperties'
+import { BUILT_IN_ERROR_TRACKING_PROPERTIES, resolveBuiltInProperty } from '../builtInProperties'
 import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { ExceptionPropertiesTable } from './ExceptionPropertiesTable'
 
@@ -31,17 +31,15 @@ export function ContextDisplay({
             value,
             filterKey: key,
         }))
-    const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(
-        ({ property, title, versionProperty, fallbackProperty }) => {
-            const resolvedProperty = resolveBuiltInProperty(properties, property, fallbackProperty)
-            return {
-                key: title,
-                value: getBuiltInPropertyValue(properties, resolvedProperty, versionProperty),
-                filterKey: resolvedProperty,
-                filterValue: properties?.[resolvedProperty],
-            }
+    const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map((builtIn) => {
+        const resolvedProperty = resolveBuiltInProperty(properties, builtIn)
+        return {
+            key: builtIn.title,
+            value: getBuiltInPropertyValue(properties, resolvedProperty, builtIn.versionProperty),
+            filterKey: resolvedProperty,
+            filterValue: properties?.[resolvedProperty],
         }
-    )
+    })
     const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
 
     return (
@@ -88,18 +86,6 @@ function filterEntriesByPropertyName<T extends { key: string; filterKey?: string
             .filter((value): value is string => typeof value === 'string')
             .some((value) => value.toLocaleLowerCase().includes(normalizedPropertyNameFilter))
     )
-}
-
-function resolveBuiltInProperty(
-    properties: Record<string, unknown> | undefined,
-    property: string,
-    fallbackProperty: string | undefined
-): string {
-    if (!fallbackProperty) {
-        return property
-    }
-    const value = properties?.[property]
-    return value === undefined || value === null || value === '' ? fallbackProperty : property
 }
 
 function getBuiltInPropertyValue(
