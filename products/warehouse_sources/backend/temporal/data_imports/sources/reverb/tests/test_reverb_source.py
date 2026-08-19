@@ -1,7 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import ReverbResumeConfig
@@ -26,7 +31,7 @@ class TestReverbSource:
         config = self.source.get_source_config
 
         assert config.name.value == "Reverb"
-        assert config.category.value == "E-commerce"
+        assert config.category == DataWarehouseSourceCategory.E_COMMERCE
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/reverb.png"

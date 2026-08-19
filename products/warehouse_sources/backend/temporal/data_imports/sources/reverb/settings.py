@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,7 +21,7 @@ def _incremental_fields(field_name: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class ReverbEndpointConfig:
     name: str
     path: str  # path under https://api.reverb.com/api
