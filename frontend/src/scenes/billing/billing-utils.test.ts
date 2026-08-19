@@ -63,4 +63,9 @@ describe('getBillingErrorMessage', () => {
         expect(getBillingErrorMessage(error, 'fallback')).toBe('fallback')
         expect(getBillingErrorMessage(new Error('boom'), 'fallback')).toBe('fallback')
     })
+
+    it('falls back when detail is an object so the toast never renders a non-string child', () => {
+        const error = new ApiError('failed', 400, undefined, { detail: { limit: 'projects', message: 'over' } })
+        expect(getBillingErrorMessage(error, 'fallback')).toBe('fallback')
+    })
 })

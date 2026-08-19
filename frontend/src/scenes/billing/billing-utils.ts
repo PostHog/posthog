@@ -515,11 +515,18 @@ export const buildSpendTrackingProperties = (
 /**
  * Pull the reason out of a billing API failure. The billing service returns a `detail` (and
  * sometimes a `code`) explaining which limit was hit; surface that instead of a fixed string so
- * a limit message reads as a limit message. Falls back when the error carries no detail.
+ * a limit message reads as a limit message. Falls back when the error carries no usable detail.
+ *
+ * The billing service can put a whole JSON object in `detail` when its error body has no
+ * `error_message` key, so only a non-empty string is returned; anything else falls back, because
+ * an object handed to the toast crashes the render (React rejects a non-string child).
  */
 export const getBillingErrorMessage = (error: unknown, fallback: string): string => {
     if (error instanceof ApiError) {
-        return error.detail || error.data?.error || fallback
+        const message = [error.detail, error.data?.error].find(
+            (value): value is string => typeof value === 'string' && value.length > 0
+        )
+        return message ?? fallback
     }
     return fallback
 }
