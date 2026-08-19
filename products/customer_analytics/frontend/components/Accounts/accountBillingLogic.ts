@@ -18,6 +18,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     DataVisualizationNode,
     HogQLVariable,
@@ -76,6 +77,10 @@ export interface AccountBillingLogicProps {
     accountId: string
     externalId: string
     kind: AccountBillingKind
+}
+
+export function getBillingDataVisualizationKey(queryKey: string): string {
+    return `InsightViz.${queryKey}`
 }
 
 // Inject the account's org and the chosen date range into the saved insight's SQL variables, keyed by their
@@ -230,7 +235,27 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             },
         ],
     })),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, cache }) => ({
+        loadSavedInsightsSuccess: ({ savedInsights }) => {
+            for (const insight of savedInsights) {
+                if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
+                    continue
+                }
+                const queryKey = values.queryKeyFor(insight.short_id)
+                const dataVisualizationKey = getBillingDataVisualizationKey(queryKey)
+                cache.disposables.add(
+                    () =>
+                        dataVisualizationLogic({
+                            key: dataVisualizationKey,
+                            query: insight.query as DataVisualizationNode,
+                            dataNodeCollectionId: queryKey,
+                            variablesOverride: values.variableOverridesByShortId[insight.short_id] ?? null,
+                        }).mount(),
+                    `preload-${dataVisualizationKey}`,
+                    { pauseOnPageHidden: false }
+                )
+            }
+        },
         toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
             posthog.capture(AccountsEvents.UsageSeriesToggled, {
                 kind: props.kind,

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -43,6 +44,7 @@ describe('accountBillingLogic', () => {
         jest.spyOn(insightsApi, 'getByShortId').mockImplementation((shortId) =>
             Promise.resolve(buildBillingInsight(shortId))
         )
+        jest.spyOn(api, 'query').mockResolvedValue({ columns: [], results: [] })
     })
 
     afterEach(() => {
@@ -69,6 +71,13 @@ describe('accountBillingLogic', () => {
                     scene: 'CustomerAnalytics',
                 })
             }
+        })
+
+        it('preloads every saved insight result before its tab renders', async () => {
+            mountForKind()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length)
         })
 
         it('injects the external id into each saved insight variables', async () => {
