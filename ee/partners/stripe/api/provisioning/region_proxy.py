@@ -18,6 +18,7 @@ routes (they deploy the same code).
 from __future__ import annotations
 
 import json
+import math
 import hashlib
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse, urlunparse
@@ -309,7 +310,7 @@ class RegionProxyMixin:
                 )
                 wait = throttle.wait()
                 if wait:
-                    response["Retry-After"] = str(max(1, int(wait)))
+                    response["Retry-After"] = str(max(1, math.ceil(wait)))
                 return response
             logger.info(
                 "stripe_provisioning.proxy.routing",
