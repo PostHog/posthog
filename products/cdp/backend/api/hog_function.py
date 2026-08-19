@@ -1131,9 +1131,9 @@ class HogFunctionViewSet(
         if not hog_function.enabled:
             return Response(
                 {
+                    "detail": "Enable this destination before you rerun its invocations.",
                     "queued_count": 0,
                     "skipped_count": 0,
-                    "detail": "Enable this destination before you rerun its invocations.",
                 },
                 status=400,
             )
