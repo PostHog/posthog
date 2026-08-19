@@ -49,7 +49,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -263,6 +263,16 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
+        except InsufficientHistoryError as err:
+            # The alert is fine, the insight is just young. Record the check so the reason is
+            # visible in history, but leave the alert enabled: disabling would need a manual
+            # re-enable for a condition that resolves itself as buckets accumulate.
+            alert_check, _ = add_alert_check(alert, None, {"message": str(err)})
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=False,
+                new_state=AlertState(alert_check.state),
+            )
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the

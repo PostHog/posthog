@@ -14,7 +14,12 @@ from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, SimulationContext
+from products.alerts.backend.evaluation.contract import (
+    AlertExtractionError,
+    ExtractionResult,
+    InsufficientHistoryError,
+    SimulationContext,
+)
 from products.alerts.backend.evaluation.detector import extract_trends_series
 from products.alerts.backend.forecasting.engine import (
     DEFAULT_HORIZON,
@@ -67,7 +72,11 @@ def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
         if p.date is not None and p.value is not None:
             dates.append(p.date)
             values.append(p.value)
-    return dates, values
+    # Clamp what reaches the engine, rather than trusting how the window was chosen. The simulate
+    # caller's date_from wins over the computed minimum whenever it reaches further back, so an
+    # absolute date on an hourly insight would otherwise hand Prophet tens of thousands of points.
+    limit = bounded_training_points(len(values), result.interval_type)
+    return dates[-limit:], values[-limit:]
 
 
 def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
@@ -321,7 +330,7 @@ def evaluate_with_forecast(
     condition = forecast_config.get("condition")
     required_points = _required_points(condition, result.interval_type)
     if len(values) < required_points:
-        raise AlertExtractionError(
+        raise InsufficientHistoryError(
             f"Not enough history to forecast: need at least {required_points} completed intervals, "
             f"got {len(values)}. The alert will work once the insight has more data."
         )

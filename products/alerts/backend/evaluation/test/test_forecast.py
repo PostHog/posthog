@@ -20,6 +20,7 @@ from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
+    InsufficientHistoryError,
     SeriesPoint,
 )
 from products.alerts.backend.evaluation.forecast import (
@@ -116,7 +117,9 @@ class TestEvaluateWithForecast:
     )
     def test_insufficient_history_raises(self, _name, condition, n_points):
         config = {"type": "ForecastConfig", "engine": "prophet", "condition": condition}
-        with pytest.raises(AlertExtractionError, match="history"):
+        # Not AlertExtractionError: that path disables the alert and emails subscribers that it is
+        # misconfigured, which is wrong for an insight that is merely young.
+        with pytest.raises(InsufficientHistoryError, match="history"):
             evaluate_with_forecast(_series(n_points), config, _threshold(upper=1.0))
 
     def test_unknown_condition_raises(self):
@@ -301,3 +304,14 @@ class TestTargetDateIndex:
     )
     def test_index_for_target_date(self, _name, forecast_dates, target, expected) -> None:
         assert _index_for_target_date(forecast_dates, target) == expected
+
+
+class TestInsufficientHistoryIsNotMisconfiguration:
+    def test_a_young_insight_does_not_raise_the_disabling_error(self) -> None:
+        """AlertExtractionError routes to disable_invalid_alert, which turns the alert off and
+        emails subscribers that it is misconfigured. A young insight is neither."""
+        result = _series(n=3)
+        with pytest.raises(InsufficientHistoryError):
+            evaluate_with_forecast(result, {"condition": "future_breach"}, None)
+        # The distinction is the point: it must not be catchable as a configuration failure.
+        assert not issubclass(InsufficientHistoryError, AlertExtractionError)
