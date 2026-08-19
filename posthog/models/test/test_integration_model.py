@@ -203,6 +203,58 @@ class TestLinearIntegrationModel(BaseTest):
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
 
+    def test_search_issues_raises_on_graphql_errors(self):
+        # An expired token or GraphQL error must not be reported as a valid empty result.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "unauthorized"}]}):
+            with self.assertRaises(ValidationError):
+                linear.search_issues("boom")
+
+    @parameterized.expand(
+        [
+            ("top_level_errors", {"errors": [{"message": "forbidden"}]}),
+            ("mutation_failure", {"data": {"attachmentCreate": {"success": False}}}),
+        ]
+    )
+    def test_create_attachment_raises_on_failure(self, _name, response_body):
+        # Linear reports failures in a 200 body; treating them as success would let callers
+        # persist references whose promised back-link was never created.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value=response_body):
+            with self.assertRaises(ValidationError):
+                linear.create_attachment("LIN-123", "https://us.posthog.com/error_tracking/issue-id")
+
+    def test_create_issue_raises_when_issue_creation_fails(self):
+        # A failed issueCreate must not fall through to an attachment attempt and a
+        # persisted {"id": None} reference.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}) as mock_query:
+            with self.assertRaises(ValidationError):
+                linear.create_issue(
+                    "https://us.posthog.com/error_tracking/issue-id",
+                    {"team_id": "team-id", "title": "Title", "description": "Description"},
+                )
+        assert mock_query.call_count == 1
+
+    def test_create_issue_succeeds_when_attachment_fails(self):
+        # The Linear issue already exists when the attachment fires, so a failed back-link
+        # must not fail the create (retrying would duplicate the issue).
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(
+            linear,
+            "query",
+            side_effect=[
+                {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
+                {"errors": [{"message": "rate limited"}]},
+            ],
+        ):
+            result = linear.create_issue(
+                "https://us.posthog.com/error_tracking/issue-id",
+                {"team_id": "team-id", "title": "Title", "description": "Description"},
+            )
+
+        assert result == {"id": "LIN-123"}
+
     def test_create_issue_passes_user_fields_as_graphql_variables(self):
         linear = LinearIntegration(self.create_integration())
         with patch.object(
@@ -2264,6 +2316,46 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.close_pull_request_from_url("https://github.com/PostHog/posthog/issues/42")
         assert result["success"] is False
         mock_patch.assert_not_called()
+
+    def test_search_issues_drops_results_from_other_repositories(self):
+        # Search-syntax operators in the query (e.g. "foo OR bar") can escape the repo:
+        # qualifier, so results must be filtered by the repository they actually belong to.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "items": [
+                {
+                    "number": 1,
+                    "title": "In repo",
+                    "html_url": "https://github.com/PostHog/posthog/issues/1",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                },
+                {
+                    "number": 2,
+                    "title": "Other repo",
+                    "html_url": "https://github.com/PostHog/other/issues/2",
+                    "repository_url": "https://api.github.com/repos/PostHog/other",
+                },
+                {
+                    "number": 3,
+                    "title": "A pull request",
+                    "html_url": "https://github.com/PostHog/posthog/pull/3",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                    "pull_request": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/3"},
+                },
+            ]
+        }
+        with patch.object(github, "api_request", return_value=mock_response) as mock_request:
+            results = github.search_issues("posthog", 'crash" repo:microsoft/vscode "')
+        assert [result["id"] for result in results] == ["1"]
+        assert results[0]["external_context"] == {"repository": "posthog", "number": 1}
+        # The user's text is quoted so its qualifiers and operators match literally instead of
+        # rewriting the query and filling the result page with foreign matches.
+        sent_query = mock_request.call_args.kwargs["params"]["q"]
+        assert sent_query == 'repo:PostHog/posthog "crash  repo:microsoft/vscode" in:title type:issue'
 
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
