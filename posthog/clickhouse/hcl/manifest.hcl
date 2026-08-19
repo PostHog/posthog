@@ -108,7 +108,32 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/shared", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local"] }
+}
+
+# INGESTION satellites: the Kafka consumer layer. Each node carries the kafka_* engine
+# tables for its topic class, the MV that reads them, and the writable_* Distributed
+# proxies that write into the data cluster (migration 0157 moved this off the data node).
+# Beyond that they carry only the shared query_log_archive path. Role names are the
+# hostClusterRole macros migrations target: events, small, medium.
+role "events" {
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/events_json_write", "roles/ingestion_events/local"] }
+}
+
+role "small" {
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
+}
+
+role "medium" {
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/ingestion_medium/local"] }
+}
+
+# The plain dev/hobby stack (docker-compose.dev.yml): ONE ClickHouse server hosting every
+# role's objects, because migration_tools routes every migration to NodeRole.ALL when DEBUG
+# and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
+# hosts, so any name two of those roles declare fails this load instead of drifting.
+role "all" {
+  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {

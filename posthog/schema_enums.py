@@ -2557,6 +2557,8 @@ class ExternalDataSourceType(StrEnum):
     HOOTSUITE = "Hootsuite"
     WISPR_FLOW = "WisprFlow"
     SAM_CART = "SamCart"
+    IRON_SOURCE_ADS = "IronSourceAds"
+    MICROSOFT_EXCEL = "MicrosoftExcel"
 
 
 class ExternalQueryErrorCode(StrEnum):

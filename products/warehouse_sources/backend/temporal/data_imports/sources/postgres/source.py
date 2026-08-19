@@ -926,6 +926,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         names: list[str] | None = None,
         force_refresh: bool = False,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -938,6 +939,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 database=config.database,
                 schema=config.schema,
                 names=names,
+                require_ssl=require_ssl,
             )
             # Foreign keys are advisory metadata (they pre-populate relationship hints in the
             # table picker). The discovery query joins three `information_schema` views, which
@@ -953,6 +955,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     database=config.database,
                     schema=config.schema,
                     names=names,
+                    require_ssl=require_ssl,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
@@ -967,6 +970,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     database=config.database,
                     schema=config.schema,
                     names=names,
+                    require_ssl=require_ssl,
                 )
             else:
                 row_counts = {}
@@ -999,6 +1003,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     user=config.user,
                     password=config.password,
                     database=config.database,
+                    require_ssl=require_ssl,
                 ) as conn:
                     # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
                     # quirk on `pg_catalog` (rare) only disables CDC advertising for this

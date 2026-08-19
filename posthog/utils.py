@@ -1809,7 +1809,7 @@ def variables_override_requested_by_client(
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+    from products.product_analytics.backend.facade.api import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None

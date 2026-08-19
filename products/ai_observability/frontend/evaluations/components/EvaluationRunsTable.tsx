@@ -8,10 +8,10 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
-import { evaluationSupportsRunSummary } from '../evaluationCapabilities'
+import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
-import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
+import { EvaluationRunsFilters } from './EvaluationRunsFilters'
 
 const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: string }[] = [
     { value: 'negative', label: 'Negative' },
@@ -21,14 +21,14 @@ const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: s
 ]
 
 function SentimentEvaluationRunsFilters(): JSX.Element {
-    const { evaluationSummaryFilter } = useValues(llmEvaluationLogic)
-    const { setEvaluationSummaryFilter } = useActions(llmEvaluationLogic)
+    const { evaluationRunsFilter } = useValues(llmEvaluationLogic)
+    const { setEvaluationRunsFilter } = useActions(llmEvaluationLogic)
 
     return (
         <LemonSegmentedButton
-            value={evaluationSummaryFilter as SentimentEvaluationRunsFilter}
+            value={evaluationRunsFilter as SentimentEvaluationRunsFilter}
             onChange={(value) => {
-                setEvaluationSummaryFilter(value as SentimentEvaluationRunsFilter, evaluationSummaryFilter)
+                setEvaluationRunsFilter(value as SentimentEvaluationRunsFilter, evaluationRunsFilter)
             }}
             options={SENTIMENT_FILTER_OPTIONS}
             size="small"
@@ -38,9 +38,9 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showSummary = evaluationSupportsRunSummary(evaluation)
+    const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -92,8 +92,8 @@ export function EvaluationRunsTable(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                {showSummary ? (
-                    <EvaluationSummaryControls />
+                {showOutcomeFilters ? (
+                    <EvaluationRunsFilters />
                 ) : showSentimentFilters ? (
                     <SentimentEvaluationRunsFilters />
                 ) : (
@@ -110,8 +110,6 @@ export function EvaluationRunsTable(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-
-            {showSummary && <EvaluationSummaryPanel runsLookup={runsLookup} />}
 
             <LemonTable
                 columns={columns}

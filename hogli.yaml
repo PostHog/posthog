@@ -855,6 +855,15 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
+    posthog:login:
+        click: hogli_commands.posthog_auth_cli:posthog_login
+        description: Sign hogli in to PostHog in your browser (no API key to mint)
+    posthog:status:
+        click: hogli_commands.posthog_auth_cli:posthog_status
+        description: Show hogli's cached PostHog credential (host, scopes, expiry)
+    posthog:logout:
+        click: hogli_commands.posthog_auth_cli:posthog_logout
+        description: Revoke and forget hogli's cached PostHog credential
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie

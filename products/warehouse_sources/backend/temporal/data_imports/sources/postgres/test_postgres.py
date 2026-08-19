@@ -4299,6 +4299,40 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
+    def test_required_ssl_is_used_for_every_schema_discovery_connection(self, source):
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+        metadata_connection = mock.MagicMock()
+        metadata_connection.__enter__.return_value = mock.MagicMock()
+        metadata_connection.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value={},
+            ) as get_schemas,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ) as get_foreign_keys,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
+                return_value={},
+            ) as get_row_count,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=metadata_connection,
+            ) as pg_connection,
+        ):
+            source.get_schemas(self._config(), team_id=1, with_counts=True, require_ssl=True)
+
+        assert get_schemas.call_args.kwargs["require_ssl"] is True
+        assert get_foreign_keys.call_args.kwargs["require_ssl"] is True
+        assert get_row_count.call_args.kwargs["require_ssl"] is True
+        assert pg_connection.call_args.kwargs["require_ssl"] is True
+
     @pytest.mark.parametrize(
         "exc",
         [
