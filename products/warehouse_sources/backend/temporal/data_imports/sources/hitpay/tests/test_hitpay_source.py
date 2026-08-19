@@ -182,4 +182,4 @@ class TestHitpaySource:
         if expected_message is None:
             assert message is None
         else:
-            assert expected_message in message
+            assert expected_message in (message or "")
