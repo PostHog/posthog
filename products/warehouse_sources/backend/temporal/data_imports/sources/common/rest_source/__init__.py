@@ -298,6 +298,7 @@ def create_resources(
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
+            capture=client_config.get("capture", True),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
