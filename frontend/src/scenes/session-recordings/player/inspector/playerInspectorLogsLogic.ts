@@ -99,11 +99,11 @@ export interface playerInspectorLogsLogicActions {
     markLogsInitialLoadRequested: () => {
         value: true
     }
-    setLogsLoadError: (hasError: boolean) => {
-        hasError: boolean
-    }
     setLogsHasMore: (hasMore: boolean) => {
         hasMore: boolean
+    }
+    setLogsLoadError: (hasError: boolean) => {
+        hasError: boolean
     }
     setLogsNextCursor: (cursor: string | undefined) => {
         cursor: string | undefined
