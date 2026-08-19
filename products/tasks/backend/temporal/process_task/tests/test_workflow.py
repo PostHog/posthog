@@ -24,6 +24,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
@@ -956,6 +957,37 @@ class TestProcessTaskWorkflowUnit:
     def test_parse_inputs_reads_prewarmed(self, payload: dict, expected_prewarmed: bool):
         parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
         assert parsed.prewarmed is expected_prewarmed
+
+    def test_parse_inputs_rebuilds_babysit_journal_from_resumed_sandbox(self):
+        payload = {
+            "run_id": "r1",
+            "resumed_sandbox": {
+                "sandbox_id": "s1",
+                "sandbox_url": "https://sandbox",
+                "connect_token": None,
+                "ci_repetitions": 0,
+                "pr_fingerprint": None,
+                "pr_progress_emitted": False,
+                "first_user_message_received": False,
+                "is_agent_design_enabled": False,
+                "last_active_time": None,
+                "babysit_journal": {
+                    "threads": {"T1": "C1"},
+                    "comment_ids": ["M1"],
+                    "head_sha": "abc",
+                    "head_keys": ["CI/backend"],
+                },
+            },
+        }
+
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+
+        # Must come back as a BabysitJournal, not a raw dict, so the next babysit poll can
+        # call .attention() on it instead of raising AttributeError.
+        assert parsed.resumed_sandbox is not None
+        journal = parsed.resumed_sandbox.babysit_journal
+        assert isinstance(journal, BabysitJournal)
+        assert journal.threads == {"T1": "C1"}
 
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
         assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
