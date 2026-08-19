@@ -3,6 +3,7 @@ from posthog.schema import MaxExperimentMetricResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 
@@ -172,7 +173,7 @@ class ExperimentContext:
                 return
 
             lines.append(f"\n### {section_name}")
-            for metric in metrics[:10]:
+            for metric in metrics[:MAX_METRICS_TO_SUMMARIZE]:
                 lines.append(f"\n**Metric: {metric.name}**")
                 if metric.goal and metric.goal.value:
                     lines.append(f"Goal: {metric.goal.value.title()}")
@@ -207,6 +208,10 @@ class ExperimentContext:
                             lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
 
                         lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
+
+            omitted = len(metrics) - MAX_METRICS_TO_SUMMARIZE
+            if omitted > 0:
+                lines.append(f"\n**Note:** {omitted} more {section_name.lower()} were omitted from this summary.")
 
         format_metrics_section(primary_metrics_results or [], "Primary Metrics")
         format_metrics_section(secondary_metrics_results or [], "Secondary Metrics")

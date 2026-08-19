@@ -337,6 +337,7 @@ async def enforce_throttles(
         code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
+        sandbox_task_id=user.sandbox_task_id,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)
