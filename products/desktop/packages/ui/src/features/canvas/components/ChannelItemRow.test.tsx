@@ -1,6 +1,11 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -80,6 +85,10 @@ function renderRow(model: ChannelItemModel) {
 beforeEach(() => {
   mocks.status = null;
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useTaskSelectionStore.setState({
+    selectedTaskIds: [],
+    lastClickedId: null,
+  });
 });
 
 describe("ChannelItemRow", () => {
@@ -269,10 +278,28 @@ describe("ChannelItemRow", () => {
 
       fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-      expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
+      expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
       expect(dataTransfer.effectAllowed).toBe("copyMove");
     },
   );
+
+  it("drags every selected task into the Command Center", () => {
+    useTaskSelectionStore.setState({
+      selectedTaskIds: ["task-2", "task-1"],
+    });
+    renderRow(item());
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
+
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+    expect(setData).toHaveBeenCalledWith(
+      TASK_IDS_DRAG_TYPE,
+      JSON.stringify(["task-1", "task-2"]),
+    );
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
+  });
 
   it("does not make canvases draggable into the Command Center", () => {
     renderRow(

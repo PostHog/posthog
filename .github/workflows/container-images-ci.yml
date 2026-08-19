@@ -59,6 +59,7 @@ jobs:
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
