@@ -152,6 +152,12 @@ function getCreatePrAction(
   return makeAction("create-pr", "Create PR", createPrDisabledReason);
 }
 
+function hasGhEnvironmentGap(s: GitState): boolean {
+  return (
+    s.ghStatus !== null && (!s.ghStatus.installed || !s.ghStatus.authenticated)
+  );
+}
+
 function getPrimaryAction(
   createPrAction: GitMenuAction,
   commitAction: GitMenuAction,
@@ -231,7 +237,12 @@ export function computeGitInteractionState(input: GitState): GitComputed {
   );
 
   const actions: GitMenuAction[] = [];
-  if (createPrAction.enabled) actions.push(createPrAction);
+  // An environment gap (GitHub CLI missing or logged out) keeps the entry
+  // visible but disabled, so its fix shows in the tooltip. Routine states
+  // (PR exists, nothing to ship) stay dropped.
+  if (createPrAction.enabled || hasGhEnvironmentGap(input)) {
+    actions.push(createPrAction);
+  }
   actions.push(commitAction, pushAction);
   if (viewPrAction) actions.push(viewPrAction);
 
