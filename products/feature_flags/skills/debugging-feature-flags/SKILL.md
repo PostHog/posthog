@@ -216,10 +216,16 @@ reports otherwise, the flag is fine and the problem is in the SDK integration. O
 ## "Works locally but not in production" (or vice versa)
 
 Almost always **evaluation path drift**: the browser hits `/flags` (always current) while a
-server-side fleet uses **local evaluation** (definition refreshed on an interval, and blind to
-behavioral/static cohorts). Compare `locally_evaluated` on the usage events across environments, and
-check the local-eval refresh interval and personal-API-key setup. A flag edit that "hasn't taken
-effect on the backend" is this.
+server-side fleet uses **local evaluation**, whose flag definitions refresh on an interval — a recent
+flag edit that "hasn't taken effect on the backend" is a stale local definition, and it's the one cause
+here that actually changes the **value**. A few conditions can't be evaluated from the local cache and
+fall back to a `/flags` round-trip: **static cohorts** (dynamic cohorts _are_ shipped to local eval —
+the flag editor itself recommends targeting a dynamic cohort over a static one), the `is_not_set`
+operator, and regex lookahead/lookbehind/backreferences. Those return the **same** value via the
+server, so they're a latency/cost regression, not a divergence — don't advise swapping a working
+dynamic cohort. (A **behavioral** cohort can't be computed on _either_ path, so it never explains an
+environment difference — see "Cohort not usable in the flag".) Compare `locally_evaluated` on the usage
+events across environments, and check the local-eval refresh interval and personal-API-key setup.
 
 ## Everything else → hand off
 
