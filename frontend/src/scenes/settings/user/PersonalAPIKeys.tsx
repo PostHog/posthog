@@ -356,7 +356,9 @@ function PersonalAPIKeysTable(): JSX.Element {
     } = useValues(personalAPIKeysLogic)
     const { deleteKey, loadKeys, setEditingKeyId, rollKey } = useActions(personalAPIKeysLogic)
 
-    useEffect(() => loadKeys(), [loadKeys])
+    useEffect(() => {
+        loadKeys()
+    }, [loadKeys])
 
     const statusColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
         title: 'Status',

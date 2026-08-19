@@ -97,7 +97,10 @@ export function InstallationTracker({ variant }: { variant: 'card' | 'pill' }): 
 export function InstallationTrackerGate(): JSX.Element | null {
     useMountedLogic(wizardActiveSessionDetectorLogic)
     const { shouldStream, activeWorkflowId } = useValues(wizardActiveSessionDetectorLogic)
-    useEffect(() => watchWorkflowWhileMounted(SELF_DRIVING_WORKFLOW_ID), [])
+    useEffect(() => {
+        const cleanup = watchWorkflowWhileMounted(SELF_DRIVING_WORKFLOW_ID)
+        return cleanup
+    }, [])
     if (!shouldStream || activeWorkflowId !== SELF_DRIVING_WORKFLOW_ID) {
         return null
     }

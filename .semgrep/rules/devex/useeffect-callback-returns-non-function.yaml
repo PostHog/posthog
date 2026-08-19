@@ -1,0 +1,27 @@
+rules:
+    - id: useeffect-callback-returns-non-function
+      message: >-
+          This `useEffect` callback returns the result of a function call, so React stores that
+          result as the effect's cleanup function and calls it on unmount or on a dependency
+          change. React's production build calls the stored value with no `typeof` guard. A bound
+          kea action returns the action object, not a function, so
+          `useEffect(() => someAction(), deps)` makes React call an object and throw
+          `TypeError: x is not a function` in the commit phase — a crash that only shows up in
+          production builds.
+
+          Give the effect a block body that returns nothing:
+          `useEffect(() => { someAction() }, deps)`. If the call really does return a cleanup
+          function, name it so the intent is clear:
+          `useEffect(() => { const cleanup = subscribe(); return cleanup }, deps)`.
+
+          A useState setter returns `undefined`, so `useEffect(() => setX(v), deps)` is safe by
+          accident — convert it to a block body too when you touch the file.
+      severity: WARNING
+      languages: [typescript, javascript]
+      pattern: useEffect(() => $F(...), ...)
+      paths:
+          include:
+              - 'frontend/'
+              - 'products/*/frontend/'
+          exclude:
+              - '**/generated/**'

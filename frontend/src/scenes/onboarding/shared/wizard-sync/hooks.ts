@@ -59,7 +59,10 @@ export function useSelfDrivingRunState(): { inFlight: boolean; resolved: boolean
     const { activeWorkflowId, hasResolvedSessionState } = useValues(wizardActiveSessionDetectorLogic)
     const { check } = useActions(wizardActiveSessionDetectorLogic)
 
-    useEffect(() => watchWorkflowWhileMounted(SELF_DRIVING_WORKFLOW_ID), [])
+    useEffect(() => {
+        const cleanup = watchWorkflowWhileMounted(SELF_DRIVING_WORKFLOW_ID)
+        return cleanup
+    }, [])
     useEffect(() => {
         if (!hasResolvedSessionState) {
             check()

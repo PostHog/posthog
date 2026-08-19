@@ -31,7 +31,9 @@ export function HogFunctionTemplateList({
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
-    useEffect(() => loadHogFunctionTemplates(), [props.type]) // oxlint-disable-line exhaustive-deps
+    useEffect(() => {
+        loadHogFunctionTemplates()
+    }, [props.type]) // oxlint-disable-line exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">
