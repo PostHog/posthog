@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { parentPath, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -722,6 +723,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
+            recentItemsModel.findMounted()?.actions.loadRecents()
             lemonToast.success(
                 <>
                     Dashboard <b>{dashboard.name}</b> restored
@@ -733,6 +735,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
+            recentItemsModel.findMounted()?.actions.itemDeleted('dashboard', String(dashboard.id))
             const currentTeam = teamLogic.values.currentTeam
             if (currentTeam && 'primary_dashboard' in currentTeam && currentTeam.primary_dashboard === dashboard.id) {
                 teamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, primary_dashboard: null })
