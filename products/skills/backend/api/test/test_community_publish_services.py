@@ -61,6 +61,13 @@ class TestRenderSkillMd:
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
 
+    def test_preserves_leading_whitespace_in_the_body(self) -> None:
+        # strip() would turn an opening indented code block into an ordinary paragraph, so the
+        # published skill would instruct differently from the skill it was published from.
+        content = render_skill_md(name="X", description="Y", body="    indented code\n\ntext\n\n\n")
+
+        assert content.endswith("---\n\n    indented code\n\ntext\n")
+
     @parameterized.expand(
         [
             ("blank name", "  ", "d"),
@@ -193,6 +200,45 @@ class TestPublishSkillToCommunity:
         branch = publisher.commit_files_to_branch.call_args.args[1]
         assert branch.startswith("community-skill/make-pr-")
         assert branch != TEAM_A_BRANCH
+
+    def test_a_concurrent_publish_returns_the_pull_request_that_won_the_race(self) -> None:
+        # Both requests force-update the same branch, so the loser's commit is already inside the
+        # winner's review. Reporting a failure would deny content that is public by then.
+        publisher = self._publisher()
+        winner = {"number": 9, "url": "https://github.com/PostHog/community-skills/pull/9", "base": "main"}
+        publisher.get_open_pull_request_for_head.side_effect = [None, winner]
+        publisher.create_pull_request.return_value = {
+            "success": False,
+            "error": "A pull request already exists for PostHog:community-skill/x.",
+        }
+
+        result = self._publish(publisher)
+
+        assert result["pr_number"] == 9
+        publisher.delete_branch.assert_not_called()
+
+    def test_a_pull_request_create_that_times_out_after_landing_keeps_the_branch(self) -> None:
+        # api_request doesn't retry a POST, so a transport failure here can still have opened the
+        # pull request. Cleaning up blind would delete a branch under live review.
+        publisher = self._publisher()
+        landed = {"number": 9, "url": "https://github.com/PostHog/community-skills/pull/9", "base": "main"}
+        publisher.get_open_pull_request_for_head.side_effect = [None, landed]
+        publisher.create_pull_request.side_effect = GitHubIntegrationError("timeout")
+
+        result = self._publish(publisher)
+
+        assert result["pr_number"] == 9
+        publisher.delete_branch.assert_not_called()
+
+    def test_a_pull_request_create_that_times_out_with_nothing_landed_deletes_the_branch(self) -> None:
+        publisher = self._publisher()
+        publisher.get_open_pull_request_for_head.side_effect = [None, None]
+        publisher.create_pull_request.side_effect = GitHubIntegrationError("timeout")
+
+        with pytest.raises(CommunitySkillPublishError):
+            self._publish(publisher)
+
+        assert publisher.delete_branch.call_args.args[1] == TEAM_A_BRANCH
 
     def test_github_being_unreachable_raises_a_publish_error(self) -> None:
         publisher = self._publisher()

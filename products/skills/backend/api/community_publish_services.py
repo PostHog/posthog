@@ -146,7 +146,10 @@ def render_skill_md(
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
     rendered_frontmatter = yaml.safe_dump(frontmatter, sort_keys=False, default_flow_style=False, allow_unicode=True)
-    return f"---\n{rendered_frontmatter}---\n\n{body.strip()}\n"
+    # rstrip, not strip: leading whitespace is content. A body that opens with an indented code block
+    # becomes an ordinary paragraph once it's trimmed, so the published skill would instruct
+    # differently from the skill it was published from.
+    return f"---\n{rendered_frontmatter}---\n\n{body.rstrip()}\n"
 
 
 def render_community_skill_files(
@@ -271,8 +274,9 @@ def publish_skill_to_community(
     One open PR per skill per publisher: the branch is derived from the slug and ``publisher_id``, so
     re-publishing rewrites that branch and returns the pull request already open for it instead of
     opening a second one. Every file lands in a single commit, and a failure after the branch write
-    deletes the branch again — this repo is public, so a half-written skill or an unreviewed branch
-    must not survive a failed publish.
+    deletes the branch again, since this repo is public and a half-written skill or an unreviewed
+    branch must not survive a failed publish. A failure that may still have opened a pull request is
+    reconciled against GitHub first, so cleanup can never remove a branch under live review.
 
     ``publisher_id`` identifies the publishing team and is required. Leaving the branch keyed on the
     slug alone would let one team's publish force-update another team's open pull request, because a
@@ -344,29 +348,40 @@ def _write_branch_and_pull_request(
         logger.info("community_skill_publish_updated_open_pr", slug=slug, pr_number=existing_pr["number"])
         return {"pr_url": pr_url, "pr_number": existing_pr["number"], "branch": branch}
 
-    pr_result = publisher.create_pull_request(
-        repo,
-        f"Add community skill: {name}",
-        _community_pr_body(name=name, slug=slug, author_handle=author_handle),
-        branch,
-        base,
-    )
+    try:
+        pr_result = publisher.create_pull_request(
+            repo,
+            f"Add community skill: {name}",
+            _community_pr_body(name=name, slug=slug, author_handle=author_handle),
+            branch,
+            base,
+        )
+    except (GitHubIntegrationError, GitHubRateLimitError):
+        # A transport failure on this POST is ambiguous: GitHub may still have opened the pull
+        # request, and api_request doesn't retry a POST. Reconcile before cleaning up, so a timeout
+        # can't delete a branch that now heads a live review.
+        logger.warning("community_skill_publish_pr_create_ambiguous", slug=slug, branch=branch, exc_info=True)
+        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch)
+        if reconciled is not None:
+            return reconciled
+        _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch)
+        raise
+
     if pr_result.get("success"):
         logger.info("community_skill_published", slug=slug, pr_number=pr_result.get("pr_number"))
         return {"pr_url": pr_result["pr_url"], "pr_number": pr_result["pr_number"], "branch": branch}
 
     error = str(pr_result.get("error") or "")
-    # Cleanup is for debris this call just created. A branch that already heads a pull request (a
-    # concurrent publish won the race) belongs to that review, so leave it alone.
-    if "already exists" not in error.lower():
-        cleanup_result = publisher.delete_branch(repo, branch)
-        if not cleanup_result.get("success"):
-            logger.warning(
-                "community_skill_publish_branch_cleanup_failed",
-                slug=slug,
-                branch=branch,
-                error=cleanup_result.get("error"),
-            )
+    # A branch that already heads a pull request means a concurrent publish won the race. Our commit
+    # is on that branch and so inside that review, so return it rather than reporting a failure for
+    # content that is already public. Cleanup would belong to that review's branch, not to us.
+    if "already exists" in error.lower():
+        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch)
+        if reconciled is not None:
+            return reconciled
+        raise CommunitySkillPublishError("A pull request for this skill is already open for review.")
+
+    _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch)
     # GitHub refuses a pull request with an empty diff, which is what an unchanged skill produces.
     if "no commits between" in error.lower():
         raise CommunitySkillPublishError(
@@ -374,3 +389,41 @@ def _write_branch_and_pull_request(
             "Edit the skill, then publish again."
         )
     raise CommunitySkillPublishError(f"Failed to open pull request: {error}")
+
+
+def _reconcile_open_pr(publisher: GitHubIntegration, *, repo: str, slug: str, branch: str) -> dict[str, Any] | None:
+    """Re-read the pull request open for ``branch`` after an ambiguous create, or None if there is none.
+
+    A None here means "found nothing", not "the branch has no pull request": the lookup is
+    best-effort and answers None for most failures. It still raises when GitHub rate-limits the read,
+    which is caught here so a caller cleaning up after a failure isn't handed a second one.
+    """
+    try:
+        pull = publisher.get_open_pull_request_for_head(repo, branch)
+    except (GitHubIntegrationError, GitHubRateLimitError):
+        logger.warning("community_skill_publish_pr_lookup_failed", slug=slug, branch=branch, exc_info=True)
+        return None
+    if pull is None or not pull.get("url"):
+        return None
+    logger.info("community_skill_publish_reconciled_open_pr", slug=slug, pr_number=pull["number"])
+    return {"pr_url": pull["url"], "pr_number": pull["number"], "branch": branch}
+
+
+def _delete_publish_branch(publisher: GitHubIntegration, *, repo: str, slug: str, branch: str) -> None:
+    """Remove a branch this publish created. Cleanup failure is logged, never raised over the cause.
+
+    This also runs while handling a GitHub failure, where a raise here would replace the error that
+    actually explains the publish with one about the tidy-up after it.
+    """
+    try:
+        cleanup_result = publisher.delete_branch(repo, branch)
+    except (GitHubIntegrationError, GitHubRateLimitError):
+        logger.warning("community_skill_publish_branch_cleanup_failed", slug=slug, branch=branch, exc_info=True)
+        return
+    if not cleanup_result.get("success"):
+        logger.warning(
+            "community_skill_publish_branch_cleanup_failed",
+            slug=slug,
+            branch=branch,
+            error=cleanup_result.get("error"),
+        )
