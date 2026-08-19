@@ -55,7 +55,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
@@ -2724,19 +2724,77 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
 
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
+    def test_missing_installation_id_records_install_request(self, mock_from_code, client: HttpClient):
+        # Team-flow counterpart of the personal flow's pending-approval recording
+        # (test_user_integration.py): same durable GitHubInstallRequest row, reached from the
+        # team-connect entry point instead of the personal one.
+        client.force_login(self.user)
+        mock_from_code.return_value = self._github_user_authorization()
+        state_token = "pending-token-with-code"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": "request", "code": "gh-code", "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_install_pending=1" in response["Location"]
+        install_request = GitHubInstallRequest.objects.get(user=self.user)
+        assert install_request.github_user_id == 42
+        assert install_request.github_login == "testuser"
+        assert install_request.status == GitHubInstallRequest.Status.PENDING
+
+    def test_abandoned_install_records_no_install_request(self, client: HttpClient):
+        # Backing out of the install screen (no setup_action=request) reaches the same
+        # missing-installation_id branch, but must not leave a durable pending row: nothing
+        # would ever clear it, so the client would poll a wait that never started.
+        client.force_login(self.user)
+        state_token = "abandoned-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": "", "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert not GitHubInstallRequest.objects.filter(user=self.user).exists()
+
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
     @patch("posthog.api.github_callback.team_services.report_user_action")
-    def test_pending_without_callback_state_is_not_reported(self, mock_report):
-        # No stored authorize state: anyone logged in can hit this URL directly. It still redirects,
-        # but recording it would let a hand-typed URL inflate the approval-request metric, and would
-        # attribute it to whichever project the user happens to have open.
+    def test_pending_without_callback_state_is_not_reported_or_recorded(self, mock_report, mock_from_code):
+        # No stored authorize state: anyone logged in can be sent to this URL cross-site. It still
+        # redirects, but recording it would let a hand-typed URL inflate the approval-request metric
+        # and attribute it to whichever project the user happens to have open. A durable row is worse
+        # still: with an attacker's OAuth code in the link it would be keyed to their GitHub account.
+        mock_from_code.return_value = self._github_user_authorization()
         client = HttpClient()
         client.force_login(self.user)
 
-        response = client.get("/integrations/github/callback/", {"setup_action": "request"})
+        response = client.get("/integrations/github/callback/", {"setup_action": "request", "code": "gh-code"})
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
         assert mock_report.call_count == 0
+        assert not GitHubInstallRequest.objects.filter(user=self.user).exists()
 
     @parameterized.expand(
         [

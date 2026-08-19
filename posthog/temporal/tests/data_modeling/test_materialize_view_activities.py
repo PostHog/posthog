@@ -54,7 +54,11 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.warehouse_sources.backend.facade.hooks import PersonPropertySourceProjection, saved_query_binding
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    job_staged_prefix,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -1719,3 +1723,83 @@ class TestHogqlTableResolutionDeadline:
             batches = [batch async for batch in hogql_table("SELECT now() AS ts", ateam, LOGGER.bind())]
 
         assert [name for name, _ in batches[0][1]] == ["ts"]
+
+
+class TestMaterializeViewStagesPersonPropertyRows:
+    """A view feeding a warehouse property stages its projected rows as it writes, so the post-run sync
+    reads only this run's rows instead of the whole table."""
+
+    @staticmethod
+    def _hogql_table(*args, **kwargs):
+        del args, kwargs
+        data = cast(
+            Collection[pa.Array],
+            [pa.array(["a", "b"], type=pa.string()), pa.array(["pro", "free"], type=pa.string())],
+        )
+        batch = pa.RecordBatch.from_arrays(data, names=["distinct_id", "plan"])
+
+        async def async_generator():
+            yield batch, [("distinct_id", "String"), ("plan", "String")]
+
+        return async_generator()
+
+    @contextlib.contextmanager
+    def _env(self, bucket_name, projection):
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", self._hogql_table
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.person_property_row_sink.person_property_projection_for",
+                return_value=projection,
+            ),
+        ):
+            yield
+
+    async def test_stages_projected_columns_and_flags_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, minio_client
+    ):
+        projection = [PersonPropertySourceProjection(key_column="distinct_id", columns=frozenset({"distinct_id"}))]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with self._env(bucket_name, projection):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            # Resolved inside the overridden settings, so it names the same bucket the sink wrote to.
+            prefix = job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
+
+        # The workflow gates the person-property child on this field.
+        assert result.person_property_sync_enabled is True
+
+        listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix.removeprefix(f"{bucket_name}/"))
+        keys = [obj["Key"] for obj in listing.get("Contents", [])]
+        assert len(keys) == 1, f"expected one staged chunk under {prefix}, got {keys}"
+
+        staged = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
+        table = pq.read_table(BytesIO(await staged["Body"].read()))
+        # Only the projected columns leave the pipeline — "plan" isn't mapped by this projection.
+        assert table.column_names == ["distinct_id"]
+        assert table.column("distinct_id").to_pylist() == ["a", "b"]
+
+    async def test_unmapped_view_stages_nothing_and_leaves_the_flag_off(
+        self, activity_environment, ateam, anode, ajob, adag, bucket_name, minio_client
+    ):
+        # The gate is what keeps an unmapped view (the vast majority) from paying for staging at all.
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with self._env(bucket_name, None):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.person_property_sync_enabled is False
+        listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
+        assert listing.get("Contents", []) == []

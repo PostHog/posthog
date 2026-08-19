@@ -304,10 +304,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
+                task_canvas_q = Q(generation_task_id=sandbox_task_id)
                 queryset = queryset.filter(
                     public_canvas_q | actor_canvas_q
                     if self.action in self.scope_object_read_actions
-                    else actor_canvas_q
+                    else actor_canvas_q | task_canvas_q
                 )
         else:
             # Channels are per-user for the personal kind: the facade's visibility

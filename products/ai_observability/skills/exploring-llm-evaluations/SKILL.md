@@ -4,11 +4,12 @@ description: >
   Investigate AI observability evaluations — `hog` (deterministic code-based),
   `llm_judge` (LLM-prompt-based), and `sentiment` (user-message sentiment).
   Find existing evaluations, inspect their configuration, run them against
-  specific generations, query individual results, and generate AI-powered
-  summaries for boolean pass/fail runs. Use when the user asks to debug why an
-  evaluation is failing, surface common failure modes, compare results across
-  filters, dry-run a Hog evaluator, prototype a new LLM-judge prompt, inspect
-  sentiment classifications, or manage the evaluation lifecycle.
+  specific generations, query individual results, and set up scheduled reports
+  on an evaluation.
+  Use when the user asks to debug why an evaluation is failing, surface common
+  failure modes, compare results across filters, dry-run a Hog evaluator,
+  prototype a new LLM-judge prompt, inspect sentiment classifications, or manage
+  the evaluation lifecycle.
 ---
 
 # Exploring AI observability evaluations
@@ -33,23 +34,25 @@ evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
 
 This skill covers the full lifecycle: list/inspect/manage evaluation configs, run
-them on specific generations, query individual results, and get an AI-generated
-summary of pass/fail/N/A patterns across many boolean runs.
+them on specific generations, query individual results, and configure evaluation
+reports that summarize recent runs on a schedule.
 
 ## Tools
 
-| Tool                                     | Purpose                                                        |
-| ---------------------------------------- | -------------------------------------------------------------- |
-| `posthog:llma-evaluation-list`           | List/search evaluation configs (filter by name, enabled flag)  |
-| `posthog:llma-evaluation-get`            | Get a single evaluation config by UUID                         |
-| `posthog:llma-evaluation-create`         | Create a new `llm_judge`, `hog`, or `sentiment` evaluation     |
-| `posthog:llma-evaluation-update`         | Update an existing evaluation (name, prompt, enabled, …)       |
-| `posthog:llma-evaluation-delete`         | Soft-delete an evaluation                                      |
-| `posthog:llma-evaluation-run`            | Run an evaluation against a specific `$ai_generation` event    |
-| `posthog:llma-evaluation-test-hog`       | Dry-run Hog source against recent generations (no save)        |
-| `posthog:llma-evaluation-summary-create` | AI-powered summary of pass/fail/N/A patterns across runs       |
-| `posthog:execute-sql`                    | Ad-hoc HogQL over `$ai_evaluation` events                      |
-| `posthog:query-llm-trace`                | Drill into the underlying generation that an evaluation scored |
+| Tool                                      | Purpose                                                        |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `posthog:llma-evaluation-list`            | List/search evaluation configs (filter by name, enabled flag)  |
+| `posthog:llma-evaluation-get`             | Get a single evaluation config by UUID                         |
+| `posthog:llma-evaluation-create`          | Create a new `llm_judge`, `hog`, or `sentiment` evaluation     |
+| `posthog:llma-evaluation-update`          | Update an existing evaluation (name, prompt, enabled, …)       |
+| `posthog:llma-evaluation-delete`          | Soft-delete an evaluation                                      |
+| `posthog:llma-evaluation-run`             | Run an evaluation against a specific `$ai_generation` event    |
+| `posthog:llma-evaluation-test-hog`        | Dry-run Hog source against recent generations (no save)        |
+| `posthog:llma-evaluation-report-list`     | List the report configs attached to an evaluation              |
+| `posthog:llma-evaluation-report-create`   | Schedule an AI report on an evaluation (email or Slack)        |
+| `posthog:llma-evaluation-report-run-list` | Past report runs, including the report content that was sent   |
+| `posthog:execute-sql`                     | Ad-hoc HogQL over `$ai_evaluation` events                      |
+| `posthog:query-llm-trace`                 | Drill into the underlying generation that an evaluation scored |
 
 All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tools.yaml`.
 
@@ -95,54 +98,36 @@ Look at the returned `id`, `name`, `evaluation_type`, and either:
 The Hog source is the ground truth for why a hog evaluator passes or fails — read it
 before assuming the failure is in the generation.
 
-### Step 2 — Get the AI-generated summary
+### Step 2 — Break down pass, fail, and N/A
 
-```json
-posthog:llma-evaluation-summary-create
-{
-  "evaluation_id": "<uuid>",
-  "filter": "fail"
-}
+```sql
+posthog:execute-sql
+SELECT
+    countIf(properties.$ai_evaluation_applicable = false) AS na_count,
+    countIf(
+        (properties.$ai_evaluation_applicable IS NULL
+            OR properties.$ai_evaluation_applicable != false)
+        AND properties.$ai_evaluation_result = true
+    ) AS pass_count,
+    countIf(
+        (properties.$ai_evaluation_applicable IS NULL
+            OR properties.$ai_evaluation_applicable != false)
+        AND properties.$ai_evaluation_result = false
+    ) AS fail_count
+FROM events
+WHERE event = '$ai_evaluation'
+    AND properties.$ai_evaluation_id = '<evaluation_uuid>'
+    AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-Returns:
+If the evaluation already has report configs, `llma-evaluation-report-list` and
+`llma-evaluation-report-run-list` give you the AI-written reports from earlier
+periods, which is a fast way to see how the picture has moved.
 
-- `overall_assessment` — natural-language summary
-- `fail_patterns` — grouped patterns with `title`, `description`, `frequency`, and `example_generation_ids`
-- `pass_patterns` and `na_patterns` — same shape, populated when `filter` includes them
-- `recommendations` — actionable next steps
-- `statistics` — `total_analyzed`, `pass_count`, `fail_count`, `na_count`
+### Step 3 — Read the failing runs
 
-The endpoint analyses the most recent ~250 runs (`EVALUATION_SUMMARY_MAX_RUNS`).
-Results are cached for one hour per `(evaluation_id, filter, set_of_generation_ids)`.
-Pass `force_refresh: true` to recompute.
-
-**Compare filters in two calls** to spot what's distinctive about failures vs passes:
-
-```json
-posthog:llma-evaluation-summary-create
-{ "evaluation_id": "<uuid>", "filter": "pass" }
-```
-
-Then diff the `pass_patterns` against the `fail_patterns` from Step 2.
-
-### Step 3 — Drill into example failing runs
-
-Each pattern surfaces `example_generation_ids`. Pull the underlying trace for the most
-representative example:
-
-```json
-posthog:query-llm-trace
-{ "traceId": "<trace_id>", "dateRange": {"date_from": "-30d"} }
-```
-
-(If you only have a generation ID, query for it via `execute-sql` first to find the
-parent trace ID — see below.)
-
-### Step 4 — Verify the pattern with raw SQL
-
-The summary is LLM-generated and should be verified. Use `execute-sql` to count and
-spot-check:
+The reasoning text is where the pattern shows up. Pull the recent fails and read
+them:
 
 ```sql
 posthog:execute-sql
@@ -166,6 +151,18 @@ LIMIT 25
 
 The N/A guard (`IS NULL OR != false`) is important — it matches the same logic the
 backend uses to bucket runs.
+
+### Step 4 — Drill into example failing runs
+
+Take the most representative rows from Step 3 and pull the underlying trace:
+
+```json
+posthog:query-llm-trace
+{ "traceId": "<trace_id>", "dateRange": {"date_from": "-30d"} }
+```
+
+(If you only have a generation ID, query for it via `execute-sql` first to find the
+parent trace ID.)
 
 ## Workflow: run an evaluation against a specific generation
 
@@ -277,8 +274,7 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 | Remove                     | `llma-evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
 
 `llm_judge` evaluations require AI data processing approval at the org level
-(`is_ai_data_processing_approved`). The same gate applies to
-`llma-evaluation-summary-create`. Hog evaluations do **not** require this gate
+(`is_ai_data_processing_approved`). Hog evaluations do **not** require this gate
 — they run as plain code on the ingestion pipeline.
 
 ## When to use Hog vs LLM judge
@@ -301,9 +297,9 @@ the Hog gate (via `conditions`).
 
 ## Investigation patterns
 
-The summarisation tool works the same way regardless of whether the evaluator is `hog`
-or `llm_judge` — it analyses the resulting `$ai_evaluation` events, not the evaluator
-itself. The fix path differs (edit Hog source vs. edit prompt) but the diagnosis is
+Diagnosis works the same way regardless of whether the evaluator is `hog` or
+`llm_judge` — you read the resulting `$ai_evaluation` events, not the evaluator itself.
+The fix path differs (edit Hog source vs. edit prompt) but the diagnosis is
 identical.
 
 ### "Why is evaluation X suddenly failing more?"
@@ -311,8 +307,8 @@ identical.
 1. `llma-evaluation-list` — confirm the evaluation is still enabled and unchanged
    (compare `evaluation_config.source` or `evaluation_config.prompt` to the version you
    expect)
-2. `llma-evaluation-summary-create` with `filter: "fail"` — get the dominant
-   failure patterns and example IDs
+2. Read the recent failing runs and their reasoning (Step 3 above) and group them
+   into the dominant failure patterns
 3. SQL count of fails per day to confirm the regression window:
 
    ```sql
@@ -330,8 +326,9 @@ identical.
 
 ### "Are passes and fails caused by the same root content?"
 
-1. Generate two summaries: one with `filter: "pass"`, one with `filter: "fail"`
-2. If `pass_patterns` and `fail_patterns` describe similar content:
+1. Pull two samples with the Step 3 query, flipping `$ai_evaluation_result` between
+   `true` and `false`
+2. If the passing and failing runs describe similar content:
    - For an `llm_judge`: the prompt or rubric is probably ambiguous — reword
      `evaluation_config.prompt` and use `llma-evaluation-update`
    - For a `hog` evaluator: the rule is probably under- or over-matching — read the
@@ -355,13 +352,24 @@ yield identical outputs. When fail rates jump for a Hog evaluator:
 
 ### "What kinds of generations does this evaluator skip as N/A?"
 
-```json
-posthog:llma-evaluation-summary-create
-{ "evaluation_id": "<uuid>", "filter": "na" }
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_target_event_id AS generation_id,
+    properties.$ai_trace_id AS trace_id,
+    properties.$ai_evaluation_reasoning AS reasoning,
+    timestamp
+FROM events
+WHERE event = '$ai_evaluation'
+    AND properties.$ai_evaluation_id = '<evaluation_uuid>'
+    AND properties.$ai_evaluation_applicable = false
+    AND timestamp >= now() - INTERVAL 7 DAY
+ORDER BY timestamp DESC
+LIMIT 25
 ```
 
-Inspect `na_patterns` to see whether the N/A logic is doing the right thing. If a
-pattern in `na_patterns` looks like something that should have been scored:
+Read the reasoning on those runs to see whether the N/A logic is doing the right
+thing. If a run looks like something that should have been scored:
 
 - For an `llm_judge`: the applicability instruction in the prompt is too broad — narrow
   it
@@ -383,19 +391,21 @@ Always surface the relevant link so the user can verify in the UI.
 
 ## Tips
 
-- The summary tool is **rate-limited** (burst, sustained, daily) and **caches results
-  for one hour** — repeated calls with the same `(evaluation_id, filter)` are cheap; use
-  `force_refresh: true` only when you genuinely need fresh analysis
-- Pass `generation_ids: [...]` to scope a summary to a specific cohort of runs (max 250)
-- The `statistics` block in the summary response is computed from raw data, not the LLM
-  — trust those counts even if a pattern's `frequency` field is qualitative
+- Evaluation reports are configured per evaluation with `llma-evaluation-report-create`:
+  `frequency: "scheduled"` with an `rrule` for a daily or weekly cadence, or
+  `frequency: "every_n"` with a `trigger_threshold` to fire once that many new results
+  have accumulated. Delivery goes to email or Slack via `delivery_targets`
+- `llma-evaluation-report-generate` runs a configured report immediately instead of
+  waiting for the next trigger; `llma-evaluation-report-run-list` returns past runs with
+  the report content they delivered
 - For rich filtering not supported by `llma-evaluation-list` (e.g. by author or model
   configuration), fall back to `execute-sql` against the `evaluations` Postgres table or
   the `$ai_evaluation` ClickHouse events
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
 - `llma-evaluation-*` tools use `evaluation:read` for read tools and `evaluation:write` for
-  mutating tools; `llma-evaluation-summary-create` uses `llm_analytics:write`
+  mutating tools; the `llma-evaluation-report-*` tools use `llm_analytics:read` and
+  `llm_analytics:write`
 - Hog evaluators are reproducible — if you suspect a regression, `llma-evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations

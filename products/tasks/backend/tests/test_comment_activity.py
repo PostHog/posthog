@@ -116,6 +116,19 @@ class TestCommentActivity(CommentActivityTestCase):
 
         assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
+    def test_canvas_comment_uses_its_stable_discussion_task(self):
+        canvas = Canvas.objects.create(
+            team=self.team,
+            channel=self.channel,
+            name="Report canvas",
+            discussion_task_id=self.task.id,
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+
+        self._record_activity(comment, [self.author.id])
+
+        assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
+
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()
         self._record_activity(comment, [self.author.id])
