@@ -139,6 +139,16 @@ def servicem8_source(
                 "location": "header",
             },
             "paginator": ServiceM8Paginator(),
+            # X-Api-Key isn't the standard Authorization header, which `requests` strips on a
+            # cross-origin redirect, so a spoofed cursor/redirect target could otherwise harvest
+            # the ServiceM8 key. `allowed_hosts=[]` pins every request (including pagination) to
+            # base_url's host, and `allow_redirects=False` refuses any 3xx outright.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            # `capture=False`: rows carry client/job PII (contact details, addresses, work notes)
+            # the name-based sample scrubbers aren't built to catch, so keep them out of HTTP
+            # diagnostic sample storage entirely, same as the other PII/free-text sources.
+            "capture": False,
         },
         "resource_defaults": {
             "write_disposition": {
@@ -174,7 +184,10 @@ def servicem8_source(
 
 
 def validate_credentials(api_key: str) -> bool:
-    response = make_tracked_session(redact_values=(api_key,)).get(
+    # allow_redirects=False: X-Api-Key isn't the standard Authorization header, so `requests`
+    # would forward it across a cross-origin redirect; capture=False: /staff.json returns the
+    # same PII-carrying shape as the real sync, so keep it out of HTTP sample storage too.
+    response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
         f"{BASE_URL}/staff.json",
         headers={"X-Api-Key": api_key},
         params={"cursor": INITIAL_CURSOR},

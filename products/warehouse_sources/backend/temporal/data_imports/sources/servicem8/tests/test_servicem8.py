@@ -314,6 +314,8 @@ class TestValidateCredentials:
 
             validate_credentials("test-key")
 
-            mock_make_session.assert_called_once_with(redact_values=("test-key",))
+            mock_make_session.assert_called_once_with(
+                redact_values=("test-key",), allow_redirects=False, capture=False
+            )
             _, kwargs = mock_session.get.call_args
             assert kwargs["headers"] == {"X-Api-Key": "test-key"}
