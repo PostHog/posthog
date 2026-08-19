@@ -55,6 +55,11 @@ const leadingSeparator = (before: string): string => {
     if (lastChar === ',' || lastChar === '(') {
         return ''
     }
+    // A trailing "." is a half-typed qualified reference such as "events." — the click completes it
+    // ("events.id"), so it takes no separator. A comma here would produce invalid "events., id".
+    if (lastChar === '.') {
+        return ''
+    }
     const word = trimmed.match(/[`"\w.]+$/)?.[0] ?? ''
     const hadSpace = before.length > trimmed.length
     if (word && SQL_CLAUSE_KEYWORDS.has(word.toLowerCase())) {

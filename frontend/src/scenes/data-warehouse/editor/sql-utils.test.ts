@@ -55,6 +55,8 @@ describe('sql-utils', () => {
             ['a following FROM is separated by a space, never a comma', 'SELECT |FROM t', 'created_at '],
             ['an existing comma before the cursor is not doubled', 'SELECT id,| FROM t', 'created_at'],
             ['inside a function call takes no separators', 'SELECT count(|) FROM t', 'created_at'],
+            ['a dotted prefix is completed without a comma', 'SELECT events.|', 'created_at'],
+            ['a closing quote before the cursor still gets a comma', 'SELECT properties."a.b"|', ', created_at'],
         ])('%s', (_name, query, expectedText) => {
             const cursorOffset = query.indexOf('|')
             const fullText = query.replace('|', '')
