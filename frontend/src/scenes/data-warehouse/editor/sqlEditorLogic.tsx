@@ -839,15 +839,15 @@ export interface sqlEditorLogicActions {
     initialize: () => {
         value: true
     }
-    insertTextAtCursor: (text: string) => {
-        text: string
-    }
     insertColumnAtCursor: (
         columnText: string,
         tableName: string | null
     ) => {
         columnText: string
         tableName: string | null
+    }
+    insertTextAtCursor: (text: string) => {
+        text: string
     }
     loadUpstream: (modelId: string) => {
         modelId: string
