@@ -272,6 +272,11 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             source_product="signal_report",
             source_resource_id=report.id,
         )
+        tasks_facade.set_task_internal(
+            team_id=team_id,
+            task_id=session.discussion_task_id,
+            internal=True,
+        )
         title = report.title or "Report"
         tasks_facade.update_shared_task_context(
             team_id=team_id,
@@ -356,7 +361,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             posthog_mcp_scopes="report_canvas",
             signal_report_id=str(report.id),
             channel_id=canvas_api.get_canvas_channel_id(team_id=team_id, canvas_id=session.canvas_id),
-            internal=True,
+            internal=False,
             sandbox_environment_id=sandbox_environment_id,
             interaction_origin="signal_report_canvas",
             ai_stage="report_canvas",

@@ -245,6 +245,7 @@ __all__ = [
     "read_task_run_logs",
     "record_comment_activity",
     "record_task_activity_for_users",
+    "set_task_internal",
     "set_task_activity_target",
     "update_shared_task_context",
     "redeem_code_invite",
@@ -1455,6 +1456,7 @@ def create_shared_channel_task_without_run(
         origin_product=origin_product,
         state=state or {},
         signal_report_id=signal_report_id,
+        internal=True,
     )
     return task.id
 
@@ -1470,6 +1472,10 @@ def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_id
             kind=kind,
             activity_at=activity_at,
         )
+
+
+def set_task_internal(*, team_id: int, task_id: str | UUID, internal: bool) -> None:
+    Task.objects.filter(id=task_id, team_id=team_id).update(internal=internal, updated_at=django_timezone.now())
 
 
 def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:

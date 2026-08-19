@@ -124,7 +124,7 @@ function CanvasBadgeStack({
 }) {
   const source = getOriginProductMeta(item.source ?? undefined);
   return (
-    <AvatarGroup stacked reverse size="xs" className="shrink-0">
+    <AvatarGroup size="xs" className="shrink-0">
       {pinned ? <PinnedBadge /> : null}
       {source ? (
         <RowBadge label={`${source.label} canvas`}>

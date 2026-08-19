@@ -107,6 +107,21 @@ export function isCanvasGenerating({
   return session?.status === "connecting" || session?.isPromptPending === true;
 }
 
+export function shouldShowCanvasGenerating({
+  isGenerating,
+  genTaskId,
+  hasSource,
+  latestRun,
+}: {
+  isGenerating: boolean;
+  genTaskId: string | null;
+  hasSource: boolean;
+  latestRun: Pick<TaskRun, "status"> | undefined;
+}): boolean {
+  if (isGenerating) return true;
+  return !!genTaskId && !hasSource && !isTerminalStatus(latestRun?.status);
+}
+
 // Whether there's concrete evidence the generation run has actually started, as
 // opposed to merely having been created. The completion-toast watcher arms on
 // this so the brief gap between creating the task and its live session

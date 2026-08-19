@@ -6,6 +6,7 @@ import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
   resolveCanvasGenerationStatus,
+  shouldShowCanvasGenerating,
 } from "./canvasGenerationStatus";
 
 type Run = Pick<TaskRun, "environment" | "status">;
@@ -278,6 +279,38 @@ describe("isCanvasGenerating", () => {
         session: sess,
       }),
     ).toBe(expected);
+  });
+});
+
+describe("shouldShowCanvasGenerating", () => {
+  it("keeps an empty canvas generating while its task is non-terminal", () => {
+    expect(
+      shouldShowCanvasGenerating({
+        isGenerating: false,
+        genTaskId: "t1",
+        hasSource: false,
+        latestRun: run("cloud", "in_progress"),
+      }),
+    ).toBe(true);
+  });
+
+  it("does not replace a terminal empty canvas or existing content", () => {
+    expect(
+      shouldShowCanvasGenerating({
+        isGenerating: false,
+        genTaskId: "t1",
+        hasSource: false,
+        latestRun: run("cloud", "failed"),
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowCanvasGenerating({
+        isGenerating: false,
+        genTaskId: "t1",
+        hasSource: true,
+        latestRun: run("cloud", "in_progress"),
+      }),
+    ).toBe(false);
   });
 });
 

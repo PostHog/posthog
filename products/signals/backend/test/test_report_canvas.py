@@ -116,10 +116,12 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert canvas.source_resource_id == str(report.id)
         assert canvas.description == report.summary
         assert discussion.channel_id == canvas.channel_id
+        assert discussion.internal is True
         assert discussion.state is not None
         assert discussion.state["activity_target"] == {"scope": "desktop_canvas", "id": str(canvas.id)}
         assert attempt.status == SignalReportCanvasGeneration.Status.GENERATING
         assert attempt.generation_task_id == generation_task_id
+        assert create_generation.call_args.kwargs["internal"] is False
 
     def test_repairs_provenance_when_reusing_an_existing_report_canvas(self) -> None:
         report = self._report()
@@ -149,8 +151,10 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert generation is not None
         assert generation.skipped is True
         canvas.refresh_from_db()
+        discussion.refresh_from_db()
         assert canvas.source_product == "signal_report"
         assert canvas.source_resource_id == str(report.id)
+        assert discussion.internal is True
 
     def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
         report = self._report()

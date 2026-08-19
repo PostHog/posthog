@@ -50,6 +50,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
+  shouldShowCanvasGenerating,
 } from "@posthog/ui/features/canvas/freeform/canvasGenerationStatus";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
@@ -750,6 +751,12 @@ export function FreeformCanvasView({
   // published — the record is the always-available signal, so a canvas with
   // content never flashes the empty state while source/builds load.
   const hasSource = !!headVersionId || !!headCode?.trim();
+  const showGeneratingState = shouldShowCanvasGenerating({
+    isGenerating,
+    genTaskId: effectiveTaskId,
+    hasSource,
+    latestRun: genTask?.latest_run,
+  });
   const hasContent = hasSource || !!pinnedArtifact;
   // `isGenerating` keys off the effective task (the optimistic bridge right after
   // submit, then the polled record) and short-circuits on a terminal run — so a
@@ -1168,7 +1175,7 @@ export function FreeformCanvasView({
             </Box>
           ) : (
             <ScrollArea className="h-full">
-              {isGenerating ? (
+              {showGeneratingState ? (
                 <GeneratingState
                   channelId={channelId}
                   taskId={effectiveTaskId ?? ""}
