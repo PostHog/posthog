@@ -1,8 +1,9 @@
 import json
-import dataclasses
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -24,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zero.setti
 PAGE_LIMIT = 100
 
 
-@dataclasses.dataclass
+@frozen
 class ZeroResumeConfig:
     offset: int
 
