@@ -41,6 +41,16 @@ export interface TurnContext {
   turnComplete: boolean;
 }
 
+const turnContextRevisions = new WeakMap<TurnContext, number>();
+
+export function readTurnContextRevision(context: TurnContext): number {
+  return turnContextRevisions.get(context) ?? 0;
+}
+
+export function markTurnContextChanged(context: TurnContext): void {
+  turnContextRevisions.set(context, readTurnContextRevision(context) + 1);
+}
+
 export type ConversationItem =
   | {
       type: "user_message";
@@ -194,29 +204,35 @@ function isTerminalToolStatus(status: string | null | undefined): boolean {
   return status != null && TERMINAL_TOOL_STATUSES.has(status);
 }
 
-function isThoughtItem(
-  item: ConversationItem,
-): item is ConversationItem & { type: "session_update" } {
+type ThoughtItem = Extract<ConversationItem, { type: "session_update" }> & {
+  update: Extract<RenderItem, { sessionUpdate: "agent_thought_chunk" }>;
+};
+
+function isThoughtItem(item: ConversationItem): item is ThoughtItem {
   return (
     item.type === "session_update" &&
     item.update.sessionUpdate === "agent_thought_chunk"
   );
 }
 
-export function markThoughtCompletion(items: ConversationItem[]) {
-  markThoughtCompletionInItems(items, new Set());
+export function markThoughtCompletion(
+  items: ConversationItem[],
+  startIndex = 0,
+) {
+  markThoughtCompletionInItems(items, new Set(), startIndex);
 }
 
 function markThoughtCompletionInItems(
   items: ConversationItem[],
   visited: Set<ConversationItem[]>,
+  startIndex = 0,
 ) {
   if (visited.has(items)) return;
   visited.add(items);
   const seenContexts = new Set<TurnContext>();
   const itemContexts = new Set<TurnContext>();
 
-  for (let i = items.length - 1; i >= 0; i--) {
+  for (let i = items.length - 1; i >= startIndex; i--) {
     const item = items[i];
 
     if (isThoughtItem(item)) {
@@ -492,14 +508,20 @@ export function finalizeBuilder(
     for (const turn of b.pendingPrompts.values()) {
       turn.isComplete = true;
       turn.durationMs = 0;
-      turn.context.turnComplete = true;
+      if (!turn.context.turnComplete) {
+        turn.context.turnComplete = true;
+        markTurnContextChanged(turn.context);
+      }
     }
   }
 
   // Mark implicit turn complete if it's still the current turn after all events
   if (b.currentTurn?.promptId === -1) {
     b.currentTurn.isComplete = true;
-    b.currentTurn.context.turnComplete = true;
+    if (!b.currentTurn.context.turnComplete) {
+      b.currentTurn.context.turnComplete = true;
+      markTurnContextChanged(b.currentTurn.context);
+    }
   }
 
   markThoughtCompletion(b.items);
@@ -523,7 +545,11 @@ function handlePromptRequest(
   // If the current turn is the implicit one, mark it complete before starting a real turn
   if (b.currentTurn && b.currentTurn.promptId === -1) {
     b.currentTurn.isComplete = true;
-    b.currentTurn.context.turnComplete = true;
+    if (!b.currentTurn.context.turnComplete) {
+      b.currentTurn.context.turnComplete = true;
+      markTurnContextChanged(b.currentTurn.context);
+      replaceTurnContextRows(b, b.currentTurn.context);
+    }
   }
 
   const userPrompt = extractUserPrompt(msg.params);
@@ -645,6 +671,7 @@ function completePromptTurn(
 
   const wasCancelled = turn.stopReason === "cancelled";
   turn.context.turnCancelled = wasCancelled;
+  markTurnContextChanged(turn.context);
   replaceTurnContextRows(b, turn.context);
 
   if (turn.gitAction.isGitAction && turn.gitAction.actionType) {
@@ -682,7 +709,9 @@ function replaceTurnContextRows(b: ItemBuilder, context: TurnContext): void {
       const item = items[index];
       if (item.type !== "session_update") continue;
       if (item.turnContext === context) {
-        items[index] = { ...item };
+        items[index] = isThoughtItem(item)
+          ? { ...item, thoughtComplete: true }
+          : { ...item };
         replaced = true;
       }
       for (const children of item.turnContext.childItems.values()) {
@@ -698,7 +727,9 @@ function replaceTurnContextRows(b: ItemBuilder, context: TurnContext): void {
     const item = b.items[index];
     if (item.type !== "session_update") continue;
     if (item.turnContext === context) {
-      b.items[index] = { ...item };
+      b.items[index] = isThoughtItem(item)
+        ? { ...item, thoughtComplete: true }
+        : { ...item };
       if (index < b.lowestTouchedItemIndex) {
         b.lowestTouchedItemIndex = index;
       }
@@ -1123,6 +1154,7 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
       rootIndex: parentRow?.rootIndex ?? b.currentTurnStartIndex,
     });
   }
+  markTurnContextChanged(turn.context);
   reissueToolCallRow(b, parentId);
 }
 
@@ -1162,6 +1194,7 @@ function appendTextChunkToChildren(
         },
       },
     };
+    markTurnContextChanged(turn.context);
     reissueToolCallRow(b, parentId);
   } else {
     turn.itemCount++;
@@ -1171,6 +1204,7 @@ function appendTextChunkToChildren(
       update: { ...update, content: { ...update.content } },
       turnContext: turn.context,
     });
+    markTurnContextChanged(turn.context);
     reissueToolCallRow(b, parentId);
   }
 }
@@ -1186,6 +1220,7 @@ function reissueToolCallRow(
   const update = nextUpdate ?? (current ? { ...current } : undefined);
   if (!update) return;
   turn.toolCalls.set(toolCallId, update);
+  markTurnContextChanged(turn.context);
 
   const row = b.toolCallRows.get(toolCallId);
   if (!row) return;
@@ -1249,6 +1284,7 @@ function processSessionUpdate(
       } else {
         const toolCall = { ...update };
         turn.toolCalls.set(update.toolCallId, toolCall);
+        markTurnContextChanged(turn.context);
         if (isTerminalToolStatus(toolCall.status)) {
           b.completedToolCallCount++;
         }

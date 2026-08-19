@@ -8,9 +8,11 @@ import {
   finalizeBuilder,
   type ItemBuilder,
   markThoughtCompletion,
+  markTurnContextChanged,
   orderEventsByTimestamp,
   processEvent,
   readLastTurnInfo,
+  readTurnContextRevision,
   type TurnContext,
 } from "./buildConversationItems";
 
@@ -176,10 +178,13 @@ export function createIncrementalConversationBuilder() {
     // it's safe to persist (a later real completion still flows through
     // `completePromptTurn`, which gates on `isComplete`, left untouched here).
     if (turn && turn.promptId === -1) {
-      turn.context.turnComplete = true;
+      if (!turn.context.turnComplete) {
+        turn.context.turnComplete = true;
+        markTurnContextChanged(turn.context);
+      }
     }
 
-    markThoughtCompletion(builder.items);
+    markThoughtCompletion(builder.items, activeStart);
 
     // Published rows retain identity until their content or turn context
     // changes. Snapshot contexts keep later builder mutations out of results
@@ -204,7 +209,7 @@ export function createIncrementalConversationBuilder() {
 
 interface PublishedTurnContext {
   context: TurnContext;
-  childSources: Map<string, ConversationItem[]>;
+  revision: number;
 }
 
 function publishConversationItems(
@@ -219,14 +224,10 @@ function publishConversationItems(
     if (current) return current;
 
     const existing = publishedContexts.get(context);
-    if (existing && isPublishedContextCurrent(existing, context)) {
+    const revision = readTurnContextRevision(context);
+    if (existing?.revision === revision) {
       currentContexts.set(context, existing.context);
       return existing.context;
-    }
-
-    const childSources = new Map<string, ConversationItem[]>();
-    for (const [parentId, children] of context.childItems) {
-      childSources.set(parentId, children.slice());
     }
 
     const published: TurnContext = {
@@ -236,7 +237,7 @@ function publishConversationItems(
       turnComplete: context.turnComplete,
     };
     currentContexts.set(context, published);
-    publishedContexts.set(context, { context: published, childSources });
+    publishedContexts.set(context, { context: published, revision });
     for (const [parentId, children] of context.childItems) {
       published.childItems.set(parentId, publishItems(children));
     }
@@ -264,35 +265,6 @@ function publishConversationItems(
     });
 
   return publishItems(items);
-}
-
-function isPublishedContextCurrent(
-  published: PublishedTurnContext,
-  source: TurnContext,
-): boolean {
-  const context = published.context;
-  if (
-    context.turnCancelled !== source.turnCancelled ||
-    context.turnComplete !== source.turnComplete ||
-    context.toolCalls.size !== source.toolCalls.size ||
-    published.childSources.size !== source.childItems.size
-  ) {
-    return false;
-  }
-  for (const [toolCallId, toolCall] of source.toolCalls) {
-    if (context.toolCalls.get(toolCallId) !== toolCall) return false;
-  }
-  for (const [parentId, children] of source.childItems) {
-    const publishedChildren = published.childSources.get(parentId);
-    if (
-      !publishedChildren ||
-      publishedChildren.length !== children.length ||
-      publishedChildren.some((item, index) => item !== children[index])
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function readLastTurnInfoForOutput(b: ItemBuilder) {
