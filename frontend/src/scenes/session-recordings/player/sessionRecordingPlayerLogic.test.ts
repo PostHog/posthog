@@ -270,6 +270,18 @@ describe('sessionRecordingPlayerLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        it('surfaces a retryable error when the initial load hangs without an explicit buffer', () => {
+            // The player opens in the default buffer state with no startBuffer dispatch. The watchdog
+            // is armed at mount, so a load that never produces data still reaches a terminal state.
+            // This runs before any mocked response resolves, so no snapshot data has arrived yet.
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+
+            logic.actions.stuckBufferTimeoutReached()
+
+            expect(logic.values.playerError).toBe('bufferTimeout')
+        })
     })
 
     describe('currentPlayerTime clamping', () => {

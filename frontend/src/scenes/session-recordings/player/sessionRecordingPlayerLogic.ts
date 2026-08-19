@@ -3396,6 +3396,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()
+            // The player opens in the default buffer state with no startBuffer dispatch, so arm the
+            // watchdog here too. This covers a load that hangs before playback ever starts (e.g. an
+            // empty snapshot source list), which otherwise spins forever with no terminal state.
+            actions.armStuckBufferWatchdog()
         }
 
         cache.openTime = performance.now()
