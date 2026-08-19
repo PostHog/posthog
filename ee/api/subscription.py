@@ -1285,7 +1285,22 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
-        return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+        if self.action == "list":
+            return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+        return queryset
+
+    def get_object(self) -> Subscription:
+        subscription = super().get_object()
+        can_view_subscription = (
+            Subscription.objects.filter(pk=subscription.pk)
+            .filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+            .exists()
+        )
+        if not can_view_subscription:
+            raise exceptions.PermissionDenied(
+                "You do not have viewer access to this subscription. Ask an organization admin to update your access."
+            )
+        return subscription
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},

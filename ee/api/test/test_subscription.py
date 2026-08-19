@@ -3248,7 +3248,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert [row["id"] for row in listed.json()["results"]] == ([subscription.id] if sees_subscription else [])
 
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        expected = status.HTTP_200_OK if sees_subscription else status.HTTP_404_NOT_FOUND
+        expected = status.HTTP_200_OK if sees_subscription else status.HTTP_403_FORBIDDEN
         assert retrieved.status_code == expected, retrieved.json()
 
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
@@ -3376,7 +3376,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
         response = getattr(self.client, method)(url, body)
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
         hidden = self._sub_on_a_restricted_insight()
