@@ -35,6 +35,8 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
 - The first bullet of Changes is the change itself. Renames, regenerated snapshots and comment fixes go last.
+- Every Changes bullet a person can notice says what they now see or do differently, then the mechanism under it. One user-facing line in Problem does not discharge this.
+- Say in one line which part of Changes is mechanical. A reviewer cannot otherwise tell a purely internal change from a visible one you described as internal.
 - If one part of the diff is riskier than the rest, name that part and say the rest is mechanical.
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
@@ -225,19 +227,20 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
-5. Read each bullet and name the reader who needs it. Delete the ones you cannot.
-6. Read each bullet alone. Does it state one fact? If it states two, split it.
-7. Count the words in the longest sentence. Over 25, split it.
-8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
-10. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
-11. Does the PR change a flow or topology? Include branded before-and-after diagrams.
-12. Does prose compare several values across the same dimensions? Replace it with a table.
-13. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-14. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-15. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-16. Does the body claim manual testing that did not happen? Delete it.
-17. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+5. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
+6. Read each bullet and name the reader who needs it. Delete the ones you cannot.
+7. Read each bullet alone. Does it state one fact? If it states two, split it.
+8. Count the words in the longest sentence. Over 25, split it.
+9. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
+10. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
+11. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
+12. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+13. Does prose compare several values across the same dimensions? Replace it with a table.
+14. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+15. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+16. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+17. Does the body claim manual testing that did not happen? Delete it.
+18. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 

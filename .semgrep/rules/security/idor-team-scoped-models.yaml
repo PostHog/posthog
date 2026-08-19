@@ -300,6 +300,8 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCanvas
+                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -661,6 +663,8 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCanvas
+                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
@@ -991,6 +995,7 @@ rules:
                           (?x)(
                               CommunitySkillVote
                               |DashboardPrivilege
+                              |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1047,6 +1052,7 @@ rules:
                     (?x)(
                         CommunitySkillVote
                         |DashboardPrivilege
+                        |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
