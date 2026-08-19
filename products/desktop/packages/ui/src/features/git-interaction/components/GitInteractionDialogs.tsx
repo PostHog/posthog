@@ -11,12 +11,19 @@ import {
   type DiffStats,
   formatFileCountLabel,
 } from "@posthog/core/git-interaction/diffStats";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import { CheckIcon } from "@radix-ui/react-icons";
 import {
   Box,
-  Button,
   Checkbox,
-  Dialog,
   Flex,
   IconButton,
   Spinner,
@@ -150,7 +157,6 @@ interface GitDialogProps {
   buttonDisabled?: boolean;
   isSubmitting: boolean;
   onSubmit: () => void;
-  maxWidth?: string;
   hideCancel?: boolean;
 }
 
@@ -165,42 +171,46 @@ export function GitDialog({
   buttonDisabled,
   isSubmitting,
   onSubmit,
-  maxWidth = "400px",
   hideCancel,
 }: GitDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth={maxWidth} size="1">
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             {icon}
-            <Text className="font-medium text-sm">{title}</Text>
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <Flex direction="column" gap="3">
+            {children}
+
+            {error && <ErrorContainer error={error} />}
           </Flex>
-
-          {children}
-
-          {error && <ErrorContainer error={error} />}
-
-          <Flex gap="2" justify="end">
-            {!hideCancel && (
-              <Dialog.Close>
-                <Button size="1" variant="soft" color="gray">
-                  Cancel
-                </Button>
-              </Dialog.Close>
-            )}
+        </DialogBody>
+        <DialogFooter>
+          {!hideCancel && (
             <Button
-              size="1"
-              disabled={buttonDisabled || isSubmitting}
-              loading={isSubmitting}
-              onClick={onSubmit}
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenChange(false)}
             >
-              {buttonLabel}
+              Cancel
             </Button>
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+          )}
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={buttonDisabled || isSubmitting}
+            loading={isSubmitting}
+            onClick={onSubmit}
+          >
+            {buttonLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
