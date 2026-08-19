@@ -1232,15 +1232,15 @@ def get_sandbox_name_for_task(task_id: str) -> str:
 def build_sandbox_environment_variables(
     github_token: str | None,
     access_token: str,
-    team_id: int,
+    ctx,
+    task,
     sandbox_environment: Optional[Any] = None,
     otel_telemetry_enabled: bool = False,
-    origin_product: str | None = None,
-    ai_stage: str | None = None,
-    internal: bool = False,
-    distinct_id: str | None = None,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
+
+    Takes the run's ctx/task wholesale so the gateway routing/mint env is derived by
+    ``run_gateway_env_vars`` and no caller can drop part of the context.
 
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
@@ -1261,7 +1261,7 @@ def build_sandbox_environment_variables(
         {
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
     )
@@ -1269,15 +1269,7 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    env_vars.update(
-        ai_gateway_env_vars(
-            team_id=team_id,
-            origin_product=origin_product,
-            ai_stage=ai_stage,
-            internal=internal,
-            distinct_id=distinct_id,
-        )
-    )
+    env_vars.update(run_gateway_env_vars(ctx, task))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
@@ -1301,6 +1293,23 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
         env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
+
+
+def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+    """The gateway routing/mint env for one run, derived from its server-side context.
+
+    Every sandbox provisioning path calls this rather than spelling out the kwargs, so
+    no path can silently drop the team, origin, stage, internal, or acting-identity
+    context that scoped-token minting depends on. `ctx` is the run's
+    TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
+    """
+    return ai_gateway_env_vars(
+        team_id=ctx.team_id,
+        origin_product=ctx.origin_product,
+        ai_stage=(ctx.state or {}).get("ai_stage"),
+        internal=task.internal,
+        distinct_id=ctx.distinct_id,
+    )
 
 
 def ai_gateway_env_vars(

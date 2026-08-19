@@ -129,13 +129,10 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         environment_variables = build_sandbox_environment_variables(
             github_token=github_token,
             access_token=access_token,
-            team_id=ctx.team_id,
+            ctx=ctx,
+            task=task,
             sandbox_environment=sandbox_env,
             otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
-            origin_product=ctx.origin_product,
-            ai_stage=(ctx.state or {}).get("ai_stage"),
-            internal=task.internal,
-            distinct_id=ctx.distinct_id,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

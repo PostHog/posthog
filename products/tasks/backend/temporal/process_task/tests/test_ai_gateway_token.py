@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -45,6 +48,29 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
 
 
+class TestSharedRoutingContract:
+    """Both matchers consume gateway-routing-cases.json (see the TS suite), so the
+    TypeScript resolver and this Python mirror cannot drift while staying green."""
+
+    _CASES = json.loads(
+        (Path(__file__).parents[6] / "products/desktop/packages/agent/src/utils/gateway-routing-cases.json").read_text()
+    )
+
+    @pytest.mark.parametrize(
+        "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
+    )
+    def test_resolve_matches_contract(self, case):
+        assert (
+            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+            == case["expected"]
+        )
+
+    @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
+    def test_routed_matches_contract(self, case):
+        ai_product = resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+        assert sandbox_product_routed(ai_product, case["ai_stage"], case["allowlist"]) == case["expected"]
+
+
 class TestSandboxProductRouted:
     def test_plain_entry_matches_product(self):
         assert sandbox_product_routed("signals_research", "research", "signals_research,signals_scout")
@@ -77,7 +103,7 @@ def mint_settings(settings):
 
 
 class TestMintScopedToken:
-    def _response(self, status_code=200, body=None):
+    def _response(self, status_code=201, body=None):
         response = MagicMock()
         response.status_code = status_code
         response.json.return_value = body or {}
@@ -86,7 +112,7 @@ class TestMintScopedToken:
 
     def test_mints_pinned_token(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
-            post.return_value = self._response(200, {"token": "phe_abc"})
+            post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
         _, kwargs = post.call_args
         assert post.call_args[0][0] == "https://ai-gateway.dev.posthog.dev/v1/tokens"
@@ -103,9 +129,17 @@ class TestMintScopedToken:
             patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
             patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep") as sleep,
         ):
-            post.side_effect = [self._response(429), self._response(200, {"token": "phe_abc"})]
+            post.side_effect = [self._response(429), self._response(201, {"token": "phe_abc"})]
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
         assert sleep.called
+
+    def test_accepts_200_and_201(self, mint_settings):
+        """The gateway mints with 201 Created; accepting only 200 turned every
+        successful mint into a silent Python-gateway fallback."""
+        for code in (200, 201):
+            with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+                post.return_value = self._response(code, {"token": "phe_abc"})
+                assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
 
     def test_gives_up_after_retries(self, mint_settings):
         with (
@@ -114,7 +148,7 @@ class TestMintScopedToken:
         ):
             post.return_value = self._response(503)
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) is None
-        assert post.call_count == 3
+        assert post.call_count == 2
 
     def test_does_not_retry_a_credential_rejection(self, mint_settings):
         with (
@@ -149,7 +183,7 @@ class TestMintScopedToken:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
         mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
-            post.return_value = self._response(200, {"token": "phe_abc"})
+            post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 3 * 60 * 60 + 3600
 
@@ -157,7 +191,7 @@ class TestMintScopedToken:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
         mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 0
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
-            post.return_value = self._response(200, {"token": "phe_abc"})
+            post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
@@ -235,33 +269,70 @@ class TestMintableGate:
 
 
 class TestProvisioningBoundaries:
-    """Each sandbox provisioning path must forward the run's team, origin, stage,
-    and internal context into token minting; a dropped kwarg silently degrades
-    every run on that path to the Python gateway."""
+    """Every provisioning path derives its gateway env through run_gateway_env_vars,
+    so no path can drop the team, origin, stage, internal, or acting-identity context
+    minting depends on. These pin the one derivation and each path's use of it."""
 
-    def test_build_sandbox_environment_variables_forwards_run_context(self, mint_settings):
-        from products.tasks.backend.temporal.process_task.utils import build_sandbox_environment_variables
+    def _ctx(self):
+        ctx = MagicMock()
+        ctx.team_id = 7
+        ctx.origin_product = "signals_scout"
+        ctx.state = {"ai_stage": "scout:logs"}
+        ctx.distinct_id = "user-1"
+        ctx.sandbox_environment_id = None
+        return ctx
 
+    def _task(self):
+        task = MagicMock()
+        task.internal = True
+        return task
+
+    def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        with patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env:
+            out = utils.run_gateway_env_vars(self._ctx(), self._task())
+        assert out == {"AI_GATEWAY_TOKEN": "phe"}
+        env.assert_called_once_with(
+            team_id=7,
+            origin_product="signals_scout",
+            ai_stage="scout:logs",
+            internal=True,
+            distinct_id="user-1",
+        )
+
+    def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        ctx, task = self._ctx(), self._task()
         with (
-            patch("products.tasks.backend.temporal.process_task.utils.ai_gateway_env_vars", return_value={}) as env,
+            patch.object(utils, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
             patch(
                 "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
                 return_value="jwt",
             ),
-            patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url", return_value="url"),
+            patch.object(utils, "get_sandbox_api_url", return_value="url"),
         ):
-            build_sandbox_environment_variables(
-                github_token="",
-                access_token="tok",
-                team_id=7,
-                origin_product="signals_scout",
-                ai_stage="scout:logs",
-                internal=True,
-                distinct_id="user-1",
-            )
-        env.assert_called_once_with(
-            team_id=7, origin_product="signals_scout", ai_stage="scout:logs", internal=True, distinct_id="user-1"
+            out = utils.build_sandbox_environment_variables(github_token="", access_token="tok", ctx=ctx, task=task)
+        env.assert_called_once_with(ctx, task)
+        assert out["AI_GATEWAY_TOKEN"] == "phe"
+
+    def test_repository_builder_uses_the_shared_derivation(self, mint_settings):
+        import importlib
+
+        mod = importlib.import_module(
+            "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
         )
+
+        ctx, task = self._ctx(), self._task()
+        with (
+            patch.object(mod, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
+            patch.object(mod, "get_sandbox_jwt_public_key", return_value="jwt"),
+            patch.object(mod, "get_sandbox_api_url", return_value="url"),
+        ):
+            out = mod._build_environment_variables(ctx, task, "", "tok")
+        env.assert_called_once_with(ctx, task)
+        assert out["AI_GATEWAY_TOKEN"] == "phe"
 
 
 class TestUserPinAndCapOverride:

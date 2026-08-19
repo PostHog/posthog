@@ -57,8 +57,10 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-_MINT_ATTEMPTS = 3
-_MINT_TIMEOUT_SECONDS = 10
+# Minting is optional (no token = Python-gateway fallback), so the total budget
+# stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
+_MINT_ATTEMPTS = 2
+_MINT_TIMEOUT_SECONDS = 3
 
 
 def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
@@ -153,7 +155,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         except requests.RequestException as e:
             last_error = str(e)
         else:
-            if response.status_code == 200:
+            if 200 <= response.status_code < 300:
                 try:
                     token = response.json().get("token")
                     last_error = "mint response had no token"
