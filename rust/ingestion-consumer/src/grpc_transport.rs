@@ -295,18 +295,47 @@ impl LaneRunner {
         let mut ledger: VecDeque<LedgerEntry> = VecDeque::new();
         let mut pending_first = Some(first);
 
+        // The inner connect_timeout bounds TCP only; the outer bound covers
+        // everything else in connection setup (e.g. an h2 handshake that
+        // never completes because the far side is not actually h2).
         let channel = match tonic::transport::Endpoint::from_shared(self.grpc_url.clone())
             .map(|endpoint| endpoint.connect_timeout(Duration::from_secs(5)))
         {
-            Ok(endpoint) => match endpoint.connect().await {
-                Ok(channel) => channel,
-                Err(err) => {
-                    warn!(worker = %self.worker_url, error = %err, "Lane connect failed");
-                    return self.fence(pending_first.take(), &mut ledger, queue, "connect failed");
+            Ok(endpoint) => {
+                match tokio::time::timeout(self.ack_timeout, endpoint.connect()).await {
+                    Ok(Ok(channel)) => channel,
+                    Ok(Err(err)) => {
+                        warn!(
+                            worker = %self.worker_url,
+                            grpc_url = %self.grpc_url,
+                            error = %err,
+                            "Lane connect failed"
+                        );
+                        return self.fence(
+                            pending_first.take(),
+                            &mut ledger,
+                            queue,
+                            "connect failed",
+                        );
+                    }
+                    Err(_) => {
+                        warn!(
+                            worker = %self.worker_url,
+                            grpc_url = %self.grpc_url,
+                            timeout_ms = self.ack_timeout.as_millis() as u64,
+                            "Lane connect timed out"
+                        );
+                        return self.fence(
+                            pending_first.take(),
+                            &mut ledger,
+                            queue,
+                            "connect timeout",
+                        );
+                    }
                 }
-            },
+            }
             Err(err) => {
-                error!(worker = %self.worker_url, error = %err, "Invalid lane address");
+                error!(worker = %self.worker_url, grpc_url = %self.grpc_url, error = %err, "Invalid lane address");
                 return self.fence(pending_first.take(), &mut ledger, queue, "invalid address");
             }
         };
@@ -326,13 +355,33 @@ impl LaneRunner {
             return self.fence(pending_first.take(), &mut ledger, queue, "stream closed");
         }
 
-        let mut acks = match client
-            .ingest_stream(UnboundedReceiverStream::new(out_rx))
-            .await
+        // Stream-open resolves only when the worker's response headers (its
+        // greeting) arrive; bound it so a worker that never greets fences
+        // instead of deadlocking the lane — the failure mode that wedged
+        // production before the greeting existed.
+        let mut acks = match tokio::time::timeout(
+            self.ack_timeout,
+            client.ingest_stream(UnboundedReceiverStream::new(out_rx)),
+        )
+        .await
         {
-            Ok(response) => response.into_inner(),
-            Err(status) => {
-                warn!(worker = %self.worker_url, status = %status, "Lane stream open failed");
+            Ok(Ok(response)) => response.into_inner(),
+            Err(_) => {
+                warn!(
+                    worker = %self.worker_url,
+                    grpc_url = %self.grpc_url,
+                    timeout_ms = self.ack_timeout.as_millis() as u64,
+                    "Lane stream open timed out — no greeting from the worker"
+                );
+                return self.fence(
+                    pending_first.take(),
+                    &mut ledger,
+                    queue,
+                    "stream open timeout",
+                );
+            }
+            Ok(Err(status)) => {
+                warn!(worker = %self.worker_url, grpc_url = %self.grpc_url, status = %status, "Lane stream open failed");
                 return self.fence(
                     pending_first.take(),
                     &mut ledger,
@@ -451,6 +500,12 @@ impl LaneRunner {
 
             match ack {
                 Some(Ok(Some(response))) => {
+                    // Seq 0 is the worker's greeting (and any future
+                    // keepalive): it exists to flush response headers, not to
+                    // resolve work — ignore it.
+                    if response.seq == 0 {
+                        continue;
+                    }
                     if response.status != SubBatchStatus::Ok as i32 {
                         warn!(
                             worker = %self.worker_url,

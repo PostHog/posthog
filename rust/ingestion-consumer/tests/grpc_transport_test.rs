@@ -63,6 +63,14 @@ impl WorkerIngest for MockWorker {
         let manual = self.manual_acks.lock().await.take();
 
         tokio::spawn(async move {
+            // Mirror the real worker: greet with seq 0 so response headers
+            // flush; the lane must ignore it.
+            let _ = tx.send(Ok(IngestStreamResponse {
+                seq: 0,
+                status: SubBatchStatus::Ok as i32,
+                accepted: 0,
+                error: String::new(),
+            }));
             if let Some(mut manual) = manual {
                 let tx = tx.clone();
                 tokio::spawn(async move {
