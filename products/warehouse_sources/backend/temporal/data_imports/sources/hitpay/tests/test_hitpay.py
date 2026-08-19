@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 from unittest import mock
 
@@ -77,24 +77,24 @@ class TestPaginatorFor:
 
 class TestGetResource:
     def test_full_refresh_endpoint_has_no_incremental_param(self) -> None:
-        resource = get_resource("Customers", should_use_incremental_field=True)
+        resource = cast(dict[str, Any], get_resource("Customers", should_use_incremental_field=True))
         assert resource["endpoint"]["params"] == {}
         assert resource["write_disposition"] == "replace"
         assert resource["endpoint"]["data_selector"] == "data"
         assert resource["endpoint"]["path"] == "/v1/customers"
 
     def test_incremental_endpoint_adds_date_from_when_enabled(self) -> None:
-        resource = get_resource("Charges", should_use_incremental_field=True)
+        resource = cast(dict[str, Any], get_resource("Charges", should_use_incremental_field=True))
         assert "date_from" in resource["endpoint"]["params"]
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
     def test_incremental_endpoint_omits_date_from_when_disabled(self) -> None:
-        resource = get_resource("Charges", should_use_incremental_field=False)
+        resource = cast(dict[str, Any], get_resource("Charges", should_use_incremental_field=False))
         assert resource["endpoint"]["params"] == {}
         assert resource["write_disposition"] == "replace"
 
     def test_table_name_matches_settings(self) -> None:
-        resource = get_resource("SubscriptionPlans", should_use_incremental_field=False)
+        resource = cast(dict[str, Any], get_resource("SubscriptionPlans", should_use_incremental_field=False))
         assert resource["table_name"] == "subscription_plans"
 
 
