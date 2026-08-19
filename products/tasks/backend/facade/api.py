@@ -6460,15 +6460,8 @@ def _ensure_system_channel(
     legacy_lookup: dict[str, Any],
     create_defaults: dict[str, Any],
 ) -> tuple[Channel, bool]:
-    """Get-or-create one of the two system-provisioned channels, keyed by ``system_role``
-    within ``owner_lookup`` (the requester for personal, the whole team for general).
-
-    Rows created before ``system_role`` existed match ``legacy_lookup`` instead; those are
-    adopted and stamped lazily rather than backfilled, so both shapes resolve to one row.
-    ``legacy_lookup`` must be covered by a unique constraint, which is what makes the
-    IntegrityError fallback safe under concurrent provisioning calls. Returns the channel
-    and whether this call created it.
-    """
+    """``legacy_lookup`` must be covered by a unique constraint; that is what makes the
+    IntegrityError fallback safe under concurrent provisioning calls."""
     created = False
     channels = _team_channels(team_id).select_related("created_by")
     channel = channels.filter(system_role=role, deleted=False, **owner_lookup).first()
@@ -6481,7 +6474,7 @@ def _ensure_system_channel(
             )
         except IntegrityError:
             channel, created = channels.get(team_id=team_id, **legacy_lookup), False
-        # Only shared feeds get the "created this space" announcement, as in resolve_channel.
+        # Only shared feeds get the "created this space" announcement.
         if created and channel.channel_type == Channel.ChannelType.PUBLIC:
             _emit_channel_created(channel, user_id)
     if channel.system_role != role:
@@ -6525,11 +6518,8 @@ def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
-    """Explicitly get-or-create the requester's personal channel and the team's #general
-    channel, then return the full channel list plus which of the two this call created.
-
-    The created flags are what let a client distinguish "this onboarding provisioned
-    #general" (first user in the team) from inheriting a teammate's space."""
+    """The created flags let a client distinguish "this call provisioned the space"
+    (first user in the team) from inheriting one that already existed."""
     _, personal_created = _ensure_personal_channel(team_id, user_id)
     _, general_created = _ensure_general_channel(team_id, user_id)
     return contracts.ProvisionedChannelsDTO(
@@ -6542,7 +6532,7 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """All live public channels plus the requester's personal channel if it exists,
     personal first, then the general channel, then the rest by name. ``starred`` reflects
-    the requester's stars. Pure read: provisioning happens in ``provision_default_channels``."""
+    the requester's stars. Does not create anything."""
     channels: list[Channel] = []
     if user_id is not None:
         personal = (

@@ -1,7 +1,5 @@
-/** What the backend calls a user's private channel. */
 export const PERSONAL_CHANNEL_NAME = "me";
 
-/** What the backend calls the team's default public channel. */
 export const GENERAL_CHANNEL_NAME = "general";
 
 export interface ChannelIdentity {
