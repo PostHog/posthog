@@ -1,11 +1,20 @@
-"""ETL pipeline for syncing posthog_organization and posthog_team tables from Postgres to ClickHouse."""
+"""ETL pipeline for syncing posthog_organization, posthog_team, and posthog_featureflag from Postgres to ClickHouse.
+
+Table-driven so watermark handling, batching, and column selection live in one place. Adding a table
+means a TableConfig entry plus DDL; sync comes free.
+
+How correctness is shared with the storage engine:
+- Incremental windows overlap by ``backward_lookback_seconds`` so a row committed after its
+  timestamp slot passed the prior high-watermark is still picked up next run.
+- Re-emitted rows inside that overlap are deduped by the ReplicatedReplacingMergeTree engine at
+  merge time (``_inserted_at`` as the version column). Readers of the mirror use FINAL / argMax,
+  as every other ClickHouse consumer of these tables already must.
+"""
 
 import json
 import uuid
-from dataclasses import (
-    dataclass,
-    field as dataclass_field,
-)
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
@@ -32,26 +41,111 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import Query, get_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dags.common import JobOwners
+from posthog.dataclasses import frozen
+
+PostgresFilter = Callable[[Optional[datetime]], tuple[str, list[Any]]]
 
 
-class PostgresToClickHouseETLConfig(Config):
-    """Configuration for the Postgres to ClickHouse ETL job."""
+@frozen
+class TableConfig:
+    """Declarative description of one Postgres→ClickHouse mirror.
 
-    full_refresh: bool = False
-    batch_size: int = 10000
-    max_execution_time: int = 3600
+    - ``key``: columns that identify a row across writes. Must be immutable for the life of the row
+      so a soft-delete-rename (feature flags rename ``key`` on tombstone) lands as an update, not a
+      new identity. The same key drives the ClickHouse ORDER BY prefix.
+    - ``watermark_column``: the non-null change-timestamp column mirrored in ClickHouse and used
+      to advance the incremental high-watermark. The transform is responsible for never emitting
+      a NULL here (feature flags fall back to ``created_at``).
+    - ``postgres_filter``: builds the incremental WHERE clause and params for the Postgres read;
+      lets one table (feature flags' nullable ``updated_at``) deviate without leaking that quirk
+      into the generic runner.
+    - ``order_by``: full ClickHouse ORDER BY tuple. Contains ``key`` (optionally behind a leading
+      locality column such as ``organization_id`` for teams) so same-row versions land in the same
+      part; ends with ``watermark_column`` so ``argMax`` reads are cheap.
+    - ``projections``: derived columns computed from the raw Postgres row before load (flag
+      dependency / cohort / variant counts for Grafana aggregation).
+    """
+
+    key: tuple[str, ...]
+    watermark_column: str
+    order_by: str
+    projections: dict[str, Callable[[dict[str, Any]], Any]]
+    postgres_filter: Optional[PostgresFilter] = None
 
 
 @dataclass
-class ETLState:
-    """Track the state of the ETL process."""
-
+class IncrementalState:
     last_sync_timestamp: Optional[datetime] = None
     rows_synced: int = 0
-    errors: list[str] = dataclass_field(default_factory=list)
 
 
-# Define retry policy for transient failures
+def _feature_flag_postgres_filter(last_sync: Optional[datetime]) -> tuple[str, list[Any]]:
+    # updated_at is NULL until a flag's first edit; take rows where either column moved into the window.
+    if last_sync is None:
+        return "", []
+    return "WHERE (updated_at > %s OR (updated_at IS NULL AND created_at > %s))", [last_sync, last_sync]
+
+
+def _has_flag_dependency(filters: dict[str, Any]) -> int:
+    # A dependency is a property with type "flag" inside filters.groups; there is no top-level
+    # flag_dependencies key (see _extract_direct_dependency_ids in products/feature_flags).
+    for group in filters.get("groups") or []:
+        if any(isinstance(p, dict) and p.get("type") == "flag" for p in group.get("properties") or []):
+            return 1
+    return 0
+
+
+def _has_cohort_filters(filters: dict[str, Any]) -> int:
+    for group in filters.get("groups") or []:
+        if any(isinstance(p, dict) and p.get("type") == "cohort" for p in group.get("properties") or []):
+            return 1
+    return 0
+
+
+def _variant_count(filters: dict[str, Any]) -> int:
+    multivariate = filters.get("multivariate")
+    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
+    return len(variants) if isinstance(variants, list) else 0
+
+
+TABLE_CONFIGS: dict[str, TableConfig] = {
+    "posthog_organization": TableConfig(
+        key=("id",),
+        watermark_column="updated_at",
+        order_by="(id, updated_at)",
+        projections={},
+    ),
+    "posthog_team": TableConfig(
+        key=("id",),
+        watermark_column="updated_at",
+        order_by="(organization_id, id, updated_at)",
+        projections={},
+    ),
+    # Identity is (team_id, id), not (team_id, key): soft-delete renames key with a :deleted:<id>
+    # suffix, and id is what survives that rename. updated_at is the watermark; the transform
+    # backfills NULLs from created_at so the mirror never stores NULL.
+    "posthog_featureflag": TableConfig(
+        key=("team_id", "id"),
+        watermark_column="updated_at",
+        order_by="(team_id, id, updated_at)",
+        projections={
+            "has_flag_dependency": _has_flag_dependency,
+            "has_cohort_filters": _has_cohort_filters,
+            "variant_count": _variant_count,
+        },
+        postgres_filter=_feature_flag_postgres_filter,
+    ),
+}
+
+
+class PostgresToClickHouseETLConfig(Config):
+    full_refresh: bool = False
+    batch_size: int = 10000
+    # Overlap the incremental window by this much to catch rows that committed after their
+    # timestamp slot passed the prior high-watermark. The engine dedupes the overlap at merge time.
+    backward_lookback_seconds: int = 86400
+
+
 etl_retry_policy = RetryPolicy(
     max_retries=3,
     delay=60,
@@ -61,10 +155,7 @@ etl_retry_policy = RetryPolicy(
 
 
 def get_postgres_connection():
-    """Get a connection to the Postgres database."""
-    # Get database config from Django settings
     db_config = settings.DATABASES["default"]
-
     return psycopg2.connect(
         host=db_config["HOST"],
         port=db_config["PORT"],
@@ -76,7 +167,6 @@ def get_postgres_connection():
 
 
 def get_organization_table_sql() -> str:
-    """Get SQL for creating the organization table."""
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_organization (
             id UUID,
@@ -114,7 +204,6 @@ def get_organization_table_sql() -> str:
 
 
 def get_team_table_sql() -> str:
-    """Get SQL for creating the team table."""
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_team (
             id Int64,
@@ -193,7 +282,7 @@ def get_team_table_sql() -> str:
             external_data_workspace_last_synced_at Nullable(DateTime64(6)),
             api_query_rate_limit Nullable(String),
             revenue_tracking_config Nullable(String),  -- JSON stored as String
-            drop_events_older_than Nullable(Int64),  -- Store duration as seconds
+            drop_events_older_than Nullable(Int64),
             base_currency Nullable(String),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
@@ -203,331 +292,211 @@ def get_team_table_sql() -> str:
     """
 
 
+def get_feature_flag_table_sql() -> str:
+    order_by = TABLE_CONFIGS["posthog_featureflag"].order_by
+    projection_columns = ", ".join(f"{name} UInt32" for name in TABLE_CONFIGS["posthog_featureflag"].projections)
+    return f"""
+        CREATE TABLE IF NOT EXISTS models.posthog_featureflag (
+            id Int64,
+            team_id Int64,
+            key String,
+            name String,
+            filters String,  -- JSON serialized
+            deleted UInt8,
+            active UInt8,
+            archived UInt8,
+            version Nullable(Int32),
+            ensure_experience_continuity Nullable(UInt8),
+            usage_dashboard_id Nullable(Int64),
+            has_enriched_analytics Nullable(UInt8),
+            is_remote_configuration Nullable(UInt8),
+            has_encrypted_payloads Nullable(UInt8),
+            evaluation_runtime Nullable(String),
+            bucketing_identifier Nullable(String),
+            created_by_id Nullable(Int32),
+            created_at DateTime64(6),
+            updated_at DateTime64(6),
+            {projection_columns},
+            _inserted_at DateTime64(6) DEFAULT now64(6)
+        )
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_featureflag', '{{shard}}-{{replica}}', _inserted_at)
+        ORDER BY {order_by}
+        SETTINGS index_granularity = 8192
+    """
+
+
+DDL_BY_TABLE: dict[str, Callable[[], str]] = {
+    "posthog_organization": get_organization_table_sql,
+    "posthog_team": get_team_table_sql,
+    "posthog_featureflag": get_feature_flag_table_sql,
+}
+
+
 def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
-    """Create the models database in ClickHouse if it doesn't exist on all nodes."""
     if context:
         context.log.info("Creating database 'models' if it doesn't exist...")
-    create_db_sql = "CREATE DATABASE IF NOT EXISTS models"
-
-    try:
-        # Use cluster API to create database on all nodes
-        cluster = get_cluster()
-        cluster.map_all_hosts(Query(create_db_sql)).result()
-        if context:
-            context.log.info("Database 'models' created/verified successfully on all nodes")
-    except Exception as e:
-        if context:
-            context.log.exception(f"Error creating database: {e}")
-        raise
+    cluster = get_cluster()
+    cluster.map_all_hosts(Query("CREATE DATABASE IF NOT EXISTS models")).result()
 
 
 def create_clickhouse_tables(
     context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
 ) -> None:
-    """Create the organization and team tables in ClickHouse on all nodes.
-
-    Args:
-        context: Execution context for logging
-        force_recreate: If True, drop and recreate tables even if they exist
-    """
-    # First ensure the database exists
     create_database_if_not_exists(context)
-
-    # Get cluster for executing commands on all nodes
     cluster = get_cluster()
-
-    # Only drop tables if explicitly requested (e.g., schema changes)
     if force_recreate:
+        for table_name in TABLE_CONFIGS:
+            cluster.map_all_hosts(Query(f"DROP TABLE IF EXISTS models.{table_name}")).result()
+    for table_name, ddl_fn in DDL_BY_TABLE.items():
         if context:
-            context.log.info("Force recreate requested, dropping existing tables...")
-        try:
-            # Use Query class to drop tables on all nodes
-            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_organization")).result()
-            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_team")).result()
-            if context:
-                context.log.info("Dropped existing tables on all nodes")
-        except Exception as e:
-            if context:
-                context.log.warning(f"Error dropping tables (may not exist): {e}")
-
-    # Create tables if they don't exist on all nodes
-    # The IF NOT EXISTS clause ensures we don't error if tables already exist
-    if context:
-        context.log.info("Creating posthog_organization table if it doesn't exist...")
-    try:
-        cluster.map_all_hosts(Query(get_organization_table_sql())).result()
-        if context:
-            context.log.info("Created/verified posthog_organization table on all nodes")
-    except Exception as e:
-        if context:
-            context.log.exception(f"Error creating organization table: {e}")
-        raise
-
-    if context:
-        context.log.info("Creating posthog_team table if it doesn't exist...")
-    try:
-        cluster.map_all_hosts(Query(get_team_table_sql())).result()
-        if context:
-            context.log.info("Created/verified posthog_team table on all nodes")
-    except Exception as e:
-        if context:
-            context.log.exception(f"Error creating team table: {e}")
-        raise
+            context.log.info(f"Creating models.{table_name} if it doesn't exist...")
+        cluster.map_all_hosts(Query(ddl_fn())).result()
 
 
-def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
-    """Fetch organizations from Postgres in batches to avoid memory issues.
+# Organized per table rather than per kind because no two tables share a kind combination.
+_ORG_COLS = [
+    "id",
+    "name",
+    "slug",
+    "logo_media_id",
+    "created_at",
+    "updated_at",
+    "session_cookie_age",
+    "is_member_join_email_enabled",
+    "is_ai_data_processing_approved",
+    "enforce_2fa",
+    "members_can_invite",
+    "members_can_use_personal_api_keys",
+    "allow_publicly_shared_resources",
+    "plugins_access_level",
+    "for_internal_metrics",
+    "default_experiment_stats_method",
+    "is_hipaa",
+    "customer_id",
+    "available_product_features",
+    "usage",
+    "never_drop_data",
+    "customer_trust_scores",
+    "setup_section_2_completed",
+    "personalization",
+    "domain_whitelist",
+    "is_platform",
+]
 
-    Yields batches of organization records.
-    """
-    # Use unique cursor name to avoid conflicts with concurrent runs
-    cursor_name = f"organizations_cursor_{uuid.uuid4().hex[:8]}"
-    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
+_TEAM_COLS = [
+    "id",
+    "uuid",
+    "organization_id",
+    "parent_team_id",
+    "project_id",
+    "api_token",
+    "app_urls",
+    "name",
+    "created_at",
+    "updated_at",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "ingested_event",
+    "autocapture_opt_out",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_opt_in",
+    "autocapture_exceptions_errors_to_ignore",
+    "person_processing_opt_out",
+    "secret_api_token",
+    "secret_api_token_backup",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
+    "session_replay_config",
+    "survey_config",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "capture_dead_clicks",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
+    "feature_flag_confirmation_message",
+    "session_recording_version",
+    "signup_token",
+    "is_demo",
+    "access_control",
+    "week_start_day",
+    "inject_web_apps",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "live_events_columns",
+    "recording_domains",
+    "human_friendly_comparison_periods",
+    "cookieless_server_hash_mode",
+    "primary_dashboard_id",
+    "default_data_theme",
+    "extra_settings",
+    "modifiers",
+    "correlation_config",
+    "session_recording_retention_period_days",
+    "plugins_opt_in",
+    "opt_out_capture",
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+    "external_data_workspace_id",
+    "external_data_workspace_last_synced_at",
+    "api_query_rate_limit",
+    "revenue_tracking_config",
+    "drop_events_older_than",
+    "base_currency",
+]
 
-    try:
-        query = """
-            SELECT
-                id,
-                name,
-                slug,
-                logo_media_id,
-                created_at,
-                updated_at,
-                session_cookie_age,
-                is_member_join_email_enabled,
-                is_ai_data_processing_approved,
-                enforce_2fa,
-                members_can_invite,
-                members_can_use_personal_api_keys,
-                allow_publicly_shared_resources,
-                plugins_access_level,
-                for_internal_metrics,
-                default_experiment_stats_method,
-                is_hipaa,
-                customer_id,
-                available_product_features,
-                usage,
-                never_drop_data,
-                customer_trust_scores,
-                setup_section_2_completed,
-                personalization,
-                domain_whitelist,
-                is_platform
-            FROM posthog_organization
-        """
+_FEATURE_FLAG_COLS = [
+    "id",
+    "team_id",
+    "key",
+    "name",
+    "filters",
+    "deleted",
+    "active",
+    "archived",
+    "version",
+    "ensure_experience_continuity",
+    "usage_dashboard_id",
+    "has_enriched_analytics",
+    "is_remote_configuration",
+    "has_encrypted_payloads",
+    "evaluation_runtime",
+    "bucketing_identifier",
+    "created_by_id",
+    "created_at",
+    "updated_at",
+]
 
-        params = []
-        if last_sync:
-            query += " WHERE updated_at > %s"
-            params.append(last_sync)
+_SELECT_COLUMNS: dict[str, list[str]] = {
+    "posthog_organization": _ORG_COLS,
+    "posthog_team": _TEAM_COLS,
+    "posthog_featureflag": _FEATURE_FLAG_COLS,
+}
 
-        query += " ORDER BY updated_at ASC"
-
-        cursor.execute(query, params)
-        cursor.itersize = batch_size  # Configure batch size for server-side cursor
-
-        while True:
-            batch = cursor.fetchmany(batch_size)
-            if not batch:
-                break
-            yield batch
-    finally:
-        cursor.close()
-
-
-def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch all organizations from Postgres (legacy function for compatibility)."""
-    rows = []
-    for batch in fetch_organizations_in_batches(conn, last_sync, batch_size):
-        rows.extend(batch)
-    return rows
-
-
-def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000):
-    """Fetch teams from Postgres in batches to avoid memory issues.
-
-    Yields batches of team records.
-    """
-    # Use unique cursor name to avoid conflicts with concurrent runs
-    cursor_name = f"teams_cursor_{uuid.uuid4().hex[:8]}"
-    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
-
-    try:
-        query = """
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                parent_team_id,
-                project_id,
-                api_token,
-                app_urls,
-                name,
-                created_at,
-                updated_at,
-                anonymize_ips,
-                completed_snippet_onboarding,
-                has_completed_onboarding_for,
-                onboarding_tasks,
-                ingested_event,
-                autocapture_opt_out,
-                autocapture_web_vitals_opt_in,
-                autocapture_web_vitals_allowed_metrics,
-                autocapture_exceptions_opt_in,
-                autocapture_exceptions_errors_to_ignore,
-                person_processing_opt_out,
-                secret_api_token,
-                secret_api_token_backup,
-                session_recording_opt_in,
-                session_recording_sample_rate,
-                session_recording_minimum_duration_milliseconds,
-                session_recording_linked_flag,
-                session_recording_network_payload_capture_config,
-                session_recording_masking_config,
-                session_recording_url_trigger_config,
-                session_recording_url_blocklist_config,
-                session_recording_event_trigger_config,
-                session_recording_trigger_match_type_config,
-                session_replay_config,
-                survey_config,
-                capture_console_log_opt_in,
-                capture_performance_opt_in,
-                capture_dead_clicks,
-                surveys_opt_in,
-                heatmaps_opt_in,
-                flags_persistence_default,
-                feature_flag_confirmation_enabled,
-                feature_flag_confirmation_message,
-                session_recording_version,
-                signup_token,
-                is_demo,
-                access_control,
-                week_start_day,
-                inject_web_apps,
-                test_account_filters,
-                test_account_filters_default_checked,
-                path_cleaning_filters,
-                timezone,
-                data_attributes,
-                person_display_name_properties,
-                live_events_columns,
-                recording_domains,
-                human_friendly_comparison_periods,
-                cookieless_server_hash_mode,
-                primary_dashboard_id,
-                default_data_theme,
-                extra_settings,
-                modifiers,
-                correlation_config,
-                session_recording_retention_period_days,
-                plugins_opt_in,
-                opt_out_capture,
-                event_names,
-                event_names_with_usage,
-                event_properties,
-                event_properties_with_usage,
-                event_properties_numerical,
-                external_data_workspace_id,
-                external_data_workspace_last_synced_at,
-                api_query_rate_limit,
-                revenue_tracking_config,
-                drop_events_older_than,
-                base_currency
-            FROM posthog_team
-        """
-
-        params = []
-        if last_sync:
-            query += " WHERE updated_at > %s"
-            params.append(last_sync)
-
-        query += " ORDER BY updated_at ASC"
-
-        cursor.execute(query, params)
-        cursor.itersize = batch_size  # Configure batch size for server-side cursor
-
-        while True:
-            batch = cursor.fetchmany(batch_size)
-            if not batch:
-                break
-            yield batch
-    finally:
-        cursor.close()
-
-
-def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
-    """Fetch all teams from Postgres (legacy function for compatibility)."""
-    rows = []
-    for batch in fetch_teams_in_batches(conn, last_sync, batch_size):
-        rows.extend(batch)
-    return rows
-
-
-def handle_array_fields(row: dict, array_fields: list[str]) -> None:
-    """Handle array fields that might be None or contain None elements.
-
-    Args:
-        row: The data row to process (modified in place)
-        array_fields: List of field names that should be arrays
-    """
-    for field_name in array_fields:
-        if row.get(field_name) is None:
-            row[field_name] = []
-        elif isinstance(row[field_name], list):
-            # Filter out None values from the array
-            row[field_name] = [item for item in row[field_name] if item is not None]
-
-
-def transform_organization_row(row: dict) -> dict:
-    """Transform a Postgres organization row for ClickHouse insertion."""
-    # Convert UUID fields to strings for ClickHouse
-    uuid_fields = ["id", "logo_media_id"]
-    for field_name in uuid_fields:
-        if row.get(field_name) is not None:
-            row[field_name] = str(row[field_name])
-
-    # Convert JSON fields to strings
-    json_fields = ["available_product_features", "usage", "customer_trust_scores", "personalization"]
-
-    for field in json_fields:
-        if row.get(field) is not None:
-            row[field] = json.dumps(row[field])
-
-    # Convert boolean fields to UInt8
-    bool_fields = [
-        "is_member_join_email_enabled",
-        "is_ai_data_processing_approved",
-        "enforce_2fa",
-        "members_can_invite",
-        "members_can_use_personal_api_keys",
-        "allow_publicly_shared_resources",
-        "for_internal_metrics",
-        "is_hipaa",
-        "never_drop_data",
-        "setup_section_2_completed",
-        "is_platform",
-    ]
-
-    for field in bool_fields:
-        if row.get(field) is not None:
-            row[field] = 1 if row[field] else 0
-
-    # Handle array fields
-    handle_array_fields(row, ["domain_whitelist"])
-
-    return row
-
-
-def transform_team_row(row: dict) -> dict:
-    """Transform a Postgres team row for ClickHouse insertion."""
-    # Convert UUID fields to strings for ClickHouse
-    uuid_fields = ["uuid", "organization_id"]
-    for field_name in uuid_fields:
-        if row.get(field_name) is not None:
-            row[field_name] = str(row[field_name])
-
-    # Convert JSON fields to strings
-    json_fields = [
+# JSON columns selected as ::text for org / team so psycopg2 doesn't parse 30+ fields per row only
+# for the transform to json.dumps them back. Flags are the exception: projections need the parsed dict.
+_JSONB_TEXT_CAST: dict[str, set[str]] = {
+    "posthog_organization": {"available_product_features", "usage", "customer_trust_scores", "personalization"},
+    "posthog_team": {
         "has_completed_onboarding_for",
         "onboarding_tasks",
         "autocapture_web_vitals_allowed_metrics",
@@ -552,14 +521,26 @@ def transform_team_row(row: dict) -> dict:
         "event_properties_with_usage",
         "event_properties_numerical",
         "revenue_tracking_config",
-    ]
+    },
+    "posthog_featureflag": set(),
+}
 
-    for field in json_fields:
-        if row.get(field) is not None:
-            row[field] = json.dumps(row[field])
-
-    # Convert boolean fields to UInt8
-    bool_fields = [
+# psycopg2 already parses jsonb ::text as raw strings; these are the columns that must NOT be re-dumped.
+_BOOL_FIELDS: dict[str, list[str]] = {
+    "posthog_organization": [
+        "is_member_join_email_enabled",
+        "is_ai_data_processing_approved",
+        "enforce_2fa",
+        "members_can_invite",
+        "members_can_use_personal_api_keys",
+        "allow_publicly_shared_resources",
+        "for_internal_metrics",
+        "is_hipaa",
+        "never_drop_data",
+        "setup_section_2_completed",
+        "is_platform",
+    ],
+    "posthog_team": [
         "anonymize_ips",
         "completed_snippet_onboarding",
         "ingested_event",
@@ -582,254 +563,242 @@ def transform_team_row(row: dict) -> dict:
         "human_friendly_comparison_periods",
         "plugins_opt_in",
         "opt_out_capture",
-    ]
+    ],
+    "posthog_featureflag": [
+        "deleted",
+        "active",
+        "archived",
+        "ensure_experience_continuity",
+        "has_enriched_analytics",
+        "is_remote_configuration",
+        "has_encrypted_payloads",
+    ],
+}
 
-    for field in bool_fields:
+_UUID_FIELDS: dict[str, list[str]] = {
+    "posthog_organization": ["id", "logo_media_id"],
+    "posthog_team": ["uuid", "organization_id"],
+    "posthog_featureflag": [],
+}
+
+_ARRAY_FIELDS: dict[str, list[str]] = {
+    "posthog_organization": ["domain_whitelist"],
+    "posthog_team": ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"],
+    "posthog_featureflag": [],
+}
+
+
+def _select_clause(table_name: str) -> str:
+    jsonb_cols = _JSONB_TEXT_CAST[table_name]
+    return ", ".join(f"{col}::text AS {col}" if col in jsonb_cols else col for col in _SELECT_COLUMNS[table_name])
+
+
+def _normalize_filters(filters: Any) -> dict[str, Any]:
+    """``filters`` arrives as a dict (mocked rows, psycopg2-parsed jsonb); normalize to a dict."""
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters)
+        except (TypeError, ValueError):
+            return {}
+    return filters if isinstance(filters, dict) else {}
+
+
+def transform_organization_row(row: dict) -> dict:
+    for field in _UUID_FIELDS["posthog_organization"]:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+    for field in _BOOL_FIELDS["posthog_organization"]:
         if row.get(field) is not None:
             row[field] = 1 if row[field] else 0
-
-    # Convert timedelta to seconds
-    if row.get("drop_events_older_than") is not None:
-        row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
-
-    # Handle array fields
-    handle_array_fields(row, ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"])
-
+    for field in _ARRAY_FIELDS["posthog_organization"]:
+        if row.get(field) is None:
+            row[field] = []
+        elif isinstance(row[field], list):
+            row[field] = [v for v in row[field] if v is not None]
     return row
 
 
-def insert_organizations_to_clickhouse(organizations: list[dict], batch_size: int = 10000) -> int:
-    """Insert organizations into ClickHouse."""
-    if not organizations:
+def transform_team_row(row: dict) -> dict:
+    for field in _UUID_FIELDS["posthog_team"]:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+    for field in _BOOL_FIELDS["posthog_team"]:
+        if row.get(field) is not None:
+            row[field] = 1 if row[field] else 0
+    if row.get("drop_events_older_than") is not None:
+        row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
+    for field in _ARRAY_FIELDS["posthog_team"]:
+        if row.get(field) is None:
+            row[field] = []
+        elif isinstance(row[field], list):
+            row[field] = [v for v in row[field] if v is not None]
+    return row
+
+
+def transform_feature_flag_row(row: dict) -> dict:
+    filters_dict = _normalize_filters(row.get("filters"))
+    row["filters"] = json.dumps(filters_dict)
+    for field in _BOOL_FIELDS["posthog_featureflag"]:
+        if row.get(field) is not None:
+            row[field] = 1 if row[field] else 0
+    # Watermark column must never be NULL (it's in ORDER BY and the high-watermark read); a brand-new
+    # flag hasn't been edited yet, so fall back to created_at. Makes updated_at non-null in the mirror.
+    if row.get("updated_at") is None:
+        row["updated_at"] = row.get("created_at")
+    cfg = TABLE_CONFIGS["posthog_featureflag"]
+    for projection_name, projection_fn in cfg.projections.items():
+        row[projection_name] = projection_fn(filters_dict)
+    # Deliberately excluded: last_called_at has its own bulk-update writer that bypasses auto_now,
+    # so a mirrored column would be permanently stale. See .notes/feature-flag-mirror-design.md.
+    row.pop("last_called_at", None)
+    return row
+
+
+_TRANSFORMS: dict[str, Callable[[dict], dict]] = {
+    "posthog_organization": transform_organization_row,
+    "posthog_team": transform_team_row,
+    "posthog_featureflag": transform_feature_flag_row,
+}
+
+
+def transform_row(table_name: str, row: dict) -> dict:
+    return _TRANSFORMS[table_name](row)
+
+
+def fetch_rows_in_batches(conn, table_name: str, last_sync: Optional[datetime], batch_size: int = 10000):
+    """Yield batches from Postgres, incrementally filtered on the table's watermark column."""
+    cfg = TABLE_CONFIGS[table_name]
+    if cfg.postgres_filter is not None:
+        where_clause, params = cfg.postgres_filter(last_sync)
+    else:
+        where_clause, params = (f"WHERE {cfg.watermark_column} > %s", [last_sync]) if last_sync else ("", [])
+
+    query = f"SELECT {_select_clause(table_name)} FROM {table_name} {where_clause} ORDER BY {cfg.watermark_column} ASC"
+    cursor = conn.cursor(name=f"{table_name}_cursor_{uuid.uuid4().hex[:8]}")
+    try:
+        cursor.execute(query, params)
+        cursor.itersize = batch_size
+        while True:
+            batch = cursor.fetchmany(batch_size)
+            if not batch:
+                break
+            yield batch
+    finally:
+        cursor.close()
+
+
+def insert_rows_to_clickhouse(table_name: str, rows: list[dict], batch_size: int = 10000) -> int:
+    if not rows:
         return 0
+    cfg = TABLE_CONFIGS[table_name]
+    transformed = [transform_row(table_name, dict(r)) for r in rows]
 
-    # Transform the data
-    transformed = [transform_organization_row(org) for org in organizations]
+    columns = _SELECT_COLUMNS[table_name] + list(cfg.projections.keys())
+    insert_sql = f"INSERT INTO models.{table_name} ({', '.join(columns)}) VALUES"
 
-    # Prepare data for insertion
-    columns = list(transformed[0].keys())
-
-    # Insert in batches
     total_inserted = 0
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
-
-        # ClickHouse requires passing data as list of tuples
         data = [tuple(row.get(col) for col in columns) for row in batch]
-
-        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES"
-
-        sync_execute(query, data, with_column_types=False)
+        sync_execute(insert_sql, data, with_column_types=False)
         total_inserted += len(batch)
-
     return total_inserted
 
 
-def insert_teams_to_clickhouse(teams: list[dict], batch_size: int = 10000) -> int:
-    """Insert teams into ClickHouse."""
-    if not teams:
-        return 0
-
-    # Transform the data
-    transformed = [transform_team_row(team) for team in teams]
-
-    # Prepare data for insertion
-    columns = list(transformed[0].keys())
-
-    # Insert in batches
-    total_inserted = 0
-    for i in range(0, len(transformed), batch_size):
-        batch = transformed[i : i + batch_size]
-
-        # ClickHouse requires passing data as list of tuples
-        data = [tuple(row.get(col) for col in columns) for row in batch]
-
-        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES"
-
-        sync_execute(query, data, with_column_types=False)
-        total_inserted += len(batch)
-
-    return total_inserted
-
-
-@op(retry_policy=etl_retry_policy)
-def sync_organizations(
-    context: OpExecutionContext,
-    config: PostgresToClickHouseETLConfig,
-) -> ETLState:
-    """Sync organizations from Postgres to ClickHouse."""
+def _sync_table(
+    context: OpExecutionContext, config: PostgresToClickHouseETLConfig, table_name: str
+) -> IncrementalState:
     with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-        state = ETLState()
+        cfg = TABLE_CONFIGS[table_name]
+        state = IncrementalState()
+        context.log.info(f"Starting {table_name} sync (full_refresh={config.full_refresh})")
 
-        context.log.info(f"Starting organization sync (full_refresh={config.full_refresh})")
-
-        # Create tables if they don't exist
         create_clickhouse_tables(context)
 
-        # Get last sync timestamp from ClickHouse (if incremental)
-        last_sync = None
+        last_sync: Optional[datetime] = None
         if not config.full_refresh:
-            result = sync_execute("SELECT max(updated_at) FROM models.posthog_organization")
+            result = sync_execute(f"SELECT max({cfg.watermark_column}) FROM models.{table_name}")
             if result and result[0][0]:
-                last_sync = result[0][0]
-                context.log.info(f"Last sync timestamp for organizations: {last_sync}")
-
-        # If full refresh, truncate the table
-        if config.full_refresh:
-            context.log.info("Full refresh requested, truncating posthog_organization table...")
+                last_sync = result[0][0] - timedelta(seconds=config.backward_lookback_seconds)
+                context.log.info(f"Last sync for {table_name}: {last_sync}")
+        else:
+            context.log.info(f"Full refresh: truncating models.{table_name}")
             try:
-                sync_execute("TRUNCATE TABLE models.posthog_organization")
-                context.log.info("Truncated posthog_organization table for full refresh")
+                sync_execute(f"TRUNCATE TABLE models.{table_name}")
             except Exception as e:
-                context.log.warning(f"Could not truncate table (may not exist yet): {e}")
-                # Table might not exist, continue as it will be created
+                context.log.warning(f"Could not truncate (may not exist): {e}")
 
-        # Connect to Postgres and fetch/insert data in streaming batches
         pg_conn = get_postgres_connection()
         try:
             total_rows = 0
-            last_updated = None
             batch_num = 0
-
-            # Process data in streaming fashion to avoid memory issues
-            for batch in fetch_organizations_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+            for batch in fetch_rows_in_batches(pg_conn, table_name, last_sync, config.batch_size):
                 batch_num += 1
-                if batch:
-                    context.log.info(f"Processing batch {batch_num} with {len(batch)} organizations")
-
-                    # Insert this batch into ClickHouse
-                    rows_inserted = insert_organizations_to_clickhouse(batch, batch_size=config.batch_size)
-                    total_rows += rows_inserted
-
-                    # Track the latest timestamp for state
-                    batch_last_updated = max(org["updated_at"] for org in batch)
-                    if last_updated is None or batch_last_updated > last_updated:
-                        last_updated = batch_last_updated
-
-                    context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
-
+                rows_inserted = insert_rows_to_clickhouse(table_name, batch, batch_size=config.batch_size)
+                total_rows += rows_inserted
+                batch_max = max(
+                    (row[cfg.watermark_column] for row in batch if row.get(cfg.watermark_column) is not None),
+                    default=None,
+                )
+                if batch_max is not None and (
+                    state.last_sync_timestamp is None or batch_max > state.last_sync_timestamp
+                ):
+                    state.last_sync_timestamp = batch_max
+                context.log.info(f"Batch {batch_num}: +{rows_inserted} → models.{table_name} (total {total_rows})")
             state.rows_synced = total_rows
-            state.last_sync_timestamp = last_updated
-            context.log.info(f"Completed sync: inserted {total_rows} organizations into ClickHouse")
-
-        except Exception as e:
-            state.errors.append(f"Error syncing organizations: {str(e)}")
-            context.log.exception(f"Error syncing organizations: {str(e)}")
-            raise
+            context.log.info(f"Completed {table_name} sync: {total_rows} rows")
         finally:
             pg_conn.close()
-
-        # Add metadata
-        context.add_output_metadata(
-            {
-                "rows_synced": MetadataValue.int(state.rows_synced),
-                "last_sync_timestamp": MetadataValue.text(
-                    str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
-                ),
-                "full_refresh": MetadataValue.bool(config.full_refresh),
-            }
-        )
 
         return state
 
 
+def _sync_metadata(context: OpExecutionContext, state: IncrementalState, config: PostgresToClickHouseETLConfig) -> None:
+    context.add_output_metadata(
+        {
+            "rows_synced": MetadataValue.int(state.rows_synced),
+            "last_sync_timestamp": MetadataValue.text(
+                str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
+            ),
+            "full_refresh": MetadataValue.bool(config.full_refresh),
+        }
+    )
+
+
 @op(retry_policy=etl_retry_policy)
-def sync_teams(
-    context: OpExecutionContext,
-    config: PostgresToClickHouseETLConfig,
-) -> ETLState:
-    """Sync teams from Postgres to ClickHouse."""
-    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-        state = ETLState()
+def sync_organizations(context: OpExecutionContext, config: PostgresToClickHouseETLConfig) -> IncrementalState:
+    state = _sync_table(context, config, "posthog_organization")
+    _sync_metadata(context, state, config)
+    return state
 
-        context.log.info(f"Starting team sync (full_refresh={config.full_refresh})")
 
-        # Create tables if they don't exist
-        create_clickhouse_tables(context)
+@op(retry_policy=etl_retry_policy)
+def sync_teams(context: OpExecutionContext, config: PostgresToClickHouseETLConfig) -> IncrementalState:
+    state = _sync_table(context, config, "posthog_team")
+    _sync_metadata(context, state, config)
+    return state
 
-        # Get last sync timestamp from ClickHouse (if incremental)
-        last_sync = None
-        if not config.full_refresh:
-            result = sync_execute("SELECT max(updated_at) FROM models.posthog_team")
-            if result and result[0][0]:
-                last_sync = result[0][0]
-                context.log.info(f"Last sync timestamp for teams: {last_sync}")
 
-        # If full refresh, truncate the table
-        if config.full_refresh:
-            context.log.info("Full refresh requested, truncating posthog_team table...")
-            try:
-                sync_execute("TRUNCATE TABLE models.posthog_team")
-                context.log.info("Truncated posthog_team table for full refresh")
-            except Exception as e:
-                context.log.warning(f"Could not truncate table (may not exist yet): {e}")
-                # Table might not exist, continue as it will be created
-
-        # Connect to Postgres and fetch/insert data in streaming batches
-        pg_conn = get_postgres_connection()
-        try:
-            total_rows = 0
-            last_updated = None
-            batch_num = 0
-
-            # Process data in streaming fashion to avoid memory issues
-            for batch in fetch_teams_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
-                batch_num += 1
-                if batch:
-                    context.log.info(f"Processing batch {batch_num} with {len(batch)} teams")
-
-                    # Insert this batch into ClickHouse
-                    rows_inserted = insert_teams_to_clickhouse(batch, batch_size=config.batch_size)
-                    total_rows += rows_inserted
-
-                    # Track the latest timestamp for state
-                    batch_last_updated = max(team["updated_at"] for team in batch)
-                    if last_updated is None or batch_last_updated > last_updated:
-                        last_updated = batch_last_updated
-
-                    context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
-
-            state.rows_synced = total_rows
-            state.last_sync_timestamp = last_updated
-            context.log.info(f"Completed sync: inserted {total_rows} teams into ClickHouse")
-
-        except Exception as e:
-            state.errors.append(f"Error syncing teams: {str(e)}")
-            context.log.exception(f"Error syncing teams: {str(e)}")
-            raise
-        finally:
-            pg_conn.close()
-
-        # Add metadata
-        context.add_output_metadata(
-            {
-                "rows_synced": MetadataValue.int(state.rows_synced),
-                "last_sync_timestamp": MetadataValue.text(
-                    str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
-                ),
-                "full_refresh": MetadataValue.bool(config.full_refresh),
-            }
-        )
-
-        return state
+@op(retry_policy=etl_retry_policy)
+def sync_feature_flags(context: OpExecutionContext, config: PostgresToClickHouseETLConfig) -> IncrementalState:
+    state = _sync_table(context, config, "posthog_featureflag")
+    _sync_metadata(context, state, config)
+    return state
 
 
 @op
 def verify_sync(
     context: OpExecutionContext,
-    org_state: ETLState,
-    team_state: ETLState,
+    org_state: IncrementalState,
+    team_state: IncrementalState,
+    feature_flag_state: IncrementalState,
 ) -> dict[str, Any]:
-    """Verify the sync was successful by checking row counts."""
     with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-        # Get counts from ClickHouse
-        org_count_result = sync_execute("SELECT count(*) FROM models.posthog_organization")
-        team_count_result = sync_execute("SELECT count(*) FROM models.posthog_team")
+        org_count = sync_execute("SELECT count() FROM models.posthog_organization")[0][0]
+        team_count = sync_execute("SELECT count() FROM models.posthog_team")[0][0]
+        flag_count = sync_execute("SELECT count() FROM models.posthog_featureflag")[0][0]
 
-        org_count = org_count_result[0][0] if org_count_result else 0
-        team_count = team_count_result[0][0] if team_count_result else 0
-
-        verification = {
+        counts = {
             "organizations": {
                 "clickhouse_count": org_count,
                 "rows_synced": org_state.rows_synced,
@@ -840,249 +809,81 @@ def verify_sync(
                 "rows_synced": team_state.rows_synced,
                 "last_sync": str(team_state.last_sync_timestamp) if team_state.last_sync_timestamp else None,
             },
-            "success": len(org_state.errors) == 0 and len(team_state.errors) == 0,
+            "feature_flags": {
+                "clickhouse_count": flag_count,
+                "rows_synced": feature_flag_state.rows_synced,
+                "last_sync": str(feature_flag_state.last_sync_timestamp)
+                if feature_flag_state.last_sync_timestamp
+                else None,
+            },
         }
-
-        context.log.info(f"Verification results: {verification}")
-
+        context.log.info(f"Verification: {counts}")
         context.add_output_metadata(
             {
                 "org_count": MetadataValue.int(org_count),
                 "team_count": MetadataValue.int(team_count),
-                "success": MetadataValue.bool(bool(verification["success"])),
+                "feature_flag_count": MetadataValue.int(flag_count),
             }
         )
-
-        return verification
-
-
-# Define the hourly partition
-hourly_partition = HourlyPartitionsDefinition(
-    start_date="2024-01-01-00:00",
-    timezone="UTC",
-)
+        return counts
 
 
-@job(
-    tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
-    partitions_def=hourly_partition,
-)
+hourly_partition = HourlyPartitionsDefinition(start_date="2024-01-01-00:00", timezone="UTC")
+
+
+@job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value}, partitions_def=hourly_partition)
 def postgres_to_clickhouse_etl_job():
-    """Hourly ETL job to sync organization and team data from Postgres to ClickHouse."""
     org_state = sync_organizations()
     team_state = sync_teams()
-    verify_sync(org_state, team_state)
+    flag_state = sync_feature_flags()
+    verify_sync(org_state, team_state, flag_state)
 
 
-# Asset-based approach (alternative/additional to ops)
-@asset(
-    retry_policy=etl_retry_policy,
-    partitions_def=hourly_partition,
-    backfill_policy=BackfillPolicy(max_partitions_per_run=24),  # Allow up to 24 hours backfill at once
-)
-def organizations_in_clickhouse(
-    context: AssetExecutionContext,
-) -> None:
-    """Asset representing organizations data in ClickHouse."""
-    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-        config = PostgresToClickHouseETLConfig(full_refresh=False)
-
-        # Create tables if they don't exist
-        create_clickhouse_tables(context)
-
-        # Determine the time window for this partition
-        partition_key = context.partition_key
-        # Hourly partition key format: "2024-01-01-14:00"
-        partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
-        start_time = partition_datetime
-        end_time = partition_datetime + timedelta(hours=1)
-
-        # Connect to Postgres and fetch data for this partition
-        pg_conn = get_postgres_connection()
-        try:
-            cursor = pg_conn.cursor()
-            cursor.execute(
-                """
-                SELECT
-                    id,
-                    name,
-                    slug,
-                    logo_media_id,
-                    created_at,
-                    updated_at,
-                    session_cookie_age,
-                    is_member_join_email_enabled,
-                    is_ai_data_processing_approved,
-                    enforce_2fa,
-                    members_can_invite,
-                    members_can_use_personal_api_keys,
-                    allow_publicly_shared_resources,
-                    plugins_access_level,
-                    for_internal_metrics,
-                    default_experiment_stats_method,
-                    is_hipaa,
-                    customer_id,
-                    available_product_features,
-                    usage,
-                    never_drop_data,
-                    customer_trust_scores,
-                    setup_section_2_completed,
-                    personalization,
-                    domain_whitelist,
-                    is_platform
-                FROM posthog_organization
-                WHERE updated_at >= %s AND updated_at < %s
-                ORDER BY updated_at ASC
-                """,
-                (start_time, end_time),
-            )
-
-            organizations = cursor.fetchall()
-            context.log.info(f"Fetched {len(organizations)} organizations for partition {partition_key}")
-
-            # Insert into ClickHouse
-            if organizations:
-                rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
-                context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
-
-            cursor.close()
-
-        finally:
-            pg_conn.close()
-
-
-@asset(
-    retry_policy=etl_retry_policy,
-    partitions_def=hourly_partition,
-    backfill_policy=BackfillPolicy(max_partitions_per_run=24),  # Allow up to 24 hours backfill at once
-)
-def teams_in_clickhouse(
-    context: AssetExecutionContext,
-) -> None:
-    """Asset representing teams data in ClickHouse."""
-    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-        config = PostgresToClickHouseETLConfig(full_refresh=False)
-
-        # Create tables if they don't exist
-        create_clickhouse_tables(context)
-
-        # Determine the time window for this partition
-        partition_key = context.partition_key
-        # Hourly partition key format: "2024-01-01-14:00"
-        partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
-        start_time = partition_datetime
-        end_time = partition_datetime + timedelta(hours=1)
-
-        # Connect to Postgres and fetch data for this partition
-        pg_conn = get_postgres_connection()
-        try:
-            cursor = pg_conn.cursor()
-            cursor.execute(
-                """
-                SELECT
-                    id,
-                    uuid,
-                    organization_id,
-                    parent_team_id,
-                    project_id,
-                    api_token,
-                    app_urls,
-                    name,
-                    created_at,
-                    updated_at,
-                    anonymize_ips,
-                    completed_snippet_onboarding,
-                    has_completed_onboarding_for,
-                    onboarding_tasks,
-                    ingested_event,
-                    autocapture_opt_out,
-                    autocapture_web_vitals_opt_in,
-                    autocapture_web_vitals_allowed_metrics,
-                    autocapture_exceptions_opt_in,
-                    autocapture_exceptions_errors_to_ignore,
-                    person_processing_opt_out,
-                    secret_api_token,
-                    secret_api_token_backup,
-                    session_recording_opt_in,
-                    session_recording_sample_rate,
-                    session_recording_minimum_duration_milliseconds,
-                    session_recording_linked_flag,
-                    session_recording_network_payload_capture_config,
-                    session_recording_masking_config,
-                    session_recording_url_trigger_config,
-                    session_recording_url_blocklist_config,
-                    session_recording_event_trigger_config,
-                    session_recording_trigger_match_type_config,
-                    session_replay_config,
-                    survey_config,
-                    capture_console_log_opt_in,
-                    capture_performance_opt_in,
-                    capture_dead_clicks,
-                    surveys_opt_in,
-                    heatmaps_opt_in,
-                    flags_persistence_default,
-                    feature_flag_confirmation_enabled,
-                    feature_flag_confirmation_message,
-                    session_recording_version,
-                    signup_token,
-                    is_demo,
-                    access_control,
-                    week_start_day,
-                    inject_web_apps,
-                    test_account_filters,
-                    test_account_filters_default_checked,
-                    path_cleaning_filters,
-                    timezone,
-                    data_attributes,
-                    person_display_name_properties,
-                    live_events_columns,
-                    recording_domains,
-                    human_friendly_comparison_periods,
-                    cookieless_server_hash_mode,
-                    primary_dashboard_id,
-                    default_data_theme,
-                    extra_settings,
-                    modifiers,
-                    correlation_config,
-                    session_recording_retention_period_days,
-                    plugins_opt_in,
-                    opt_out_capture,
-                    event_names,
-                    event_names_with_usage,
-                    event_properties,
-                    event_properties_with_usage,
-                    event_properties_numerical,
-                    external_data_workspace_id,
-                    external_data_workspace_last_synced_at,
-                    api_query_rate_limit,
-                    revenue_tracking_config,
-                    drop_events_older_than,
-                    base_currency
-                FROM posthog_team
-                WHERE updated_at >= %s AND updated_at < %s
-                ORDER BY updated_at ASC
-                """,
-                (start_time, end_time),
-            )
-
-            teams = cursor.fetchall()
-            context.log.info(f"Fetched {len(teams)} teams for partition {partition_key}")
-
-            # Insert into ClickHouse
-            if teams:
-                rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
-                context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
-
-            cursor.close()
-
-        finally:
-            pg_conn.close()
-
-
-# Create an hourly schedule for the job
 postgres_to_clickhouse_hourly_schedule = ScheduleDefinition(
     job=postgres_to_clickhouse_etl_job,
-    cron_schedule="0 * * * *",  # Run at the top of every hour
+    cron_schedule="0 * * * *",
     name="postgres_to_clickhouse_hourly",
     execution_timezone="UTC",
 )
+
+
+def _sync_asset_partition(context: AssetExecutionContext, table_name: str) -> None:
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        config = PostgresToClickHouseETLConfig()
+        create_clickhouse_tables(context)
+        partition_dt = datetime.strptime(context.partition_key, "%Y-%m-%d-%H:%M")
+        start_time, end_time = partition_dt, partition_dt + timedelta(hours=1)
+        cfg = TABLE_CONFIGS[table_name]
+        pg_conn = get_postgres_connection()
+        try:
+            cursor = pg_conn.cursor()
+            cursor.execute(
+                f"SELECT {_select_clause(table_name)} FROM {table_name} WHERE {cfg.watermark_column} >= %s AND {cfg.watermark_column} < %s ORDER BY {cfg.watermark_column} ASC",
+                (start_time, end_time),
+            )
+            rows = cursor.fetchall()
+            context.log.info(f"Fetched {len(rows)} {table_name} rows for partition {context.partition_key}")
+            if rows:
+                inserted = insert_rows_to_clickhouse(table_name, rows, batch_size=config.batch_size)
+                context.log.info(f"Inserted {inserted} rows into models.{table_name}")
+            cursor.close()
+        finally:
+            pg_conn.close()
+
+
+@asset(
+    retry_policy=etl_retry_policy,
+    partitions_def=hourly_partition,
+    backfill_policy=BackfillPolicy(max_partitions_per_run=24),
+)
+def organizations_in_clickhouse(context: AssetExecutionContext) -> None:
+    _sync_asset_partition(context, "posthog_organization")
+
+
+@asset(
+    retry_policy=etl_retry_policy,
+    partitions_def=hourly_partition,
+    backfill_policy=BackfillPolicy(max_partitions_per_run=24),
+)
+def teams_in_clickhouse(context: AssetExecutionContext) -> None:
+    _sync_asset_partition(context, "posthog_team")
