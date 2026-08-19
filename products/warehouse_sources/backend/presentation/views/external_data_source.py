@@ -1130,10 +1130,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
+    def _active_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
+        # "Active" is a subset of the schemas already prefetched for `get_schemas`: non-deleted and
+        # either enabled for sync or carrying an error. Deriving it in Python avoids a second query on
+        # the schemas table per source read.
+        prefetched_schemas = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
+        if prefetched_schemas is not None:
+            schemas = [schema for schema in prefetched_schemas if not schema.deleted]
+        else:
+            schemas = list(instance.schemas.exclude(deleted=True))
+        return [schema for schema in schemas if schema.should_sync or schema.latest_error is not None]
+
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
+        active_schemas = self._active_schemas(instance)
         # Negative statuses should ignore schemas the user has disabled — those can linger in
-        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
+        # active_schemas via the latest_error filter but shouldn't drag the source into a failed state.
         syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
         any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
         any_billing_limits_reached = any(
@@ -1508,15 +1519,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 .select_related("table__credential", "table__external_data_source")
                 .order_by("name")
             )
-            active_schemas = list(
-                ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
-                .exclude(deleted=True)
-                .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
-                .select_related("source", "table__credential", "table__external_data_source")
-            )
+            # The status serializer derives the "active" subset from this prefetch cache, so no
+            # separate active_schemas query is needed.
             updated_source_any = cast(Any, updated_source)
             updated_source_any._prefetched_objects_cache = {"schemas": schemas}
-            updated_source_any.active_schemas = active_schemas
 
         return updated_source
 
@@ -2092,22 +2098,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     )[:1],
                     to_attr="ordered_jobs",
                 ),
+                # One prefetch of every non-deleted schema serves both `get_schemas` and the
+                # "active" subset the status derives — a second filtered prefetch on the same table
+                # was a redundant sequential round-trip on the historically-slow list path.
                 Prefetch(
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
                     .select_related("table__credential", "table__external_data_source")
                     .order_by("name"),
-                ),
-                Prefetch(
-                    "schemas",
-                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
-                    .exclude(deleted=True)
-                    .filter(
-                        Q(should_sync=True) | Q(latest_error__isnull=False)
-                    )  # OR to include schemas with errors or marked for sync
-                    .select_related("source", "table__credential", "table__external_data_source"),
-                    to_attr="active_schemas",
                 ),
             )
             .order_by(self.ordering)

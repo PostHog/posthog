@@ -32,15 +32,23 @@ export interface availableSourcesLogicActions {
 
 export type availableSourcesLogicType = MakeLogicType<availableSourcesLogicValues, availableSourcesLogicActions>
 
+// The source-type manifest is a large response that rarely changes within a session. Hold the last
+// successful result in the module so the logic hydrates from it on remount instead of re-fetching.
+let cachedAvailableSources: Record<string, SourceConfig> | null = null
+
 export const availableSourcesLogic = kea<availableSourcesLogicType>([
     path(['products', 'dataWarehouse', 'availableSourcesLogic']),
     loaders({
         availableSources: [
-            null as Record<string, SourceConfig> | null,
+            cachedAvailableSources,
             {
                 load: async () => {
+                    if (cachedAvailableSources !== null) {
+                        return cachedAvailableSources
+                    }
                     try {
-                        return await api.externalDataSources.wizard()
+                        cachedAvailableSources = await api.externalDataSources.wizard()
+                        return cachedAvailableSources
                     } catch (e: any) {
                         if (e.status === 403) {
                             return null
@@ -51,7 +59,9 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.load()
+    afterMount(({ actions, values }) => {
+        if (values.availableSources === null) {
+            actions.load()
+        }
     }),
 ])

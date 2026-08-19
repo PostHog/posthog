@@ -6,7 +6,6 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
-    LemonSkeleton,
     LemonTable,
     LemonTag,
     Spinner,
@@ -45,14 +44,13 @@ export function ManagedSourcesTable(): JSX.Element {
     const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
         useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { availableSources } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
-    if (availableSourcesLoading) {
-        return <LemonSkeleton />
-    }
-
+    // The source-type manifest only supplies pretty labels and icons, both of which fall back
+    // gracefully while it loads. Render the user's own sources right away instead of blocking the
+    // whole table on that separate, large request.
     return (
         <div>
             <div className="flex gap-2 justify-between items-center mb-4">
