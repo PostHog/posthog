@@ -544,6 +544,7 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    snapshotsProcessing: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -556,8 +557,10 @@ export interface sessionRecordingPlayerLogicValues {
     isSnapshotUnauthorized: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
+    snapshotsForSourceLoading: boolean // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
     snapshotsLoading: boolean // snapshotDataLogic
+    snapshotSourcesLoading: boolean // snapshotDataLogic
     storeVersion: number // snapshotDataLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
@@ -1154,6 +1157,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'snapshotsLoaded',
                 'snapshotsLoading',
+                'snapshotSourcesLoading',
+                'snapshotsForSourceLoading',
                 'snapshotSources',
                 'snapshotStore',
                 'allSourcesLoaded',
@@ -1169,6 +1174,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
+                'snapshotsProcessing',
                 'trackedWindow',
             ],
             playerSettingsLogic,
@@ -2696,12 +2702,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.isBuffering) {
                 return
             }
-            // Re-arm rather than fail while the load can still make progress: a request is still in
-            // flight (a slow source or blob fetch), the recording is still ingesting (the grace path
-            // owns that terminal state), or new snapshot data arrived since we armed. Only a buffer
-            // that is genuinely stalled — no request, no ingestion, no progress — becomes terminal.
+            // Re-arm rather than fail while the load can still make progress: a source or blob fetch
+            // is in flight, snapshots are still being processed (a pass publishes its output only when
+            // it finishes, so the count stays flat meanwhile), the recording is still ingesting (the
+            // grace path owns that terminal state), or new snapshot data arrived since we armed. Only a
+            // buffer that is genuinely stalled — no request, no processing, no ingestion, no progress —
+            // becomes terminal.
             if (
-                values.snapshotsLoading ||
+                values.snapshotSourcesLoading ||
+                values.snapshotsForSourceLoading ||
+                values.snapshotsProcessing ||
                 values.isWaitingForIngestion ||
                 countLoadedSnapshots(values.sessionPlayerData) !== cache.stuckBufferLoadedCount
             ) {

@@ -289,12 +289,35 @@ describe('sessionRecordingPlayerLogic', () => {
                 snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
             ])
             expect(loadingLogic.values.isBuffering).toBe(true)
-            expect(loadingLogic.values.snapshotsLoading).toBe(true)
+            expect(loadingLogic.values.snapshotSourcesLoading).toBe(true)
 
             loadingLogic.actions.stuckBufferTimeoutReached()
 
             expect(loadingLogic.values.playerError).toBeNull()
             loadingLogic.unmount()
+        })
+
+        it('does not error while snapshots are still being processed', async () => {
+            overrideSessionRecordingMocks({ snapshotSources: [] })
+            const processingLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'processing',
+                blobV2PollingDisabled: true,
+            })
+            processingLogic.mount()
+            await expectLogic(processingLogic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+            // A processing pass publishes its snapshots only when it finishes, so no fetch is in flight
+            // and the loaded count stays flat. The watchdog must still re-arm rather than fail.
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.processSnapshotsAsync()
+            expect(processingLogic.values.snapshotsProcessing).toBe(true)
+            expect(processingLogic.values.isBuffering).toBe(true)
+
+            processingLogic.actions.stuckBufferTimeoutReached()
+
+            expect(processingLogic.values.playerError).toBeNull()
+            processingLogic.unmount()
         })
 
         it('surfaces a retryable error when the snapshot source list resolves empty', async () => {
@@ -884,20 +907,18 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBe('bufferTimeout')
         })
 
-        it('re-arms the watchdog after a retry so a still-stuck load fails again', () => {
+        it('re-arms the watchdog after a retry', () => {
             seedRecording(null, [inc(START + 61000), inc(START + 62000)])
             logic.actions.seekToTimestamp(START + 61500)
             logic.actions.stuckBufferTimeoutReached()
             expect(logic.values.playerError).toBe('bufferTimeout')
+            expect(logic.cache.stuckBufferWatchdogArmed).toBe(false)
 
-            // Retry clears the error and restarts loading. If the load stays stuck, the watchdog must
-            // fire again rather than leave the viewer back on an endless spinner.
+            // Retry clears the error and restarts loading. clearPlayerError has no listener, so without
+            // an explicit re-arm a retry that hangs again would drop the viewer back to the spinner.
             logic.actions.retryLoadingSnapshots()
-            expect(logic.values.playerError).toBeNull()
 
-            logic.actions.stuckBufferTimeoutReached()
-
-            expect(logic.values.playerError).toBe('bufferTimeout')
+            expect(logic.cache.stuckBufferWatchdogArmed).toBe(true)
         })
 
         it('does not error a still-ingesting recording when the buffer watchdog fires', () => {
