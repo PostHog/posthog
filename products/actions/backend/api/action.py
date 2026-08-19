@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db import connection
-from django.db.models import Count
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -26,7 +25,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.models.event.event import Selector
@@ -549,7 +547,6 @@ class ActionViewSet(
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})

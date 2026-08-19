@@ -399,7 +399,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -441,7 +440,6 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
@@ -453,8 +451,6 @@
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_action"."team_id" = 99999))
          AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
@@ -1027,7 +1023,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1069,7 +1064,6 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
@@ -1081,8 +1075,6 @@
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_action"."team_id" = 99999))
          AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
@@ -1282,7 +1274,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1324,7 +1315,6 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
@@ -1336,8 +1326,6 @@
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_action"."team_id" = 99999))
          AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''

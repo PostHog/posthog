@@ -13,6 +13,11 @@ export interface ActionsModelProps {
     params?: string
 }
 
+// This model is permanently mounted and reloads on every authenticated page load. Bound the
+// default request so a project with many actions does not fetch its whole list each time. The
+// taxonomic filter and other consumers read from this list, so the cap is also their ceiling.
+const DEFAULT_ACTIONS_LIMIT = 1000
+
 export function findActionName(id: number): string | null {
     return actionsModel.findMounted()?.values.actions.find((a) => a.id === id)?.name || null
 }
@@ -131,7 +136,7 @@ export const actionsModel = kea<actionsModelType>([
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
-                const response = await api.actions.list(props.params)
+                const response = await api.actions.list(props.params ?? `limit=${DEFAULT_ACTIONS_LIMIT}`)
                 return response.results ?? []
             },
             updateAction: (action: ActionType) => (values.actions || []).map((a) => (action.id === a.id ? action : a)),
