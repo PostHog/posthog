@@ -983,7 +983,7 @@ class TestIssueTagValuesResumable:
             # A watermark inside the window is the tighter floor, so the scan stops there.
             ("watermark_inside_window", timedelta(days=2), timedelta(days=2)),
             # A watermark older than the window can't widen it back out.
-            ("watermark_older_than_window", timedelta(days=60), None),
+            ("watermark_older_than_window", timedelta(days=120), None),
             # A full refresh has no watermark, so the window alone bounds the scan.
             ("full_refresh", None, None),
         ]

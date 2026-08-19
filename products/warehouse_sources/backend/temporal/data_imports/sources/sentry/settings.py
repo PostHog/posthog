@@ -35,15 +35,16 @@ SENTRY_RETENTION_DAYS = 90
 
 # How far back a fan-out reaches for the issues it fans out over. Both paths carry this
 # window: the API fetch sends it as `start`/`end`, and the warehouse scan applies it as a
-# floor on `lastSeen`, so the two produce the same issue set.
+# floor on `lastSeen`, so the two select one issue set.
 #
-# It is set here rather than inherited. A parent fetch that sends no bound gets whatever
-# Sentry defaults to, which is undocumented, invisible in our own logs, and impossible for a
-# snapshot scan to reproduce — the warehouse path fanned out over roughly five times the
-# issues the API path did because of it. Widening this widens both paths together, and costs
-# a full-refresh child (issue_hashes) proportionally, since it re-reads every issue in the
-# window on every run.
-SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=14)
+# 90 days is the window the issues endpoint already applies when a request sends no bound.
+# Sentry's `organization_group_index` GET resolves its range through
+# `get_date_range_from_stats_period`, which falls back to `default_start_end_dates`, which
+# returns `now - MAX_STATS_PERIOD` where `MAX_STATS_PERIOD = timedelta(days=90)`
+# (`src/sentry/api/utils.py`). Sending it explicitly leaves the API path's row set unchanged
+# and gives the warehouse scan a bound it can reproduce rather than infer. This mirrors
+# Sentry's own default, so narrowing it would drop issues the API path still lists.
+SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=90)
 
 ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
 
