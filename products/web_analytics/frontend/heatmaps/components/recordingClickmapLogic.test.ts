@@ -93,6 +93,12 @@ describe('recordingClickmapLogic', () => {
             })
         })
 
+        it('labels a box from direct child text only, not concatenated descendant text', () => {
+            snapshotDocument.getElementById('cta')!.innerHTML = 'Sign up<span>tracked event label</span>'
+            const boxes = computeClickmapBoxes([statsRow({ count: 1 })], snapshotDocument, null, ['data-attr'])
+            expect(boxes[0].label).toBe('Sign up')
+        })
+
         it('produces one box per matched element, sorted by count descending', () => {
             const boxes = computeClickmapBoxes(
                 [

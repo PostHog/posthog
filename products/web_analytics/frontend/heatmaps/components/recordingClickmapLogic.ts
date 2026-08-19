@@ -16,6 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementsEventType } from '~/toolbar/types'
+import { getSafeText } from '~/toolbar/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
@@ -105,7 +106,9 @@ function describeElement(element: HTMLElement): { label: string; displaySelector
     const firstClass = element.classList.length ? `.${element.classList[0]}` : ''
     return {
         displaySelector: `${tag}${id}${firstClass}`,
-        label: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 60) ?? '',
+        // read only direct child text. This stops a field group from collapsing its labels
+        // and options into one run-together string. The tooltip ellipsizes the rest in CSS.
+        label: getSafeText(element),
     }
 }
 
@@ -228,6 +231,9 @@ export interface recordingClickmapLogicActions {
     recomputeClickmap: () => {
         value: true
     }
+    watchSnapshotReflow: () => {
+        value: true
+    }
     selectClickmapBox: (key: string | null) => {
         key: string | null
     }
@@ -295,6 +301,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         loadElementStats: true,
         maybeLoadElementStats: true,
         recomputeClickmap: true,
+        watchSnapshotReflow: true,
         setClickmapBoxes: (boxes: ClickmapBox[]) => ({ boxes }),
     }),
     reducers({
@@ -412,11 +419,14 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             actions.setHeatmapTooltipSuppressed(false)
         },
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setClickmapEnabled: ({ enabled }) => {
             posthog.capture('in-app heatmap clickmap toggled', { enabled })
             if (enabled) {
                 actions.maybeLoadElementStats()
+                actions.watchSnapshotReflow()
+            } else {
+                cache.disposables.dispose('reflowObserver')
             }
         },
         maybeLoadElementStats: () => {
@@ -435,6 +445,21 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             } else {
                 actions.maybeLoadElementStats()
             }
+            actions.watchSnapshotReflow()
+        },
+        watchSnapshotReflow: () => {
+            // the snapshot renders asynchronously. Images, fonts, and late layout move
+            // element positions after the first measure. Re-measure on reflow so each box
+            // and its tooltip stay aligned with the element they describe.
+            cache.disposables.add(() => {
+                const snapshotBody = props.iframeRef?.current?.contentDocument?.body
+                if (!snapshotBody || typeof ResizeObserver === 'undefined') {
+                    return () => {}
+                }
+                const observer = new ResizeObserver(() => actions.recomputeClickmap())
+                observer.observe(snapshotBody)
+                return () => observer.disconnect()
+            }, 'reflowObserver')
         },
         loadElementStatsSuccess: () => actions.recomputeClickmap(),
         recomputeClickmap: async (_, breakpoint) => {

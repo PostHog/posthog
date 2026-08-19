@@ -68,7 +68,7 @@ function ClickmapBoxInfo({
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-1 max-w-100">
-            {box.label ? <div className="font-semibold">{box.label}</div> : null}
+            {box.label ? <div className="font-semibold truncate">{box.label}</div> : null}
             <div className="font-mono text-xs text-muted-alt break-all">{box.displaySelector}</div>
             <ElementClickStats
                 count={box.count}
