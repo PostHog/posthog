@@ -25,9 +25,9 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-logger = structlog.get_logger(__name__)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
 
-DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
+logger = structlog.get_logger(__name__)
 
 # The Postgres database to connect to is always "ducklake"; the user-chosen warehouse
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone

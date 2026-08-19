@@ -956,6 +956,15 @@ export const ActivityKindEnumApi = {
 } as const
 
 /**
+ * * `desktop_canvas` - desktop_canvas
+ */
+export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
+
+export const TargetScopeEnumApi = {
+    DesktopCanvas: 'desktop_canvas',
+} as const
+
+/**
  * Response shape for one task in the requester's activity feed (one row per task).
  */
 export interface TaskActivityDTOApi {
@@ -989,6 +998,15 @@ export interface TaskActivityDTOApi {
     latest_comment_scope?: string | null
     /** @nullable */
     latest_comment_item_id?: string | null
+    /** The non-task surface this activity opens, when the task backs another shared artifact.
+     *
+     * * `desktop_canvas` - desktop_canvas */
+    target_scope?: TargetScopeEnumApi | null
+    /**
+     * Identifier of the activity target. Present together with target_scope.
+     * @nullable
+     */
+    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -1614,6 +1632,8 @@ export interface TaskDetailDTOApi {
     created_at?: string | null
     /** @nullable */
     updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     ci_prompt: string | null
@@ -2769,6 +2789,15 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
 export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
+}
+
+export interface TaskUsageResponseApi {
+    /** Estimated model cost attributed to this task in US dollars. */
+    token_cost_usd: number
+    /** Estimated cloud compute cost attributed to this task in US dollars. */
+    compute_cost_usd: number
+    /** Estimated total cost attributed to this task in US dollars. */
+    total_cost_usd: number
 }
 
 export interface PaginatedTaskRunDetailDTOListApi {
@@ -4302,6 +4331,20 @@ export type TasksListParams = {
      */
     channel?: string
     /**
+     * Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.
+     *
+     * * `passing` - passing
+     * * `failing` - failing
+     * * `pending` - pending
+     * * `none` - none
+     * @minLength 1
+     */
+    ci_status?: TasksListCiStatus
+    /**
+     * Filter to tasks carrying a thread comment written by this user ID.
+     */
+    commented_by?: number
+    /**
      * Filter by creator user ID
      */
     created_by?: number
@@ -4321,10 +4364,22 @@ export type TasksListParams = {
      */
     limit?: number
     /**
+     * Filter to tasks whose thread mentions this user ID.
+     */
+    mentions?: number
+    /**
      * The initial index from which to return the results.
      * @minimum 0
      */
     offset?: number
+    /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering
     /**
      * Filter by repository organization
      * @minLength 1
@@ -4335,6 +4390,20 @@ export type TasksListParams = {
      * @minLength 1
      */
     origin_product?: string
+    /**
+     * With true, only tasks the requesting user has pinned.
+     */
+    pinned?: boolean
+    /**
+     * Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * @minLength 1
+     */
+    pr_state?: TasksListPrState
     /**
      * Filter by repository name (can include org/repo format)
      * @minLength 1
@@ -4371,12 +4440,37 @@ export const TasksListArchived = {
     All: 'all',
 } as const
 
+export type TasksListCiStatus = (typeof TasksListCiStatus)[keyof typeof TasksListCiStatus]
+
+export const TasksListCiStatus = {
+    Passing: 'passing',
+    Failing: 'failing',
+    Pending: 'pending',
+    None: 'none',
+} as const
+
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
 
 export const TasksListInternal = {
     True: 'true',
     False: 'false',
     All: 'all',
+} as const
+
+export type TasksListOrdering = (typeof TasksListOrdering)[keyof typeof TasksListOrdering]
+
+export const TasksListOrdering = {
+    CreatedAt: '-created_at',
+    LastActivityAt: '-last_activity_at',
+} as const
+
+export type TasksListPrState = (typeof TasksListPrState)[keyof typeof TasksListPrState]
+
+export const TasksListPrState = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
 } as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
