@@ -24,7 +24,9 @@ export function taskFeedResultsQueryKey(query: string) {
 }
 
 export function useFeedQueryPlan(query: string | undefined): {
+  canRetry: boolean;
   error: Error | null;
+  errorMessage: string | null;
   plan: FeedQueryPlan | undefined;
   isLoading: boolean;
   refetch: () => void;
@@ -53,27 +55,56 @@ export function useFeedQueryPlan(query: string | undefined): {
   const {
     members,
     error: membersError,
+    isComplete: membersComplete,
     isLoading: membersLoading,
     refetch: refetchMembers,
   } = useOrgMembers({ enabled: needsMembers });
   const { channels, isLoading: channelsLoading } = useChannels();
 
+  const memberLookupFailed = needsMembers && membersError !== null;
+  const memberLookupIncomplete = needsMembers && !membersComplete;
   const waiting =
     (needsMembers && membersLoading) ||
     (needsCurrentUser && currentUserLoading) ||
     (needsSpaces && channelsLoading);
 
   const plan = useMemo(() => {
-    if (normalized === "" || waiting || membersError) return undefined;
+    if (
+      normalized === "" ||
+      waiting ||
+      memberLookupFailed ||
+      memberLookupIncomplete
+    ) {
+      return undefined;
+    }
     return planFeedQuery(parsed, {
       members,
       spaces: channels.map((c) => ({ id: c.id, name: c.name })),
       me: me ?? null,
     });
-  }, [normalized, waiting, membersError, parsed, members, channels, me]);
+  }, [
+    normalized,
+    waiting,
+    memberLookupFailed,
+    memberLookupIncomplete,
+    parsed,
+    members,
+    channels,
+    me,
+  ]);
 
   return {
-    error: needsMembers ? membersError : null,
+    canRetry: memberLookupFailed,
+    error: memberLookupFailed
+      ? membersError
+      : memberLookupIncomplete
+        ? new Error("Organization member lookup is incomplete")
+        : null,
+    errorMessage: memberLookupFailed
+      ? "Couldn't load organization members. Try again."
+      : memberLookupIncomplete
+        ? "Organization member lookup is incomplete. This search cannot verify every teammate."
+        : null,
     isLoading: normalized !== "" && waiting,
     plan,
     refetch: refetchMembers,
@@ -81,7 +112,9 @@ export function useFeedQueryPlan(query: string | undefined): {
 }
 
 export function useTaskFeedResults(query: string | undefined): {
+  canRetry: boolean;
   error: Error | null;
+  errorMessage: string | null;
   isComplete: boolean;
   isFetching: boolean;
   isLoading: boolean;
@@ -91,7 +124,9 @@ export function useTaskFeedResults(query: string | undefined): {
 } {
   const normalized = query?.trim() ?? "";
   const {
+    canRetry: planCanRetry,
     error: planError,
+    errorMessage: planErrorMessage,
     plan,
     isLoading: planLoading,
     refetch: refetchPlan,
@@ -133,7 +168,11 @@ export function useTaskFeedResults(query: string | undefined): {
   }, [result.data, plan]);
 
   return {
+    canRetry: planError ? planCanRetry : result.error !== null,
     error: planError ?? result.error ?? null,
+    errorMessage:
+      planErrorMessage ??
+      (result.error ? "Couldn't load matching tasks. Try again." : null),
     isComplete: result.data?.isComplete ?? false,
     isFetching: result.isFetching,
     isLoading: planLoading || result.isLoading,

@@ -2,6 +2,7 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let currentUserLoading = false;
+let membersComplete = true;
 let membersError: Error | null = null;
 let taskQueryError: Error | null = null;
 const refetch = vi.fn();
@@ -19,7 +20,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
     error: membersError,
     isLoading: false,
     isError: membersError !== null,
-    isComplete: true,
+    isComplete: membersComplete,
     refetch: refetchMembers,
   }),
 }));
@@ -41,6 +42,7 @@ import { useFeedQueryPlan, useTaskFeedResults } from "./useTaskFeedResults";
 describe("task feed queries", () => {
   beforeEach(() => {
     currentUserLoading = false;
+    membersComplete = true;
     membersError = null;
     taskQueryError = null;
     refetch.mockClear();
@@ -63,6 +65,17 @@ describe("task feed queries", () => {
 
     expect(result.current.error).toBe(membersError);
     expect(result.current.plan).toBeUndefined();
+  });
+
+  it("reports incomplete member lookup without rejecting the person filter", () => {
+    membersComplete = false;
+
+    const { result } = renderHook(() => useFeedQueryPlan("created-by:alex"));
+
+    expect(result.current.plan).toBeUndefined();
+    expect(result.current.errorMessage).toBe(
+      "Organization member lookup is incomplete. This search cannot verify every teammate.",
+    );
   });
 
   it("exposes task request failures instead of empty results", () => {

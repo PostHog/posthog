@@ -138,7 +138,7 @@ export function TaskFeedModal({
               <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs tabular-nums">
                 {counting ? (
                   <Spinner className="size-3" />
-                ) : preview.error ? (
+                ) : preview.error && preview.canRetry ? (
                   <Button
                     variant="link-muted"
                     size="xs"
@@ -148,7 +148,7 @@ export function TaskFeedModal({
                   >
                     Try again
                   </Button>
-                ) : (
+                ) : preview.error ? null : (
                   trimmedQuery !== "" &&
                   previewQuery !== "" &&
                   (preview.isComplete
@@ -182,7 +182,7 @@ export function TaskFeedModal({
               title={issue?.message}
             >
               {preview.error
-                ? "Couldn't load matching tasks. Try again."
+                ? preview.errorMessage
                 : (issue?.message ??
                   (unfinished
                     ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
