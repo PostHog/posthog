@@ -2,8 +2,10 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let currentUserLoading = false;
+let membersError: Error | null = null;
 let taskQueryError: Error | null = null;
 const refetch = vi.fn();
+const refetchMembers = vi.fn();
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
@@ -14,9 +16,11 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({
     members: [],
+    error: membersError,
     isLoading: false,
-    isError: false,
+    isError: membersError !== null,
     isComplete: true,
+    refetch: refetchMembers,
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
@@ -37,8 +41,10 @@ import { useFeedQueryPlan, useTaskFeedResults } from "./useTaskFeedResults";
 describe("task feed queries", () => {
   beforeEach(() => {
     currentUserLoading = false;
+    membersError = null;
     taskQueryError = null;
     refetch.mockClear();
+    refetchMembers.mockClear();
   });
 
   it("waits for the current user before resolving an @me filter", () => {
@@ -46,7 +52,17 @@ describe("task feed queries", () => {
 
     const { result } = renderHook(() => useFeedQueryPlan("created-by:@me"));
 
-    expect(result.current).toEqual({ isLoading: true, plan: undefined });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.plan).toBeUndefined();
+  });
+
+  it("stops planning when member lookup fails", () => {
+    membersError = new Error("Network error");
+
+    const { result } = renderHook(() => useFeedQueryPlan("created-by:alex"));
+
+    expect(result.current.error).toBe(membersError);
+    expect(result.current.plan).toBeUndefined();
   });
 
   it("exposes task request failures instead of empty results", () => {

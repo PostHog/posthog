@@ -24,37 +24,38 @@ export function taskFeedResultsQueryKey(query: string) {
 }
 
 export function useFeedQueryPlan(query: string | undefined): {
+  error: Error | null;
   plan: FeedQueryPlan | undefined;
   isLoading: boolean;
+  refetch: () => void;
 } {
   const normalized = query?.trim() ?? "";
   const parsed = useMemo(() => parseFeedQuery(normalized), [normalized]);
+  const isPersonToken = (token: (typeof parsed.tokens)[number]) =>
+    token.key === "created-by" ||
+    token.key === "commented-by" ||
+    token.key === "mentions" ||
+    token.key === "involves";
+  const isCurrentUserToken = (token: (typeof parsed.tokens)[number]) =>
+    token.value.toLowerCase() === "@me" || token.value.toLowerCase() === "me";
   const needsMembers = parsed.tokens.some(
-    (t) =>
-      t.key === "created-by" ||
-      t.key === "commented-by" ||
-      t.key === "mentions" ||
-      t.key === "involves",
+    (token) => isPersonToken(token) && !isCurrentUserToken(token),
   );
   const needsSpaces = parsed.tokens.some((t) => t.key === "space");
-
   const needsCurrentUser = parsed.tokens.some(
-    (token) =>
-      (token.key === "created-by" ||
-        token.key === "commented-by" ||
-        token.key === "mentions" ||
-        token.key === "involves") &&
-      (token.value.toLowerCase() === "@me" ||
-        token.value.toLowerCase() === "me"),
+    (token) => isPersonToken(token) && isCurrentUserToken(token),
   );
 
   const client = useOptionalAuthenticatedClient();
   const { data: me, isLoading: currentUserLoading } = useCurrentUser({
     client,
   });
-  const { members, isLoading: membersLoading } = useOrgMembers({
-    enabled: needsMembers,
-  });
+  const {
+    members,
+    error: membersError,
+    isLoading: membersLoading,
+    refetch: refetchMembers,
+  } = useOrgMembers({ enabled: needsMembers });
   const { channels, isLoading: channelsLoading } = useChannels();
 
   const waiting =
@@ -63,15 +64,20 @@ export function useFeedQueryPlan(query: string | undefined): {
     (needsSpaces && channelsLoading);
 
   const plan = useMemo(() => {
-    if (normalized === "" || waiting) return undefined;
+    if (normalized === "" || waiting || membersError) return undefined;
     return planFeedQuery(parsed, {
       members,
       spaces: channels.map((c) => ({ id: c.id, name: c.name })),
       me: me ?? null,
     });
-  }, [normalized, waiting, parsed, members, channels, me]);
+  }, [normalized, waiting, membersError, parsed, members, channels, me]);
 
-  return { plan, isLoading: normalized !== "" && waiting };
+  return {
+    error: needsMembers ? membersError : null,
+    isLoading: normalized !== "" && waiting,
+    plan,
+    refetch: refetchMembers,
+  };
 }
 
 export function useTaskFeedResults(query: string | undefined): {
@@ -84,7 +90,12 @@ export function useTaskFeedResults(query: string | undefined): {
   tasks: Task[];
 } {
   const normalized = query?.trim() ?? "";
-  const { plan, isLoading: planLoading } = useFeedQueryPlan(normalized);
+  const {
+    error: planError,
+    plan,
+    isLoading: planLoading,
+    refetch: refetchPlan,
+  } = useFeedQueryPlan(normalized);
 
   const requests = plan?.requests ?? [];
   const result = useAuthenticatedQuery<{ tasks: Task[]; isComplete: boolean }>(
@@ -122,12 +133,16 @@ export function useTaskFeedResults(query: string | undefined): {
   }, [result.data, plan]);
 
   return {
-    error: result.error ?? null,
+    error: planError ?? result.error ?? null,
     isComplete: result.data?.isComplete ?? false,
     isFetching: result.isFetching,
     isLoading: planLoading || result.isLoading,
     issues: plan?.issues ?? [],
     refetch: () => {
+      if (planError) {
+        refetchPlan();
+        return;
+      }
       void result.refetch();
     },
     tasks,
