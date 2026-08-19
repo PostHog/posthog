@@ -11,9 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="task",
-            index=models.Index(
-                fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"
-            ),
+            index=models.Index(fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"),
         ),
         # A partial unique constraint compiles to a partial unique index, which Django's
         # AddConstraint builds under an ACCESS EXCLUSIVE lock. Build the index concurrently
