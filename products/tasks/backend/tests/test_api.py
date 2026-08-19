@@ -2216,6 +2216,23 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(latest_run["environment"], "cloud")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_records_the_acting_user_on_run_state(self, mock_workflow):
+        # A teammate driving a team-visible signals task must run it as themselves:
+        # the run records them as the actor, so credential minting
+        # (run_actor.get_task_run_credential_user) resolves them, not the creator.
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.save(update_fields=["origin_product"])
+        teammate = self.create_organization_user()
+        self.client.force_login(teammate)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = task.runs.get()
+        self.assertEqual(run.state["actor_user_id"], teammate.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_starts_pi_task(self, mock_workflow):
         task = self.create_task(runtime=Task.Runtime.PI)
 

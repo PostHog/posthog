@@ -3798,6 +3798,18 @@ def _resolve_cloud_pr_authorship_mode(
     )
 
 
+def _with_recorded_actor(extra_state: dict | None, user_id: int | None) -> dict | None:
+    """Record the acting user on a new run's state so credential minting resolves them
+    (run_actor.get_task_run_credential_user) instead of the task creator."""
+    if user_id is None:
+        return extra_state
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        actor_state_updates,
+    )
+
+    return {**(extra_state or {}), **actor_state_updates(user_id=user_id)}
+
+
 def _github_credential_source_extra_state(pr_authorship_mode, github_user_token: str | None) -> dict[str, str]:
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         GitHubCredentialSource,
@@ -3942,13 +3954,7 @@ def bootstrap_task_run(
             },
         )
 
-    if user_id is not None:
-        from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
-            actor_state_updates,
-        )
-
-        extra_state = extra_state or {}
-        extra_state.update(actor_state_updates(user_id=user_id))
+    extra_state = _with_recorded_actor(extra_state, user_id)
 
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
@@ -5824,13 +5830,7 @@ def run_task(
                 )
             )
 
-    if user_id is not None:
-        from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
-            actor_state_updates,
-        )
-
-        extra_state = extra_state or {}
-        extra_state.update(actor_state_updates(user_id=user_id))
+    extra_state = _with_recorded_actor(extra_state, user_id)
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)

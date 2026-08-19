@@ -53,15 +53,15 @@ def is_slack_interaction_state(state: dict[str, Any] | None) -> bool:
     return (state or {}).get("interaction_origin") == "slack"
 
 
-def _recorded_actor_key(state: dict[str, Any]) -> str:
+def recorded_actor_key(state: dict[str, Any] | None) -> str:
+    """The run-state key carrying this run's recorded actor for its interaction origin."""
     return SLACK_ACTOR_USER_STATE_KEY if is_slack_interaction_state(state) else ACTOR_USER_STATE_KEY
 
 
 def has_recorded_actor(state: dict[str, Any] | None) -> bool:
     """Whether this run recorded the user driving it (Slack steering, or a web run
-    started or commanded on a task the driver did not create)."""
-    state = state or {}
-    return _recorded_actor_key(state) in state
+    start or follow-up)."""
+    return recorded_actor_key(state) in (state or {})
 
 
 def actor_resolution_fails_closed(state: dict[str, Any] | None) -> bool:
@@ -70,7 +70,7 @@ def actor_resolution_fails_closed(state: dict[str, Any] | None) -> bool:
     True for every Slack run and for any run that recorded a driving actor: once an
     actor is on record, an invalid one must stop the run, not silently escalate to
     the creator's credentials."""
-    return is_slack_interaction_state(state) or ACTOR_USER_STATE_KEY in (state or {})
+    return is_slack_interaction_state(state) or has_recorded_actor(state)
 
 
 def get_task_run_actor_user(
@@ -82,9 +82,10 @@ def get_task_run_actor_user(
     """Return the PostHog user acting on this task run.
 
     Slack runs carry their current steering user in run state; web runs carry the
-    user who started or last messaged them when that user is not the task creator.
-    Credential-bearing paths should pass ``allow_task_creator_fallback=False`` so a
-    missing or unauthorized actor fails closed instead of silently using the creator.
+    user who started or last messaged them (the creator included — the stamp is
+    unconditional). Credential-bearing paths should pass
+    ``allow_task_creator_fallback=False`` so a missing or unauthorized actor fails
+    closed instead of silently using the creator.
     """
     state = state or {}
     task_created_by = task.created_by if getattr(task, "created_by_id", None) is not None else None
@@ -94,7 +95,7 @@ def get_task_run_actor_user(
     def fallback_actor() -> User | None:
         return task_created_by if allow_task_creator_fallback else None
 
-    actor_user_id = state.get(_recorded_actor_key(state))
+    actor_user_id = state.get(recorded_actor_key(state))
     if not isinstance(actor_user_id, int) or isinstance(actor_user_id, bool):
         return fallback_actor()
     if task_created_by is not None and actor_user_id == task_created_by.id:

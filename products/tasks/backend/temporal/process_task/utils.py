@@ -1105,11 +1105,16 @@ def _resolve_sandbox_github_token(
     """
     pr_authorship_mode: PrAuthorshipMode | None
     slack_interaction = is_slack_interaction_state(state)
+    # A run with an authoritative actor (Slack, or a recorded web driver) must never
+    # resolve the creator's identity in that actor's place. The team-token fallbacks
+    # below stay Slack-only: a valid web actor without a linked GitHub account keeps
+    # the team integration fallback, which swaps a token, not a user identity.
+    actor_is_authoritative = actor_resolution_fails_closed(state)
     created_by = actor_user or created_by
     if task is not None:
-        if actor_user is None and slack_interaction:
+        if actor_user is None and actor_is_authoritative:
             actor_user = get_task_run_credential_user(task, state)
-        created_by = actor_user or (task.created_by if not slack_interaction else None)
+        created_by = actor_user or (task.created_by if not actor_is_authoritative else None)
         repository = repository or task.repository
         github_user_integration_id = github_user_integration_id or (
             str(task.github_user_integration_id) if task.github_user_integration_id else None
@@ -1132,8 +1137,8 @@ def _resolve_sandbox_github_token(
                 return None
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
-        if task is not None and slack_interaction and created_by is None:
-            raise ReauthorizationRequired(f"Slack run {run_id} requires an acting user with GitHub repo access.")
+        if task is not None and actor_is_authoritative and created_by is None:
+            raise ReauthorizationRequired(f"Run {run_id} requires an acting user with GitHub repo access.")
         cached = get_cached_github_user_token(run_id)
         if cached:
             return cached

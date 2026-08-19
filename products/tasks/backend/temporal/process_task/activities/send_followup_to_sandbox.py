@@ -25,10 +25,9 @@ from products.tasks.backend.logic.services.agent_command import (
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.run_actor import (
-    ACTOR_USER_STATE_KEY,
-    SLACK_ACTOR_USER_STATE_KEY,
     actor_resolution_fails_closed,
     actor_state_updates,
+    recorded_actor_key,
     slack_actor_state_updates,
 )
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
@@ -170,8 +169,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     state = task_run.state
     if input.actor_user_id is not None:
-        actor_key = SLACK_ACTOR_USER_STATE_KEY if is_slack_interaction_state(state) else ACTOR_USER_STATE_KEY
-        state = {**(state or {}), actor_key: input.actor_user_id}
+        state = {**(state or {}), recorded_actor_key(state): input.actor_user_id}
 
     actor_user = get_task_run_credential_user(task_run.task, state)
     if actor_resolution_fails_closed(state) and actor_user is None:
