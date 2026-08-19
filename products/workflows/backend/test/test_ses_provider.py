@@ -362,19 +362,23 @@ class TestSESProvider(TestCase):
 
     @parameterized.expand(
         [
-            ("missing", None, "pending"),
-            ("present_correct", "feedback-smtp.us-east-1.amazonses.com.", "success"),
-            ("present_wrong", "mail.wrong-host.example.com.", "mismatch"),
+            ("missing", None, None, "pending"),
+            ("present_correct", "feedback-smtp.us-east-1.amazonses.com.", 10, "success"),
+            ("present_wrong_host", "mail.wrong-host.example.com.", 10, "mismatch"),
+            ("present_wrong_priority", "feedback-smtp.us-east-1.amazonses.com.", 20, "mismatch"),
         ]
     )
-    def test_verify_mx_reports_per_record_status_when_ses_is_not_success(self, _name, exchange, expected_status):
-        """A direct MX lookup tells a missing record apart from one present with the wrong value."""
+    def test_verify_mx_reports_per_record_status_when_ses_is_not_success(
+        self, _name, exchange, preference, expected_status
+    ):
+        """A direct MX lookup tells a missing record apart from one present with the wrong host or priority."""
         provider = SESProvider()
 
         def resolve_side_effect(hostname, rdtype=None):
             if rdtype == "MX" and exchange is not None:
                 rdata = MagicMock()
                 rdata.exchange = dns.name.from_text(exchange)
+                rdata.preference = preference
                 return [rdata]
             raise dns.resolver.NXDOMAIN()
 

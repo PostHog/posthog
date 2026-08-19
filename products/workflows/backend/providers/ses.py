@@ -442,8 +442,11 @@ class SESProvider:
                 try:
                     answers = resolver.resolve(r["recordHostname"], "MX")
                     expected = dns.name.from_text(r["recordValue"])
-                    # dnspython Name comparison is case-insensitive per RFC 1035
-                    if any(rdata.exchange == expected for rdata in answers):
+                    # Match host and priority: SES keeps the domain pending on a wrong priority, so a
+                    # host-only match would show a misleading "success". Name comparison is
+                    # case-insensitive per RFC 1035. An extra MX record doesn't invalidate this one,
+                    # so any matching answer counts (as with the DKIM lookup above).
+                    if any(rdata.exchange == expected and rdata.preference == r["priority"] for rdata in answers):
                         r["status"] = "success"
                     else:
                         r["status"] = "mismatch"
