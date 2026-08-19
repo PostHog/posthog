@@ -173,6 +173,24 @@ CREATE TABLE posthog.kafka_session_replay_events (
   ai_highlighted UInt8,
   surfacing_score Nullable(Float32)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_session_replay_events\'';
+CREATE TABLE posthog.kafka_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String)
+) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_usage_records\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_usage_records\'';
 CREATE TABLE posthog.kafka_usage_report_events_preagg (
   uuid UUID,
   event String,
@@ -493,6 +511,27 @@ CREATE TABLE posthog.writable_session_replay_events (
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_usage_records', sipHash64(team_id));
 CREATE TABLE posthog.writable_usage_report_events_preagg (
   date Date,
   team_id Int64,
@@ -722,6 +761,27 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
 FROM posthog.kafka_session_replay_events
 GROUP BY
   session_id, team_id;
+CREATE MATERIALIZED VIEW posthog.usage_records_mv TO posthog.writable_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), mode Enum8('delta'=1, 'snapshot'=2), unit LowCardinality(String), quantity Int64, version UInt64, event_timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), source_ref String, user_id String, variant String, dimensions Map(LowCardinality(String), String), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+  schema_version,
+  record_id,
+  producer_id,
+  team_id,
+  organization_id,
+  usage_key,
+  mode,
+  unit,
+  quantity,
+  version,
+  event_timestamp,
+  inserted_at,
+  source_ref,
+  user_id,
+  variant,
+  dimensions,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_usage_records;
 CREATE MATERIALIZED VIEW posthog.usage_report_events_preagg_mv TO posthog.writable_usage_report_events_preagg (date Date, team_id Int64, person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), lib String, event String, distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)), event_count AggregateFunction(sum, UInt64)) AS SELECT
   toDate(timestamp) AS date,
   team_id,

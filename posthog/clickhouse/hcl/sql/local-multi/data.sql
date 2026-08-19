@@ -1670,6 +1670,27 @@ CREATE TABLE posthog.sharded_tophog (
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.tophog', '{replica}') ORDER BY (pipeline, lane, metric, timestamp, key) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp);
 CREATE TABLE posthog.tophog (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
@@ -1681,6 +1702,27 @@ CREATE TABLE posthog.tophog (
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_tophog', cityHash64(toString(key)));
+CREATE TABLE posthog.usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_usage_records', sipHash64(team_id));
 CREATE TABLE posthog.usage_report_events_preagg (
   date Date,
   team_id Int64,

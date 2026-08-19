@@ -574,6 +574,66 @@ database "posthog" {
     }
   }
 
+  table "kafka_usage_records" {
+    settings = {
+      date_time_input_format = "best_effort"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "mode" {
+      type = "Enum8('delta'=1, 'snapshot'=2)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "source_ref" {
+      type = "String"
+    }
+    column "user_id" {
+      type = "String"
+    }
+    column "variant" {
+      type = "String"
+    }
+    column "dimensions" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    engine "kafka" {
+      broker_list = "warpstream_ingestion"
+      topic_list  = "kafka_topic_list = 'clickhouse_usage_records'"
+      group_name  = "kafka_group_name = 'clickhouse_usage_records'"
+      format      = "kafka_format = 'JSONEachRow'"
+    }
+  }
+
   table "kafka_usage_report_events_preagg" {
     column "uuid" {
       type = "UUID"
@@ -1649,6 +1709,72 @@ database "posthog" {
     }
   }
 
+  table "writable_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "mode" {
+      type = "Enum8('delta'=1, 'snapshot'=2)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "source_ref" {
+      type = "String"
+    }
+    column "user_id" {
+      type = "String"
+    }
+    column "variant" {
+      type = "String"
+    }
+    column "dimensions" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_usage_records"
+      sharding_key    = "sipHash64(team_id)"
+    }
+  }
+
   table "writable_usage_report_events_preagg" {
     column "date" {
       type = "Date"
@@ -2544,6 +2670,91 @@ SQL
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
+    }
+  }
+
+  materialized_view "usage_records_mv" {
+    to_table = "posthog.writable_usage_records"
+    query    = <<SQL
+SELECT
+  schema_version,
+  record_id,
+  producer_id,
+  team_id,
+  organization_id,
+  usage_key,
+  mode,
+  unit,
+  quantity,
+  version,
+  event_timestamp,
+  inserted_at,
+  source_ref,
+  user_id,
+  variant,
+  dimensions,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_usage_records
+SQL
+
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "mode" {
+      type = "Enum8('delta'=1, 'snapshot'=2)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "source_ref" {
+      type = "String"
+    }
+    column "user_id" {
+      type = "String"
+    }
+    column "variant" {
+      type = "String"
+    }
+    column "dimensions" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
     }
   }
 

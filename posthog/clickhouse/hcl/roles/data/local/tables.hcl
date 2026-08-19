@@ -7864,4 +7864,60 @@ SQL
       comment = "column_materializer::properties::$ai_experiment_id"
     }
   }
+  table "sharded_usage_records" {
+    order_by     = ["team_id", "producer_id", "record_id", "version"]
+    partition_by = "toYYYYMM(event_timestamp)"
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "version" { type = "UInt64" }
+    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "source_ref" { type = "String" }
+    column "user_id" { type = "String" }
+    column "variant" { type = "String" }
+    column "dimensions" { type = "Map(LowCardinality(String), String)" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_usage_records"
+      replica_name   = "{replica}"
+      version_column = "event_timestamp"
+    }
+  }
+
+  table "usage_records" {
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "version" { type = "UInt64" }
+    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "source_ref" { type = "String" }
+    column "user_id" { type = "String" }
+    column "variant" { type = "String" }
+    column "dimensions" { type = "Map(LowCardinality(String), String)" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_usage_records"
+      sharding_key    = "sipHash64(team_id)"
+    }
+  }
 }
