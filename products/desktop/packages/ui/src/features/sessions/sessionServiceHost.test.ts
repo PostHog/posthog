@@ -272,6 +272,7 @@ const mockAgentSessionNotifier = vi.hoisted(() => ({
 
 const mockFeatureFlags = vi.hoisted(() => ({
   isEnabled: vi.fn(() => false),
+  getVariant: vi.fn((): string | undefined => undefined),
   onFlagsLoaded: vi.fn(() => vi.fn()),
 }));
 
@@ -311,6 +312,7 @@ vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
   buildPermissionToolMetadata: vi.fn(() => ({})),
   posthogFeatureFlags: {
     isEnabled: vi.fn(() => undefined),
+    getVariant: vi.fn(() => undefined),
     onFlagsLoaded: vi.fn(),
   },
 }));
