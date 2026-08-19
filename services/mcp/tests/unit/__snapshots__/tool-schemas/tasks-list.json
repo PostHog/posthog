@@ -15,6 +15,11 @@
             "description": "Filter tasks to a channel's feed.",
             "type": "string"
         },
+        "ci_status": {
+            "description": "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n* `passing` - passing\n* `failing` - failing\n* `pending` - pending\n* `none` - none",
+            "enum": ["passing", "failing", "pending", "none"],
+            "type": "string"
+        },
         "created_by": {
             "description": "Filter by creator user ID",
             "type": "number"
@@ -50,6 +55,11 @@
         "origin_product": {
             "description": "Filter by origin product",
             "minLength": 1,
+            "type": "string"
+        },
+        "pr_state": {
+            "description": "Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).\n\n* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed",
+            "enum": ["open", "draft", "merged", "closed"],
             "type": "string"
         },
         "repository": {

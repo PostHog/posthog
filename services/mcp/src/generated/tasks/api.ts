@@ -876,6 +876,12 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n\* `true` - true\n\* `false` - false\n\* `all` - all"
         ),
     channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
+    ci_status: zod
+        .enum(['passing', 'failing', 'pending', 'none'])
+        .optional()
+        .describe(
+            "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
+        ),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
         .enum(['true', 'false', 'all'])
@@ -902,6 +908,12 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         ),
     organization: zod.string().min(1).optional().describe('Filter by repository organization'),
     origin_product: zod.string().min(1).optional().describe('Filter by origin product'),
+    pr_state: zod
+        .enum(['open', 'draft', 'merged', 'closed'])
+        .optional()
+        .describe(
+            "Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).\n\n\* `open` - open\n\* `draft` - draft\n\* `merged` - merged\n\* `closed` - closed"
+        ),
     repository: zod.string().min(1).optional().describe('Filter by repository name (can include org\/repo format)'),
     search: zod
         .string()

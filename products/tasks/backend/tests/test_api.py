@@ -4227,6 +4227,98 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/?status=not_a_real_status")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_filter_by_pr_state(self):
+        open_pr = self.create_task("Open PR task")
+        TaskRun.objects.create(
+            task=open_pr,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1", "pr_state": "open"},
+        )
+
+        merged_pr = self.create_task("Merged PR task")
+        TaskRun.objects.create(
+            task=merged_pr,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/2", "pr_state": "merged"},
+        )
+
+        # A run merged before pr_state existed carries only the legacy flag.
+        legacy_merged = self.create_task("Legacy merged task")
+        TaskRun.objects.create(
+            task=legacy_merged,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/3", "pr_merged": True},
+        )
+
+        no_pr = self.create_task("No PR task")
+        TaskRun.objects.create(task=no_pr, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get("/api/projects/@current/tasks/?pr_state=open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({t["id"] for t in response.json()["results"]}, {str(open_pr.id)})
+
+        response = self.client.get("/api/projects/@current/tasks/?pr_state=merged")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {t["id"] for t in response.json()["results"]},
+            {str(merged_pr.id), str(legacy_merged.id)},
+        )
+
+    def test_filter_by_ci_status(self):
+        failing = self.create_task("Failing CI task")
+        TaskRun.objects.create(
+            task=failing,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1", "ci_status": "failing"},
+        )
+
+        passing = self.create_task("Passing CI task")
+        TaskRun.objects.create(
+            task=passing,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/2", "ci_status": "passing"},
+        )
+
+        no_ci = self.create_task("No CI task")
+        TaskRun.objects.create(task=no_ci, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get("/api/projects/@current/tasks/?ci_status=failing")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({t["id"] for t in response.json()["results"]}, {str(failing.id)})
+
+    @parameterized.expand([("pr_state",), ("ci_status",)])
+    def test_filter_by_pr_ci_rejects_unknown_value(self, param):
+        response = self.client.get(f"/api/projects/@current/tasks/?{param}=sideways")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_filter_by_pr_state_uses_latest_run_not_any_run(self):
+        """A task whose latest run has no PR state must not match an older run's state."""
+        base_time = django_timezone.now()
+
+        task = self.create_task("Task with mixed PR runs")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            created_at=base_time + timedelta(seconds=1),
+        )
+
+        response = self.client.get("/api/projects/@current/tasks/?pr_state=open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
     def test_filter_by_status_uses_latest_run_not_any_run(self):
         """A task whose latest run is in_progress must not match status=completed, even if an older run completed."""
         base_time = django_timezone.now()
