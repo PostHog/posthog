@@ -130,8 +130,8 @@ export function WorkflowMetricsSummary({
                             metric: 'email_bounced' as EmailMetric,
                         },
                         {
-                            label: 'blocked',
-                            value: row.blocked,
+                            label: 'marked as spam',
+                            value: row.markedAsSpam,
                             type: 'danger' as const,
                             metric: 'email_blocked' as EmailMetric,
                         },

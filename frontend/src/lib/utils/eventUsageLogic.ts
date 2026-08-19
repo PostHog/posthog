@@ -794,13 +794,6 @@ export interface eventUsageLogicActions {
         layoutZoom: number
         source: 'button' | 'shortcut'
     }
-    reportDashboardListSearched: (
-        searchLength: number,
-        resultsCount: number
-    ) => {
-        resultsCount: number
-        searchLength: number
-    }
     reportDashboardLoadingTime: (
         loadingMilliseconds: number,
         dashboardId: number
@@ -827,17 +820,6 @@ export interface eventUsageLogicActions {
     ) => {
         count: number
         method: 'bulk' | 'single'
-    }
-    reportDashboardMovedToFolder: (props: {
-        fromDepth: number
-        fromUnfiled: boolean
-        toDepth: number
-        toUnfiled: boolean
-    }) => {
-        fromDepth: number
-        fromUnfiled: boolean
-        toDepth: number
-        toUnfiled: boolean
     }
     reportDashboardPinToggled: (
         dashboardId: number,
@@ -952,13 +934,6 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         isWhiteLabelled: boolean
-    }
-    reportDashboardsTreeFolderNavigated: (
-        depth: number,
-        hasSubfolders: boolean
-    ) => {
-        depth: number
-        hasSubfolders: boolean
     }
     reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => {
         type: TaxonomicFilterGroupType
@@ -2420,14 +2395,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
-        reportDashboardMovedToFolder: (props: {
-            fromDepth: number
-            toDepth: number
-            fromUnfiled: boolean
-            toUnfiled: boolean
-        }) => props,
-        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
-        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
         reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
@@ -3478,25 +3445,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 pinned,
                 source,
             })
-        },
-        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
-            // Coarse fields only — never folder/dashboard names (customer-controlled).
-            posthog.capture('dashboard moved to folder', {
-                from_depth: fromDepth,
-                to_depth: toDepth,
-                moved_from_unfiled: fromUnfiled,
-                moved_to_unfiled: toUnfiled,
-            })
-        },
-        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
-            // Length + count only, never the query text (can contain sensitive names).
-            posthog.capture('dashboard list searched', {
-                search_length: searchLength,
-                results_count: resultsCount,
-            })
-        },
-        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
-            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
         },
         reportDashboardMoveInitiated: async ({ method, count }) => {
             posthog.capture('dashboard move initiated', { method, count })

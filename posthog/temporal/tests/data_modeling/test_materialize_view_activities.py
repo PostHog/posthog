@@ -36,7 +36,7 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     InvalidNodeTypeException,
-    _get_aws_storage_options,
+    get_aws_storage_options,
     get_s3_client,
     hogql_table,
 )
@@ -1192,6 +1192,55 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    async def test_passes_refresh_file_uris_that_re_reads_the_delta_table(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        # Regression: this call site used to omit refresh_file_uris, so a source file a concurrent
+        # compact/vacuum pass deleted mid-copy raised FileNotFoundError straight through instead of
+        # retrying with a fresh listing (see prepare_s3_files_for_querying's vanished-file handling).
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=["s3://test-bucket/test_file.parquet"],
+            row_count=100,
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="test_warehouse_table",
+            format="Delta",
+        )
+        refreshed_file_uris = ["s3://test-bucket/test_table/compacted.parquet"]
+        mock_delta_table = unittest.mock.MagicMock()
+        mock_delta_table.file_uris.return_value = refreshed_file_uris
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+            ) as mock_prepare,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+            ) as mock_create_table,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.get_aws_storage_options",
+                return_value={},
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.deltalake.DeltaTable",
+                return_value=mock_delta_table,
+            ) as mock_delta_table_cls,
+        ):
+            mock_prepare.return_value = "test-bucket/queryable_folder"
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+            refresh_file_uris = mock_prepare.call_args.kwargs["refresh_file_uris"]
+            assert await refresh_file_uris() == refreshed_file_uris
+            mock_delta_table_cls.assert_called_once_with(inputs.table_uri, storage_options={})
+        await database_sync_to_async(warehouse_table.delete)()
+
     async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
@@ -1411,7 +1460,7 @@ class TestMaterializeViewActivity:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
             assert result.row_count == 6
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
@@ -1466,7 +1515,7 @@ class TestMaterializeViewActivity:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
             assert result.row_count == 6
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
@@ -1516,7 +1565,7 @@ class TestMaterializeViewActivity:
             assert len(result.file_uris) == 1
             assert result.file_uris[0].endswith(".parquet")
             # delta log carries the schema so deltaLake() reads in get_columns succeed
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}

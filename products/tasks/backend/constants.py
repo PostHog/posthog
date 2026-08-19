@@ -4,6 +4,12 @@ from typing import Literal, get_args
 
 import posthoganalytics
 
+# Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
+# pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
+# ``TaskRun.output`` (``pr_state`` / ``ci_status``) for the task list filters.
+PR_STATES = ("open", "draft", "merged", "closed")
+CI_STATUSES = ("passing", "failing", "pending", "none")
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
@@ -148,6 +154,8 @@ TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
+TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.

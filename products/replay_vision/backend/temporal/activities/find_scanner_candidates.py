@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import RecordingsQuery
 
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
@@ -112,6 +113,17 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         deep_swept_through = scanner.last_swept_at
     elif deep_limit > 0:
         deep_candidates, deep_swept_through = _deep_sweep(scanner, query, candidate_query, deep_limit)
+
+    # Sessions that repeatedly exhausted the rasterizer's whole retry envelope (the Class B
+    # compositor wedge) get quarantined for the counter's TTL window; each dispatch would otherwise
+    # burn up to an hour of shared rasterizer capacity on a render that cannot finish. The watermark
+    # still advances past them, so they are skipped, not retried forever.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates]])
+    if stuck:
+        activity.logger.warning("replay_vision.stuck_sessions_skipped %d", len(stuck))
+        record_sweep_outcome("stuck_sessions_skipped")
+        candidates = [c for c in candidates if c.session_id not in stuck]
+        deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
 
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates else "no_candidates",

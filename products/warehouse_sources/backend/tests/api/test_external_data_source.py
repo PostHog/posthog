@@ -45,7 +45,6 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
-    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -54,6 +53,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
@@ -397,7 +397,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
+    def test_create_external_data_source_delete_on_non_list_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -412,6 +412,28 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @parameterized.expand([("omitted", {}), ("empty_list", {"schemas": []})])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_schemas(self, _name, extra_payload, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    **extra_payload,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        source = ExternalDataSource.objects.get()
+        assert source.schemas.filter(should_sync=True).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

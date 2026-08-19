@@ -9,6 +9,11 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.redis import get_client
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    STUCK_SESSION_THRESHOLD,
+    _stuck_key,
+)
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
@@ -180,6 +185,31 @@ class TestFindScannerCandidatesActivity:
         assert query_kwargs["last_seen_session_id"] is None
         assert query_kwargs["sampling_rate"] == scanner.sampling_rate
         assert query_kwargs["events_lookback"] == SWEEP_EVENTS_LOOKBACK
+
+    def test_skips_sessions_quarantined_by_the_stuck_counter(self) -> None:
+        # A session past the stuck threshold has burned two whole rasterizer retry envelopes;
+        # dispatching it again wastes up to an hour of shared render capacity per sweep tick.
+        scanner = _make_scanner()
+        candidate_ok = CandidateSession(
+            session_id="sess-ok", session_end=dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)
+        )
+        candidate_stuck = CandidateSession(
+            session_id="sess-stuck", session_end=dt.datetime(2026, 5, 1, 10, 5, 0, tzinfo=dt.UTC)
+        )
+
+        redis_client = get_client()
+        for _ in range(STUCK_SESSION_THRESHOLD):
+            redis_client.incr(_stuck_key(scanner.team_id, "sess-stuck"))
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.return_value = [candidate_ok, candidate_stuck]
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert [c.session_id for c in result.candidates] == ["sess-ok"]
 
     def test_threads_last_seen_session_id_when_set(self) -> None:
         scanner = _make_scanner(last_seen_session_id="prev-id")

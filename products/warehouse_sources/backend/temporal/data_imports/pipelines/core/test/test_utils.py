@@ -60,6 +60,17 @@ def test_table_from_py_list_uuid():
     )
 
 
+def test_table_from_py_list_schema_missing_uuid_column():
+    # A UUID column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must map UUID to string rather than raising.
+    uuid_ = uuid.uuid4()
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "uid": uuid_}], schema)
+
+    assert table.schema.field("uid").type == pa.string()
+    assert table.column("uid").to_pylist() == [str(uuid_)]
+
+
 def test_table_from_py_list_inconsistent_list():
     table = table_from_py_list([{"column": "hello"}, {"column": ["hi"]}])
 

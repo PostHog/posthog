@@ -2,10 +2,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import structlog
-from redis.asyncio import Redis as AsyncRedis
 from temporalio import activity
 
-from posthog.redis import get_async_client
+from posthog.redis import get_async_client, get_client
 
 logger = structlog.get_logger(__name__)
 
@@ -48,16 +47,20 @@ async def clear_stuck_counter_activity(inputs: BumpStuckCounterInput) -> None:
     await redis_client.delete(key)
 
 
-async def read_stuck_session_ids(
-    redis_client: AsyncRedis,
+# A run only bumps the counter after its final scheduled attempt, so 2 means the session has burned
+# through two whole retry envelopes inside the TTL window without a success.
+STUCK_SESSION_THRESHOLD = 2
+
+
+def read_stuck_session_ids(
     team_id: int,
     session_ids: list[str],
-    threshold: int,
+    threshold: int = STUCK_SESSION_THRESHOLD,
 ) -> set[str]:
+    """Which of `session_ids` are quarantined. Sync because every caller is a synchronous activity."""
     if not session_ids:
         return set()
-    keys = [_stuck_key(team_id, sid) for sid in session_ids]
-    values = await redis_client.mget(keys)
+    values = get_client().mget([_stuck_key(team_id, sid) for sid in session_ids])
     stuck: set[str] = set()
     for sid, val in zip(session_ids, values):
         if val is None:
