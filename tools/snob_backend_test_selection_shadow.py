@@ -20,8 +20,14 @@ precision reasonable (don't run everything on every PR):
 Validated against pytest-testmon runtime coverage data (PR #56370).
 The import graph alone covers ~33% of real test dependencies. The AST
 heuristics close the URL-dispatch gap (~4%). Django-aware expansion closes
-signals, middleware, and same-app fallback gaps (~12%). The remainder is
-migration noise and framework-level indirection covered by FULL_RUN_PATTERNS.
+signals, middleware, and same-app fallback gaps (~12%). FULL_RUN_PATTERNS covers
+the rest of the framework-level indirection.
+
+Known gap: a migration reaches no test through the import graph and matches no
+full-run pattern, so a migration-only diff narrows to whatever else changed. That
+is deliberate for now, not an oversight — forcing a full run on every migration
+would cover a failure mode we have not actually observed, at the cost of the
+narrowing on a very common kind of PR.
 
 Outputs JSON to stdout. The "shadow" in the filename is historical — ci-backend's
 select-tests job now acts on this output, so a test this misses is a test that does not
