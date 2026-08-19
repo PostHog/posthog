@@ -117,6 +117,14 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // The screenshot may contain sensitive information, so use with caution
                                             config.sessionReplayConfig.screenshotMode = true
 
+                                            // Minimum time (in seconds) between snapshots. Default is 1.0s.
+                                            // Snapshots are taken when views lay out, so this caps how often one
+                                            // can be captured rather than setting a fixed frame rate.
+                                            // Lower values can make playback smoother, at the cost of more
+                                            // capture work on the device.
+                                            // Note: called `debouncerDelay` before version 3.21.0
+                                            config.sessionReplayConfig.throttleDelay = 1.0
+
                                             // Sample rate for session recordings. A value between 0.0 and 1.0.
                                             // 1.0 means 100% of sessions will be recorded. 0.5 means 50%, and so on.
                                             // Default is nil (all sessions are recorded).
