@@ -34,8 +34,8 @@ export function FeatureDiscoveryBanner({ run }: { run: InboxFeatureDiscoveryRunA
 export function FeaturesTab(): JSX.Element {
     const { features, featuresLoading } = useValues(featureListLogic)
     const { openNewFeatureModal } = useActions(featureCreateLogic)
-    const { discoveryRuns } = useValues(featureDiscoveryLogic)
-    const { openDiscoveryModal } = useActions(featureDiscoveryLogic)
+    const { discoveryRetryLoading, discoveryRuns } = useValues(featureDiscoveryLogic)
+    const { openDiscoveryModal, retryDiscovery } = useActions(featureDiscoveryLogic)
 
     const stagedFeatures = features.filter((feature) => feature.feature_stage === 'staged')
     const ownedFeatures = features.filter((feature) => feature.feature_stage !== 'staged')
@@ -93,7 +93,16 @@ export function FeaturesTab(): JSX.Element {
                 <FeatureDiscoveryBanner key={run.id} run={run} />
             ))}
             {latestFailedRun && activeDiscoveryRuns.length === 0 && (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: openDiscoveryModal }}>
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () =>
+                            retryDiscovery({ repository: latestFailedRun.repository, focus: latestFailedRun.focus }),
+                        loading: discoveryRetryLoading,
+                        'data-attr': 'feature-discovery-retry',
+                    }}
+                >
                     Feature discovery for <strong>{latestFailedRun.repository}</strong> failed.{' '}
                     {latestFailedRun.error || 'Check the GitHub connection and try again.'}
                 </LemonBanner>

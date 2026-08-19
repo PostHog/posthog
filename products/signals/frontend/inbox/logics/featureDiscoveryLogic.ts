@@ -35,6 +35,8 @@ export interface featureDiscoveryLogicValues {
     integrationsLoading: boolean // integrationsLogic
     currentProjectId: number | string // teamLogic
     discoveryModalOpen: boolean
+    discoveryRetry: InboxFeatureDiscoveryCreatedApi | null
+    discoveryRetryLoading: boolean
     discoveryRuns: InboxFeatureDiscoveryRunApi[]
     discoveryRunsLoading: boolean
     discoveryStart: InboxFeatureDiscoveryCreatedApi | null
@@ -68,6 +70,30 @@ export interface featureDiscoveryLogicActions {
     }
     openDiscoveryModal: () => {
         value: true
+    }
+    retryDiscovery: ({ repository, focus }: { focus: string; repository: string }) => {
+        repository: string
+        focus: string
+    }
+    retryDiscoveryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    retryDiscoverySuccess: (
+        discoveryRetry: InboxFeatureDiscoveryCreatedApi,
+        payload?: {
+            repository: string
+            focus: string
+        }
+    ) => {
+        discoveryRetry: InboxFeatureDiscoveryCreatedApi
+        payload?: {
+            repository: string
+            focus: string
+        }
     }
     setFocus: (focus: string) => {
         focus: string
@@ -191,6 +217,16 @@ export const featureDiscoveryLogic = kea<featureDiscoveryLogicType>([
                 },
             },
         ],
+        discoveryRetry: [
+            null as InboxFeatureDiscoveryCreatedApi | null,
+            {
+                retryDiscovery: async ({ repository, focus }: { repository: string; focus: string }) =>
+                    signalsFeaturesDiscoverCreate(String(values.currentProjectId), {
+                        repository: repository.trim(),
+                        focus: focus.trim(),
+                    }),
+            },
+        ],
     })),
 
     listeners(({ actions, cache }) => ({
@@ -200,6 +236,13 @@ export const featureDiscoveryLogic = kea<featureDiscoveryLogicType>([
             lemonToast.success('Feature discovery started')
         },
         startDiscoveryFailure: ({ errorObject }) => {
+            lemonToast.error(discoveryErrorMessage(errorObject))
+        },
+        retryDiscoverySuccess: () => {
+            actions.loadDiscoveryRuns()
+            lemonToast.success('Feature discovery started')
+        },
+        retryDiscoveryFailure: ({ errorObject }) => {
             lemonToast.error(discoveryErrorMessage(errorObject))
         },
         loadDiscoveryRunsSuccess: ({ discoveryRuns }) => {

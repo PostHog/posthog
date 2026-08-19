@@ -69,4 +69,18 @@ describe('featureDiscoveryLogic', () => {
             focus: 'Only discover features around session replay',
         })
     })
+
+    it('retries a failed discovery with its saved repository and focus', async () => {
+        await expectLogic(logic, () =>
+            logic.actions.retryDiscovery({
+                repository: 'PostHog/posthog',
+                focus: 'Only discover features around session replay',
+            })
+        ).toFinishAllListeners()
+
+        expect(mockDiscover).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
+            repository: 'PostHog/posthog',
+            focus: 'Only discover features around session replay',
+        })
+    })
 })
