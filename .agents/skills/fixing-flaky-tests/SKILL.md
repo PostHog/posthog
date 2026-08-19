@@ -2,7 +2,7 @@
 name: fixing-flaky-tests
 description: >
   Guides an agent through reproducing, root-causing, fixing, and validating flaky tests in the PostHog monorepo.
-  Use when a test fails intermittently in CI but passes on rerun or locally, when `hogli ci:insights` or the debugging-ci-failures skill classifies a failure as a flaky test, when given a GitHub Actions URL for a flaky job, or when asked to deflake, stabilize, or fix a flaky Jest, pytest, or Playwright test.
+  Use when a test fails intermittently in CI but passes on rerun or locally, when `hogli ci:insights` or the debugging-ci-failures skill classifies a failure as a flaky test, when given a GitHub Actions URL for a flaky job, when asked to check Trunk Flaky Tests for a test, PR, or master, or when asked to deflake, stabilize, or fix a flaky Jest, pytest, or Playwright test.
   Core discipline: reproduce locally before changing anything, fix the root cause (never mask it with sleeps, retries, or bigger timeouts), and prove the fix with an N-run validation loop sized to the observed failure rate.
   Stabilizing is not the only valid outcome — the skill also gates whether the test should exist, so deleting a test that catches nothing real, or re-leveling one that flakes because of the level it runs at, are first-class endings.
 ---
@@ -63,6 +63,20 @@ hogli ci:insights search "<test name or error>"    # historical context / existi
 ```
 
 An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm _against the run data_ that it covers this failure, and report instead of re-fixing.
+
+### Corroborate with Trunk Flaky Tests
+
+CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog), which tracks per-test failure history across `master` and PR runs.
+On a PR, the `trunk-io` bot's "Trunk Test Analytics" comment links that PR's slice (`https://app.trunk.io/posthog-inc/flaky-tests/pr/<number>?repo=PostHog/posthog`).
+
+The `trunk` MCP server in `.mcp.json` queries it (tools are marked experimental by Trunk):
+
+- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID.
+- `fix-flaky-test` (`repoName`, `testCaseId`) → failure history, first-seen commit, git blame, and Trunk's root-cause investigation; `createNewInvestigation: true` triggers a fresh analysis (takes up to a minute).
+
+Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org token to the server entry.
+
+Like `ci:insights`, this is corroboration and history, not the classification authority — flaky-vs-deterministic and the rate still come from the run data above.
 
 ## 2. Extract the failure from CI
 

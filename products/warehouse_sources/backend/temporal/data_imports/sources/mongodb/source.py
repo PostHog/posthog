@@ -314,7 +314,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection String",
-                        type=SourceFieldInputConfigType.TEXT,
+                        # The connection string is this source's only credential, so `password` keeps
+                        # it editable on update for rotation.
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                         secret=True,

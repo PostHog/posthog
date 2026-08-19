@@ -22,6 +22,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
+from posthog.tasks.utils import CeleryQueue
 
 
 def _incomplete_runs(cache_type: str, reason: str) -> float:
@@ -176,6 +177,11 @@ class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
         )
         assert success == 1
         assert duration is not None and duration >= 0
+
+    def test_runs_on_feature_flags_long_running_queue(self) -> None:
+        # Ensure the task is on FEATURE_FLAGS_LONG_RUNNING, not DEFAULT, to avoid
+        # expiry-based starvation on the shared DEFAULT queue.
+        assert verify_and_fix_team_metadata_cache_task.queue == CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value
 
 
 @override_settings(FLAGS_REDIS_URL=None)
