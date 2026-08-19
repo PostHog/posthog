@@ -23,11 +23,13 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        # Only pull requests need path detection. Master pushes are already
+        # scoped by this workflow's trigger-level `paths:`, and merge_group
+        # reran nothing here, so both skip this job and its runner acquisition.
+        if: github.event_name == 'pull_request'
         permissions:
             pull-requests: read
         outputs:
-            # On master pushes the filter step is skipped and everything runs.
             code: ${{ steps.filter.outputs.code || 'true' }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
         steps:
@@ -99,13 +101,14 @@ jobs:
               run: node scripts/check-host-boundaries.mjs
 
     # Collation job for the required status check; must be registered as the
-    # required check instead of the individual jobs.
+    # required check instead of the individual jobs. A direct master push has no
+    # PR or merge queue to gate, so it skips this job and runs `quality` alone.
     desktop-quality-pass:
         needs: [changes, quality]
         name: Desktop Quality Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: always() && github.event_name != 'push'
         steps:
             - name: Check results
               run: |
