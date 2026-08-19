@@ -67,7 +67,6 @@ import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import {
   type AgentTurn,
-  CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
   countFlatRows,
   type FlatThreadRow,
@@ -78,6 +77,7 @@ import {
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
   sampleThreadScroll,
+  shouldVirtualizeThread,
   type ThreadFollowState,
   type ThreadItem,
   type ThreadScrollResume,
@@ -1377,10 +1377,12 @@ function ChatThreadRenderer({
   // sessions start virtualized from the first render; a live session flips once mid-stream,
   // resuming from the scroll state the non-virtualized body recorded.
   const flatCount = useMemo(() => countFlatRows(rows), [rows]);
-  const [virtualized, setVirtualized] = useState(
-    () => flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
+  const shouldVirtualize = shouldVirtualizeThread(
+    flatCount,
+    hasOlderHistory === true,
   );
-  if (!virtualized && flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD) {
+  const [virtualized, setVirtualized] = useState(() => shouldVirtualize);
+  if (!virtualized && shouldVirtualize) {
     setVirtualized(true);
   }
   const flatRows = useMemo(
