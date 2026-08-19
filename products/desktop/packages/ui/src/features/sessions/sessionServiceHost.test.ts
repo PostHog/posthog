@@ -400,6 +400,7 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     typeof import("@posthog/core/sessions/sessionEvents")
   >("@posthog/core/sessions/sessionEvents");
   return {
+    collapseSupersededToolCallUpdates: actual.collapseSupersededToolCallUpdates,
     convertStoredEntriesToEvents: mockConvertStoredEntriesToEvents,
     createUserPromptEvent: vi.fn((prompt, ts) => ({
       type: "acp_message",
