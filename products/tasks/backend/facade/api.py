@@ -6572,7 +6572,14 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     channels.extend(
         Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
         .select_related("created_by")
-        .order_by(Case(When(system_role=Channel.SystemRole.GENERAL, then=0), default=1), "name")
+        .order_by(
+            Case(
+                When(system_role=Channel.SystemRole.GENERAL, then=0),
+                When(system_role__isnull=True, name=Channel.GENERAL_CHANNEL_NAME, then=0),
+                default=1,
+            ),
+            "name",
+        )
     )
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
