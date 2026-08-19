@@ -12,11 +12,15 @@ from django.utils.html import format_html
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
+    DELETION_REQUEST_APPROVED_EVENT,
+    DELETION_REQUEST_COMPLETED_EVENT,
+    DELETION_REQUEST_SUBMITTED_EVENT,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
     build_deletion_count_query,
+    capture_deletion_request_event,
     count_remaining_for_request,
     fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
@@ -627,6 +631,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
         obj.refresh_from_db()
         self.log_change(request, obj, "Submitted: status changed from draft to pending.")
+        capture_deletion_request_event(obj, DELETION_REQUEST_SUBMITTED_EVENT)
         if requires_approval:
             messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
         else:
@@ -756,6 +761,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
             obj.refresh_from_db()
             self.log_change(request, obj, f"Approved deletion request (execution_mode={execution_mode}).")
+            capture_deletion_request_event(obj, DELETION_REQUEST_APPROVED_EVENT, approved_via="manual")
             messages.success(request, f"Deletion request approved ({obj.get_execution_mode_display()}).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
@@ -879,6 +885,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if promoted:
             obj.refresh_from_db()
             self.log_change(request, obj, f"Verified: 0 matching rows remain, status {prior_status} → completed.")
+            capture_deletion_request_event(obj, DELETION_REQUEST_COMPLETED_EVENT)
             messages.success(request, "Verified — no matching rows remain. Marked completed.")
         else:
             messages.info(request, "Verified — no matching rows remain. Already completed.")

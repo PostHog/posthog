@@ -1,5 +1,6 @@
 import uuid as uuid_lib
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -669,4 +670,46 @@ def test_refresh_deletion_stats_does_not_write_over_a_concurrent_criteria_edit(t
 
     request.refresh_from_db()
     assert request.count is None
+
+
+@freeze_time("2026-06-17T12:00:00Z")
+def test_capture_deletion_request_event_reports_measurable_properties():
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview", "$autocapture"], count=42, status=RequestStatus.APPROVED)
+    )
+    request.approved_at = datetime(2026, 6, 17, 11, 30, tzinfo=UTC)
+    captured: list[dict] = []
+
+    @contextmanager
+    def fake_scoped_capture():
+        yield lambda **kwargs: captured.append(kwargs)
+
+    with patch("posthog.ph_client.ph_scoped_capture", fake_scoped_capture):
+        ddr.capture_deletion_request_event(request, ddr.DELETION_REQUEST_APPROVED_EVENT, approved_via="auto")
+
+    assert len(captured) == 1
+    call = captured[0]
+    assert call["distinct_id"] == ddr.DELETION_REQUEST_ANALYTICS_DISTINCT_ID
+    assert call["event"] == ddr.DELETION_REQUEST_APPROVED_EVENT
+    props = call["properties"]
+    assert props["team_id"] == TEAM_ID
+    assert props["matching_event_count"] == 42
+    assert props["event_name_count"] == 2
+    assert props["approved_via"] == "auto"
+    assert props["seconds_since_approved"] == 1800.0
+    # A staff tool must never mint one person per request in PostHog's own analytics project.
+    assert props["$process_person_profile"] is False
+
+
+def test_capture_deletion_request_event_swallows_capture_failure():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
+
+    @contextmanager
+    def exploding_scoped_capture():
+        raise RuntimeError("analytics client is down")
+        yield  # pragma: no cover
+
+    # Instrumentation must never fail a deletion: a broken capture is logged and swallowed.
+    with patch("posthog.ph_client.ph_scoped_capture", exploding_scoped_capture):
+        ddr.capture_deletion_request_event(request, ddr.DELETION_REQUEST_COMPLETED_EVENT)
     assert request.stats_calculated_at is None

@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
+from django.conf import settings as django_settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -8,7 +10,11 @@ from django.db import models
 from django.db.models import F
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.utils import UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
 def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
@@ -510,6 +516,72 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
 
 
+# ---------------------------------------------------------------------------
+# Lifecycle analytics
+# ---------------------------------------------------------------------------
+
+# The flow is otherwise invisible outside Django admin, so these events let the team measure how many
+# selective deletion requests we field and how long each takes to move from submission to a terminal
+# state. They report to PostHog's own analytics project through ph_client, not to the customer team.
+DELETION_REQUEST_ANALYTICS_DISTINCT_ID = "data-deletion-request"
+
+DELETION_REQUEST_SUBMITTED_EVENT = "data deletion request submitted"
+DELETION_REQUEST_APPROVED_EVENT = "data deletion request approved"
+DELETION_REQUEST_COMPLETED_EVENT = "data deletion request completed"
+DELETION_REQUEST_FAILED_EVENT = "data deletion request failed"
+
+
+def _seconds_between(start: datetime | None, end: datetime | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return (end - start).total_seconds()
+
+
+def deletion_request_analytics_properties(request: "DataDeletionRequest") -> dict:
+    """Shared properties for every deletion-request lifecycle event.
+
+    Timings are measured against now, so a "completed"/"failed" event carries the turnaround from
+    submission and from approval directly.
+    """
+    now = timezone.now()
+    return {
+        "request_id": str(request.pk),
+        "team_id": request.team_id,
+        "request_type": request.request_type,
+        "status": request.status,
+        "requires_approval": request.requires_approval,
+        "approved_automatically": request.approved_automatically,
+        "execution_mode": request.execution_mode,
+        "delete_all_events": request.delete_all_events,
+        "has_hogql_predicate": bool(request.hogql_predicate),
+        "event_name_count": len(request.events or []),
+        "matching_event_count": request.count,
+        "attempt_count": request.attempt_count,
+        "seconds_since_created": _seconds_between(request.created_at, now),
+        "seconds_since_approved": _seconds_between(request.approved_at, now),
+        "cloud_deployment": django_settings.CLOUD_DEPLOYMENT,
+        # A staff-operated tool must not mint one PostHog person per request.
+        "$process_person_profile": False,
+    }
+
+
+def capture_deletion_request_event(request: "DataDeletionRequest", event: str, **extra_properties: object) -> None:
+    """Emit a lifecycle event for a deletion request to PostHog's analytics project.
+
+    Best-effort: a capture failure is logged and swallowed so instrumentation can never fail a
+    deletion. Off-cloud the underlying client is a no-op.
+    """
+    properties = {**deletion_request_analytics_properties(request), **extra_properties}
+    try:
+        # Deferred: keeps the analytics client (posthoganalytics) off this module's import path.
+        from posthog.ph_client import ph_scoped_capture  # noqa: PLC0415
+
+        with ph_scoped_capture() as capture:
+            capture(distinct_id=DELETION_REQUEST_ANALYTICS_DISTINCT_ID, event=event, properties=properties)
+    except Exception:
+        logger.exception("data_deletion_request_capture_failed", lifecycle_event=event, request_id=str(request.pk))
+
+
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
     """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
     hogql_sql, hogql_values = cached_compile_hogql_predicate(obj)
@@ -960,6 +1032,9 @@ def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
     promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(
         status=RequestStatus.COMPLETED, updated_at=timezone.now()
     )
+    if promoted:
+        request.refresh_from_db()
+        capture_deletion_request_event(request, DELETION_REQUEST_COMPLETED_EVENT)
     return VerifyOutcome(remaining=remaining, promoted=bool(promoted))
 
 
@@ -1067,5 +1142,7 @@ def auto_approve_pending_requests(
             continue
         approved += 1
         log(f"Request {request.pk}: auto-approved (deferred), {request.count:,} matching events.")
+        request.refresh_from_db()
+        capture_deletion_request_event(request, DELETION_REQUEST_APPROVED_EVENT, approved_via="auto")
 
     return AutoApproveOutcome(approved=approved, skipped=skipped, errored=errored)

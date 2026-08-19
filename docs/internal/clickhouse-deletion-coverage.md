@@ -6,6 +6,8 @@ Deleting a person's data is not a property of the events table.
 It is a property of every table that stores rows attributable to a person.
 `posthog/models/deletion_targets.py` is the one list of those tables; this document is the reasoning behind it.
 
+For how an operator files a selective deletion request and how it is approved and run, see [data-deletion-requests.md](./data-deletion-requests.md).
+
 ## The sweeps
 
 | Sweep                    | Entry point                      | Predicate columns                          |
