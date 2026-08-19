@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import structlog
@@ -10,7 +11,10 @@ from posthog.sync import database_sync_to_async
 
 from products.exports.backend.facade.api import render_png_export
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    ALLOWED_CHART_DISPLAYS,
+    CONTINUOUS_CHART_DISPLAYS,
     MAX_CHART_CATEGORIES,
+    MAX_CHART_SERIES,
     MIN_CHART_CATEGORIES,
     MIN_CHART_ROWS,
     StepChart,
@@ -43,9 +47,6 @@ def charts_enabled(team: Team, user: User) -> bool:
         return False
 
 
-# Displays whose x axis is a continuous run of points, so a chart of one or two rows reads as noise.
-_CONTINUOUS_DISPLAYS = {"ActionsLineGraph", "ActionsAreaGraph"}
-
 # Drop reasons that mean the spec itself is wrong, so re-planning can produce a better one. Every
 # other reason describes this run's data (an empty week, a breakdown that grew past the bar cap) and
 # would recur on a frozen plan forever, so those must not block freezing.
@@ -53,6 +54,11 @@ SPEC_INVALID_DROP_REASONS = frozenset({"missing_columns", "x_and_y_identical", "
 
 # Cap simultaneous browserless renders per report, mirroring the per-report ClickHouse step cap.
 _MAX_CONCURRENT_RENDERS = 3
+# Renders block their thread for the whole child export workflow, and the per-render timeout cannot
+# reclaim it (asgiref cannot cancel a sync callable that started). On the loop's default executor
+# they would sit alongside the blocking HogQL executions of every other activity on this worker, so
+# they get their own bounded pool and can only ever crowd out each other.
+_RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_RENDERS, thread_name_prefix="ai-report-chart")
 # Per-render ceiling, below the exporter's own 90s RENDER_TIMEOUT so a stuck render is dropped here
 # rather than holding a slot for the full export timeout.
 _RENDER_TIMEOUT_SECONDS = 75.0
@@ -88,6 +94,17 @@ def validate_chart(
     if not isinstance(rows, list) or not rows:
         return None, "no_results"
 
+    # The planner is steered by the field descriptions, not bound by them, so the real limits are
+    # enforced here where a violation costs the chart instead of the whole plan.
+    if spec.display not in ALLOWED_CHART_DISPLAYS:
+        return None, "unsupported_display"
+    if not spec.y_columns or len(spec.y_columns) > MAX_CHART_SERIES:
+        return None, "unsupported_series_count"
+    # A result the query runner truncated is not the series the planner asked for, and nothing on
+    # the chart would say so.
+    if response.get("hasMore"):
+        return None, "truncated_result"
+
     columns = response.get("columns")
     if not isinstance(columns, list):
         return None, "missing_columns"
@@ -106,7 +123,7 @@ def validate_chart(
     if numeric_columns is not None and not set(spec.y_columns).issubset(numeric_columns):
         return None, "non_numeric_series"
 
-    if spec.display in _CONTINUOUS_DISPLAYS:
+    if spec.display in CONTINUOUS_CHART_DISPLAYS:
         if len(rows) < MIN_CHART_ROWS:
             return None, "too_few_rows"
     elif len(rows) < MIN_CHART_CATEGORIES:
@@ -197,7 +214,7 @@ async def render_charts(
                 # render_png_export wraps async_to_sync internally, so it cannot be awaited directly
                 # from this activity's event loop.
                 asset, png = await asyncio.wait_for(
-                    database_sync_to_async(render_png_export, thread_sensitive=False)(
+                    database_sync_to_async(render_png_export, thread_sensitive=False, executor=_RENDER_EXECUTOR)(
                         team=team,
                         created_by=user,
                         export_context=build_export_context(chart),

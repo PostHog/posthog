@@ -28,28 +28,40 @@ MAX_CHART_TITLE_LENGTH = 80
 
 # Only displays a planner can pick correctly from column names alone. Table, pie, and map either
 # defeat the purpose or need settings it cannot choose.
-ChartDisplay = Literal["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph"]
+# Displays whose x axis is a continuous run of points, so a chart of one or two rows reads as noise.
+CONTINUOUS_CHART_DISPLAYS = frozenset({"ActionsLineGraph", "ActionsAreaGraph"})
+ALLOWED_CHART_DISPLAYS = CONTINUOUS_CHART_DISPLAYS | {"ActionsBar"}
 
 
 class StepChart(BaseModel):
-    display: ChartDisplay = Field(..., description="How to draw the chart.")
+    """A chart the planner asked for.
+
+    Deliberately free of bounds constraints. A chart is a decoration, and every layer below treats
+    one as droppable, but this model is part of QueryPlan: a `le=5` or a `max_length` here turns a
+    bad importance or an over-long title into a whole-plan validation error, which surfaces as a
+    rejected prompt and auto-disables the subscription. The descriptions still steer the planner,
+    and `validate_chart` enforces the real limits where dropping costs only the picture.
+    """
+
+    display: str = Field(
+        ...,
+        description=f"How to draw the chart. One of: {', '.join(sorted(ALLOWED_CHART_DISPLAYS))}.",
+    )
     title: Optional[str] = Field(
         None,
-        max_length=MAX_CHART_TITLE_LENGTH,
-        description="Short label shown above the chart, e.g. 'New signups per day'.",
+        description=f"Short label shown above the chart, at most {MAX_CHART_TITLE_LENGTH} characters.",
     )
     importance: int = Field(
         MIN_CHART_IMPORTANCE,
-        ge=MIN_CHART_IMPORTANCE,
-        le=MAX_CHART_IMPORTANCE,
-        description="How much this chart matters to the reader, 5 being the most important.",
+        description=(
+            f"How much this chart matters to the reader, {MIN_CHART_IMPORTANCE} to "
+            f"{MAX_CHART_IMPORTANCE}, with {MAX_CHART_IMPORTANCE} the most important."
+        ),
     )
-    x_column: str = Field(..., max_length=200, description="Result column for the x axis, by its SELECT alias.")
+    x_column: str = Field(..., description="Result column for the x axis, by its SELECT alias.")
     y_columns: list[str] = Field(
         ...,
-        min_length=1,
-        max_length=MAX_CHART_SERIES,
-        description="Result columns to plot, by their SELECT aliases.",
+        description=f"Result columns to plot, by their SELECT aliases. At most {MAX_CHART_SERIES}.",
     )
 
 

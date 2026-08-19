@@ -62,6 +62,28 @@ def test_a_well_formed_chart_validates():
             "x_and_y_identical",
         ),
         ("bar_over_a_single_row", _BAR, _response(rows=[["a", 1]]), "too_few_rows"),
+        # The plan schema no longer bounds these, so a bad value must cost the chart here rather
+        # than failing QueryPlan validation and rejecting the whole report.
+        (
+            "unsupported_display",
+            StepChart(display="ActionsPie", x_column="day", y_columns=["signups"]),
+            _response(),
+            "unsupported_display",
+        ),
+        (
+            "too_many_series",
+            StepChart(display="ActionsLineGraph", x_column="day", y_columns=[f"c{i}" for i in range(5)]),
+            _response(),
+            "unsupported_series_count",
+        ),
+        (
+            "no_series",
+            StepChart(display="ActionsLineGraph", x_column="day", y_columns=[]),
+            _response(),
+            "unsupported_series_count",
+        ),
+        # A truncated result is not the series the planner asked for, and the chart would not say so.
+        ("truncated_result", _LINE, {**_response(), "hasMore": True}, "truncated_result"),
         # The prompt tells the planner every y column must be numeric; nothing enforced it, so a
         # text column shipped as a blank chart that counted as a success.
         (
