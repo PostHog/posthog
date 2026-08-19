@@ -119,22 +119,28 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
-                <Tooltip title="Open the skill that defines what this scout does">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconExternal />}
-                        to={urls.skill(config.skill_name)}
-                        aria-label={`Open the ${config.skill_name} skill`}
-                        onClick={() =>
-                            captureScoutAction({
-                                actionType: 'open_skill_in_posthog',
-                                surface: 'scout_detail',
-                                skillName: config.skill_name,
-                            })
-                        }
-                    />
-                </Tooltip>
+                {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
+                    those opens count too. */}
+                <span
+                    className="contents"
+                    onClickCapture={() =>
+                        captureScoutAction({
+                            actionType: 'open_skill_in_posthog',
+                            surface: 'scout_detail',
+                            skillName: config.skill_name,
+                        })
+                    }
+                >
+                    <Tooltip title="Open the skill that defines what this scout does">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconExternal />}
+                            to={urls.skill(config.skill_name)}
+                            aria-label={`Open the ${config.skill_name} skill`}
+                        />
+                    </Tooltip>
+                </span>
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
             </div>
 
