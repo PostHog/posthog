@@ -456,6 +456,39 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
         })
 
+        it('honours error_message_contains filter (only matching rows are rerun)', async () => {
+            await seedRows([
+                {
+                    invocation_id: 'inv-sender',
+                    status: 'failed',
+                    error: new Error(
+                        'The custom sender address "placeholder@example.com" is not a valid email address.'
+                    ),
+                },
+                { invocation_id: 'inv-other', status: 'failed', error: new Error('Some unrelated hog error') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        error_message_contains: 'The custom sender address',
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id)).toEqual(['inv-sender'])
+            expect(next.progress.queued).toBe(1)
+        })
+
         it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
             await seedRows([
                 { invocation_id: 'a', status: 'failed', error: new Error('5xx') },

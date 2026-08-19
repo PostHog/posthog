@@ -483,6 +483,10 @@ export class RerunPaginatorService {
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
             : ''
+        // positionCaseSensitive instead of LIKE so the needle requires no %/_ escaping.
+        const errorMessageClause = filter.error_message_contains
+            ? 'AND positionCaseSensitive(argMax(error_message, version), {error_message_contains:String}) > 0'
+            : ''
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
@@ -518,6 +522,7 @@ export class RerunPaginatorService {
                 HAVING argMax(is_deleted, version) = 0
                    AND argMax(status, version) IN {status:Array(String)}
                    ${errorKindClause}
+                   ${errorMessageClause}
                    ${maxAttemptsClause}
                 ORDER BY last_scheduled_at DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
@@ -529,6 +534,7 @@ export class RerunPaginatorService {
                 window_end: windowEnd,
                 status: requestedStatus,
                 error_kind: filter.error_kind ?? [],
+                error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
                 invocation_ids: filter.invocation_ids ?? [],
                 cursor_scheduled_at: cursorScheduledAt,

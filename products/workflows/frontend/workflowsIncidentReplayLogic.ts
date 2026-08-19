@@ -15,6 +15,11 @@ import { hogFlowsList, hogFlowsRerunCreate } from 'products/workflows/frontend/g
 const INCIDENT_WINDOW_START = '2026-08-17T13:00:00.000Z'
 const INCIDENT_WINDOW_END = '2026-08-18T22:00:00.000Z'
 
+// Both messages the regression threw start with this, and no other failure mode does, so the
+// rerun skips failures unrelated to the incident (e.g. a genuinely broken integration) even
+// inside the window. Matches the pre-fix messages in email.service.ts (resolveFromEmailAddress).
+const INCIDENT_ERROR_MESSAGE_PREFIX = 'The custom sender address'
+
 export interface AffectedWorkflow {
     id: string
     name: string
@@ -167,6 +172,7 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                     filter: {
                         window_start: INCIDENT_WINDOW_START,
                         window_end: INCIDENT_WINDOW_END,
+                        error_message_contains: INCIDENT_ERROR_MESSAGE_PREFIX,
                     },
                 })
                 actions.replayWorkflowSuccess(id)
