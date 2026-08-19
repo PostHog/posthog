@@ -56,27 +56,37 @@ pub async fn drop_ai_byte_limited(
         return;
     };
 
-    // The limiter is async, so this can't be a `retain`. Rebuilding the batch
-    // keeps one allocation for the whole pass rather than shifting elements.
-    let mut kept = Vec::with_capacity(events.len());
+    // `retain` is the natural fit but its predicate is synchronous and the
+    // charge is not, so the batch is compacted by hand: the same read/write
+    // walk `retain` performs internally, with the await hoisted into the loop.
+    // Rebuilding into a second `Vec` would be the shorter spelling and costs a
+    // batch-sized allocation plus a move of every survivor, paid whether or not
+    // anything is over budget. Nothing moves here until the first drop, which
+    // is the steady state: the budget sheds nothing for a project inside it.
+    let mut write = 0usize;
     let mut dropped: u64 = 0;
 
-    for event in events.drain(..) {
-        if event.metadata.data_type != DataType::AiEvents {
-            kept.push(event);
-            continue;
-        }
-        if charge_ai_bytes(limiter, &event.event.token, event.event.data.len()).await {
+    for read in 0..events.len() {
+        let event = &events[read];
+        let over_budget = event.metadata.data_type == DataType::AiEvents
+            && charge_ai_bytes(limiter, &event.event.token, event.event.data.len()).await;
+        if over_budget {
             dropped += 1;
             continue;
         }
-        kept.push(event);
+        if write != read {
+            events.swap(write, read);
+        }
+        write += 1;
     }
+
+    // The tail past `write` holds the dropped events and the stale slots the
+    // swaps left behind; truncating drops them. No-op when nothing was shed.
+    events.truncate(write);
 
     if dropped > 0 {
         report_dropped_events("ai_byte_rate_limited", dropped);
     }
-    *events = kept;
 }
 
 #[cfg(test)]
@@ -222,6 +232,27 @@ mod tests {
         ];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         assert_eq!(events.len(), 2);
+    }
+
+    /// Survivors keep their submitted order. The interleaving is the point: a
+    /// kept event *after* a dropped one is the only case where the in-place
+    /// compaction moves anything, so a walk that reordered the batch — a
+    /// `swap_remove`, say — would show up here and nowhere else.
+    #[tokio::test]
+    async fn survivors_keep_their_order_across_drops() {
+        // Equal-length payloads, so each AI event weighs the same 517 B and
+        // only position decides who survives.
+        let l = limiter(1_000);
+        let mut events = vec![
+            event_of(DataType::AiEvents, "t", "aaaaa"), // first: admitted
+            event_of(DataType::AiEvents, "t", "bbbbb"), // over budget
+            event_of(DataType::AnalyticsMain, "t", "ccccc"), // never charged
+            event_of(DataType::AiEvents, "t", "ddddd"), // over budget
+            event_of(DataType::AnalyticsMain, "t", "eeeee"), // never charged
+        ];
+        drop_ai_byte_limited(&mut events, Some(&l)).await;
+        let kept: Vec<&str> = events.iter().map(|e| e.event.data.as_str()).collect();
+        assert_eq!(kept, ["aaaaa", "ccccc", "eeeee"]);
     }
 
     #[tokio::test]
