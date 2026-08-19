@@ -3,7 +3,19 @@ import {
   PencilSimpleIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import { Button, Heading, Skeleton, Text } from "@posthog/quill";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Heading,
+  Skeleton,
+  Text,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
@@ -30,6 +42,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     feed?.query,
   );
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const trackedFeedId = feed?.id;
   useEffect(() => {
@@ -131,11 +144,11 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       <Button
         variant="outline"
         size="xs"
-        onClick={handleDelete}
-        aria-label="Delete saved search"
+        onClick={() => setConfirmDeleteOpen(true)}
+        aria-label="Delete saved search…"
       >
         <TrashIcon size={12} />
-        Delete
+        Delete…
       </Button>
     </div>
   );
@@ -167,6 +180,29 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         />
       </div>
       <TaskFeedModal open={editOpen} onOpenChange={setEditOpen} feed={feed} />
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete saved search?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete <span className="font-medium">{feed.name}</span>? You
+              cannot undo this action.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={
+                <Button variant="outline" size="sm">
+                  Cancel
+                </Button>
+              }
+            />
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
