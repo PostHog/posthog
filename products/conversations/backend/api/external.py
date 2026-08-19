@@ -54,12 +54,12 @@ class _ExternalTicketThrottle(SimpleRateThrottle):
 # exhausting the hourly budget in a burst locks the project out until those requests age out.
 class ExternalTicketBurstThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_burst"
-    rate = "600/minute"
+    rate = "120/minute"
 
 
 class ExternalTicketSustainedThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_sustained"
-    rate = "6000/hour"
+    rate = "1200/hour"
 
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
