@@ -42,7 +42,7 @@ from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.oauth_provisioning import PartnerTier
+from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, PartnerTier
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume, refund
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -93,12 +93,6 @@ DID_NO_WORK_CODES: frozenset[str] = frozenset(
     }
 )
 
-# The endpoints whose per-partner override fields exist on ProvisioningRateLimits
-# today. Endpoints outside this set are tier-derived only until the override
-# storage becomes a per-endpoint dict.
-LEGACY_OVERRIDE_ENDPOINTS: frozenset[str] = frozenset(
-    {"account_requests", "token_exchanges", "resource_creates", "github_grants", "wizard_runs"}
-)
 
 DECISIONS_COUNTER = Counter(
     "provisioning_rate_limit_decisions_total",
@@ -218,12 +212,6 @@ def partner_for_rate_limiting(request: Request) -> OAuthApplication | None:
     return app
 
 
-def _legacy_override(partner: OAuthApplication, endpoint: str) -> int | None:
-    if endpoint not in LEGACY_OVERRIDE_ENDPOINTS:
-        return None
-    return getattr(partner.provisioning.rate_limits, endpoint, None)
-
-
 def resolve_budget(declaration: BudgetDeclaration, partner: OAuthApplication) -> Budget | None:
     """The bucket to charge for this partner, or None when it is unlimited.
 
@@ -233,10 +221,10 @@ def resolve_budget(declaration: BudgetDeclaration, partner: OAuthApplication) ->
     """
     tier = partner.partner_tier
     multiplier = declaration.multipliers[tier]
-    override = _legacy_override(partner, declaration.endpoint)
+    override = partner.provisioning.rate_limits.get(declaration.endpoint)
 
     if override is not None:
-        if override <= 0:
+        if override == UNLIMITED_OVERRIDE:
             return None
         # The override replaces the hourly rate; burst keeps the endpoint's
         # declared burst-to-rate proportion, independent of tier, so an
