@@ -284,7 +284,7 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 200
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
 
 export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
 

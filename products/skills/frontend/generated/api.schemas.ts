@@ -647,7 +647,7 @@ export interface LLMSkillFileApi {
 export interface LLMSkillPublishToCommunityApi {
     /**
      * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
-     * @maxLength 200
+     * @maxLength 64
      */
     display_name?: string
     /**
