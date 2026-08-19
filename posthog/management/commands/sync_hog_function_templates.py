@@ -113,12 +113,13 @@ class Command(BaseCommand):
                     all_templates.append(template_data)
                     current_template_ids.add(template_data["id"])
             else:
-                self.stdout.write(
-                    self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
-                )
                 raise Exception(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
         except Exception as e:
+            # A failed fetch means none of the Node.js templates were written, so count it as an
+            # error to stop the command from reporting success on a partial sync.
+            error_count += 1
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
+            logger.error("Error fetching Node.js templates", error=str(e), exc_info=True)
 
         for template_data in all_templates:
             try:

@@ -105,15 +105,22 @@ class TestSyncHogFunctionTemplates:
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_sync_handles_api_error(self, mock_get_hog_function_templates):
         """Test that the command handles API errors gracefully."""
+        from io import StringIO
+
         # Mock an API error
         mock_get_hog_function_templates.side_effect = Exception("API Error")
 
         # Run the command, should not raise an exception
-        call_command("sync_hog_function_templates")
+        stdout = StringIO()
+        call_command("sync_hog_function_templates", stdout=stdout)
+        output = stdout.getvalue()
 
         # Verify that Python test templates were still created
         db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
+
+        # A failed Node.js fetch must count as an error so the summary stops reporting success
+        assert "Errors: 1" in output
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_sync_metrics(self, mock_get_hog_function_templates):
