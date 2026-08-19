@@ -870,10 +870,11 @@ export type dataNodeLogicType = MakeLogicType<
     dataNodeLogicMeta
 >
 
-// Report a failed count query with enough context to group it by cause. Without the query kind and
-// the response status, every failure lands in error tracking under Django's generic "A server error
-// occurred." string. Plain server 5xx responses are already reported by the server, so re-capturing
-// them here only adds a context-free duplicate.
+// Report a failed count query. `query_kind` and `response_status` ride along as event properties so
+// a specific failure is filterable within error tracking. They do not change how it groups: every
+// `ApiError` shares one stack, so grouping ignores the message and these captures land in the same
+// issue regardless (see api-error.ts). Plain server 5xx responses are already reported by the
+// server, so re-capturing them here only adds a context-free duplicate.
 function captureCountError(error: unknown, action: string, query: DataNode | null): void {
     const status = error instanceof ApiError ? error.status : undefined
     if (status !== undefined && status >= 500 && status < 600) {
