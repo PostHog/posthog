@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { devProxyPortForBackendPort } from 'lib/utils/devStackPorts'
+import { devProxyPortForBackendPort } from 'lib/utils/apiHost'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -319,7 +319,7 @@ export const preflightLogic = kea<preflightLogicType>([
                 }
                 const isMismatchPresent =
                     !!preflight && (!preflight.site_url || preflight.site_url != window.location.origin)
-                const proxyPort = devProxyPortForBackendPort(Number(window.location.port))
+                const proxyPort = devProxyPortForBackendPort()
                 if (
                     isMismatchPresent &&
                     window.location.hostname === 'localhost' &&

@@ -44,6 +44,12 @@ export function liveEventsHostOrigin(): string | null {
     return appContext?.livestream_host || 'http://localhost:8666'
 }
 
+// Mirrors the dev port scheme in bin/worktree-stack (backend 8000 + 100i,
+// proxy +10) — keep the three sites listed there in sync.
+export function devProxyPortForBackendPort(port: number = Number(window.location.port)): number | null {
+    return port >= 8000 && (port - 8000) % 100 === 0 ? port + 10 : null
+}
+
 export function publicWebhooksHostOrigin(): string | null {
     const appOrigin = window.location.origin
 

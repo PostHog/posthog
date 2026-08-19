@@ -65,8 +65,10 @@ shift || true
 [[ -z "$COMMAND" ]] && usage
 
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
-MAIN_ROOT="$(dirname "$GIT_COMMON_DIR")"
+source "$WORKTREE_ROOT/bin/helpers/worktree-borrow.sh"
+source "$WORKTREE_ROOT/bin/helpers/dev-env.sh"
+MAIN_ROOT="$(posthog_main_repo "$WORKTREE_ROOT")"
+[[ -z "$MAIN_ROOT" ]] && MAIN_ROOT="$WORKTREE_ROOT"
 
 STATE_DIR="$WORKTREE_ROOT/.worktree-stack"
 PHROCS_CONFIG="$STATE_DIR/mprocs.yaml"
@@ -77,6 +79,10 @@ REGISTRY="$MAIN_ROOT/.posthog/worktree-stack-registry"
 # each worktree gets the lowest free index >= 1, recorded in a registry file
 # under the main checkout so indexes stay stable across sessions.
 # ---------------------------------------------------------------------------
+registry_lookup() {
+    awk -F'\t' -v p="$WORKTREE_ROOT" '$2 == p { print $1 }' "$REGISTRY"
+}
+
 allocate_index() {
     if [[ "$WORKTREE_ROOT" == "$MAIN_ROOT" ]]; then
         echo 0
@@ -84,6 +90,16 @@ allocate_index() {
     fi
     mkdir -p "$(dirname "$REGISTRY")"
     touch "$REGISTRY"
+
+    # Lock-free fast path: allocation only ever appends whole lines, so a
+    # reader never sees a torn entry. Every command but the first `start`
+    # resolves here without touching the lock.
+    local existing
+    existing="$(registry_lookup)"
+    if [[ -n "$existing" ]]; then
+        echo "$existing"
+        return
+    fi
 
     local lock="$REGISTRY.lock"
     local waited=0
@@ -94,7 +110,7 @@ allocate_index() {
     done
     trap 'rmdir "$lock" 2>/dev/null || true' RETURN
 
-    # Prune entries whose worktree no longer exists, then look up or allocate.
+    # Prune entries whose worktree no longer exists, then re-check and allocate.
     local tmp
     tmp="$(mktemp)"
     while IFS=$'\t' read -r idx path; do
@@ -102,17 +118,21 @@ allocate_index() {
     done < "$REGISTRY"
     mv "$tmp" "$REGISTRY"
 
-    local existing
-    existing="$(awk -F'\t' -v p="$WORKTREE_ROOT" '$2 == p { print $1 }' "$REGISTRY")"
+    existing="$(registry_lookup)"
     if [[ -n "$existing" ]]; then
         echo "$existing"
         return
     fi
 
-    local i=1
-    while awk -F'\t' -v i="$i" '$1 == i { found=1 } END { exit !found }' "$REGISTRY"; do
-        i=$((i + 1))
-    done
+    local i
+    i="$(awk -F'\t' '{ used[$1] } END { i = 1; while (i in used) i++; print i }' "$REGISTRY")"
+    # Everything downstream assumes a single digit: the port block stays clear
+    # of the fixed infra ports, the proxy's X-Worktree route matches ^[0-9]$,
+    # and the celery broker uses Redis db = index (16 dbs by default).
+    if [[ "$i" -gt 9 ]]; then
+        echo "error: no free worktree index <= 9; remove stale entries from $REGISTRY" >&2
+        exit 1
+    fi
     printf '%s\t%s\n' "$i" "$WORKTREE_ROOT" >> "$REGISTRY"
     echo "$i"
 }
@@ -123,7 +143,10 @@ IDX="$(allocate_index)"
 # Port block. Index 0 reproduces the main stack's defaults exactly.
 # Spacing of 100 keeps the derived ports clear of the fixed infra ports
 # (5432 postgres, 6379 redis, 8123/9000 clickhouse, 9092 kafka, 7233 temporal).
+# The scheme is mirrored by the proxy's X-Worktree route (docker-compose.dev.yml)
+# and by devProxyPortForBackendPort (frontend/src/lib/utils/apiHost.ts).
 # ---------------------------------------------------------------------------
+export WORKTREE_STACK_INDEX=$IDX
 export PROXY_PORT=$((8010 + 100 * IDX))
 export BACKEND_PORT=$((8000 + 100 * IDX))
 export VITE_PORT=$((8234 + 100 * IDX))
@@ -140,50 +163,30 @@ CELERY_WT_BROKER_URL="redis://redis7:6379/$IDX"
 
 COMPOSE_PROJECT="posthog-wt$IDX"
 
+ENV_VARS=(WORKTREE_STACK_INDEX PROXY_PORT BACKEND_PORT VITE_PORT DEBUGPY_PORT
+    PLUGIN_HTTP_PORT INGESTION_HTTP_PORT CAPTURE_PORT SITE_URL JS_URL)
+
 print_env() {
-    cat <<EOF
-export WORKTREE_STACK_INDEX=$IDX
-export PROXY_PORT=$PROXY_PORT
-export BACKEND_PORT=$BACKEND_PORT
-export VITE_PORT=$VITE_PORT
-export DEBUGPY_PORT=$DEBUGPY_PORT
-export SITE_URL=$SITE_URL
-export JS_URL=$JS_URL
-EOF
+    local v
+    for v in "${ENV_VARS[@]}"; do
+        echo "export $v=${!v}"
+    done
 }
 
 # ---------------------------------------------------------------------------
-# Dev environment. Mirrors bin/start's env sourcing (shell env > .env.local >
-# .env.development > .env.services) plus its computed connection URLs, so a
-# service started here sees the same environment it would under the main
-# stack. The port block above is exported first, so it wins over file values.
+# Dev environment. Shares bin/start's env sourcing (shell env > .env.local >
+# .env.development > .env.services) and computed connection URLs via
+# bin/helpers/dev-env.sh, so a service started here sees the same environment
+# it would under the main stack. The port block above is exported first, so
+# it wins over file values.
 # ---------------------------------------------------------------------------
-source_env_defaults() {
-    [[ -f "$1" ]] || return 0
-    while IFS='=' read -r name value; do
-        [[ -z "$name" || "$name" == \#* ]] && continue
-        [[ "$value" == *op://* ]] && continue
-        if [[ -z "${!name:-}" ]]; then
-            export "$name=$value"
-        fi
-    done < "$1"
-    return 0
-}
-
 load_dev_env() {
-    source_env_defaults "$WORKTREE_ROOT/.env.local"
+    if [[ -f "$WORKTREE_ROOT/.env.local" ]]; then
+        source_env_defaults "$WORKTREE_ROOT/.env.local"
+    fi
     source_env_defaults "$WORKTREE_ROOT/.env.development"
     source_env_defaults "$WORKTREE_ROOT/.env.services"
-    export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
-    export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
-    export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
-    export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
-    export PERSONS_DB_WRITER_URL=${PERSONS_DB_WRITER_URL:-$PERSONS_DATABASE_URL}
-    export PERSONS_DB_READER_URL=${PERSONS_DB_READER_URL:-$PERSONS_READONLY_DATABASE_URL}
-    export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
-    export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
-    export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
-    export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
+    export_computed_connection_urls
 }
 
 check_infra() {
@@ -209,7 +212,10 @@ resolve_phrocs() {
             return
         fi
     done
-    if candidate="$(command -v phrocs)"; then
+    # Inside flox the source build is the only accepted binary — do NOT fall
+    # back to PATH, or a stray brew/curl phrocs would shadow the checkout
+    # build (same rule as bin/start's resolution).
+    if [[ -z "${FLOX_ENV_PROJECT:-}" ]] && candidate="$(command -v phrocs)"; then
         echo "$candidate"
         return
     fi
@@ -228,12 +234,17 @@ EOF
 # ---------------------------------------------------------------------------
 KNOWN_SERVICES=(proxy backend frontend celery-worker nodejs ingestion capture)
 
-has_service() {
-    local svc
-    for svc in "${AUTOSTART_SERVICES[@]}"; do
-        [[ "$svc" == "$1" ]] && return 0
+contains() {
+    local needle=$1 item
+    shift
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
     done
     return 1
+}
+
+has_service() {
+    contains "$1" "${AUTOSTART_SERVICES[@]}"
 }
 
 autostart_flag() {
@@ -323,7 +334,7 @@ case "$COMMAND" in
                     exit 1
                     ;;
                 *)
-                    if [[ ! " ${KNOWN_SERVICES[*]} " == *" $1 "* ]]; then
+                    if ! contains "$1" "${KNOWN_SERVICES[@]}"; then
                         echo "error: unknown service '$1' (known: ${KNOWN_SERVICES[*]})" >&2
                         exit 1
                     fi
@@ -344,7 +355,6 @@ case "$COMMAND" in
         fi
         if has_service celery-worker; then
             export CELERY_BROKER_URL=$CELERY_WT_BROKER_URL
-            export CELERY_RESULT_BACKEND=$CELERY_WT_BROKER_URL
         fi
         check_infra
         load_dev_env

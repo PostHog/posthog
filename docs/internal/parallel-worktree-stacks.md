@@ -57,6 +57,7 @@ The 100 spacing keeps derived ports clear of the fixed infra ports (5432, 6379, 
 Every entry proxy — the main stack's `:8010` and each worktree's — also routes by header: a request carrying `X-Worktree: <i>` on an app path is served by worktree `i`'s Django instead of the port's default backend.
 This reaches a worktree's code from clients whose base URL is fixed (registered webhooks, API test suites, another service's callback), without repointing them at the worktree's port.
 Capture, flags, and the other special paths ignore the header; they route as the serving stack always routes them.
+Indexes are single-digit by design (the allocator refuses to mint index 10); other header values fall through to the serving stack's default backend.
 
 ## Queue splitting
 

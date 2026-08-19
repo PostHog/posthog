@@ -8,6 +8,9 @@
 # To customize which processes run, use `hogli dev:setup`.
 # See devenv/intent-map.yaml for intent-to-capability mappings.
 
+# bin/worktree-stack mirrors the shell + ready_pattern of several procs here
+# (backend, frontend, celery-worker, nodejs, ingestion, capture) — keep it in
+# sync when changing those, or `worktree-stack wait` hangs on a stale pattern.
 procs:
     info:
         shell: |

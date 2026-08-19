@@ -9,7 +9,7 @@ import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getRegionForHost, getStoredSession, OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { devProxyPortForBackendPort } from 'lib/utils/devStackPorts'
+import { devProxyPortForBackendPort } from 'lib/utils/apiHost'
 
 export interface DebugNoticeProps {
     isCollapsed?: boolean
@@ -41,7 +41,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
     const oauthSession = getStoredSession()
     const oauthRegion = oauthSession ? getRegionForHost(oauthSession.backendHost) : null
     const modeLabel = oauthRegion ? `OAuth mode ${OAUTH_REGIONS[oauthRegion].flag}` : 'DEBUG mode'
-    const proxyPort = devProxyPortForBackendPort(Number(window.location.port))
+    const proxyPort = devProxyPortForBackendPort()
 
     if (isCollapsed) {
         return (
