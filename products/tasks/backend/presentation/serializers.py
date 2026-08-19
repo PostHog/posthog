@@ -1650,7 +1650,7 @@ class ChannelSerializer(DataclassSerializer):
 
 
 class ProvisionedChannelsSerializer(serializers.Serializer):
-    """Response for explicit default-channel provisioning."""
+    """The requester's default channels, plus whether this call is what created them."""
 
     channels = ChannelSerializer(
         many=True,

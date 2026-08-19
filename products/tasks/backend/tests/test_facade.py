@@ -859,8 +859,8 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
             [first],
         )
-        # Slack, Max, and the canvas file tasks through here for users who may never open
-        # Desktop, so this is where a system space would go out unstamped.
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
         self.assertEqual(
             Channel.objects.unscoped().get(id=first).system_role,
             Channel.SystemRole.PERSONAL,

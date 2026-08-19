@@ -193,10 +193,8 @@ export function ChannelsSidebar() {
   });
   useEffect(() => {
     if (!channelsLayout) return;
-    // A channel-less route (activity, home, a feed) still sits under this
-    // layout but ends the navigation the keep-list latch was armed for, so drop
-    // the latch here — left set, it would hold a later deep link back to the
-    // same channel on the list instead of sliding into it.
+    // A route with no channel ends the navigation the latch was armed for. Left
+    // set, it would hold a later deep link to that channel on the list.
     if (!routeChannelId) {
       clearKeepListForRoute();
       return;

@@ -148,8 +148,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_legacy_personal_channel_is_stamped_with_system_role_on_provision(self):
-        # Personal channels created before system_role shipped are identified by
-        # channel_type alone; provisioning should adopt the row, not duplicate it.
+        # A row from before the role existed is identified by channel_type alone.
         legacy = Channel.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             created_by=self.user,
@@ -167,8 +166,6 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(legacy.system_role, Channel.SystemRole.PERSONAL)
 
     def test_legacy_general_channel_is_adopted_and_stamped_on_provision(self):
-        # A user-created "general" channel from before system_role shipped should be
-        # adopted as the team's #general rather than provisioning a duplicate.
         legacy = Channel.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             created_by=self.user,
@@ -193,8 +190,7 @@ class ChannelsAPITestCase(TestCase):
         ]
     )
     def test_a_created_space_takes_the_name_desktop_showed(self, _name, sent, stored):
-        # The field normalizes as the user types, so the server has to land on the same
-        # name. A "#" matters most: several surfaces write one in front of the name.
+        # The field normalizes as the user types, so the server has to agree with it.
         response = self.client.post(self._channels_url(), {"name": sent})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["name"], stored)
@@ -217,8 +213,6 @@ class ChannelsAPITestCase(TestCase):
 
     @parameterized.expand([("stored_name", "Me"), ("display_label", " personal ")])
     def test_a_shared_space_cannot_claim_a_personal_space_name(self, _name, name):
-        # Desktop shows the personal space under the label "personal" and decides the lock
-        # glyph from a bare name, so a shared space under either name reads as private.
         response = self.client.post(self._channels_url(), {"name": name})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

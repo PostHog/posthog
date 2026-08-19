@@ -66392,7 +66392,7 @@ export namespace Schemas {
     }
 
     /**
-     * Response for explicit default-channel provisioning.
+     * The requester's default channels, plus whether this call is what created them.
      */
     export interface ProvisionedChannels {
       /** The full channel list after provisioning, same shape as the list endpoint. */

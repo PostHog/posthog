@@ -20,8 +20,8 @@ export {
 } from "@posthog/core/canvas/channelName";
 
 /**
- * Backend task channels — the single channel identity (feed, threads,
- * instructions and canvases all hang off the same UUID).
+ * Backend task channels. Feed, threads, instructions and canvases all hang off
+ * the same channel UUID.
  */
 export function useTaskChannels(options?: { enabled?: boolean }): {
   channels: TaskChannel[];

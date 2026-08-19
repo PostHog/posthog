@@ -8,8 +8,6 @@ export interface ChannelIdentity {
   name: string;
 }
 
-// Stamping is lazy (it happens when the default spaces are provisioned), so a
-// legacy row can still send a null role; fall back to the pre-role checks.
 export function isPersonalChannel(channel: ChannelIdentity): boolean {
   return channel.system_role != null
     ? channel.system_role === "personal"

@@ -208,8 +208,6 @@ class ChannelDTO:
 
 @dataclass(frozen=True)
 class ProvisionedChannelsDTO:
-    """Result of explicitly provisioning the requester's default channels."""
-
     channels: list[ChannelDTO]
     personal_created: bool
     general_created: bool

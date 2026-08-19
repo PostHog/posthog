@@ -95,8 +95,7 @@ class Channel(TeamScopedRootMixin):
         GENERAL = "general", "General"
 
     PERSONAL_CHANNEL_NAME = "me"
-    # Desktop shows the personal channel under this label rather than its stored name, so
-    # another space carrying it would read as that user's private space.
+    # The label the personal channel is shown under, reserved so no other space can wear it.
     PERSONAL_CHANNEL_LABEL = "personal"
     GENERAL_CHANNEL_NAME = "general"
 

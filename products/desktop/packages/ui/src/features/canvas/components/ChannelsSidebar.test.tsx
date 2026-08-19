@@ -229,10 +229,8 @@ describe("ChannelsSidebar", () => {
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
     });
 
-    // The keep-list latch is armed for the session opened from the tree, then a
-    // channel-less route (activity, home, a feed) comes and goes. It has to
-    // expire there: a later deep link back to that same channel is a request to
-    // see it, so it must slide into the channel, not stay stranded on the list.
+    // A deep link back to the channel is a request to see it, so a latch armed
+    // before an intervening channel-less route must not strand it on the list.
     it("does not hold the list for a deep link after a channel-less route", () => {
       mocks.routeChannelId = ENG.id;
       const { rerender } = renderSidebar();

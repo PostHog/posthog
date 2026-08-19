@@ -1260,7 +1260,7 @@ export interface ChannelStarWriteApi {
 }
 
 /**
- * Response for explicit default-channel provisioning.
+ * The requester's default channels, plus whether this call is what created them.
  */
 export interface ProvisionedChannelsApi {
     /** The full channel list after provisioning, same shape as the list endpoint. */

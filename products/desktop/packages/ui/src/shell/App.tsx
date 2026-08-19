@@ -122,8 +122,6 @@ function App({ devToolbar }: AppProps) {
           authenticatedClient,
         );
         if (firstRun) {
-          // First run lands on #general with the spaces list showing and
-          // #general expanded, instead of sliding into the single-space pane.
           showChannelList();
           keepListForRoute(firstRun.generalChannelId);
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
