@@ -356,6 +356,19 @@ case "$COMMAND" in
         if has_service celery-worker; then
             export CELERY_BROKER_URL=$CELERY_WT_BROKER_URL
         fi
+        # A second phrocs for the same worktree steals the control socket and
+        # leaves the first one's services running unmanaged, so their ports
+        # collide with the new generation's. Same job as bin/start's flock.
+        if pgrep -f -- "--config $PHROCS_CONFIG" >/dev/null 2>&1; then
+            echo "error: this worktree's stack is already running; use worktree-stack stop or attach" >&2
+            exit 1
+        fi
+        # Clean up orphaned dev processes left behind by an unclean shutdown,
+        # same as bin/start — only orphans are killed, managed procs are left
+        # alone, so other worktrees' stacks are safe.
+        if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
+            hogli doctor:zombies --yes || true
+        fi
         check_infra
         load_dev_env
         PHROCS_BIN="$(resolve_phrocs)"
