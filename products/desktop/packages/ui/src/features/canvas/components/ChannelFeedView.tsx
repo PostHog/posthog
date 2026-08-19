@@ -1303,14 +1303,12 @@ export function ChannelFeedView({
   );
 
   if (isLoading && pending.length === 0) {
-    // Everything already known renders now — the intro (a feed's query bar,
-    // a space's header) and the composer — with skeleton cards holding the
+    // Everything already known renders now. The skeleton cards hold the
+    // feed's shape while keeping the intro and composer available.
     // feed's shape where the results are about to land.
     return (
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
-        <span role="status" className="sr-only">
-          Loading tasks
-        </span>
+        <output className="sr-only">Loading tasks</output>
         <div className="mx-auto w-full px-4 pt-4 pb-10">
           {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}

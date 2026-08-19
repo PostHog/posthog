@@ -138,7 +138,7 @@ describe("feedQuery", () => {
         "whitespace",
         "token",
         "whitespace",
-        // A dangling `status:` renders as plain text — no red flash mid-type.
+        // A dangling `status:` renders as plain text to avoid a red flash mid-type.
         "text",
       ]);
       expect(segments[2].token).toMatchObject({
@@ -189,7 +189,7 @@ describe("feedQuery", () => {
 
     // The regression this guards: with the OR filtered client-side over one
     // unfiltered page, both authors' tasks vanished the moment they aged out
-    // of the most recent page — two working filters combined into zero rows.
+    // of the most recent page, which made two working filters produce zero rows.
     it("fans a repeated key out into one server request per value", () => {
       const plan = planFeedQuery(
         parseFeedQuery("created-by:shy created-by:moshe"),

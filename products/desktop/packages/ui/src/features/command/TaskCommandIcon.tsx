@@ -4,7 +4,7 @@ import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 
 /**
  * Task icon for the command palette. Renders the same shared `TaskIcon` as
- * the sidebar — cloud run status, PR/branch status, etc. — deriving its
+ * the sidebar, including cloud run and PR/branch status, while deriving its
  * inputs from the raw task and a per-task PR-status query.
  */
 export function TaskCommandIcon({ task }: { task: Task }) {

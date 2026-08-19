@@ -77,7 +77,7 @@ describe("FeedQueryInput", () => {
 
     await user.type(input, "cre");
     // The bolded match prefix splits the label across spans, and accessible
-    // name computation joins them with a space — match loosely.
+    // name computation joins them with a space, so match loosely.
     await user.click(screen.getByRole("option", { name: /ated-by:/ }));
     // The key completion keeps the list open on its values.
     await user.type(input, "sh");

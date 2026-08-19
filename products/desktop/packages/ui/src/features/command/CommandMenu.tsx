@@ -238,7 +238,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   // The legacy title search only ever surfaces while the palette is browsing
   // (see `showRemoteSearch` below). The feed-query `mode` that decides that is
   // derived further down, after this debounce, so the effect reads the latest
-  // value through a ref instead — a filter query must not start a search whose
+  // value through a ref instead because a filter query must not start a search whose
   // results the palette then throws away.
   const remoteSearchAllowedRef = useRef(true);
   const { repoPath } = useFileSearchContext();

@@ -17,6 +17,7 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { uuid: currentUserId } }),
 }));
+
 import { useProjectTaskFeed, useProjectTaskFeeds } from "./useProjectTaskFeeds";
 
 function feed(id: string, projectId: number, ownerId = "user-1"): TaskFeed {
