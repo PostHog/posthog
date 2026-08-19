@@ -2762,25 +2762,24 @@ When set, the specified dashboard's filters and date range override will be appl
         request_serializer=InsightBulkSetTestAccountFilterRequestSerializer,
         responses={200: OpenApiResponse(response=InsightBulkSetTestAccountFilterResponseSerializer)},
         description=(
-            "Turn 'filter out internal and test users' on or off for every existing insight in the environment "
-            "the request is scoped to. The setting of the same name only decides the default for new insights; "
-            "this applies it to the insights that already exist. Insights in sibling environments of the same "
-            "project are not touched: the filters this toggle applies are defined per environment. Only insights "
-            "that store a query are considered, so insights still holding legacy `filters` are not included. "
-            "Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the "
-            "requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights "
-            "are updated in batches, so a failure part way through leaves the finished batches applied. "
-            "Retrying is safe and picks up the rest."
+            "Turn 'filter out internal and test users' on or off for every existing insight in the project. The "
+            "setting of the same name only decides the default for new insights; this applies it to the insights "
+            "that already exist. Only insights that store a query are considered, so insights still holding "
+            "legacy `filters` are not included. Insights with nowhere to put the toggle, such as SQL insights, "
+            "are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless "
+            "the dashboard sets its own override. Insights are updated in batches, so a failure part way through "
+            "leaves the finished batches applied. Retrying is safe and picks up the rest."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def bulk_set_test_account_filter(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         enabled: bool = request.validated_data["enabled"]
-        # Scoped to the environment in the URL, not the whole project. `self.user_access_control` resolves
-        # access-control rows under that one team, so an insight from a sibling environment would be checked
-        # against the wrong team's rows and fall through to the permissive default.
+        # Project-scoped to match `dangerously_get_queryset`, since insights are project-level even though they
+        # are served under /environments/. The per-insight access check below resolves rows team-scoped, which is
+        # equivalent today because team_id == project_id, and asymmetric only under the deprecated
+        # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
         insight_ids = list(
-            Insight.objects.filter(team_id=self.team.id, saved=True, query__isnull=False)
+            Insight.objects.filter(team__project_id=self.team.project_id, saved=True, query__isnull=False)
             .order_by("id")
             .values_list("id", flat=True)
         )
@@ -2813,13 +2812,13 @@ When set, the specified dashboard's filters and date range override will be appl
     # Annotated as Sequence rather than list because this viewset defines a `list` action, which shadows the
     # builtin inside the class body: `list[Insight]` here raises TypeError at import.
     def _editable_insights(self, insight_ids: Sequence[int]) -> tuple[Sequence[Insight], int]:
-        """The insights from this environment the caller may edit, and how many were held back.
+        """The insights from this project the caller may edit, and how many were held back.
 
         Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
         insight is visible rather than whether it can be edited, so filtering in the query would let insights
         the caller only has `viewer` on through to the write.
         """
-        insights = list(Insight.objects.filter(id__in=insight_ids, team_id=self.team.id))
+        insights = list(Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id))
         if not self.user_access_control:
             return insights, 0
 
