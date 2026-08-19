@@ -1511,7 +1511,7 @@ class TestAssistantEvents(TestCase):
                     "ts": "111.222",
                 }
             )
-            slack_cls.return_value.client.assistant_threads_setStatus.assert_called_once()
+            slack_cls.return_value.client.assistant_threads_setStatus.assert_not_called()
             mock_start.assert_called_once()
 
     def test_dm_message_ignores_bot_and_non_im(self):

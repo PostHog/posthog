@@ -513,7 +513,7 @@ export default function SettingsScreen() {
           {canSwitchProject ? (
             <SettingsRow
               label="Active project"
-              description="Tasks, inbox and automations use this project"
+              description="Tasks and inbox use this project"
               onPress={() => setProjectSheetOpen(true)}
               showDivider={false}
               rightSlot={
