@@ -4484,6 +4484,13 @@ export const TasksListStatus = {
     Cancelled: 'cancelled',
 } as const
 
+export type TasksRetrieveParams = {
+    /**
+     * Local development only. Allow explicit cross-owner task reads for debugging.
+     */
+    ph_debug?: boolean
+}
+
 export type TasksCommentsListParams = {
     /**
      * Artifact id returned by the artifacts endpoint.
@@ -4545,6 +4552,13 @@ export type TasksRunsListParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type TasksRunsRetrieveParams = {
+    /**
+     * Local development only. Allow explicit cross-owner task-run reads for debugging.
+     */
+    ph_debug?: boolean
 }
 
 export type TasksRunsSessionLogsRetrieveParams = {

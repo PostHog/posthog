@@ -5,7 +5,6 @@ import datetime as dt
 
 from django.utils import timezone
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
@@ -303,6 +302,27 @@ class _LogsQueryBodySerializer(serializers.Serializer):
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+
+
+class _LogsExportRequestSerializer(serializers.Serializer):
+    query = _LogsQueryBodySerializer(help_text="The logs query to export.")
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Columns to include in the CSV export.",
+    )
+
+
+class _LogsExportResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Exported asset identifier.")
+    export_format = serializers.CharField(help_text="Export file format.")
+    created_at = serializers.DateTimeField(help_text="Time the export was requested.")
+    has_content = serializers.BooleanField(help_text="Whether the exported file is ready to download.")
+    filename = serializers.CharField(help_text="Generated export filename.")
+
+
+class _LogsHasLogsResponseSerializer(serializers.Serializer):
+    hasLogs = serializers.BooleanField(help_text="Whether this project has captured any logs.")
 
 
 class _LogsSparklineBodySerializer(serializers.Serializer):
@@ -1795,7 +1815,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: _LogsHasLogsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1811,7 +1831,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
 
-    @extend_schema(responses={201: OpenApiTypes.OBJECT})
+    @extend_schema(request=_LogsExportRequestSerializer, responses={201: _LogsExportResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)

@@ -17,7 +17,10 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowBulkDeleteRequestApi,
+    HogFlowBulkDeleteResponseApi,
     HogFlowInvocationApi,
+    HogFlowInvocationResultApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
@@ -566,8 +569,8 @@ export const hogFlowsInvocationsCreate = async (
     id: string,
     hogFlowInvocationApi?: NonReadonly<HogFlowInvocationApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowsInvocationsCreateUrl(projectId, id), {
+): Promise<HogFlowInvocationResultApi> => {
+    return apiMutator<HogFlowInvocationResultApi>(getHogFlowsInvocationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -877,14 +880,14 @@ export const getHogFlowsBulkDeleteCreateUrl = (projectId: string) => {
 
 export const hogFlowsBulkDeleteCreate = async (
     projectId: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowBulkDeleteRequestApi: HogFlowBulkDeleteRequestApi,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsBulkDeleteCreateUrl(projectId), {
+): Promise<HogFlowBulkDeleteResponseApi> => {
+    return apiMutator<HogFlowBulkDeleteResponseApi>(getHogFlowsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowBulkDeleteRequestApi),
     })
 }
 

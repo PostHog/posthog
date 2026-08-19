@@ -28,6 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -289,6 +290,7 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Generate cache key for log explanation results."""
         return f"log_explain:v1:{self.team_id}:{uuid}:{timestamp}"
 
+    @extend_schema(request=ExplainRequestSerializer, responses={200: ExplainResponseSerializer})
     def create(self, request: Request, **kwargs) -> Response:
         """
         Explain a log entry using AI.

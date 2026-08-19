@@ -8,6 +8,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "poll": {
+            "description": "Skip scheduling a refresh and return the current recommendation state.",
+            "type": "boolean"
         }
     },
     "type": "object"

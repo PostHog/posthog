@@ -6,10 +6,11 @@ from django.db.models import Q, QuerySet
 from django.http import Http404
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
@@ -84,6 +85,19 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ColumnConfiguration.objects.all()
     serializer_class = ColumnConfigurationSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="context_key",
+                type=str,
+                required=False,
+                description="Return configurations for this product-defined table context.",
+            )
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         # Always visibility-scope (own private + team shared) so a request without a

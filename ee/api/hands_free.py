@@ -84,6 +84,10 @@ class SynthesizeSerializer(serializers.Serializer):
     )
 
 
+class HandsFreeTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Single-use token for ElevenLabs realtime transcription.")
+
+
 def _require_api_key(counter: Counter) -> str:
     api_key = settings.ELEVENLABS_API_KEY
     if not api_key:
@@ -93,6 +97,7 @@ def _require_api_key(counter: Counter) -> str:
     return api_key
 
 
+@extend_schema(tags=["posthog_ai"])
 class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     # Hands-free actions are list-level and don't operate on any model — DRF's GenericViewSet
@@ -109,7 +114,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     posthog_feature_flag = "max-hands-free"
     permission_classes = [IsAuthenticated, PostHogFeatureFlagPermission]
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(request=None, responses={200: HandsFreeTokenSerializer})
     @action(
         detail=False,
         methods=["POST"],

@@ -7,6 +7,57 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `P0` - P0
+ * * `P1` - P1
+ * * `P2` - P2
+ * * `P3` - P3
+ * * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+/**
+ * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
+ */
+export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
+
+export interface SignalTeamConfigApi {
+    readonly id: string
+    /**
+     * Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.
+     * @nullable
+     */
+    autostart_enabled?: boolean | null
+    default_autostart_priority?: AutonomyPriorityEnumApi
+    /**
+     * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+     * @maxLength 255
+     * @nullable
+     */
+    default_slack_notification_channel?: string | null
+    /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
+    autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalTeamConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalTeamConfigApi[]
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -652,6 +703,111 @@ export interface SignalReportRefundResponseApi {
     readonly created_at: string
     /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
     readonly already_refunded: boolean
+}
+
+/**
+ * Single entry in a PUT body for a `suggested_reviewers` artefact.
+ *
+ * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+ * The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+ * it must map to an org member on this team with a linked GitHub login.
+ */
+export interface SuggestedReviewerEntryWriteApi {
+    /**
+     * GitHub login (case-insensitive). Stored lowercased.
+     * @maxLength 200
+     */
+    github_login?: string
+    /** PostHog user UUID. Must be an org member on this team with a linked GitHub identity. If supplied together with `github_login`, the server-resolved login from the user wins. */
+    user_uuid?: string
+    /**
+     * Optional human-readable display name. Not backfilled from GitHub by the server.
+     * @maxLength 200
+     */
+    github_name?: string
+    /**
+     * Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
+/**
+ * PUT body for replacing a `suggested_reviewers` artefact's content.
+ *
+ * Only `suggested_reviewers` artefacts may be modified via this endpoint;
+ * the viewset enforces the type check before validation runs.
+ */
+export interface SignalReportArtefactWriteApi {
+    /** Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries. */
+    content: SuggestedReviewerEntryWriteApi[]
+}
+
+export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
+
+/**
+ * * `video_segment` - Video Segment
+ * * `safety_judgment` - Safety Judgment
+ * * `actionability_judgment` - Actionability Judgment
+ * * `priority_judgment` - Priority Judgment
+ * * `signal_finding` - Signal Finding
+ * * `repo_selection` - Repo Selection
+ * * `suggested_reviewers` - Suggested Reviewers
+ * * `dismissal` - Dismissal
+ * * `code_reference` - Code Reference
+ * * `commit` - Commit
+ * * `task_run` - Task Run
+ * * `note` - Note
+ * * `title_change` - Title Change
+ * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
+ * * `related_to` - Related To
+ */
+export type SignalReportArtefactTypeEnumApi =
+    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
+
+export const SignalReportArtefactTypeEnumApi = {
+    VideoSegment: 'video_segment',
+    SafetyJudgment: 'safety_judgment',
+    ActionabilityJudgment: 'actionability_judgment',
+    PriorityJudgment: 'priority_judgment',
+    SignalFinding: 'signal_finding',
+    RepoSelection: 'repo_selection',
+    SuggestedReviewers: 'suggested_reviewers',
+    Dismissal: 'dismissal',
+    CodeReference: 'code_reference',
+    Commit: 'commit',
+    TaskRun: 'task_run',
+    Note: 'note',
+    TitleChange: 'title_change',
+    SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
+    RelatedTo: 'related_to',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export interface SignalReportArtefactApi {
+    readonly id: string
+    readonly type: SignalReportArtefactTypeEnumApi
+    readonly content: SignalReportArtefactApiContent
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+    readonly created_by: _UserApi | null
+    /**
+     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+     * @nullable
+     */
+    readonly task_id: string | null
 }
 
 /**
@@ -1636,72 +1792,6 @@ export interface SignalReportStateRequestApi {
      * @maximum 100000
      */
     snooze_for?: number
-}
-
-/**
- * * `video_segment` - Video Segment
- * * `safety_judgment` - Safety Judgment
- * * `actionability_judgment` - Actionability Judgment
- * * `priority_judgment` - Priority Judgment
- * * `signal_finding` - Signal Finding
- * * `repo_selection` - Repo Selection
- * * `suggested_reviewers` - Suggested Reviewers
- * * `dismissal` - Dismissal
- * * `code_reference` - Code Reference
- * * `commit` - Commit
- * * `task_run` - Task Run
- * * `note` - Note
- * * `title_change` - Title Change
- * * `summary_change` - Summary Change
- * * `code_review` - Code Review
- * * `related_to` - Related To
- */
-export type SignalReportArtefactTypeEnumApi =
-    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
-
-export const SignalReportArtefactTypeEnumApi = {
-    VideoSegment: 'video_segment',
-    SafetyJudgment: 'safety_judgment',
-    ActionabilityJudgment: 'actionability_judgment',
-    PriorityJudgment: 'priority_judgment',
-    SignalFinding: 'signal_finding',
-    RepoSelection: 'repo_selection',
-    SuggestedReviewers: 'suggested_reviewers',
-    Dismissal: 'dismissal',
-    CodeReference: 'code_reference',
-    Commit: 'commit',
-    TaskRun: 'task_run',
-    Note: 'note',
-    TitleChange: 'title_change',
-    SummaryChange: 'summary_change',
-    CodeReview: 'code_review',
-    RelatedTo: 'related_to',
-} as const
-
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
-export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
-
-export interface SignalReportArtefactApi {
-    readonly id: string
-    readonly type: SignalReportArtefactTypeEnumApi
-    readonly content: SignalReportArtefactApiContent
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
-    readonly created_by: _UserApi | null
-    /**
-     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
-     * @nullable
-     */
-    readonly task_id: string | null
 }
 
 export interface PaginatedSignalReportArtefactListApi {
@@ -3341,23 +3431,6 @@ export interface EditReportResponseApi {
 }
 
 /**
- * * `P0` - P0
- * * `P1` - P1
- * * `P2` - P2
- * * `P3` - P3
- * * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
-
-/**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
  * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
@@ -4013,6 +4086,17 @@ export interface SignalUserAutonomyConfigApi {
     readonly updated_at: string
 }
 
+export type SignalsConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -4092,6 +4176,20 @@ export type SignalsReportArtefactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsReportsAvailableReviewersRetrieveParams = {
+    /**
+     * Case-insensitive name or email filter.
+     */
+    query?: string
+}
+
+export type SignalsReportsAvailableReviewersRetrieve200 = {
+    [key: string]: {
+        name: string
+        email: string
+    }
 }
 
 export type SignalsScoutConfigListParams = {

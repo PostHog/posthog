@@ -214,6 +214,12 @@ class _TracingQueryRequestSerializer(serializers.Serializer):
     query = _TracingQueryBodySerializer(help_text="The tracing spans query to execute.")
 
 
+class _TracingQueryResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.JSONField())
+    hasMore = serializers.BooleanField()
+    nextCursor = serializers.CharField(allow_null=True)
+
+
 class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
     # Shared filter fields for the timeseries actions; deliberately not a subclass of the span-query
     # body, whose result-shaping fields (orderBy, limit, pagination, flatSpans, …) don't apply here.
@@ -253,6 +259,10 @@ class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySe
 
 class _TracingDurationHistogramRequestSerializer(serializers.Serializer):
     query = _TracingDurationHistogramQueryBodySerializer(help_text="The duration-histogram query to execute.")
+
+
+class _TracingDurationHistogramResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.JSONField())
 
 
 class _TracingLatencyHeatmapRequestSerializer(serializers.Serializer):
@@ -300,6 +310,10 @@ class _TracingSparklineRequestSerializer(serializers.Serializer):
     query = _TracingSparklineQueryBodySerializer(help_text="The sparkline query to execute.")
 
 
+class _TracingSparklineResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.JSONField())
+
+
 class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
@@ -317,12 +331,22 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     )
 
 
+class _TracingTraceResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.JSONField())
+    hasMore = serializers.BooleanField()
+    nextOffset = serializers.IntegerField(allow_null=True)
+
+
 class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for service names.")
     dateRange = serializers.CharField(
         required=False,
         help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
     )
+
+
+class _TracingServiceNamesResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.CharField())
 
 
 class _TracingAttributesQuerySerializer(serializers.Serializer):
@@ -581,6 +605,11 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _TracingTreeResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.JSONField())
+    compare = serializers.ListField(child=serializers.JSONField(), allow_null=True)
+
+
 class _HasSpansResponseSerializer(serializers.Serializer):
     hasSpans = serializers.BooleanField(
         help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
@@ -779,7 +808,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return None
         return self.get_model(compare_data, CompareFilter)
 
-    @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
+    @extend_schema(
+        parameters=[_TracingServiceNamesQuerySerializer], responses={200: _TracingServiceNamesResponseSerializer}
+    )
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -809,7 +840,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingQueryRequestSerializer)
+    @extend_schema(request=_TracingQueryRequestSerializer, responses={200: _TracingQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1046,7 +1077,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingSparklineRequestSerializer)
+    @extend_schema(request=_TracingSparklineRequestSerializer, responses={200: _TracingSparklineResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1076,7 +1107,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingDurationHistogramRequestSerializer)
+    @extend_schema(
+        request=_TracingDurationHistogramRequestSerializer,
+        responses={200: _TracingDurationHistogramResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1212,7 +1246,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTreeRequestSerializer)
+    @extend_schema(request=_TracingTreeRequestSerializer, responses={200: _TracingTreeResponseSerializer})
     @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
     def tree(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1336,7 +1370,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTraceRequestSerializer)
+    @extend_schema(request=_TracingTraceRequestSerializer, responses={200: _TracingTraceResponseSerializer})
     @action(
         detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)", required_scopes=["tracing:read"]
     )

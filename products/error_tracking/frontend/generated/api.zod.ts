@@ -256,118 +256,27 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish().describe('Optional issue description.'),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid().optional(),
-        status: zod.string().optional(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .optional()
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullish(),
-        description: zod.string().nullish(),
-        first_seen: zod.iso.datetime({ offset: true }).nullish(),
-        assignee: zod
-            .union([
-                zod.object({
-                    id: zod.union([zod.number(), zod.string(), zod.null()]),
-                    type: zod.string(),
-                }),
-                zod.null(),
-            ])
-            .optional(),
-        external_issues: zod
-            .array(
-                zod.object({
-                    id: zod.uuid().describe('Unique ID of the external reference.'),
-                    integration: zod
-                        .object({
-                            id: zod.number().describe('ID of the integration backing this external reference.'),
-                            kind: zod
-                                .string()
-                                .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                            display_name: zod.string().describe('Human-readable name of the connected integration.'),
-                        })
-                        .describe('The connected integration this reference was created through.'),
-                    integration_id: zod
-                        .number()
-                        .describe(
-                            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
-                        ),
-                    config: zod
-                        .record(zod.string(), zod.string())
-                        .describe(
-                            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                        ),
-                    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
-                    external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
-                })
-            )
-            .optional(),
-        cohort: zod
-            .union([
-                zod.object({
-                    id: zod.number(),
-                    name: zod.string(),
-                }),
-                zod.null(),
-            ])
-            .optional(),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
+    assignee: zod
+        .union([
+            zod.object({
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe(
+                        'Assignee type. Use user for a numeric user ID or role for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                    ),
+                id: zod.union([zod.number(), zod.string(), zod.null()]).describe('Numeric user ID or role UUID.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Assignee to set, or null to unassign the issue.'),
+})
 
-export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid(),
-        status: zod.string(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullable(),
-        description: zod.string().nullable(),
-        first_seen: zod.iso.datetime({ offset: true }).nullable(),
-        assignee: zod.union([
-            zod.object({
-                id: zod.union([zod.number(), zod.string(), zod.null()]),
-                type: zod.string(),
-            }),
-            zod.null(),
-        ]),
-        external_issues: zod.array(
-            zod.object({
-                id: zod.uuid().describe('Unique ID of the external reference.'),
-                integration: zod
-                    .object({
-                        id: zod.number().describe('ID of the integration backing this external reference.'),
-                        kind: zod
-                            .string()
-                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
-                    })
-                    .describe('The connected integration this reference was created through.'),
-                integration_id: zod
-                    .number()
-                    .describe(
-                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
-                    ),
-                config: zod
-                    .record(zod.string(), zod.string())
-                    .describe(
-                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                    ),
-                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
-                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
-            })
-        ),
-        cohort: zod.union([
-            zod.object({
-                id: zod.number(),
-                name: zod.string(),
-            }),
-            zod.null(),
-        ]),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
+    cohortId: zod.number().describe('ID of the cohort to assign to the issue.'),
+})
 
 export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('IDs of the issues to merge into the current issue.'),
@@ -392,58 +301,35 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
-export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid(),
-        status: zod.string(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullable(),
-        description: zod.string().nullable(),
-        first_seen: zod.iso.datetime({ offset: true }).nullable(),
-        assignee: zod.union([
-            zod.object({
-                id: zod.union([zod.number(), zod.string(), zod.null()]),
-                type: zod.string(),
-            }),
-            zod.null(),
-        ]),
-        external_issues: zod.array(
-            zod.object({
-                id: zod.uuid().describe('Unique ID of the external reference.'),
-                integration: zod
-                    .object({
-                        id: zod.number().describe('ID of the integration backing this external reference.'),
-                        kind: zod
-                            .string()
-                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
-                    })
-                    .describe('The connected integration this reference was created through.'),
-                integration_id: zod
-                    .number()
-                    .describe(
-                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
-                    ),
-                config: zod
-                    .record(zod.string(), zod.string())
-                    .describe(
-                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                    ),
-                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
-                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
-            })
+export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['set_status', 'assign'])
+        .describe('\* `set_status` - set_status\n\* `assign` - assign')
+        .describe('Bulk mutation to perform.\n\n\* `set_status` - set_status\n\* `assign` - assign'),
+    ids: zod.array(zod.uuid()).describe('Issue UUIDs to update.'),
+    status: zod
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
+        .optional()
+        .describe(
+            'Status to set when action is set_status.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
-        cohort: zod.union([
+    assignee: zod
+        .union([
             zod.object({
-                id: zod.number(),
-                name: zod.string(),
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe(
+                        'Assignee type. Use user for a numeric user ID or role for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                    ),
+                id: zod.union([zod.number(), zod.string(), zod.null()]).describe('Numeric user ID or role UUID.'),
             }),
             zod.null(),
-        ]),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+        ])
+        .optional()
+        .describe('Assignee to set when action is assign, or null to unassign.'),
+})
 
 /**
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.

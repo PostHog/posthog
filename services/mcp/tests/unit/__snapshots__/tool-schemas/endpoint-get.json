@@ -3,6 +3,10 @@
     "properties": {
         "name": {
             "type": "string"
+        },
+        "version": {
+            "description": "Endpoint version. Defaults to the current version.",
+            "type": "number"
         }
     },
     "required": ["name"],

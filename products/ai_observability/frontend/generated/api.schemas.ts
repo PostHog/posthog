@@ -664,6 +664,24 @@ export interface EvaluationRunRequestApi {
     distinct_id?: string | null
 }
 
+export interface EvaluationRunEvaluationApi {
+    /** UUID of the evaluation being run. */
+    id: string
+    /** Display name of the evaluation being run. */
+    name: string
+}
+
+export interface EvaluationRunResponseApi {
+    /** Temporal workflow ID for the evaluation run. */
+    workflow_id: string
+    /** Initial workflow status. */
+    status: string
+    /** Evaluation selected for this run. */
+    evaluation: EvaluationRunEvaluationApi
+    /** UUID of the event being evaluated. */
+    target_event_id: string
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -3139,8 +3157,6 @@ export type DatasetsRevisionsListParams = {
      */
     offset?: number
 }
-
-export type EvaluationRunsCreate200 = { [key: string]: unknown }
 
 export type EvaluationsListParams = {
     /**

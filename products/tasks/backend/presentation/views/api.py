@@ -398,6 +398,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskSearchResultSerializer(results, many=True).data)
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "ph_debug",
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Local development only. Allow explicit cross-owner task reads for debugging.",
+            )
+        ],
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
         summary="Get task",
         description="Retrieve a single task by ID.",
@@ -1278,6 +1287,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
         return Response(TaskRunDetailSerializer(runs, many=True).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "ph_debug",
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Local development only. Allow explicit cross-owner task-run reads for debugging.",
+            )
+        ]
+    )
     @validated_request(
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Task run"),
@@ -2043,9 +2063,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return HttpResponseRedirect(url)
 
     @extend_schema(
-        extensions={"x-product": "logs"},
+        extensions={"x-product": "tasks"},
         responses={
-            200: OpenApiResponse(description="Log content in JSONL format"),
+            200: OpenApiResponse(response=OpenApiTypes.STR, description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run logs",

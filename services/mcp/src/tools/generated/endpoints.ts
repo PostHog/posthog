@@ -12,6 +12,7 @@ import {
     EndpointsMaterializationPreviewCreateBody,
     EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsMaterializationStatusRetrieveQueryParams,
     EndpointsMaterializationSuggestionCreateBody,
     EndpointsMaterializationSuggestionCreateParams,
     EndpointsOpenapiSpecRetrieveParams,
@@ -19,6 +20,7 @@ import {
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
+    EndpointsRetrieveQueryParams,
     EndpointsRunCreateBody,
     EndpointsRunCreateParams,
     EndpointsVersionsListParams,
@@ -85,7 +87,7 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
     },
 })
 
-const EndpointGetSchema = EndpointsRetrieveParams.omit({ project_id: true })
+const EndpointGetSchema = EndpointsRetrieveParams.omit({ project_id: true }).extend(EndpointsRetrieveQueryParams.shape)
 
 const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schemas.EndpointVersionResponse>> => ({
     name: 'endpoint-get',
@@ -95,6 +97,9 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
         const result = await context.api.request<Schemas.EndpointVersionResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
+            query: {
+                version: params.version,
+            },
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
@@ -144,7 +149,9 @@ const endpointMaterializationConditions = (): ToolBase<
     },
 })
 
-const EndpointMaterializationStatusSchema = EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true })
+const EndpointMaterializationStatusSchema = EndpointsMaterializationStatusRetrieveParams.omit({
+    project_id: true,
+}).extend(EndpointsMaterializationStatusRetrieveQueryParams.shape)
 
 const endpointMaterializationStatus = (): ToolBase<
     typeof EndpointMaterializationStatusSchema,
@@ -157,6 +164,9 @@ const endpointMaterializationStatus = (): ToolBase<
         const result = await context.api.request<Schemas.EndpointMaterialization>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
+            query: {
+                version: params.version,
+            },
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },
@@ -385,7 +395,10 @@ const EndpointsMaterializationPreviewSchema = EndpointsMaterializationPreviewCre
     project_id: true,
 }).extend(EndpointsMaterializationPreviewCreateBody.shape)
 
-const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializationPreviewSchema, unknown> => ({
+const endpointsMaterializationPreview = (): ToolBase<
+    typeof EndpointsMaterializationPreviewSchema,
+    WithPostHogUrl<Schemas.MaterializationPreviewResponse>
+> => ({
     name: 'endpoints-materialization-preview',
     schema: EndpointsMaterializationPreviewSchema,
     handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewSchema>) => {
@@ -397,7 +410,7 @@ const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializa
         if (params.bucket_overrides !== undefined) {
             body['bucket_overrides'] = params.bucket_overrides
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.MaterializationPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
             body,

@@ -15,6 +15,7 @@ import {
     ExternalDataSchemasResyncCreateBody,
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
+    ExternalDataSourcesCheckCdcPrerequisitesCreateBody,
     ExternalDataSourcesConnectLinkRetrieveQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
@@ -424,9 +425,9 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z
-    .object({})
-    .extend({ source_type: ExternalDataSourceTypeSchema })
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = ExternalDataSourcesCheckCdcPrerequisitesCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
@@ -439,6 +440,18 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
+        }
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.tables !== undefined) {
+            body['tables'] = params.tables
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

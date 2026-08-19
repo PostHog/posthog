@@ -18,7 +18,7 @@ import {
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
@@ -93,12 +93,12 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, Schemas._
 
 const ApmServicesListSchema = TracingSpansServiceNamesRetrieveQueryParams
 
-const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => ({
+const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, Schemas._TracingServiceNamesResponse> => ({
     name: 'apm-services-list',
     schema: ApmServicesListSchema,
     handler: async (context: Context, params: z.infer<typeof ApmServicesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingServiceNamesResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
@@ -155,7 +155,10 @@ const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingC
 
 const ApmSpansDurationHistogramSchema = TracingSpansDurationHistogramCreateBody
 
-const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramSchema, unknown> => ({
+const apmSpansDurationHistogram = (): ToolBase<
+    typeof ApmSpansDurationHistogramSchema,
+    Schemas._TracingDurationHistogramResponse
+> => ({
     name: 'apm-spans-duration-histogram',
     schema: ApmSpansDurationHistogramSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansDurationHistogramSchema>) => {
@@ -164,7 +167,7 @@ const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramS
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingDurationHistogramResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
             body,
@@ -200,7 +203,7 @@ const apmSpansLatencyHeatmap = (): ToolBase<
 
 const ApmSpansSparklineSchema = TracingSpansSparklineCreateBody
 
-const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> => ({
+const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, Schemas._TracingSparklineResponse> => ({
     name: 'apm-spans-sparkline',
     schema: ApmSpansSparklineSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansSparklineSchema>) => {
@@ -209,7 +212,7 @@ const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> 
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingSparklineResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/sparkline/`,
             body,
@@ -221,7 +224,7 @@ const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> 
 
 const ApmSpansTreeSchema = TracingSpansTreeCreateBody
 
-const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
+const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, Schemas._TracingTreeResponse> => ({
     name: 'apm-spans-tree',
     schema: ApmSpansTreeSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
@@ -230,7 +233,7 @@ const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingTreeResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
             body,
@@ -244,7 +247,7 @@ const ApmTraceGetSchema = TracingSpansTraceCreateParams.omit({ project_id: true 
     TracingSpansTraceCreateBody.shape
 )
 
-const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
+const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, WithPostHogUrl<Schemas._TracingTraceResponse>> =>
     withUiApp('trace-span-list', {
         name: 'apm-trace-get',
         schema: ApmTraceGetSchema,
@@ -260,7 +263,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
-            const result = await context.api.request<unknown>({
+            const result = await context.api.request<Schemas._TracingTraceResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
@@ -272,7 +275,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
 
 const QueryApmSpansSchema = TracingSpansQueryCreateBody
 
-const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
+const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, Schemas._TracingQueryResponse> =>
     withUiApp('trace-span-list', {
         name: 'query-apm-spans',
         schema: QueryApmSpansSchema,
@@ -282,7 +285,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
             if (params.query !== undefined) {
                 body['query'] = params.query
             }
-            const result = await context.api.request<unknown>({
+            const result = await context.api.request<Schemas._TracingQueryResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
