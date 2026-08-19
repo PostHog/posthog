@@ -44,7 +44,6 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
         if mount is None:
             return MaterializeContextLayerOutput(mounted=False)
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
         mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
         bundle_path = f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle"
         command = (
@@ -53,7 +52,19 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             f"git -C {mount_path} checkout --quiet main && "
             f"rm -f {shlex.quote(bundle_path)}"
         )
-        result = sandbox.execute(command, timeout_seconds=MOUNT_TIMEOUT_SECONDS)
+        try:
+            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            result = sandbox.execute(command, timeout_seconds=MOUNT_TIMEOUT_SECONDS)
+        except Exception as error:
+            # Best-effort by contract: a failure reaching the sandbox (not running,
+            # timeout, execution error) degrades to "no wiki" instead of failing
+            # provisioning, so the activity never raises out of here.
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Could not mount the context wiki; continuing without it: {error}",
+            )
+            return MaterializeContextLayerOutput(mounted=False)
         if result.exit_code != 0:
             emit_agent_log(
                 ctx.run_id,
