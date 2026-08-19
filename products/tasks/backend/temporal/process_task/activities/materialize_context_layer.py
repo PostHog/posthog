@@ -30,6 +30,17 @@ class MaterializeContextLayerOutput:
     mounted: bool
 
 
+def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str) -> None:
+    """Remove any leftover wiki checkout. Best-effort, like the mount itself."""
+    mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
+    bundle_path = shlex.quote(f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle")
+    try:
+        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox.execute(f"rm -rf {mount_path} {bundle_path}", timeout_seconds=MOUNT_TIMEOUT_SECONDS)
+    except Exception as error:
+        emit_agent_log(ctx.run_id, "debug", f"Could not clear a stale context wiki checkout: {error}")
+
+
 @activity.defn
 @asyncify
 def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) -> MaterializeContextLayerOutput:
@@ -42,6 +53,12 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
     ):
         mount = context_layer_facade.get_sandbox_mount(ctx.organization_id)
         if mount is None:
+            # A directory-resumed sandbox restores /tmp/workspace with the previous
+            # run's checkout, so a wiki that has since gone dark (disabled, or the
+            # organization gained a private project) would stay readable. Removing
+            # the directory is what makes the agent stop seeing it, since the
+            # harnesses gate on the mount path existing rather than on the env var.
+            _clear_wiki_checkout(ctx, input.sandbox_id)
             return MaterializeContextLayerOutput(mounted=False)
 
         mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
