@@ -99,6 +99,8 @@ def _classify_failure(e: BaseException) -> str:
     if isinstance(e, BrowserlessError):
         if e.cause == "not_configured":
             return "not_configured"
+        if e.cause == "partial_render":
+            return "partial_render"
         if e.cause in ("empty_body", "non_image", "non_jpeg", "oversized"):
             return "validation_error"
         if e.cause == "request_exception":
@@ -369,6 +371,13 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     return content
 
 
+def _navigation_completed(response: requests.Response) -> bool:
+    # Browserless sets X-Response-Code from the navigation response and skips the header entirely when
+    # that response is missing, which happens only when bestAttempt caught a goto that never resolved.
+    # Its presence is therefore the signal that the page finished navigating before it was captured.
+    return "x-response-code" in response.headers
+
+
 def _page_status_from(response: requests.Response) -> int | None:
     # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429 or 403,
     # so this header is the only thing separating a heatmap from a picture of the customer's error
@@ -468,6 +477,27 @@ def _browserless_screenshot(
             cause=err.cause,
         )
         raise
+
+    if not _navigation_completed(response):
+        # Browserless omits X-Response-Code only when bestAttempt swallowed a navigation that never
+        # finished, so the JPEG is a partial, often unstyled, frame of a page still loading when the
+        # render budget ran out. Reject it as transient rather than store the broken capture and serve
+        # it as the finished heatmap.
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            browserless_status=status_code,
+            latency_ms=round(elapsed * 1000),
+            bytes=byte_size,
+            outcome="error",
+            cause="partial_render",
+        )
+        raise BrowserlessTransientError(
+            f"{_host_of(page_url)} was still loading when the render time limit ran out, so the capture is "
+            "incomplete. This usually means the page loads slowly; try again in a moment.",
+            cause="partial_render",
+        )
 
     page_status = _page_status_from(response)
     HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
