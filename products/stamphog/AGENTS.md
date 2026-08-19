@@ -43,16 +43,16 @@ head-changing event must retract standing approvals itself:
   must not block the terminal save (the integrity gap on error is the pre-existing exposure, no worse).
 
 The one deliberate exception is **approval retention**.
-A head-changing delivery whose push left what stamphog approved untouched skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
-It is content-based rather than commit-based: the PR's own diff at the approved head, keyed on each changed file's blob sha, against the diff at the current head.
-So a merge of the base branch retains only while every blob the approval covered is byte-identical, and a conflict resolved inside one of them re-reviews.
-The path half is narrower than "looks harmless": `.md` is the only suffix it trusts, so lockfiles, tests, generated sources, `.mdx`, `.snap` and everything under `docs/` all re-review.
-Each of those can execute somewhere, whether that is a dependency install, CI with CI's credentials, a service that compiles a hand-edited file under `generated/`, `docs/onboarding`, which is aliased into the production frontend, MDX, which compiles to JavaScript, or a snapshot file, which is a JavaScript module the test runner executes.
-`_GATE_OWN_FILES_RE` mirrors every `stamphog_policy` deny family, not a subset, because two of them are markdown: `AGENT_APPROVALS.md` and the reviewer guidance shipped under `policy_defaults/`, which would otherwise let an edit to the review prompt ride in under a retained approval.
-These rules are server-owned on purpose and are NOT read from the reviewed repo's `.stamphog/policy.yml`: the engine's approve-time policy is repo-overridable because a human still reviews what it lets through, and this has no such backstop, so a repo able to widen it would keep an approval standing across arbitrary code pushes.
+A head-changing delivery whose push left the PR's own diff byte-identical skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
+It is content-based rather than commit-based: each changed file's blob sha at the approved head against the same at the current head.
+So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
+
+There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
+Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
+
 Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no stored file payload, an unreadable payload, a file listing that hit `MAX_PR_FILES` and is therefore a prefix rather than the diff, or any GitHub error.
-`get_pr_files` answers for the PR's live head rather than for `run.head_sha`, so `fetch_review_context` records the head it saw as `files_head_sha` and retention refuses any payload whose marker does not equal the approving run's head, a run from before the marker existed included.
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
+`get_pr_files` answers for the PR's live head rather than for `run.head_sha`, so `fetch_review_context` records the head it saw as `files_head_sha` and retention refuses any payload whose marker does not equal the approving run's head, a run from before the marker existed included.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
 

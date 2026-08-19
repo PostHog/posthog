@@ -10,11 +10,7 @@ import jwt
 from parameterized import parameterized
 
 from products.stamphog.backend.facade.enums import AudienceReason
-from products.stamphog.backend.logic.approval_retention import (
-    RetentionReason,
-    classify_delta,
-    is_trivial_at_dismiss_time,
-)
+from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
@@ -526,62 +522,13 @@ def _file(filename: str, sha: str) -> dict:
 
 
 class ApprovalRetentionTests(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("docs/how-to.md", True),
-            ("README.md", True),
-            # MDX compiles to JavaScript and a snapshot file is a JavaScript module the test runner
-            # executes, so neither is inert however much it looks like documentation or data.
-            ("products/x/CHANGELOG.mdx", False),
-            ("frontend/__snapshots__/x.snap", False),
-            ("posthog/api/thing.py", False),
-            (".github/workflows/ci.yml", False),
-            ("Dockerfile", False),
-            ("bin/deploy.sh", False),
-            # A lockfile selects the dependency code that actually gets installed.
-            ("uv.lock", False),
-            ("pnpm-lock.yaml", False),
-            # Tests run in CI with CI's credentials.
-            ("posthog/test/test_thing.py", False),
-            ("frontend/src/thing.test.ts", False),
-            # A file under a generated/ directory can be hand-edited and still compiles into a service.
-            ("products/x/frontend/generated/api.ts", False),
-            # docs/onboarding is aliased into the production frontend, so a .tsx there ships.
-            ("docs/onboarding/snippet.tsx", False),
-            # A name prefix says nothing about whether the file runs.
-            ("posthog/readme_parser.py", False),
-            ("scripts/changelog_build.sh", False),
-            # The gate's own files are markdown or config the suffix rule would otherwise call inert.
-            (".stamphog/policy.yml", False),
-            ("products/visual_review/AGENT_APPROVALS.md", False),
-            # Shipped as the hosted reviewer's own guidance, and markdown, so the suffix rule would
-            # otherwise call an edit to the review prompt inert.
-            ("products/stamphog/backend/logic/policy_defaults/review-guidance.md", False),
-            ("tools/owners/posthog_owners/resolver.py", False),
-            ("owners.yaml", False),
-            ("products/stamphog/product.yaml", False),
-            ("products/stamphog/packages/pr-approval-agent/gates.py", False),
-            # Vendored copies keep the engine under tools/, and the rule must not care where it sits.
-            ("tools/pr-approval-agent/gates.py", False),
-            (".github/CODEOWNERS", False),
-        ]
-    )
-    def test_is_trivial_at_dismiss_time(self, path: str, expected: bool) -> None:
-        assert is_trivial_at_dismiss_time(path) is expected
-
     def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
         # Merging the base branch into a PR is the most common push on a long-lived PR. It leaves
         # every blob in the PR's own diff alone, so there is nothing new to review and dismissing
         # would drop the PR out of merge readiness for no reason.
         approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
 
-        assert classify_delta(approved, list(approved), max_files=100) == RetentionReason.UNCHANGED_DIFF
-
-    def test_trivial_paths_retain(self) -> None:
-        approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
-        current = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "ccc")]
-
-        assert classify_delta(approved, current, max_files=100) == RetentionReason.TRIVIAL_PATHS
+        assert approved_diff_unchanged(approved, list(approved), max_files=100) is True
 
     @parameterized.expand(
         [
@@ -591,12 +538,17 @@ class ApprovalRetentionTests(SimpleTestCase):
             ("added_source", [_file("posthog/api/thing.py", "aaa"), _file("posthog/api/new.py", "ccc")]),
             # A removed file changes what the approval covered just as much as an added one.
             ("removed_file", []),
+            # No path is exempt. Markdown ships here: services/mcp imports .md templates and product
+            # tools.yaml files compile .md prompts into shipped tool definitions.
+            ("changed_markdown", [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "ccc")]),
         ]
     )
-    def test_non_trivial_delta_dismisses(self, _name: str, current: list[dict]) -> None:
-        approved = [_file("posthog/api/thing.py", "aaa")]
+    def test_any_content_change_dismisses(self, _name: str, current: list[dict]) -> None:
+        approved = [_file("posthog/api/thing.py", "aaa")] + (
+            [_file("docs/thing.md", "bbb")] if _name == "changed_markdown" else []
+        )
 
-        assert classify_delta(approved, current, max_files=100) is None
+        assert approved_diff_unchanged(approved, current, max_files=100) is False
 
     def test_missing_blob_sha_fails_closed(self) -> None:
         # Two file objects with no sha would compare equal and retain an approval over a diff nobody
@@ -604,11 +556,11 @@ class ApprovalRetentionTests(SimpleTestCase):
         approved = [{"filename": "posthog/api/thing.py"}]
         current = [{"filename": "posthog/api/thing.py"}]
 
-        assert classify_delta(approved, current, max_files=100) is None
+        assert approved_diff_unchanged(approved, current, max_files=100) is False
 
     def test_truncated_file_listing_fails_closed(self) -> None:
         # get_pr_files stops at a page cap without saying so, and a listing at the cap is a prefix of
         # the diff. A change past it would be invisible, so the whole comparison is unusable.
         approved = [_file(f"docs/f{i}.md", "aaa") for i in range(3)]
 
-        assert classify_delta(approved, list(approved), max_files=3) is None
+        assert approved_diff_unchanged(approved, list(approved), max_files=3) is False

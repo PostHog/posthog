@@ -27,8 +27,8 @@ from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_review
 from products.stamphog.backend.logic.approval_retention import (
     MAX_RETAINED_HEADS,
     RETAINED_HEADS_KEY,
-    RetentionReason,
-    classify_delta,
+    UNCHANGED_DIFF,
+    approved_diff_unchanged,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
@@ -522,19 +522,19 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
         )
 
 
-def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> RetentionReason | None:
-    """Why a standing approval survives this push, or None to dismiss it and re-review.
+def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
+    """Whether a standing approval survives this push, rather than being dismissed and re-reviewed.
 
     Compares the PR's own diff at the approved head, stored on that run when its context was fetched,
-    against the diff at the current head. Returns None for everything ambiguous: no PR row, no
-    standing approval, an approval already at this head (a same-head re-review is deliberately allowed
-    to void it), or a run whose stored file payload is missing.
+    against the diff at the current head. False for everything ambiguous: no PR row, no standing
+    approval, an approval already at this head (a same-head re-review is deliberately allowed to void
+    it), or a run whose stored file payload is missing or belongs to another head.
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
     head_sha = (pr.get("head") or {}).get("sha") or ""
     if pr_number is None or not head_sha:
-        return None
+        return False
 
     # Writer pin for the same reason _retract_stale_approvals_on_skip uses one: this read decides
     # whether an approval stands, and a lagged reader missing the approving run would fall through to
@@ -546,7 +546,7 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         .first()
     )
     if pull_request is None:
-        return None
+        return False
 
     standing = (
         ReviewRun.objects.for_team(team_id)
@@ -561,22 +561,22 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         .first()
     )
     if standing is None:
-        return None
+        return False
 
     if standing.posted_review_id is None:
-        return None
+        return False
 
     stored = standing.output or {}
     approved_files = stored.get("files")
     if not isinstance(approved_files, list):
-        return None
+        return False
 
     # The stored listing comes from get_pr_files, which answers for the PR's live head rather than
     # for the head the run reviewed. It only describes the approved diff when the head had not moved
     # by the time it was fetched, so the fetch records what it saw and this refuses anything else,
     # including a run from before that field existed.
     if stored.get("files_head_sha") != standing.head_sha:
-        return None
+        return False
 
     client = StamphogGitHubClient(repo_config.installation_id)
     # posted_review_id records that stamphog approved, not that the approval still stands. A
@@ -585,13 +585,13 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     # unreadable or unconfigured identity yields an empty list, which falls through to the review.
     active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
     if standing.posted_review_id not in active_ids:
-        return None
+        return False
 
     current_files = client.get_pr_files(repo_config.repository, pr_number)
-    reason = classify_delta(approved_files, current_files, max_files=MAX_PR_FILES)
-    if reason is not None:
-        _record_retained_head(standing, head_sha)
-    return reason
+    if not approved_diff_unchanged(approved_files, current_files, max_files=MAX_PR_FILES):
+        return False
+    _record_retained_head(standing, head_sha)
+    return True
 
 
 def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
@@ -1176,18 +1176,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # keep their head-pinning carve-out untouched.
     if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
         try:
-            retention = _standing_approval_retention(repo_config, pr)
+            retained = _standing_approval_retention(repo_config, pr)
         except Exception:
             # This is an optimization, so it never costs a review: an unreachable GitHub or an
             # unexpected payload falls through to the full path rather than retrying or retaining.
             logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
-            retention = None
-        if retention is not None:
+            retained = False
+        if retained:
             logger.info(
                 "stamphog_pr_event_approval_retained",
                 repo=repo,
                 pr_number=pr_number,
-                reason=str(retention),
+                reason=UNCHANGED_DIFF,
             )
             if delivery_id:
                 _mark_pr_event_processed(delivery_id)
