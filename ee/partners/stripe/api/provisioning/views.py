@@ -17,6 +17,7 @@ of the HMAC), so those two run every check explicitly in the handler.
 from __future__ import annotations
 
 import re
+import math
 import base64
 import hashlib
 import secrets
@@ -122,7 +123,7 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
             "rate_limited",
             "Rate limit exceeded. Try again later.",
             status=429,
-            retry_after=int(wait) if wait else None,
+            retry_after=math.ceil(wait) if wait else None,
         )
 
     def handle_exception(self, exc: Exception) -> Response:
