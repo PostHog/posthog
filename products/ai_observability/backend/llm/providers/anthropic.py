@@ -25,7 +25,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
-    user_facing_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -305,71 +305,68 @@ class AnthropicAdapter:
                 )
             else:
                 stream = client.messages.create(**common_kwargs)
+
+            # Inside the try: Anthropic reports an overload or a mid-request failure by raising
+            # partway through iteration, which is the point where the user has nothing else to
+            # read but this generator's chunks.
+            for chunk in stream:
+                if chunk.type == "message_start":
+                    usage = chunk.message.usage
+                    yield StreamChunk(
+                        type="usage",
+                        data={
+                            "input_tokens": usage.input_tokens or 0,
+                            "output_tokens": usage.output_tokens or 0,
+                            "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", None) or 0,
+                            "cache_read_tokens": getattr(usage, "cache_read_input_tokens", None) or 0,
+                        },
+                    )
+
+                elif chunk.type == "message_delta":
+                    yield StreamChunk(
+                        type="usage",
+                        data={"input_tokens": 0, "output_tokens": chunk.usage.output_tokens or 0},
+                    )
+
+                elif chunk.type == "content_block_start":
+                    if chunk.content_block.type == "thinking":
+                        yield StreamChunk(type="reasoning", data={"reasoning": chunk.content_block.thinking or ""})
+                    elif chunk.content_block.type == "redacted_thinking":
+                        yield StreamChunk(type="reasoning", data={"reasoning": "[Redacted thinking block]"})
+                    elif chunk.content_block.type == "text":
+                        if chunk.index > 0:
+                            yield StreamChunk(type="text", data={"text": "\n"})
+                        yield StreamChunk(type="text", data={"text": chunk.content_block.text})
+                    elif chunk.content_block.type == "tool_use":
+                        yield StreamChunk(
+                            type="tool_call",
+                            data={
+                                "id": chunk.content_block.id,
+                                "function": {
+                                    "name": chunk.content_block.name,
+                                    "arguments": "",
+                                },
+                            },
+                        )
+
+                elif chunk.type == "content_block_delta":
+                    if chunk.delta.type == "thinking_delta":
+                        yield StreamChunk(type="reasoning", data={"reasoning": chunk.delta.thinking})
+                    elif chunk.delta.type == "text_delta":
+                        yield StreamChunk(type="text", data={"text": chunk.delta.text})
+                    elif chunk.delta.type == "input_json_delta":
+                        yield StreamChunk(
+                            type="tool_call",
+                            data={
+                                "id": None,
+                                "function": {
+                                    "name": "",
+                                    "arguments": chunk.delta.partial_json,
+                                },
+                            },
+                        )
         except Exception as e:
-            mapped = self._mapped_error(e, model_id)
-            if isinstance(mapped, ProviderConnectionError):
-                logger.warning(f"Anthropic connection error when streaming response: {e}")
-            else:
-                logger.exception(f"Anthropic API error: {e}")
-            yield StreamChunk(type="error", data={"error": user_facing_error_message(mapped)})
-            return
-
-        for chunk in stream:
-            if chunk.type == "message_start":
-                usage = chunk.message.usage
-                yield StreamChunk(
-                    type="usage",
-                    data={
-                        "input_tokens": usage.input_tokens or 0,
-                        "output_tokens": usage.output_tokens or 0,
-                        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", None) or 0,
-                        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", None) or 0,
-                    },
-                )
-
-            elif chunk.type == "message_delta":
-                yield StreamChunk(
-                    type="usage",
-                    data={"input_tokens": 0, "output_tokens": chunk.usage.output_tokens or 0},
-                )
-
-            elif chunk.type == "content_block_start":
-                if chunk.content_block.type == "thinking":
-                    yield StreamChunk(type="reasoning", data={"reasoning": chunk.content_block.thinking or ""})
-                elif chunk.content_block.type == "redacted_thinking":
-                    yield StreamChunk(type="reasoning", data={"reasoning": "[Redacted thinking block]"})
-                elif chunk.content_block.type == "text":
-                    if chunk.index > 0:
-                        yield StreamChunk(type="text", data={"text": "\n"})
-                    yield StreamChunk(type="text", data={"text": chunk.content_block.text})
-                elif chunk.content_block.type == "tool_use":
-                    yield StreamChunk(
-                        type="tool_call",
-                        data={
-                            "id": chunk.content_block.id,
-                            "function": {
-                                "name": chunk.content_block.name,
-                                "arguments": "",
-                            },
-                        },
-                    )
-
-            elif chunk.type == "content_block_delta":
-                if chunk.delta.type == "thinking_delta":
-                    yield StreamChunk(type="reasoning", data={"reasoning": chunk.delta.thinking})
-                elif chunk.delta.type == "text_delta":
-                    yield StreamChunk(type="text", data={"text": chunk.delta.text})
-                elif chunk.delta.type == "input_json_delta":
-                    yield StreamChunk(
-                        type="tool_call",
-                        data={
-                            "id": None,
-                            "function": {
-                                "name": "",
-                                "arguments": chunk.delta.partial_json,
-                            },
-                        },
-                    )
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:

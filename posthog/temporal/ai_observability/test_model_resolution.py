@@ -104,9 +104,8 @@ class TestExplicitModelSpec:
         ],
     )
     def test_unusable_key_message_names_the_actual_state(self, team, state, expected_phrase):
-        # Every non-OK state used to report "This API key has been disabled", which told a user
-        # with a never-validated key or a rate-limited one to go looking for a setting that does
-        # not exist. The state decides which action the message asks for.
+        # Every non-OK state used to report "This API key has been disabled", sending a user with
+        # a never-validated key looking for a setting that does not exist.
         key = _key(team, "openai", state=state)
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)

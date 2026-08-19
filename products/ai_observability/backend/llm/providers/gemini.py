@@ -25,7 +25,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
-    user_facing_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -235,12 +235,7 @@ class GeminiAdapter:
                     )
 
         except Exception as e:
-            mapped = self._mapped_error(e, model_id)
-            if isinstance(mapped, ProviderConnectionError):
-                logger.warning(f"Gemini connection error when streaming response: {e}")
-            else:
-                logger.exception(f"Gemini API error when streaming response: {e}")
-            yield StreamChunk(type="error", data={"error": user_facing_error_message(mapped)})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:

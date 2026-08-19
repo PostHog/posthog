@@ -85,8 +85,7 @@ class TestGeminiAdapterErrorMapping:
 class TestGeminiStreamErrorSurfacing:
     def test_retired_model_yields_actionable_message_instead_of_discarding_the_reason(self):
         # Streaming has no exception channel, so this chunk is the entire explanation the user
-        # gets in the playground. It used to be a flat "Gemini API error", which threw the reason
-        # away.
+        # gets in the playground.
         request = CompletionRequest(
             model="gemini-1.0-pro",
             system="s",

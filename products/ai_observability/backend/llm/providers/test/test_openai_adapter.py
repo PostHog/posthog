@@ -230,7 +230,7 @@ class TestOpenAIAdapterErrorMapping:
 class TestOpenAIStreamErrorSurfacing:
     def test_model_404_yields_actionable_message_instead_of_raw_sdk_text(self):
         # Streaming has no exception channel, so this chunk is the entire explanation the user
-        # gets in the playground. It used to be `str(e)`, which leaked the provider's raw JSON.
+        # gets in the playground.
         request = CompletionRequest(
             model="gpt-4-turbo-2024-04-09",
             system="s",
@@ -252,3 +252,31 @@ class TestOpenAIStreamErrorSurfacing:
         errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
         assert errors == ["Model 'gpt-4-turbo-2024-04-09' is not available. Pick a different model and try again."]
         assert "Error code: 404" not in errors[0]
+
+    def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(self):
+        # An unsupported parameter is the most common way a playground run fails, and it has no
+        # branch in the taxonomy. "Try again" would be advice that cannot work, so the provider's
+        # sentence has to come through — without the SDK's `Error code: 400 - {...}` wrapper.
+        request = CompletionRequest(
+            model="gpt-5",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+        detail = "Unsupported value: 'temperature' does not support 0.7 with this model."
+        body = {"error": {"message": detail}}
+        http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.BadRequestError(
+            f"Error code: 400 - {body}",
+            response=httpx.Response(status_code=400, request=http_request, json=body),
+            body=body,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            chunks = list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert len(errors) == 1
+        assert detail in errors[0]
+        assert "Error code: 400" not in errors[0]

@@ -234,6 +234,39 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it('names the model when it is not one of the available models', async () => {
+        // The model can arrive without passing through the picker — from a trace, or a saved
+        // prompt written when the key set still offered it.
+        const streamSpy = jest.spyOn(api, 'stream')
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('claude-3-sonnet-20240229')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        // The toast is plain text; the card is markdown, so the model id reaches it escaped.
+        expect(toastSpy).toHaveBeenCalledWith(
+            "Model 'claude-3-sonnet-20240229' is not one of your available models. Pick a different model and try again."
+        )
+        expect(items[0].response).toContain(
+            "**Error:** Model 'claude\\-3\\-sonnet\\-20240229' is not one of your available models."
+        )
+        expect(streamSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
     describe('describeError', () => {
         it('prefers structured backend error string over detail and message', () => {
             const err = new ApiError('fallback', 400, undefined, { error: 'backend says no' })

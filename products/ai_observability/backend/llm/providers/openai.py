@@ -29,7 +29,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
-    user_facing_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -375,12 +375,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     yield from self._yield_usage_chunks(chunk.usage)
 
         except Exception as e:
-            mapped = self._mapped_error(e, model_id)
-            if isinstance(mapped, ProviderConnectionError):
-                logger.warning(f"OpenAI connection error when streaming response: {e}")
-            else:
-                logger.exception(f"OpenAI API error: {e}")
-            yield StreamChunk(type="error", data={"error": user_facing_error_message(mapped)})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
