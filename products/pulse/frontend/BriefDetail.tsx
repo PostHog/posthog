@@ -6,6 +6,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { AccountabilityPanel } from './AccountabilityPanel'
 import type { BriefSectionApi, BriefSectionCitationApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import { pulseLogic } from './pulseLogic'
@@ -57,6 +58,7 @@ export function BriefDetail(): JSX.Element | null {
                     {briefDetailSections.map((section, index) => (
                         <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
                     ))}
+                    <AccountabilityPanel lines={briefDetail.accountability} />
                 </div>
             )
         default:

@@ -575,6 +575,28 @@ export namespace Schemas {
       user: number;
     }
 
+    export interface AccountabilityStatusLine {
+      /** ID of the opportunity this status line re-scores. */
+      opportunity_id: string;
+      /** Opportunity kind at the time the brief was generated. */
+      kind: string;
+      /** Opportunity lifecycle status at the time the brief was generated. */
+      status: string;
+      /** Opportunity title. */
+      title: string;
+      /** How many days ago the opportunity was first suggested. */
+      age_days: number;
+      /** Human-readable metric rate at suggestion time. */
+      baseline_summary: string;
+      /** Human-readable metric rate now, or "metric no longer available" when it cannot be re-read. */
+      current_summary: string;
+      /**
+         * Percentage change from the baseline rate to the current rate; null when it cannot be computed.
+         * @nullable
+         */
+      delta_pct: number | null;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -13797,6 +13819,12 @@ export namespace Schemas {
       settings?: BriefSettings;
       /** Whether this config generates briefs. */
       enabled?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
       readonly created_at: string;
@@ -49319,6 +49347,79 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `build` - Build
+     * * `fix` - Fix
+     * * `instrument` - Instrument
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    /**
+     * * `open` - Open
+     * * `dismissed` - Dismissed
+     * * `acted` - Acted
+     * * `resolved` - Resolved
+     */
+    export type OpportunityStatusEnum = typeof OpportunityStatusEnum[keyof typeof OpportunityStatusEnum];
+
+
+    export const OpportunityStatusEnum = {
+      Open: 'open',
+      Dismissed: 'dismissed',
+      Acted: 'acted',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface ResourceLink {
+      /** The kind of PostHog resource this link points at. */
+      type: string;
+      /** Stable identifier of the referenced resource (e.g. an insight short id). */
+      ref: string;
+      /** Human-readable label for the resource. */
+      label: string;
+      /** Deep link into the app, or empty when there is none. */
+      url: string;
+    }
+
+    export interface Opportunity {
+      readonly id: string;
+      /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
+       *
+       * * `build` - Build
+       * * `fix` - Fix
+       * * `instrument` - Instrument */
+      readonly kind: OpportunityKindEnum;
+      /** Lifecycle status: open, dismissed, acted, or resolved.
+       *
+       * * `open` - Open
+       * * `dismissed` - Dismissed
+       * * `acted` - Acted
+       * * `resolved` - Resolved */
+      readonly status: OpportunityStatusEnum;
+      /** Short, actionable opportunity title. */
+      readonly title: string;
+      /** What was observed and why it matters. */
+      readonly summary: string;
+      /** The concrete next step suggested for the team. */
+      readonly suggested_action: string;
+      /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
+      readonly evidence: readonly ResourceLink[];
+      /** The brief this opportunity first surfaced in. */
+      readonly first_seen_brief: string;
+      readonly created_at: string;
+      /** User who created the opportunity. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -51300,6 +51401,15 @@ export namespace Schemas {
       results: ObjectMediaPreview[];
     }
 
+    export interface PaginatedOpportunityList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Opportunity[];
+    }
+
     /**
      * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
      * {count, next, previous, results} envelope instead of an untyped object.
@@ -51558,6 +51668,8 @@ export namespace Schemas {
       readonly trigger: ProductBriefTriggerEnum;
       /** The resolved-at-gather period spec the brief covers. */
       readonly period: Period;
+      /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
+      readonly accountability: readonly AccountabilityStatusLine[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**
@@ -56545,6 +56657,12 @@ export namespace Schemas {
       settings?: BriefSettings;
       /** Whether this config generates briefs. */
       enabled?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
       readonly created_at?: string;
@@ -64651,6 +64769,8 @@ export namespace Schemas {
       readonly period: Period;
       /** Generated brief sections, most important first. */
       readonly sections: readonly BriefSection[];
+      /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
+      readonly accountability: readonly AccountabilityStatusLine[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**
@@ -91711,6 +91831,44 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type PulseOpportunitiesListParams = {
+    /**
+     * Filter by opportunity kind.
+     */
+    kind?: PulseOpportunitiesListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by lifecycle status.
+     */
+    status?: PulseOpportunitiesListStatus;
+    };
+
+    export type PulseOpportunitiesListKind = typeof PulseOpportunitiesListKind[keyof typeof PulseOpportunitiesListKind];
+
+
+    export const PulseOpportunitiesListKind = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    export type PulseOpportunitiesListStatus = typeof PulseOpportunitiesListStatus[keyof typeof PulseOpportunitiesListStatus];
+
+
+    export const PulseOpportunitiesListStatus = {
+      Acted: 'acted',
+      Dismissed: 'dismissed',
+      Open: 'open',
+      Resolved: 'resolved',
+    } as const;
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 
