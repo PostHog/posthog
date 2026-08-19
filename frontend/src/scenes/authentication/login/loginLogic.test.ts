@@ -220,9 +220,9 @@ describe('loginLogic', () => {
                 get: { '/api/users/@me/': () => [200, {}] },
                 post: {
                     '/api/login/precheck': () => [200, { saml_available: false }],
-                    // A response with no JSON body (a 5xx from the edge, a dropped connection) leaves
-                    // `code`/`detail` null on the resulting ApiError.
-                    '/api/login': () => [502],
+                    // A 500 with no JSON body leaves `code`/`detail` null on the resulting ApiError. A
+                    // plain 500 is a real backend fault, so it stays reportable (unlike 502/503/504).
+                    '/api/login': () => [500],
                 },
             })
             initKeaTests()
@@ -245,8 +245,44 @@ describe('loginLogic', () => {
             expect(logic.values.generalError?.code).toBeFalsy()
             expect(posthog.captureException).toHaveBeenCalledWith(
                 expect.anything(),
-                expect.objectContaining({ extra: expect.objectContaining({ status: 502 }) })
+                expect.objectContaining({ extra: expect.objectContaining({ status: 500 }) })
             )
+        })
+    })
+
+    describe('transient gateway failure', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    // 503: the gateway couldn't reach the backend, e.g. during a brief outage.
+                    '/api/login': () => [503],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('shows a temporary-outage message and does not file an error tracking issue', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            expect(logic.values.generalError?.code).toBe('transient_server_error')
+            expect(posthog.captureException).not.toHaveBeenCalled()
         })
     })
 

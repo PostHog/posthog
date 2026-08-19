@@ -40,4 +40,5 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+    transient_server_error: 'PostHog is temporarily unavailable. Wait a moment and try again.',
 }

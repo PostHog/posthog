@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -588,9 +588,17 @@ export const loginLogic = kea<loginLogicType>([
                         )
                         throw e
                     }
-                    // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
-                    // dropped connection) leaves code/detail null, so the user gets the generic catch-all
-                    // message below. Capture the underlying status/message so these aren't untraceable.
+                    // A transient gateway failure (502/503/504) means the backend was briefly
+                    // unreachable, not that the login was wrong. Show a clear "try again" message and
+                    // skip error tracking, the same way the rest of the app treats these (see
+                    // shouldReportApiFailure). During an outage every retry would otherwise file one.
+                    if (isTransientServerError(e)) {
+                        actions.setGeneralError('transient_server_error', '')
+                        throw e
+                    }
+                    // A response with no parseable JSON body (a 500 HTML page, a dropped connection)
+                    // leaves code/detail null, so the user gets the generic catch-all message below.
+                    // Capture the underlying status/message so these aren't untraceable.
                     if (!code && !detail) {
                         posthog.captureException(e, {
                             extra: { status: (e as ApiError)?.status, message: (e as ApiError)?.message },
