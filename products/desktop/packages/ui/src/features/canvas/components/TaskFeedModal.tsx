@@ -138,6 +138,16 @@ export function TaskFeedModal({
               <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs tabular-nums">
                 {counting ? (
                   <Spinner className="size-3" />
+                ) : preview.error ? (
+                  <Button
+                    variant="link-muted"
+                    size="xs"
+                    loading={preview.isFetching}
+                    disabled={preview.isFetching}
+                    onClick={preview.refetch}
+                  >
+                    Try again
+                  </Button>
                 ) : (
                   trimmedQuery !== "" &&
                   previewQuery !== "" &&
@@ -161,8 +171,8 @@ export function TaskFeedModal({
             <div
               className={cn(
                 "min-h-5 min-w-0 truncate text-xs",
-                issue
-                  ? issue.kind === "unsupported"
+                preview.error || issue
+                  ? issue?.kind === "unsupported" && !preview.error
                     ? "text-(--amber-11)"
                     : "text-destructive"
                   : unfinished
@@ -171,10 +181,12 @@ export function TaskFeedModal({
               )}
               title={issue?.message}
             >
-              {issue?.message ??
-                (unfinished
-                  ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
-                  : "Free text searches task titles. Repeat a filter to match either value. Use - to exclude a filter.")}
+              {preview.error
+                ? "Couldn't load matching tasks. Try again."
+                : (issue?.message ??
+                  (unfinished
+                    ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
+                    : "Free text searches task titles. Repeat a filter to match either value. Use - to exclude a filter."))}
             </div>
           </div>
           <div className="flex flex-col gap-2">

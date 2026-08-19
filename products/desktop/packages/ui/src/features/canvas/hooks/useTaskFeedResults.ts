@@ -75,10 +75,13 @@ export function useFeedQueryPlan(query: string | undefined): {
 }
 
 export function useTaskFeedResults(query: string | undefined): {
-  tasks: Task[];
+  error: Error | null;
   isComplete: boolean;
+  isFetching: boolean;
   isLoading: boolean;
   issues: FeedQueryIssue[];
+  refetch: () => void;
+  tasks: Task[];
 } {
   const normalized = query?.trim() ?? "";
   const { plan, isLoading: planLoading } = useFeedQueryPlan(normalized);
@@ -119,9 +122,14 @@ export function useTaskFeedResults(query: string | undefined): {
   }, [result.data, plan]);
 
   return {
-    tasks,
+    error: result.error ?? null,
     isComplete: result.data?.isComplete ?? false,
+    isFetching: result.isFetching,
     isLoading: planLoading || result.isLoading,
     issues: plan?.issues ?? [],
+    refetch: () => {
+      void result.refetch();
+    },
+    tasks,
   };
 }
