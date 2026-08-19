@@ -78,6 +78,10 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "name": "X-Api-Key", "api_key": api_key, "location": "header"},
+        # `capture=False`: Constituents, Transactions, and Interactions carry donor PII and
+        # free-form interaction notes that the name-based sample scrubbers can't recognise, so
+        # keep every response body out of HTTP sample storage. Requests stay metered and logged.
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
         "paginator": OffsetPaginator(
             limit=PAGE_SIZE,
             offset_param="skip",
@@ -160,7 +164,9 @@ def bloomerang_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     return validate_via_probe(
-        lambda: make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,)),
+        # `capture=False`: the probe hits `/constituents`, which returns the same donor record
+        # shape as the real sync — keep it out of HTTP sample storage too.
+        lambda: make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,), capture=False),
         f"{BASE_URL}/constituents",
         headers={"X-Api-Key": api_key},
         # X-Api-Key isn't the standard Authorization header, which `requests` strips on a

@@ -18,9 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import BLOOMERANG_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the bloomerang module.
+# The client config and validate_credentials both build their tracked session directly in the
+# bloomerang module (capture=False needs a session built here, not RESTClient's default one).
 BLOOMERANG_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang.make_tracked_session"
 )
@@ -158,7 +157,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestBloomerangSourceTransport:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_paginates_until_short_page(self, MockSession) -> None:
         # A full first page (== PAGE_SIZE) signals more rows remain; the paginator only stops once
         # a page comes back shorter than PAGE_SIZE.
@@ -179,7 +178,7 @@ class TestBloomerangSourceTransport:
         assert snapshots[0]["params"] == {"skip": 0, "take": 50}
         assert snapshots[1]["params"] == {"skip": 50, "take": 50}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_auth_is_framework_api_key(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"Id": 1}], total_filtered=1)])
@@ -192,7 +191,7 @@ class TestBloomerangSourceTransport:
         assert auth.name == "X-Api-Key"
         assert auth.location == "header"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
         session = MockSession.return_value
         first_page = [{"Id": i} for i in range(1, 51)]
@@ -212,7 +211,7 @@ class TestBloomerangSourceTransport:
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == BloomerangResumeConfig(next_offset=50)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"Id": 51}], total_filtered=51)])
@@ -223,7 +222,7 @@ class TestBloomerangSourceTransport:
         assert session.send.call_count == 1
         assert snapshots[0]["params"]["skip"] == 50
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_incremental_cursor_added_to_request(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"Id": 1}], total_filtered=1)])
@@ -240,7 +239,7 @@ class TestBloomerangSourceTransport:
         assert snapshots[0]["params"]["lastModified"] == "2026-03-04T02:58:14Z"
         assert snapshots[0]["params"]["orderBy"] == "LastModifiedDate"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_audit_trail_endpoint_flattens_rows(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -267,7 +266,7 @@ class TestBloomerangSourceTransport:
         assert rows[0]["LastModifiedDate"] == "2026-01-02T00:00:00Z"
         assert "AuditTrail" not in rows[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_non_audit_trail_endpoint_leaves_rows_untouched(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([{"Id": 1, "Name": "Winter Appeal"}], total_filtered=1)])
