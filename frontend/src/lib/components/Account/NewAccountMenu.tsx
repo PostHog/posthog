@@ -425,7 +425,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
-                                                    data-attr="new-account-menu-experiments-staff-tools"
+                                                    // Stable autocapture contract: name stays query-performance even though the label and route are now experiments staff tools
+                                                    data-attr="new-account-menu-query-performance"
                                                 >
                                                     <IconDatabase />
                                                     Experiments staff tools
