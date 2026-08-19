@@ -47,6 +47,25 @@ describe('inviteLogic', () => {
         })
     })
 
+    it('discards the persisted draft when invites are reset, as Cancel does', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.updateInviteAtIndex({ target_email: 'contractor@example.com' }, 0)
+            logic.actions.updateMessage('join us')
+            logic.actions.setInviteConfirmationText('send invites')
+            logic.actions.resetInvites()
+        }).toFinishAllListeners()
+
+        logic.unmount()
+        logic = inviteLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            invitesToSend: [expect.objectContaining({ target_email: '' })],
+            message: '',
+            inviteConfirmationText: '',
+        })
+    })
+
     it('clears the form only after a successful invite', async () => {
         await expectLogic(logic, () => {
             logic.actions.updateInviteAtIndex({ target_email: 'sam@example.com' }, 0)

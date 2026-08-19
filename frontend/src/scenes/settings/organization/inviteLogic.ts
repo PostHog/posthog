@@ -176,6 +176,9 @@ export interface inviteLogicActions {
         inviteIndex: number
         projectId: number
     }
+    resetInvites: () => {
+        value: true
+    }
     setInviteConfirmationText: (inviteConfirmationText: string) => {
         inviteConfirmationText: string
     }
@@ -223,6 +226,7 @@ export const inviteLogic = kea<inviteLogicType>([
         deleteInviteAtIndex: (index: number) => ({ index }),
         updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
+        resetInvites: true,
         setInviteConfirmationText: (inviteConfirmationText: string) => ({ inviteConfirmationText }),
         addProjectAccess: (inviteIndex: number, projectId: number, level: AccessControlLevel) => ({
             inviteIndex,
@@ -331,6 +335,7 @@ export const inviteLogic = kea<inviteLogicType>([
                     },
                     appendInviteRow: (state) => [...state, EMPTY_INVITE],
                     inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+                    resetInvites: () => [EMPTY_INVITE],
                     addProjectAccess: (state, { inviteIndex, projectId, level }) => {
                         const newState = [...state]
                         const invite = { ...newState[inviteIndex] }
@@ -364,6 +369,7 @@ export const inviteLogic = kea<inviteLogicType>([
                 {
                     updateMessage: (_, { message }) => message,
                     inviteTeamMembersSuccess: () => '',
+                    resetInvites: () => '',
                 },
             ],
             inviteConfirmationText: [
@@ -371,6 +377,7 @@ export const inviteLogic = kea<inviteLogicType>([
                 {
                     setInviteConfirmationText: (_, { inviteConfirmationText }) => inviteConfirmationText,
                     inviteTeamMembersSuccess: () => '',
+                    resetInvites: () => '',
                 },
             ],
         }

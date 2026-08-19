@@ -396,7 +396,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
-    const { inviteTeamMembers } = useActions(inviteLogic)
+    const { inviteTeamMembers, resetInvites } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
 
@@ -444,7 +444,17 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                             </LemonButton>
                         ) : (
                             <>
-                                <LemonButton onClick={onClose} type="secondary" disabled={isInviting}>
+                                {/* Discard the draft only on explicit Cancel. The generic close path (Escape,
+                                    backdrop, and the re-authentication redirect) keeps the rows so an interrupted
+                                    invite survives. */}
+                                <LemonButton
+                                    onClick={() => {
+                                        resetInvites()
+                                        onClose()
+                                    }}
+                                    type="secondary"
+                                    disabled={isInviting}
+                                >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
