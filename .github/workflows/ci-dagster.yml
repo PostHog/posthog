@@ -519,7 +519,7 @@ jobs:
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Save Dagster testmon baseline
-              if: ${{ github.event_name == 'push' && success() && steps.testmon-cache.outputs.cache-hit != 'true' && hashFiles(format('.testmondata-dagster-{0}', matrix.group)) != '' }}
+              if: ${{ github.event_name == 'push' && success() && steps.testmon-cache.outputs.cache-hit != 'true' }}
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ env.TESTMON_DATAFILE }}
