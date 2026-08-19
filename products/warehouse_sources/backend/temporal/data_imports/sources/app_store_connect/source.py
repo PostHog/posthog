@@ -57,7 +57,7 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
             name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["app store", "ios", "apple", "mobile analytics"],
             caption="""Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
 
