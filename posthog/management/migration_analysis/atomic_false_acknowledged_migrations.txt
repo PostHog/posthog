@@ -22,3 +22,4 @@ signals.0099_backfill_first_visible_at
 # Does run CONCURRENTLY, one index per sourcebatch partition, but from RunPython
 # (the partition list is only known at runtime), which the type-based check can't see.
 warehouse_sources_queue.0008_sourcebatch_superseded
+warehouse_sources_queue.0009_sourcebatch_job_id_idx

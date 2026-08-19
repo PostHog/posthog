@@ -200,13 +200,8 @@ interface SteeredTurn {
   taskRunId: string;
   promptId: number | null;
 }
-/**
- * A backgrounded session's transcript is freed this long after it stops being
- * viewed, and reloaded from disk on return. Only disconnected (idle, no live
- * subscription) sessions are eligible, so no streamed event can append to an
- * evicted transcript.
- */
 const SESSION_EVENT_EVICT_GRACE_MS = 20_000;
+const MAX_RESIDENT_BACKGROUND_TRANSCRIPTS = 1;
 /**
  * On open, paint the last this-many bytes of the log immediately so a big
  * transcript shows its latest turns in tens of ms, while the authoritative
@@ -2366,6 +2361,7 @@ export class SessionService {
     this.unsubscribeFromChannel(taskRunId);
     this.cancelEventEviction(taskRunId);
     this.evictedRunIds.delete(taskRunId);
+    this.residentBackgroundRunIds.delete(taskRunId);
     this.d.store.removeSession(taskRunId);
     this.cloudRunIdleTracker.delete(taskRunId);
     this.cloudLogGapReconciler.forgetDeficiency(taskRunId);
@@ -2886,42 +2882,47 @@ export class SessionService {
 
   /** taskRunIds whose transcript was freed and must be reloaded on next view. */
   private evictedRunIds = new Set<string>();
+  private residentBackgroundRunIds = new Set<string>();
   private eventEvictionTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
 
-  /**
-   * Called when a task's transcript becomes visible. Cancels any pending
-   * eviction and, if the transcript was freed while backgrounded, reloads it
-   * from disk — but only if a reconnect hasn't already refilled it.
-   */
   async ensureEventsLoaded(taskId: string): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
     const { taskRunId } = session;
     this.cancelEventEviction(taskRunId);
+    this.residentBackgroundRunIds.delete(taskRunId);
     if (!this.evictedRunIds.has(taskRunId)) return;
 
     try {
       if (session.events.length === 0) {
-        const { rawEntries, totalLineCount } = await this.fetchSessionLogs(
-          session.logUrl,
-          taskRunId,
-        );
-        // A reconnect may have refilled events while we awaited the log read;
-        // only restore if the transcript is still empty for the same run.
-        const fresh = this.d.store.getSessionByTaskId(taskId);
-        if (
-          fresh?.taskRunId === taskRunId &&
-          fresh.events.length === 0 &&
-          rawEntries.length > 0
-        ) {
-          this.d.store.restoreEvents(
+        if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+          await this.hydrateCloudTaskSessionFromLogs(
+            taskId,
             taskRunId,
-            convertStoredEntriesToEvents(rawEntries),
-            totalLineCount,
+            session.logUrl,
+            undefined,
+            session.cloudStatus,
           );
+        } else {
+          const { rawEntries, totalLineCount } = await this.fetchSessionLogs(
+            session.logUrl,
+            taskRunId,
+          );
+          const fresh = this.d.store.getSessionByTaskId(taskId);
+          if (
+            fresh?.taskRunId === taskRunId &&
+            fresh.events.length === 0 &&
+            rawEntries.length > 0
+          ) {
+            this.d.store.restoreEvents(
+              taskRunId,
+              convertStoredEntriesToEvents(rawEntries),
+              totalLineCount,
+            );
+          }
         }
       }
       // Clear the evicted flag only once the transcript is populated — restored
@@ -2940,32 +2941,61 @@ export class SessionService {
     }
   }
 
-  /**
-   * Called when a task's transcript stops being visible. Schedules its
-   * transcript to be freed after a grace period, if it's still a settled,
-   * disconnected background session by then.
-   */
   scheduleEventEviction(taskId: string): void {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
     const { taskRunId } = session;
     if (this.eventEvictionTimers.has(taskRunId)) return;
+    this.armEventEvictionTimer(taskRunId);
+  }
 
+  private isTranscriptEvictable(
+    session: AgentSession | undefined,
+  ): session is AgentSession {
+    if (!session || session.isPromptPending) return false;
+    // A cloud run's `status` can read "disconnected" while the run is still
+    // alive (cloud handoff and SSE-retry both write it), so a cloud transcript
+    // is only safe to release once its `cloudStatus` is terminal, mirroring
+    // isSessionIdle. Local runs still key off `status`.
+    return session.isCloud
+      ? isTerminalStatus(session.cloudStatus)
+      : session.status === "disconnected";
+  }
+
+  private armEventEvictionTimer(taskRunId: string): void {
     const timer = setTimeout(() => {
       this.eventEvictionTimers.delete(taskRunId);
       const current = this.d.store.getSessions()[taskRunId];
-      if (
-        !current ||
-        current.status !== "disconnected" ||
-        current.isPromptPending ||
-        current.events.length === 0
-      ) {
+      if (!this.isTranscriptEvictable(current)) {
         return;
       }
-      this.evictedRunIds.add(taskRunId);
-      this.d.store.evictEvents(taskRunId);
+      if (current.events.length === 0) {
+        if (current.isHydratingTranscript) {
+          this.armEventEvictionTimer(taskRunId);
+        }
+        return;
+      }
+      this.residentBackgroundRunIds.delete(taskRunId);
+      this.residentBackgroundRunIds.add(taskRunId);
+      this.trimBackgroundTranscripts();
     }, SESSION_EVENT_EVICT_GRACE_MS);
     this.eventEvictionTimers.set(taskRunId, timer);
+  }
+
+  private trimBackgroundTranscripts(): void {
+    while (
+      this.residentBackgroundRunIds.size > MAX_RESIDENT_BACKGROUND_TRANSCRIPTS
+    ) {
+      const oldestRunId = this.residentBackgroundRunIds.values().next().value;
+      if (oldestRunId === undefined) return;
+      this.residentBackgroundRunIds.delete(oldestRunId);
+      const session = this.d.store.getSessions()[oldestRunId];
+      if (!this.isTranscriptEvictable(session) || session.events.length === 0) {
+        continue;
+      }
+      this.evictedRunIds.add(oldestRunId);
+      this.d.store.evictEvents(oldestRunId);
+    }
   }
 
   private cancelEventEviction(taskRunId: string): void {
@@ -3128,6 +3158,7 @@ export class SessionService {
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
+    this.residentBackgroundRunIds.clear();
     this.connectingTasks.clear();
     this.localRepoPaths.clear();
     this.localRecoveryAttempts.clear();

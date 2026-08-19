@@ -100,6 +100,13 @@ class TestExplainLogWithOpenAI:
             assert result.severity_assessment == "error"
             assert len(result.probable_causes) == 1
             assert result.probable_causes[0].confidence == "high"
+            assert mock_client.chat.completions.create.call_args.kwargs["posthog_properties"] == {
+                "ai_product": "logs",
+                "ai_feature": "explain-log",
+                "team_id": 1,
+            }
+            assert mock_client.chat.completions.create.call_args.kwargs["posthog_distinct_id"] == "team-1"
+            assert mock_client.chat.completions.create.call_args.kwargs["posthog_privacy_mode"] is True
 
     @pytest.mark.asyncio
     async def test_empty_response_raises_validation_error(self, sample_log_data):
