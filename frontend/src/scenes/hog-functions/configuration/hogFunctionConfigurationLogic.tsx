@@ -161,9 +161,9 @@ export function sanitizeInputs(
         let value = input?.value
 
         if (secret) {
-            // If set this means we haven't changed the value
+            // The value was not retyped, so keep the stored secret. Send no value - a placeholder
+            // here can be encrypted as the new secret if the backend does not strip it.
             sanitizedInputs[inputSchema.key] = {
-                value: '********', // Don't send the actual value
                 secret: true,
             }
             return

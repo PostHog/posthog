@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
 
+# The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
+# sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
+MASKED_SECRET_VALUE = "********"
+
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
 
@@ -606,10 +610,15 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             if schema.get("secret"):
-                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
-                # stored secret". One that also carries a "value" is a rotation and must win, so it
-                # falls through to normal validation.
-                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                # A {"secret": true} value the user did not retype is the read-back mask, meaning
+                # "keep the stored secret". The UI sends it either without a "value" key or with the
+                # literal mask as the value, so both shapes must count as masked. A different "value"
+                # is a rotation and must win, so it falls through to normal validation.
+                is_masked = (
+                    isinstance(value, dict)
+                    and bool(value.get("secret"))
+                    and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
+                )
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
@@ -637,6 +646,12 @@ class InputsSerializer(serializers.DictField):
 
                 if "value" not in input_value:
                     # Indicates no value is provided and no error was thrown which is fine so we can exclude it
+                    continue
+
+                if schema.get("secret") and input_value.get("value") == MASKED_SECRET_VALUE:
+                    # The mask reached persistence, so recovery of the stored secret failed. Refuse
+                    # rather than encrypt the mask and silently destroy the real credential.
+                    errors[key] = "This secret input was not updated correctly. Enter the value again."
                     continue
 
                 result[key] = input_value
