@@ -144,6 +144,7 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
             "fail_report_canvas_generation_activity",
+            "report_canvases_enabled_activity",
             "start_report_canvas_generation_activity",
             "poll_report_canvas_generation_activity",
             "publish_report_completed_activity",
