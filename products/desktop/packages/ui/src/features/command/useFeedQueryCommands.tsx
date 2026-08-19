@@ -40,10 +40,10 @@ export function matchSummary(
   if (matchCount === 0) {
     return hasRepairs
       ? "No tasks match this query."
-      : "No tasks match this query. Remove a filter to widen it.";
+      : "No tasks match this query. Remove a filter to see more tasks.";
   }
   if (matchCount > shownCount) {
-    return `Showing ${shownCount} of ${matchCount} matching tasks`;
+    return `Showing ${shownCount} of ${matchCount} matching tasks.`;
   }
   return `${matchCount} ${matchCount === 1 ? "matching task" : "matching tasks"}`;
 }

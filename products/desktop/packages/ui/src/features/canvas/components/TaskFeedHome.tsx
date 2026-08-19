@@ -3,7 +3,7 @@ import {
   PencilSimpleIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import { Button, Skeleton } from "@posthog/quill";
+import { Button, Heading, Skeleton, Text } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
@@ -19,7 +19,6 @@ import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { Heading, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -75,10 +74,10 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     return (
       <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 bg-gray-1 px-4 text-center">
         <Heading className="font-bold text-xl">Saved search not found</Heading>
-        <Text className="max-w-md text-(--gray-9)">
-          This saved search isn't in this project. Searches are saved per
-          project on this device, so one saved in another project or on another
-          device won't appear here.
+        <Text className="max-w-md text-muted-foreground">
+          This saved search is not in this project. Searches are saved per
+          project on this device. A search saved in another project or on
+          another device does not appear here.
         </Text>
       </div>
     );
@@ -93,7 +92,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           {isLoading ? (
             <Skeleton className="h-3 w-12 shrink-0 self-center" />
           ) : (
-            <span className="shrink-0 text-(--gray-9) text-xs">
+            <span className="shrink-0 text-muted-foreground text-xs">
               {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
             </span>
           )}
@@ -137,9 +136,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       {queryBar}
       {!isLoading && tasks.length === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
-          <Text className="font-medium">No tasks match this search yet</Text>
-          <Text className="text-(--gray-9) text-sm">
-            New tasks appear here as soon as they match the query.
+          <Text className="font-medium">No tasks match this saved search</Text>
+          <Text className="text-muted-foreground text-sm">
+            Tasks appear here when they match the query.
           </Text>
         </div>
       )}

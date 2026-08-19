@@ -996,7 +996,7 @@ export interface TaskFeedActionProperties {
   action_type: TaskFeedActionType;
   surface: "sidebar" | "feed_home" | "command_menu";
   feed_id: string;
-  /** Length of the saved query — a coarse shape signal, never the text itself. */
+  /** Length of the saved query. Do not record its text. */
   query_length?: number;
 }
 

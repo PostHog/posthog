@@ -18,9 +18,7 @@ import {
   useState,
 } from "react";
 
-// The mirror and the input must lay glyphs out identically, so everything that
-// affects metrics lives in this one string: same font, size, tracking. Mono on
-// purpose — it reads as a query language and keeps the overlay exact.
+// Keep the input and syntax mirror on the same text metrics.
 export const EDITOR_TEXT_CLASS =
   "whitespace-pre font-mono text-[13px] leading-none tracking-normal";
 
@@ -112,9 +110,7 @@ export function FeedQueryInput({
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
 
-  // Where the caret belongs after a completion rewrites the value. Applied in
-  // a layout effect (after React committed the new value) rather than a
-  // rAF, whose timing races the next keystroke.
+  // Restore the caret after React applies a completed suggestion.
   const pendingCaret = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (pendingCaret.current == null) return;
@@ -126,7 +122,7 @@ export function FeedQueryInput({
     pendingCaret.current = null;
   });
 
-  // The mirror scrolls with the input, or long queries would shear apart.
+  // Keep the syntax mirror aligned with a horizontally scrolled input.
   const syncScroll = () => {
     if (mirrorRef.current && inputRef.current) {
       mirrorRef.current.scrollLeft = inputRef.current.scrollLeft;

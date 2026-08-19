@@ -74,25 +74,25 @@ const KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "involves:",
     label: "involves:",
-    hint: "started or commented",
+    hint: "task creator or commenter",
     icon: keyIcon(<UsersIcon size={14} />),
   },
   {
     insert: "space:",
     label: "space:",
-    hint: "tasks filed to a space",
+    hint: "tasks in a space",
     icon: keyIcon(<HashIcon size={14} />),
   },
   {
     insert: "repo:",
     label: "repo:",
-    hint: "repository the task targets",
+    hint: "task repository",
     icon: keyIcon(<PackageIcon size={14} />),
   },
   {
     insert: "status:",
     label: "status:",
-    hint: "latest run status",
+    hint: "task's latest run",
     icon: keyIcon(<CircleHalfIcon size={14} />),
   },
   {
@@ -104,7 +104,7 @@ const KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "origin:",
     label: "origin:",
-    hint: "slack, scout, desktop, ai…",
+    hint: "where the task came from",
     icon: keyIcon(<AppWindowIcon size={14} />),
   },
   {
@@ -131,7 +131,7 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "saved:",
     label: "saved:",
-    hint: "open a saved search",
+    hint: "open saved searches",
     icon: keyIcon(<MagnifyingGlassIcon size={14} />),
   },
 ];

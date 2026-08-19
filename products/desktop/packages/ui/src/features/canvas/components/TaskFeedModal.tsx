@@ -1,6 +1,17 @@
-import { XIcon } from "@phosphor-icons/react";
 import { parseFeedQuery, suggestFeedName } from "@posthog/core/tasks/feedQuery";
-import { Button, cn, Spinner } from "@posthog/quill";
+import {
+  Button,
+  cn,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Spinner,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
@@ -15,7 +26,6 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { track } from "@posthog/ui/shell/analytics";
-import { Dialog, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useMemo, useState } from "react";
 
 const MAX_FEED_NAME_LENGTH = 80;
@@ -108,119 +118,93 @@ export function TaskFeedModal({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="520px" className="overflow-visible!">
-        <Flex align="start" justify="between" gap="3">
-          <Flex direction="column" gap="1">
-            <Dialog.Title mb="0">
-              <Text className="font-semibold text-base">
-                {feed ? "Edit saved search" : "Save search"}
-              </Text>
-            </Dialog.Title>
-            <Dialog.Description>
-              <Text className="text-(--gray-9) text-sm">
-                A saved search keeps up with matching tasks, ready to reopen
-                from the palette.
-              </Text>
-            </Dialog.Description>
-          </Flex>
-          <Dialog.Close>
-            <IconButton
-              variant="ghost"
-              color="gray"
-              size="2"
-              aria-label="Close"
-            >
-              <XIcon size={18} />
-            </IconButton>
-          </Dialog.Close>
-        </Flex>
-
-        <Flex direction="column" gap="2" mt="4">
-          <Flex align="center" justify="between" gap="3">
-            <Text
-              as="label"
-              htmlFor="task-feed-query"
-              className="font-medium text-sm"
-            >
-              Query
-            </Text>
-            <span className="flex shrink-0 items-center gap-1.5 text-(--gray-9) text-xs tabular-nums">
-              {counting ? (
-                <Spinner className="size-3" />
-              ) : (
-                previewQuery !== "" &&
-                (preview.tasks.length === 1
-                  ? "1 task matches"
-                  : `${preview.tasks.length} tasks match`)
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="overflow-visible sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {feed ? "Edit saved search" : "Save search"}
+          </DialogTitle>
+          <DialogDescription>
+            A saved search updates when tasks match its query. Reopen it from
+            the command palette.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="task-feed-query" className="font-medium text-sm">
+                Query
+              </label>
+              <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs tabular-nums">
+                {counting ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  previewQuery !== "" &&
+                  (preview.tasks.length === 1
+                    ? "1 task matches"
+                    : `${preview.tasks.length} tasks match`)
+                )}
+              </span>
+            </div>
+            <FeedQueryInput
+              id="task-feed-query"
+              autoFocus
+              openOnFocus={false}
+              value={query}
+              onChange={setQueryAndSuggestName}
+              onSubmit={submit}
+              placeholder="Example: billing created-by:@me -status:failed"
+            />
+            <div
+              className={cn(
+                "min-h-5 min-w-0 truncate text-xs",
+                issue
+                  ? issue.kind === "unsupported"
+                    ? "text-(--amber-11)"
+                    : "text-destructive"
+                  : unfinished
+                    ? "text-(--amber-11)"
+                    : "text-muted-foreground",
               )}
-            </span>
-          </Flex>
-          <FeedQueryInput
-            id="task-feed-query"
-            autoFocus
-            openOnFocus={false}
-            value={query}
-            onChange={setQueryAndSuggestName}
-            onSubmit={submit}
-            placeholder="e.g. billing created-by:@me -status:failed"
-          />
-          <div
-            className={cn(
-              "h-5 min-w-0 truncate text-xs",
-              issue
-                ? issue.kind === "unsupported"
-                  ? "text-(--amber-11)"
-                  : "text-(--red-11)"
-                : unfinished
-                  ? "text-(--amber-11)"
-                  : "text-(--gray-9)",
-            )}
-            title={issue?.message}
-          >
-            {issue?.message ??
-              (unfinished
-                ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
-                : "Free text searches tasks. Same filter twice is either, -filter excludes.")}
+              title={issue?.message}
+            >
+              {issue?.message ??
+                (unfinished
+                  ? `"${unfinished.word}" is searched as text. Did you mean ${unfinished.keys.slice(0, 2).join(" or ")}?`
+                  : "Free text searches task titles. Repeat a filter to match either value. Use - to exclude a filter.")}
+            </div>
           </div>
-        </Flex>
-
-        <Flex direction="column" gap="2">
-          <Text
-            as="label"
-            htmlFor="task-feed-name"
-            className="font-medium text-sm"
-          >
-            Name
-          </Text>
-          <TextField.Root
-            id="task-feed-name"
-            size="2"
-            value={name}
-            placeholder="Named after the query as you type"
-            maxLength={MAX_FEED_NAME_LENGTH}
-            onChange={(e) => {
-              setName(e.target.value);
-              setNameEdited(e.target.value.trim() !== "");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
-        </Flex>
-
-        <Flex gap="3" mt="5" justify="end">
-          <Dialog.Close>
-            <Button variant="outline">Cancel</Button>
-          </Dialog.Close>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="task-feed-name" className="font-medium text-sm">
+              Name
+            </label>
+            <Input
+              id="task-feed-name"
+              value={name}
+              placeholder="Name based on the query"
+              maxLength={MAX_FEED_NAME_LENGTH}
+              onChange={(event) => {
+                setName(event.target.value);
+                setNameEdited(event.target.value.trim() !== "");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+            />
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button variant="primary" disabled={!canSubmit} onClick={submit}>
             {feed ? "Save" : "Save search"}
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

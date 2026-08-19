@@ -126,13 +126,6 @@ interface CommandMenuProps {
 const DEFAULT_RESULT_LIMIT = 8;
 const COLLAPSED_CHIP_COUNT = 5;
 
-/**
- * The palette input's syntax-coloring layer: the same `FeedQueryHighlight`
- * the feed editor draws, positioned over quill's inner input at runtime.
- * quill's AutocompleteInput is an input group (search icon addon + input), so
- * the overlay measures the real input box instead of assuming padding, then
- * keeps horizontal scroll in lockstep so long queries don't shear.
- */
 function PaletteQueryMirror({
   query,
   wrapRef,
@@ -152,9 +145,7 @@ function PaletteQueryMirror({
     padRight: number;
   } | null>(null);
 
-  // A passive effect, not a layout one: this component is a child of the
-  // wrapper div, and a child's layout effect fires before the parent's ref
-  // attaches, so the wrapper would still read null. After paint, both exist.
+  // A child layout effect runs before the parent ref attaches.
   useEffect(() => {
     if (!visible) return;
     const wrap = wrapRef.current;
@@ -186,8 +177,7 @@ function PaletteQueryMirror({
     };
   }, [visible, wrapRef]);
 
-  // Re-sync scroll after each render: a completion can rewrite the text and
-  // scroll the input without firing its scroll event first.
+  // A completion can change the input scroll position without a scroll event.
   useLayoutEffect(() => {
     const input = wrapRef.current?.querySelector("input");
     if (input && mirrorRef.current)
@@ -681,8 +671,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       inputWrapRef.current?.querySelector("input")?.selectionStart;
     if (position != null) setCaret(position);
   }, []);
-  // Where the caret belongs after a completion rewrites the query — applied
-  // after React commits the new value (same pattern as FeedQueryInput).
+  // Restore the caret after React applies a completed suggestion.
   const pendingCaret = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (pendingCaret.current == null) return;

@@ -116,7 +116,7 @@ describe("CommandMenu feed queries", () => {
     // ⌘S hands the query to the save modal.
     await user.keyboard("{Meta>}s{/Meta}");
     expect(
-      await screen.findByText("Save search", { selector: "span" }),
+      await screen.findByText("Save search", { selector: "h2" }),
     ).toBeTruthy();
   });
 

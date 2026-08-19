@@ -128,8 +128,7 @@ export interface ParsedFeedQuery {
   issues: FeedQueryIssue[];
 }
 
-// Chunks: runs of non-space characters, where a double-quoted span may carry
-// spaces mid-chunk (`space:"desktop app"` is one chunk).
+// A quoted value remains part of its token when it contains spaces.
 const CHUNK_RE = /(?:[^\s"]+|"[^"]*")+/g;
 const TOKEN_RE = /^(-)?([A-Za-z][A-Za-z-]*):(.*)$/;
 
@@ -329,12 +328,7 @@ export interface FeedQueryTask {
 }
 
 export interface FeedQueryPlan {
-  /**
-   * The tasks-list requests to run and union. Usually one; an OR group
-   * (`created-by:a created-by:b`) fans out into one request per value, so
-   * each side is fetched with its own indexed filter rather than hoping both
-   * authors appear in one unfiltered recent page.
-   */
+  /** Requests to union for this query. Repeated values create one request per value. */
   requests: FeedQueryServerParams[];
   matches: (task: FeedQueryTask) => boolean;
   issues: FeedQueryIssue[];
@@ -488,52 +482,32 @@ function groupOf(map: Map<string, Group>, key: string): Group {
 const MATCH_ALL = () => true;
 const MATCH_NONE = () => false;
 
-/**
- * How many list requests one query may fan out into. An OR group that would
- * push past this stays client-side only — its predicate still filters, but
- * over the base request's page rather than per-value requests.
- */
+/** Limit fan-out requests so one query cannot overload the task-list API. */
 const MAX_PLAN_REQUESTS = 8;
 
-/** One OR group's per-value request params, waiting to be multiplied into
- * the request list. */
+/** Per-value request parameters for one OR group. */
 interface PlanFanout {
   params: Partial<FeedQueryServerParams>[];
-  /**
-   * A client predicate re-checks this group, so skipping the fan-out at the
-   * request cap only costs recall. Unverified groups (comments, mentions —
-   * data the task payload doesn't carry) have no predicate: they expand
-   * first, and get flagged rather than silently dropped when they can't.
-   */
+  /** True when the task payload can recheck this group after fetching. */
   verified: boolean;
-  /** A chunk from the group, for the issue when the fan-out is skipped. */
+  /** Token to show when the fan-out limit skips this group. */
   raw: string;
 }
 
-/**
- * Compile a parsed query into tasks-list requests plus a client predicate.
- *
- * A key with exactly one positive value and no negations rides the base
- * request (indexed, cheap). A key repeated (OR) fans out into one request per
- * value — filtering the OR client-side over a single unfiltered page silently
- * dropped every match older than that page. Negations and PR presence still
- * filter the fetched pages client-side, which is honest at today's page size.
- */
+/** Compiles a parsed query into task-list requests and a client-side predicate. */
 export function planFeedQuery(
   parsed: ParsedFeedQuery,
   context: FeedQueryPlanContext,
 ): FeedQueryPlan {
   const server: FeedQueryServerParams = {};
-  // Each entry is one OR group's per-value request params; the cartesian
-  // product with the base params becomes the request list.
+  // Combine the base request with every OR group's request parameters.
   const fanouts: PlanFanout[] = [];
   const predicates: ((task: FeedQueryTask) => boolean)[] = [];
   const issues: FeedQueryIssue[] = [...parsed.issues];
 
   if (parsed.text) server.search = parsed.text;
 
-  // Name resolution for every person-valued key (created-by, commented-by,
-  // mentions, involves), flagging spellings that name nobody.
+  // Resolve people before building the task-list requests.
   const resolveMembers = (token: FeedQueryToken): FeedQueryMember[] => {
     const value = normalize(token.value);
     if (value === "@me" || value === "me") {
@@ -549,16 +523,14 @@ export function planFeedQuery(
     }
     return matched;
   };
-  // Unique members across a group's positive tokens: two spellings of one
-  // person are one filter, not two requests.
+  // Equivalent names for one person must not create duplicate requests.
   const uniqueMembers = (tokens: FeedQueryToken[]): FeedQueryMember[] => [
     ...new Map(
       tokens.flatMap(resolveMembers).map((member) => [member.uuid, member]),
     ).values(),
   ];
 
-  // Fold `is:` sugar and aliases into canonical groups first, so
-  // `is:failed status:failed` lands in one OR group rather than two ANDed ones.
+  // Normalize aliases before grouping so equivalent filters do not become AND conditions.
   const groups = new Map<string, Group>();
   for (const token of parsed.tokens) {
     let key: string = token.key;
@@ -618,9 +590,7 @@ export function planFeedQuery(
     }
   }
 
-  // Comments and mentions live on the thread, not the task payload, so these
-  // filters are server-only: no client predicate can re-check them, and a
-  // negation has nothing to read — it reports itself ignored instead.
+  // Thread comments and mentions are absent from the task payload, so only the API can filter them.
   const serverOnlyPeopleGroup = (
     groupKey: "commented-by" | "mentions",
     param: "commentedBy" | "mentions",
@@ -661,10 +631,7 @@ export function planFeedQuery(
       });
     }
     if (involves.positives.length > 0) {
-      // `involves:x` is creator-OR-commenter, spelled as one request per leg.
-      // Alongside a created-by/commented-by filter the legs would overwrite
-      // that filter's params in the cartesian product, so the combination
-      // reports itself ignored rather than quietly widening the query.
+      // This expands to creator and commenter requests, which conflict with either explicit filter.
       if (groups.has("created-by") || groups.has("commented-by")) {
         issues.push({
           raw: involves.positives[0].raw,
@@ -691,8 +658,7 @@ export function planFeedQuery(
 
   const typeGroup = groups.get("type");
   if (typeGroup) {
-    // `type:` scopes the command palette's result kinds. A feed's results are
-    // tasks by definition: `type:task` is a no-op and the rest say so.
+    // Feed results contain tasks only.
     for (const token of [...typeGroup.positives, ...typeGroup.negatives]) {
       if (normalize(token.value) !== "task") {
         issues.push({
@@ -706,8 +672,7 @@ export function planFeedQuery(
 
   const savedGroup = groups.get("saved");
   if (savedGroup) {
-    // `saved:` opens a saved search from the command palette; inside one it
-    // has nothing to filter.
+    // `saved:` selects a saved search in the command palette, not its task results.
     for (const token of [...savedGroup.positives, ...savedGroup.negatives]) {
       issues.push({
         raw: token.raw,
@@ -719,9 +684,7 @@ export function planFeedQuery(
 
   const pinnedGroup = groups.get("pinned");
   if (pinnedGroup) {
-    // Pins are per-user and not on the task payload, so like archived only
-    // the positive form changes the request — but unlike archived, excluding
-    // isn't the default, so the negation says it is ignored.
+    // Pin data is per-user and absent from task payloads, so a negation cannot be rechecked.
     if (pinnedGroup.positives.length > 0) server.pinned = true;
     for (const token of pinnedGroup.negatives) {
       issues.push({
@@ -867,8 +830,7 @@ export function planFeedQuery(
 
   const archived = groups.get("archived");
   if (archived && archived.positives.length > 0) {
-    // `-is:archived` is the default (the list excludes archived tasks), so
-    // only the positive form changes the request.
+    // Task lists exclude archived tasks unless the query includes them.
     server.archived = true;
   }
 
@@ -892,8 +854,7 @@ export function planFeedQuery(
           ? (task: FeedQueryTask) => !hasPr(task)
           : (task: FeedQueryTask) => prStateOf(task) === value;
 
-    // Unknown values were flagged by the parser; filtering on them would
-    // silently match nothing, so they take no part in the plan.
+    // Ignore values the parser already marked invalid to avoid an empty result.
     const valid = (values: FeedQueryToken[]) => [
       ...new Set(
         values
@@ -912,8 +873,7 @@ export function planFeedQuery(
     ) {
       server.prState = states[0];
     } else {
-      // Presence (any/none) has no server spelling, so a group carrying it
-      // stays client-side; a pure state OR fans out like the other keys.
+      // PR presence has no API filter, so it remains a client-side predicate.
       if (
         negatives.length === 0 &&
         states.length > 1 &&
@@ -985,10 +945,7 @@ export function planFeedQuery(
       ? MATCH_ALL
       : (task: FeedQueryTask) => predicates.every((p) => p(task));
 
-  // The cartesian product of the base request with each OR group's values.
-  // Unverified groups expand first — nothing re-checks them client-side. A
-  // verified group that would blow the cap skips its fan-out silently (its
-  // predicate still filters the base page); an unverified one says so.
+  // Expand unverified groups first because the task payload cannot recheck them.
   const ordered = [...fanouts].sort(
     (a, b) => Number(a.verified) - Number(b.verified),
   );
@@ -1000,7 +957,7 @@ export function planFeedQuery(
           raw: fanout.raw,
           kind: "unsupported",
           message:
-            "This query fans out into too many searches, so part of it is ignored",
+            "Use fewer filter values. This query requires too many searches.",
         });
       }
       continue;
