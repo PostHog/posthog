@@ -18,7 +18,7 @@ function report(overrides: Partial<SignalReport>): SignalReport {
 }
 
 describe("partitionReportSessions", () => {
-  it("keeps every former inbox state in its general-space section", () => {
+  it("keeps every former inbox state in its report-space section", () => {
     const reports = [
       report({ id: "active" }),
       report({ id: "run", status: "in_progress" }),

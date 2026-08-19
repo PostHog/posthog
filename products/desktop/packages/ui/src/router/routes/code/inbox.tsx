@@ -1,5 +1,5 @@
 import { Spinner } from "@posthog/quill";
-import { useGeneralSpace } from "@posthog/ui/features/canvas/hooks/useGeneralSpace";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { createFileRoute, Navigate, useParams } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/code/inbox")({
@@ -7,9 +7,9 @@ export const Route = createFileRoute("/code/inbox")({
 });
 
 function LegacyInboxRedirect() {
-  const { generalSpaceId } = useGeneralSpace();
+  const { reportSpaceId } = useReportSpace();
   const { reportId } = useParams({ strict: false });
-  if (!generalSpaceId) {
+  if (!reportSpaceId) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
@@ -21,7 +21,7 @@ function LegacyInboxRedirect() {
       <Navigate
         replace
         to="/website/$channelId/reports/$reportId"
-        params={{ channelId: generalSpaceId, reportId }}
+        params={{ channelId: reportSpaceId, reportId }}
       />
     );
   }
@@ -29,7 +29,7 @@ function LegacyInboxRedirect() {
     <Navigate
       replace
       to="/website/$channelId"
-      params={{ channelId: generalSpaceId }}
+      params={{ channelId: reportSpaceId }}
     />
   );
 }

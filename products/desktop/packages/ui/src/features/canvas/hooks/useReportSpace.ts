@@ -5,39 +5,40 @@ import {
 import { toast } from "@posthog/ui/primitives/toast";
 import { useEffect, useRef, useState } from "react";
 
-export const GENERAL_SPACE_NAME = "general";
+export const DEFAULT_REPORT_SPACE_NAME = "general";
 
-export function useGeneralSpace(): {
-  generalSpaceId: string | null;
+export function useReportSpace(): {
+  reportSpaceId: string | null;
   isLoading: boolean;
 } {
   const { channels, isLoading } = useChannels();
   const { createChannel } = useChannelMutations();
   const creationStarted = useRef(false);
   const [creationFailed, setCreationFailed] = useState(false);
-  const generalSpace = channels.find(
+  const reportSpace = channels.find(
     (channel) =>
-      channel.channelType === "public" && channel.name === GENERAL_SPACE_NAME,
+      channel.channelType === "public" &&
+      channel.name === DEFAULT_REPORT_SPACE_NAME,
   );
 
   useEffect(() => {
-    if (isLoading || generalSpace || creationStarted.current || creationFailed)
+    if (isLoading || reportSpace || creationStarted.current || creationFailed)
       return;
     creationStarted.current = true;
-    void createChannel(GENERAL_SPACE_NAME).catch((error: unknown) => {
+    void createChannel(DEFAULT_REPORT_SPACE_NAME).catch((error: unknown) => {
       creationStarted.current = false;
       setCreationFailed(true);
-      toast.error("Couldn't create the general space", {
+      toast.error("Couldn't create the report space", {
         description:
           error instanceof Error
             ? error.message
             : "Refresh the page to try again.",
       });
     });
-  }, [createChannel, creationFailed, generalSpace, isLoading]);
+  }, [createChannel, creationFailed, isLoading, reportSpace]);
 
   return {
-    generalSpaceId: generalSpace?.id ?? null,
-    isLoading: isLoading || (!generalSpace && !creationFailed),
+    reportSpaceId: reportSpace?.id ?? null,
+    isLoading: isLoading || (!reportSpace && !creationFailed),
   };
 }

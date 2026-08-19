@@ -34,7 +34,7 @@ const SECTION_META: Record<
   archive: { title: "Archive", Icon: ArchiveIcon },
 };
 
-export function GeneralReportSessions({ channelId }: { channelId: string }) {
+export function ReportSessions({ channelId }: { channelId: string }) {
   const active = useInboxReportsInfinite(
     { status: INBOX_PIPELINE_STATUS_FILTER, ordering: "-updated_at" },
     { refetchInterval: INBOX_REFETCH_INTERVAL_MS },

@@ -81,7 +81,7 @@ export function ReportCanvas({
           size="sm"
           render={<Link to="/website/$channelId" params={{ channelId }} />}
         >
-          <ArrowLeftIcon size={14} /> Back to general
+          <ArrowLeftIcon size={14} /> Back to space
         </Button>
         <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
