@@ -22,13 +22,13 @@ from django.db.models import F
 
 import structlog
 import posthoganalytics
-from slack_sdk import WebClient
 
 from posthog.comment.formatting import (
     extract_slack_user_ids,
     slack_to_content_and_rich_content,
     strip_slack_user_mentions,
 )
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
@@ -59,6 +59,7 @@ from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
     get_support_slack_bot_token,
+    get_support_slack_workspace_id,
     supporthog_missing_file_scopes,
 )
 
@@ -144,7 +145,12 @@ def get_slack_client(team: Team) -> WebClient:
     """
     bot_token = get_support_slack_bot_token(team)
     if bot_token:
-        return WebClient(token=bot_token)
+        return WebClient(
+            token=bot_token,
+            source="conversations",
+            workspace_id=get_support_slack_workspace_id(team),
+            app_id="support",
+        )
     raise ValueError("Support Slack bot token is not configured")
 
 
