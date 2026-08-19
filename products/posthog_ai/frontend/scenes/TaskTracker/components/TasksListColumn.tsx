@@ -112,7 +112,6 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
             <div className="flex items-center justify-between gap-1 py-2 pr-2 pl-1 shrink-0">
                 <span className="text-sm font-semibold pl-1">Tasks</span>
                 <Link
-                    // `Link` shows `disabledReason` only without a `to`; with one it falls back to `tooltip`.
                     to={composerAlreadyOpen ? undefined : urls.taskNew()}
                     data-attr="tasks-new"
                     buttonProps={{ iconOnly: true, variant: 'outline' }}
