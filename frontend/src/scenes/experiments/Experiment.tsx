@@ -2,9 +2,11 @@ import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { Link } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -39,7 +41,17 @@ export function Experiment(): JSX.Element {
     useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic)
 
     if (experimentMissing) {
-        return <NotFound object="experiment" />
+        return (
+            <NotFound
+                object="experiment"
+                caption={
+                    <>
+                        This experiment may have been deleted. Go to the{' '}
+                        <Link to={urls.experiments()}>experiments list</Link> to find your other experiments.
+                    </>
+                }
+            />
+        )
     }
 
     const isCreateMode = formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode)

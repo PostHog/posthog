@@ -3997,6 +3997,35 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_soft_delete_removes_file_system_entry(self):
+        from posthog.models.file_system.file_system import FileSystem
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "fs-cleanup-flag",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment_id = response.json()["id"]
+        assert FileSystem.objects.filter(team=self.team, type="experiment", ref=str(experiment_id)).exists()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": True},
+            format="json",
+        )
+        assert not FileSystem.objects.filter(team=self.team, type="experiment", ref=str(experiment_id)).exists()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": False},
+            format="json",
+        )
+        assert FileSystem.objects.filter(team=self.team, type="experiment", ref=str(experiment_id)).exists()
+
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
