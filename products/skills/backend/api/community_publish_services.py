@@ -37,6 +37,10 @@ OPTIONAL_GITHUB_HANDLE_PATTERN = re.compile(f"^$|{GITHUB_HANDLE_PATTERN.pattern}
 # Matches CommunitySkill.name — a longer name publishes and merges, then ingest rejects the entry and
 # the skill silently never appears in the catalog.
 MAX_DISPLAY_NAME_LENGTH = 64
+# The display name is interpolated into the App-authored commit message, the pull request title and
+# its Markdown body. A newline in it can forge a commit trailer, so `Co-authored-by:` would make
+# GitHub attribute our App's commit to an unrelated account. Hold the name to one printable line.
+DISPLAY_NAME_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]*$")
 MAX_TAG_LENGTH = 64
 SKILLS_DIR = "skills"
 COMMUNITY_SKILLS_PR_BASE_BRANCH = "main"
@@ -80,7 +84,11 @@ def publishable_tags(tags: object) -> list[str]:
     """
     if not isinstance(tags, list):
         return []
-    return [tag for tag in tags if isinstance(tag, str) and tag.strip() and len(tag) <= MAX_TAG_LENGTH]
+    # Stripped, like the serializer's own CharField already gives us for request-supplied tags. Sync
+    # only lowercases a tag, and catalog filtering matches it exactly, so a stored `" github "` would
+    # publish as a tag no filter can ever select.
+    stripped = (tag.strip() for tag in tags if isinstance(tag, str))
+    return [tag for tag in stripped if tag and len(tag) <= MAX_TAG_LENGTH]
 
 
 def publisher_branch_key(publisher_id: str) -> str:
@@ -122,6 +130,8 @@ def render_skill_md(
         raise CommunitySkillPublishError("Skill name is required to publish.")
     if len(name.strip()) > MAX_DISPLAY_NAME_LENGTH:
         raise CommunitySkillPublishError(f"Skill name must be {MAX_DISPLAY_NAME_LENGTH} characters or fewer.")
+    if not DISPLAY_NAME_PATTERN.match(name.strip()):
+        raise CommunitySkillPublishError("Skill name must be one line, with no line breaks.")
     if not description.strip():
         raise CommunitySkillPublishError("Skill description is required to publish.")
     if author_handle.strip() and not GITHUB_HANDLE_PATTERN.match(author_handle.strip()):
@@ -330,6 +340,8 @@ def _write_branch_and_pull_request(
 
     # Read the open PR before writing, so a failed write doesn't get blamed on a PR that predates it.
     existing_pr = publisher.get_open_pull_request_for_head(repo, branch)
+    if existing_pr is not None:
+        _require_publishable_base(existing_pr, base=base)
 
     commit_result = publisher.commit_files_to_branch(
         repo,
@@ -361,7 +373,7 @@ def _write_branch_and_pull_request(
         # request, and api_request doesn't retry a POST. Reconcile before cleaning up, so a timeout
         # can't delete a branch that now heads a live review.
         logger.warning("community_skill_publish_pr_create_ambiguous", slug=slug, branch=branch, exc_info=True)
-        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch)
+        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch, base=base)
         if reconciled is not None:
             return reconciled
         _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch)
@@ -376,7 +388,7 @@ def _write_branch_and_pull_request(
     # is on that branch and so inside that review, so return it rather than reporting a failure for
     # content that is already public. Cleanup would belong to that review's branch, not to us.
     if "already exists" in error.lower():
-        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch)
+        reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch, base=base)
         if reconciled is not None:
             return reconciled
         raise CommunitySkillPublishError("A pull request for this skill is already open for review.")
@@ -391,12 +403,34 @@ def _write_branch_and_pull_request(
     raise CommunitySkillPublishError(f"Failed to open pull request: {error}")
 
 
-def _reconcile_open_pr(publisher: GitHubIntegration, *, repo: str, slug: str, branch: str) -> dict[str, Any] | None:
+def _require_publishable_base(pull: dict[str, Any], *, base: str) -> None:
+    """Refuse a pull request on our branch that no longer targets the branch the catalog is built from.
+
+    Merging a retargeted pull request writes to that other branch, so the skill would never reach the
+    catalog even though publishing reported success. Its branch is also under live review, which is
+    why this runs before the commit: we neither force-update that branch nor delete it.
+    """
+    if pull.get("base") == base:
+        return
+    raise CommunitySkillPublishError(
+        f"Pull request #{pull['number']} for this skill is open against "
+        f"'{pull.get('base') or 'another branch'}' instead of '{base}'. "
+        "Ask a maintainer to retarget or close it, then publish again."
+    )
+
+
+def _reconcile_open_pr(
+    publisher: GitHubIntegration, *, repo: str, slug: str, branch: str, base: str
+) -> dict[str, Any] | None:
     """Re-read the pull request open for ``branch`` after an ambiguous create, or None if there is none.
 
     A None here means "found nothing", not "the branch has no pull request": the lookup is
     best-effort and answers None for most failures. It still raises when GitHub rate-limits the read,
     which is caught here so a caller cleaning up after a failure isn't handed a second one.
+
+    A pull request retargeted away from ``base`` raises instead of returning: it is not ours to
+    report as this publish's destination, and the raise also keeps the caller from deleting a branch
+    that is under review.
     """
     try:
         pull = publisher.get_open_pull_request_for_head(repo, branch)
@@ -405,6 +439,7 @@ def _reconcile_open_pr(publisher: GitHubIntegration, *, repo: str, slug: str, br
         return None
     if pull is None or not pull.get("url"):
         return None
+    _require_publishable_base(pull, base=base)
     logger.info("community_skill_publish_reconciled_open_pr", slug=slug, pr_number=pull["number"])
     return {"pr_url": pull["url"], "pr_number": pull["number"], "branch": branch}
 

@@ -646,8 +646,9 @@ export interface LLMSkillFileApi {
 
 export interface LLMSkillPublishToCommunityApi {
     /**
-     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
+     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
      * @maxLength 64
+     * @pattern ^[^\u0000-\u001f\u007f]*$
      */
     display_name?: string
     /**

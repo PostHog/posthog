@@ -1295,6 +1295,9 @@ class TestLLMSkillAPI(APIBaseTest):
             ("explicit empty list", {"tags": []}, ["github"], []),
             # metadata is an arbitrary dict, and ingest drops an entry whose tags are not all strings.
             ("unusable metadata tags", {}, ["github", 123, {"name": "x"}, "  ", "y" * 65], ["github"]),
+            # Sync only lowercases a tag and filtering matches it exactly, so an unstripped tag would
+            # publish as one no catalog filter can select.
+            ("padded metadata tags", {}, [" github "], ["github"]),
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
@@ -1318,14 +1321,22 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_publish.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # Longer than CommunitySkill.name: the PR merges and ingest then drops the entry.
+            ("over the catalog limit", "x" * 65),
+            # The name becomes the commit message, where a trailer would reattribute the App's commit.
+            ("spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>"),
+        ]
+    )
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_display_name_over_catalog_limit(self, mock_publish, _mock_flag):
+    def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
         self.create_skill(name="make-pr")
 
         response = self.client.post(
             self._url("name/make-pr/publish-community"),
-            data={"display_name": "x" * 65},
+            data={"display_name": display_name},
             format="json",
         )
 

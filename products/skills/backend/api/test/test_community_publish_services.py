@@ -74,6 +74,8 @@ class TestRenderSkillMd:
             ("blank description", "n", ""),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
             ("name over 64 chars", "x" * 65, "d"),
+            # The name becomes the commit message, where a trailer would reattribute the App's commit.
+            ("name spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>", "d"),
         ]
     )
     def test_requires_name_and_description(self, _label: str, name: str, description: str) -> None:
@@ -190,6 +192,19 @@ class TestPublishSkillToCommunity:
         assert result["pr_number"] == 5
         publisher.create_pull_request.assert_not_called()
         publisher.commit_files_to_branch.assert_called_once()
+
+    def test_refuses_a_pull_request_retargeted_away_from_the_base_branch(self) -> None:
+        # Merging it writes to that other branch, so the skill never reaches the catalog. Reusing it
+        # would report a successful publish for content nothing will ever pick up.
+        publisher = self._publisher(
+            open_pr={"number": 5, "url": "https://github.com/PostHog/community-skills/pull/5", "base": "draft"}
+        )
+
+        with pytest.raises(CommunitySkillPublishError):
+            self._publish(publisher)
+
+        publisher.commit_files_to_branch.assert_not_called()
+        publisher.delete_branch.assert_not_called()
 
     def test_another_team_publishing_the_same_slug_writes_its_own_branch(self) -> None:
         # Slugs are unique per team, so a slug-only branch would let team B rewrite team A's open PR.
