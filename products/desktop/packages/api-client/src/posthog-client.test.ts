@@ -2222,6 +2222,22 @@ describe("PostHogAPIClient", () => {
       ).toBeInstanceOf(AbortSignal);
     });
 
+    it("reports a null matching count when the header is absent", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => makeEntries(10, "a"),
+        headers: new Headers({ "X-Has-More": "true" }),
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsPage("task-1", "run-1", {
+        limit: 10,
+      });
+
+      expect(result.matchingCount).toBeNull();
+      expect(result.hasMore).toBe(true);
+    });
+
     it("does not retry a definite client error", async () => {
       const fetch = vi.fn().mockRejectedValue(new ApiRequestError(404, "{}"));
       const client = makeClient(fetch);
