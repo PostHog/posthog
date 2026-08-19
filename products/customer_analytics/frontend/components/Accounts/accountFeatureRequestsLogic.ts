@@ -7,7 +7,27 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { featureRequestsList, featureRequestsUpdate } from '../../generated/api'
-import type { FeatureRequestApi } from '../../generated/api.schemas'
+import type { FeatureRequestApi, FeatureRequestsListParams } from '../../generated/api.schemas'
+
+const FEATURE_REQUESTS_PAGE_SIZE = 100
+
+async function loadAllFeatureRequests(
+    teamId: string,
+    params: Omit<FeatureRequestsListParams, 'limit' | 'offset'>
+): Promise<FeatureRequestApi[]> {
+    const requests: FeatureRequestApi[] = []
+    while (true) {
+        const response = await featureRequestsList(teamId, {
+            ...params,
+            limit: FEATURE_REQUESTS_PAGE_SIZE,
+            offset: requests.length,
+        })
+        requests.push(...response.results)
+        if (response.results.length === 0 || requests.length >= response.count) {
+            return requests
+        }
+    }
+}
 
 export interface AccountFeatureRequestsLogicProps {
     accountId: string
@@ -113,25 +133,21 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         accountRequests: [
             [] as FeatureRequestApi[],
             {
-                loadAccountRequests: async () => {
-                    const response = await featureRequestsList(String(values.currentTeam?.id), {
-                        limit: 100,
+                loadAccountRequests: async () =>
+                    loadAllFeatureRequests(String(values.currentTeam?.id), {
                         account_ids: [props.accountId],
                         archive_state: 'all',
-                    })
-                    return response.results
-                },
+                    }),
             },
         ],
         availableRequests: [
             [] as FeatureRequestApi[],
             {
                 loadAvailableRequests: async () => {
-                    const response = await featureRequestsList(String(values.currentTeam?.id), {
-                        limit: 100,
+                    const requests = await loadAllFeatureRequests(String(values.currentTeam?.id), {
                         archive_state: 'active',
                     })
-                    return response.results.filter(
+                    return requests.filter(
                         (request) => !request.account_links.some((link) => link.account.id === props.accountId)
                     )
                 },

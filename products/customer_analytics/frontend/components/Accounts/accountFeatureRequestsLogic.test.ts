@@ -73,4 +73,38 @@ describe('accountFeatureRequestsLogic', () => {
         expect(logic.values.linkingRequest).toBe(false)
         logic.unmount()
     })
+
+    it('loads every page for the linked table and request picker', async () => {
+        const requests = Array.from({ length: 101 }, (_, index) => ({
+            ...existingRequest,
+            id: `request-${index + 1}`,
+            title: `Request ${index + 1}`,
+        }))
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockImplementation(async (_teamId, params) => {
+            const offset = params?.offset ?? 0
+            return {
+                count: requests.length,
+                next: offset + 100 < requests.length ? 'next' : null,
+                previous: offset > 0 ? 'previous' : null,
+                results: requests.slice(offset, offset + 100),
+            }
+        })
+        const logic = accountFeatureRequestsLogic({ accountId: 'account-2' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.openRequestPicker()).toFinishAllListeners()
+
+        expect(logic.values.accountRequests).toHaveLength(101)
+        expect(logic.values.availableRequests).toHaveLength(101)
+        expect(listSpy).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ account_ids: ['account-2'], offset: 100 })
+        )
+        expect(listSpy).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ archive_state: 'active', offset: 100 })
+        )
+        logic.unmount()
+    })
 })

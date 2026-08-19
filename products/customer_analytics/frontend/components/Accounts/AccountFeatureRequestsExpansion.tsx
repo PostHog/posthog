@@ -106,6 +106,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                 rowKey="id"
                 loading={accountRequestsLoading}
                 emptyState="No feature requests linked to this account."
+                pagination={{ pageSize: 20, useUrl: false }}
             />
             <LemonModal
                 isOpen={requestPickerOpen}

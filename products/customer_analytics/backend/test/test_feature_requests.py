@@ -544,7 +544,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(deleted.json()["account_links"][0]["evidence"], [])
         self.assertFalse(FeatureRequestEvidence.objects.for_team(self.team.id).filter(id=evidence_id).exists())
 
-    def test_viewer_only_receives_evidence_for_accessible_accounts(self) -> None:
+    def test_viewer_only_receives_data_for_accessible_accounts(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         other_account = create_account(team_id=self.team.id, name="Globex")
         linked = self.client.patch(
@@ -586,12 +586,16 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         response = self.client.get(f"{self.requests_url}{created['id']}/")
         history = self.client.get(f"{self.requests_url}{created['id']}/history/")
+        restricted_filter = self.client.get(self.requests_url, {"account_ids": str(self.account.id)})
+        visible_filter = self.client.get(self.requests_url, {"account_ids": str(other_account.id)})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([link["account"]["name"] for link in response.json()["account_links"]], ["Globex"])
         self.assertEqual(response.json()["account_links"][0]["evidence"][0]["summary"], "Visible account evidence")
         self.assertNotIn("Restricted account evidence", str(response.json()))
         self.assertNotIn("Restricted account evidence", str(history.json()))
+        self.assertEqual(restricted_filter.json()["count"], 0)
+        self.assertEqual(visible_filter.json()["count"], 1)
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()

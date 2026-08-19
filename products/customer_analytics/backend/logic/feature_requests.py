@@ -163,7 +163,9 @@ def _apply_ordering(queryset: QuerySet[FeatureRequest], ordering: str) -> QueryS
 
 
 def _apply_filters(
-    queryset: QuerySet[FeatureRequest], filters: contracts.FeatureRequestListFilters
+    queryset: QuerySet[FeatureRequest],
+    filters: contracts.FeatureRequestListFilters,
+    account_filter_ids: tuple[UUID, ...],
 ) -> QuerySet[FeatureRequest]:
     search = filters.search.strip()
     if search:
@@ -181,7 +183,7 @@ def _apply_filters(
         queryset = queryset.filter(product_area_links__product_area_id__in=filters.product_area_ids)
     if filters.account_ids:
         queryset = queryset.filter(
-            account_links__account_id__in=filters.account_ids,
+            account_links__account_id__in=account_filter_ids,
             account_links__unlinked_at__isnull=True,
         )
     if filters.archive_state == "active":
@@ -463,7 +465,18 @@ def list_feature_requests(
     offset: int,
     limit: int,
 ) -> tuple[list[contracts.FeatureRequestView], int]:
-    queryset = _apply_filters(_feature_request_queryset(team_id, user_access_control), filters)
+    account_filter_ids: tuple[UUID, ...] = ()
+    if filters.account_ids:
+        account_filter_ids = tuple(
+            user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
+            .filter(id__in=filters.account_ids)
+            .values_list("id", flat=True)
+        )
+    queryset = _apply_filters(
+        _feature_request_queryset(team_id, user_access_control),
+        filters,
+        account_filter_ids,
+    )
     queryset = _apply_ordering(queryset, filters.ordering)
     total_count = queryset.count()
     return [_to_feature_request_view(item) for item in queryset[offset : offset + limit]], total_count
