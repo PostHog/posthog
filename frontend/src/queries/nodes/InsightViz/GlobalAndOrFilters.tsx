@@ -7,17 +7,23 @@ import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/proper
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
+import { NodeKind, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
+import { isInsightQueryWithSeries } from '~/queries/utils'
 import { EditorFilterProps } from '~/types'
 
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 import { getAllEventNames } from './utils'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
-    const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    const hasActionSeries =
+        !!querySource &&
+        isInsightQueryWithSeries(querySource) &&
+        querySource.series.some((series) => series.kind === NodeKind.ActionsNode)
+    const { actions: allActions } = useValues(hasActionSeries ? actionsModel : actionsModel({ skipLoad: true }))
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
