@@ -14,10 +14,16 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, look_up_clickhouse_error_code_meta
+from posthog.errors import (
+    CHQueryErrorTooManyBytes,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import groups
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseBytesLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -52,6 +58,7 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
     # ClickHouse resource errors
+    CHQueryErrorTooManyBytes: "This experiment query is reading too much data. Try viewing a shorter time period or narrower filters, or contact support for help.",
     ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
     # Python built-in errors that can occur during calculation
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
@@ -104,6 +111,10 @@ def classify_experiment_query_error(error: Exception) -> str:
     """
     if isinstance(error, (StatisticError, ZeroDivisionError)):
         return "insufficient_data"
+    # The query-cache breaker replays a read-cap failure as ClickHouseBytesLimitExceeded, which
+    # subclasses ValidationError, so this must run before the ValidationError catch-all below.
+    if isinstance(error, ClickHouseBytesLimitExceeded):
+        return "byte_limit"
     if isinstance(error, (ValidationError, ExposedHogQLError)):
         return "validation_error"
     if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):

@@ -13,7 +13,13 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseBytesLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.experiments.backend.hogql_queries.error_handling import (
     ERROR_TYPE_TO_CODE,
@@ -52,6 +58,16 @@ class TestExperimentErrorHandling(BaseTest):
         self.assertEqual(
             message,
             "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
+        )
+
+    def test_get_user_friendly_message_for_too_many_bytes(self):
+        # A read-cap failure must name a cause and an action, not fall through to the
+        # ExposedCHQueryError "refresh the page" message that re-runs the identical query.
+        message = get_user_friendly_message(CHQueryErrorTooManyBytes("too many bytes"))
+
+        self.assertEqual(
+            message,
+            "This experiment query is reading too much data. Try viewing a shorter time period or narrower filters, or contact support for help.",
         )
 
     def test_get_user_friendly_message_for_unmapped_error(self):
@@ -158,6 +174,7 @@ class TestExperimentErrorHandling(BaseTest):
             ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("ch_memory_limit_code", ServerException("memory limit", code=241), "out_of_memory"),
             ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
+            ("wrapped_bytes_limit", ClickHouseBytesLimitExceeded("read too much data"), "byte_limit"),
             ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
             ("app_concurrency_limit", ConcurrencyLimitExceeded("app:query:per-org"), "rate_limited"),
             ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited"),

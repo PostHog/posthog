@@ -25,9 +25,10 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 logger = get_write_only_logger()
 
 # ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
-# probes, retryable transient-infra re-raises), not defects — same reasoning as the
+# probes, retryable transient-infra re-raises) or expected user-facing query failures
+# (byte_limit: the read too much data cap), not defects — same reasoning as the
 # EgressBudgetExhausted exemption below.
-EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError", "byte_limit"})
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
