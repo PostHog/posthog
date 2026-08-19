@@ -74,6 +74,18 @@ def _auc(y: np.ndarray, scores: np.ndarray) -> float | None:
     return float(roc_auc_score(y, scores))
 
 
+def _head_readable(
+    holdout_auc: float | None, null_auc: float | None, holdout_positives: int, *, min_positives: int
+) -> bool:
+    """Readable = enough holdout positives, an above-chance holdout AUC, and clearing the head's own
+    permutation null by NULL_MARGIN. The absolute 0.5 floor is load-bearing on top of the null
+    margin because the null is a single noisy draw: an inversely predictive head (AUC below chance)
+    can still beat one low null draw by the margin, and must not be graded readable."""
+    if holdout_auc is None or null_auc is None:
+        return False
+    return holdout_positives >= min_positives and holdout_auc > 0.5 and holdout_auc - null_auc >= NULL_MARGIN
+
+
 def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: int = 0) -> TrainedHead | None:
     """Fit one head; None when there is nothing to fit (no positive or no negative in train)."""
     rows = examples[examples["head"] == head.name]
@@ -95,12 +107,7 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
         null_model = _fit(x_train, rng.permutation(y_train), seed)
         null_auc = _auc(y_test, null_model.predict_proba(x_test)[:, 1])
 
-    readable = (
-        holdout_auc is not None
-        and null_auc is not None
-        and int(y_test.sum()) >= head.min_holdout_positives
-        and holdout_auc - null_auc >= NULL_MARGIN
-    )
+    readable = _head_readable(holdout_auc, null_auc, int(y_test.sum()), min_positives=head.min_holdout_positives)
     metrics = HeadMetrics(
         head=head.name,
         train_rows=int(len(y_train)),
