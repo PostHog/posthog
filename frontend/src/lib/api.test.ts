@@ -376,6 +376,29 @@ describe('API helper', () => {
             expect(error.status).toBeUndefined()
         })
 
+        it('classifies a long-running fetch rejection as a timeout, not a connectivity issue', async () => {
+            // A request that drops at the network layer only after running for a long time is a gateway
+            // or query timeout, not a lost connection, so it must not raise the "trouble connecting" banner.
+            jest.useFakeTimers()
+            try {
+                fakeFetch.mockImplementation(
+                    () =>
+                        new Promise((_, reject) => {
+                            setTimeout(() => reject(new TypeError('Failed to fetch')), 30_000)
+                        })
+                )
+
+                const pending = api.get('api/environments/2/insights').catch((e) => e)
+                await jest.advanceTimersByTimeAsync(30_000)
+                const error = await pending
+
+                expect(error).toBeInstanceOf(NetworkError)
+                expect(error.reason).toBe('timeout')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('classifies a fetch rejection during page teardown as navigating', async () => {
             window.dispatchEvent(new Event('pagehide'))
             fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))

@@ -98,10 +98,12 @@ export class ApiError extends Error {
 /**
  * Why a request never reached the server. `offline` and `navigating` describe the state of the
  * client rather than a fault in the request path, so they are dropped before they reach error
- * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
- * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ * tracking (see `dropUnactionableNetworkExceptions`). `timeout` is a request that ran long and then
+ * failed at the network layer, which points at a gateway or query timeout rather than connectivity.
+ * `network` is the residue that is worth looking at: an ad blocker, a misconfigured reverse proxy,
+ * DNS, a CDN, or our own edge.
  */
-export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
+export type NetworkFailureReason = 'offline' | 'navigating' | 'timeout' | 'network'
 
 /**
  * One fixed message per reason. Two constraints meet here. The browser's own wording varies by
@@ -112,6 +114,7 @@ export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
 export const NETWORK_ERROR_MESSAGES = {
     offline: 'Network request failed: device is offline',
     navigating: 'Network request failed: page was closing',
+    timeout: 'Network request failed: request timed out',
     network: 'Network request failed',
 } as const satisfies Record<NetworkFailureReason, string>
 

@@ -8,6 +8,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { TraceQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
@@ -77,6 +78,31 @@ describe('aiObservabilityTraceLogic', () => {
             eventId: eventId,
             dateRange: { dateFrom: timestamp, dateTo: null },
         })
+    })
+
+    it('omits an undefined event id from the trace link instead of writing event=undefined', () => {
+        const url = urls.aiObservabilityTrace('trace-1', { event: undefined })
+
+        expect(url).not.toContain('event=')
+    })
+
+    it('treats a literal event=undefined param as no event', async () => {
+        const traceUrl = addProjectIdIfMissing(urls.aiObservabilityTrace('trace-1'), MOCK_TEAM_ID)
+
+        router.actions.push(`${traceUrl}?event=undefined`)
+        await expectLogic(logic).toMatchValues({
+            traceId: 'trace-1',
+            eventId: null,
+        })
+    })
+
+    it('bounds the fallback trace query window when the URL carries no timestamp', async () => {
+        router.actions.push(addProjectIdIfMissing(urls.aiObservabilityTrace('trace-1'), MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Without a timestamp the query must not reach back to a fixed 2025 date and scan all history.
+        const dateRange = (logic.values.query.source as TraceQuery).dateRange
+        expect(dateRange?.date_from).toBe('-30d')
     })
 
     it('handles trace ID with event and exception_ts parameters', async () => {

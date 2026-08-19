@@ -3,6 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -89,8 +90,21 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
-                // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
+                if (error instanceof NetworkError && error.reason === 'timeout') {
+                    // A long-running request dropped by the gateway is not a connectivity problem, so the
+                    // "trouble connecting" banner would be wrong and unhelpful. Say what actually happened.
+                    const now = Date.now()
+                    if (now - (cache.lastTimeoutToast ?? 0) > 10000) {
+                        cache.lastTimeoutToast = now
+                        lemonToast.error(
+                            'The request timed out. It may be querying too much data. Try a shorter date range or fewer filters.'
+                        )
+                    }
+                } else if (
+                    (error instanceof NetworkError && (error.reason === 'network' || error.reason === 'offline')) ||
+                    // Fallback for callers that pass the raw browser error (e.g. CORS failures before Django).
+                    error?.message === 'Failed to fetch'
+                ) {
                     actions.setInternetConnectionIssue(true)
                 }
             }

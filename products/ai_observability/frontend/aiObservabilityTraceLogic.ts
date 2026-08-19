@@ -60,6 +60,9 @@ export interface AIObservabilityTraceDataNodeLogicParams {
 }
 
 const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
+// Fallback lookback for a trace opened without a timestamp. Bounds the shared-events scan so a
+// link that carries no timestamp cannot trigger a full-history query that times out at the gateway.
+const TRACE_FALLBACK_LOOKBACK_DAYS = 30
 
 export function getDataNodeLogicProps({
     traceId,
@@ -688,9 +691,9 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                               date_from: dateRange.dateFrom,
                               date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
                           }
-                        : // By default will look for traces from the beginning.
+                        : // No timestamp in the URL: bound the lookback instead of scanning all history.
                           {
-                              date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
+                              date_from: `-${TRACE_FALLBACK_LOOKBACK_DAYS}d`,
                           },
                 }
 
@@ -858,7 +861,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
             })
-            actions.setEventId(event || null)
+            // Old links can carry the literal string "undefined" from a missing event id. Treat it as none.
+            actions.setEventId(event && event !== 'undefined' ? event : null)
             const parsedMsg = msg ? parseInt(msg, 10) : NaN
             actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)
             const parsedLine = line ? parseInt(line, 10) : NaN

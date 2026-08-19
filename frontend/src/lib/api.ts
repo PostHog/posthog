@@ -7463,12 +7463,20 @@ function requestPathname(url: string): string {
     }
 }
 
-function classifyNetworkFailure(): NetworkFailureReason {
+// A request that fails at the network layer only after running this long is almost never a device
+// connectivity blip; it is a gateway or query timeout. Gateway idle timeouts sit around 30-60s, so
+// anything past this threshold that then drops is far more likely a timeout than a lost connection.
+const NETWORK_TIMEOUT_THRESHOLD_MS = 25_000
+
+function classifyNetworkFailure(durationMs: number): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
     }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return 'offline'
+    }
+    if (durationMs >= NETWORK_TIMEOUT_THRESHOLD_MS) {
+        return 'timeout'
     }
     return 'network'
 }
@@ -7505,29 +7513,32 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    // `fetch` rejects with a `TypeError` when the request never reached the server. Classify it here,
+    // before anything reacts, so the connectivity banner and telemetry see the same reason: this frame
+    // still knows how long the request ran, which separates a real gateway/query timeout from a lost
+    // connection. Anything else thrown by the fetcher stays an unclassified `ApiError`.
+    const isAbortError = !!error && (error as any).name === 'AbortError'
+    const networkError =
+        !isAbortError && error instanceof TypeError
+            ? new NetworkError(classifyNetworkFailure(new Date().getTime() - startTime), error)
+            : undefined
+
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), networkError ?? error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
+        if (isAbortError) {
             throw error
         }
-        // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
-        // here is what makes the failure legible: the call site only knows "something threw", while
-        // this frame still knows which endpoint was in flight, how long it ran, and whether the client
-        // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
-        // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
-        // relabelled as a connectivity problem and filtered out of error tracking.
-        if (error instanceof TypeError) {
-            const reason = classifyNetworkFailure()
+        if (networkError) {
             captureClientRequestFailure({
                 pathname: requestPathname(url),
                 method,
                 duration: new Date().getTime() - startTime,
                 status: 0,
                 is_shared_view: isSharedView(),
-                failure_reason: reason,
+                failure_reason: networkError.reason,
             })
-            throw new NetworkError(reason, error)
+            throw networkError
         }
         throw new ApiError(error as any, response?.status)
     }
