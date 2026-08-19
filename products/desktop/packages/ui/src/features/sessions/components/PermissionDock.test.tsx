@@ -65,6 +65,29 @@ describe("PermissionDock", () => {
     expect(dockEl.style.maxHeight).toBe(`min(${expected}, calc(100% - 120px))`);
   });
 
+  it("reaching the handle after a window resize reports the current range", () => {
+    render(
+      <div>
+        <PermissionDock compact={false}>
+          <div>Question card</div>
+        </PermissionDock>
+      </div>,
+    );
+
+    const separator = screen.getByRole("separator");
+    stubHeights(separator, 300, 600);
+    fireEvent.focus(separator);
+    expect(separator.getAttribute("aria-valuenow")).toBe("300");
+    expect(separator.getAttribute("aria-valuemax")).toBe("480");
+
+    // The window shrinks: CSS re-caps the dock with no React render behind it.
+    stubHeights(separator, 200, 400);
+    fireEvent.focus(separator);
+
+    expect(separator.getAttribute("aria-valuenow")).toBe("200");
+    expect(separator.getAttribute("aria-valuemax")).toBe("280");
+  });
+
   it("releasing the button outside the window ends the drag", () => {
     render(
       <div>

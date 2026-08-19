@@ -61,14 +61,21 @@ export function PermissionDock({
     [],
   );
 
+  // Both caps are CSS, so the dock re-sizes with the window without React
+  // hearing about it. Re-measuring whenever the handle is reached keeps what a
+  // screen reader announces true at the moment it is read.
+  const refreshReportedRange = useCallback(() => {
+    measureMax();
+    setReportedHeight(measureDock());
+  }, [measureMax, measureDock]);
+
   const attachDock = useCallback(
     (node: HTMLDivElement | null) => {
       dockRef.current = node;
       if (!node) return;
-      measureMax();
-      setReportedHeight(measureDock());
+      refreshReportedRange();
     },
-    [measureMax, measureDock],
+    [refreshReportedRange],
   );
 
   const resizeTo = useCallback(
@@ -168,6 +175,7 @@ export function PermissionDock({
             aria-valuemin={MIN_DOCK_HEIGHT}
             aria-valuemax={maxHeightAllowed}
             tabIndex={0}
+            onFocus={refreshReportedRange}
             onMouseDown={handleResizeStart}
             onKeyDown={handleResizeKey}
             className="group flex flex-1 cursor-row-resize justify-center py-1 outline-none"
