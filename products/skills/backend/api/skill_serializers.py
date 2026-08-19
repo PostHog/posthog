@@ -11,7 +11,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
-from .community_publish_services import MAX_DISPLAY_NAME_LENGTH
+from .community_publish_services import MAX_DISPLAY_NAME_LENGTH, OPTIONAL_GITHUB_HANDLE_PATTERN
 from .skill_services import (
     LLMSkillOwnerNotFoundError,
     resolve_owner_users,
@@ -861,11 +861,14 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
         required=False,
         help_text="Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].",
     )
-    author_handle = serializers.CharField(
+    author_handle = serializers.RegexField(
+        OPTIONAL_GITHUB_HANDLE_PATTERN,
         required=False,
         allow_blank=True,
-        max_length=100,
-        help_text="The publisher's GitHub username, used for public attribution on the listing and PR. Optional.",
+        help_text=(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, "
+            "and self-reported: it is not verified against the publisher's PostHog account."
+        ),
     )
 
 

@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 import yaml
 from parameterized import parameterized
 
+from posthog.models.github_integration_base import GitHubIntegrationError
+
 from products.skills.backend.api.community_publish_services import (
     CommunitySkillPublishError,
     publish_skill_to_community,
+    publisher_branch_key,
     render_community_skill_files,
     render_skill_md,
 )
@@ -105,6 +108,12 @@ class TestRenderCommunitySkillFiles:
         raise AssertionError("expected rejection for path traversal")
 
 
+TEAM_A = "11111111-1111-1111-1111-111111111111"
+TEAM_B = "22222222-2222-2222-2222-222222222222"
+# Branch for slug "make-pr" published by TEAM_A.
+TEAM_A_BRANCH = f"community-skill/make-pr-{publisher_branch_key(TEAM_A)}"
+
+
 class TestPublishSkillToCommunity:
     def _publisher(self, *, open_pr: dict | None = None) -> MagicMock:
         publisher = MagicMock()
@@ -118,13 +127,14 @@ class TestPublishSkillToCommunity:
         publisher.delete_branch.return_value = {"success": True}
         return publisher
 
-    def _publish(self, publisher: MagicMock) -> dict:
+    def _publish(self, publisher: MagicMock, *, publisher_id: str = TEAM_A) -> dict:
         with patch(
             "products.skills.backend.api.community_publish_services.get_community_skills_publisher",
             return_value=publisher,
         ):
             return publish_skill_to_community(
                 slug="make-pr",
+                publisher_id=publisher_id,
                 name="Make PR",
                 description="Open a PR.",
                 body="body",
@@ -139,7 +149,7 @@ class TestPublishSkillToCommunity:
         assert result == {
             "pr_url": "https://github.com/PostHog/community-skills/pull/12",
             "pr_number": 12,
-            "branch": "community-skill/make-pr",
+            "branch": TEAM_A_BRANCH,
         }
         publisher.commit_files_to_branch.assert_called_once()
         committed_files = publisher.commit_files_to_branch.call_args.args[3]
@@ -149,11 +159,7 @@ class TestPublishSkillToCommunity:
         [
             ("transient github failure", "GitHub said no", True),
             # A branch that already heads a pull request belongs to that review, not to this call.
-            (
-                "pull request already exists",
-                "A pull request already exists for PostHog:community-skill/make-pr.",
-                False,
-            ),
+            ("pull request already exists", "A pull request already exists for PostHog:community-skill/x.", False),
         ]
     )
     def test_branch_cleanup_when_the_pull_request_fails(self, _label: str, error: str, deleted: bool) -> None:
@@ -165,9 +171,9 @@ class TestPublishSkillToCommunity:
 
         assert publisher.delete_branch.called is deleted
         if deleted:
-            assert publisher.delete_branch.call_args.args[1] == "community-skill/make-pr"
+            assert publisher.delete_branch.call_args.args[1] == TEAM_A_BRANCH
 
-    def test_reuses_the_open_pull_request_for_the_same_slug(self) -> None:
+    def test_reuses_the_open_pull_request_for_the_same_skill(self) -> None:
         publisher = self._publisher(
             open_pr={"number": 5, "url": "https://github.com/PostHog/community-skills/pull/5", "base": "main"}
         )
@@ -177,3 +183,20 @@ class TestPublishSkillToCommunity:
         assert result["pr_number"] == 5
         publisher.create_pull_request.assert_not_called()
         publisher.commit_files_to_branch.assert_called_once()
+
+    def test_another_team_publishing_the_same_slug_writes_its_own_branch(self) -> None:
+        # Slugs are unique per team, so a slug-only branch would let team B rewrite team A's open PR.
+        publisher = self._publisher()
+
+        self._publish(publisher, publisher_id=TEAM_B)
+
+        branch = publisher.commit_files_to_branch.call_args.args[1]
+        assert branch.startswith("community-skill/make-pr-")
+        assert branch != TEAM_A_BRANCH
+
+    def test_github_being_unreachable_raises_a_publish_error(self) -> None:
+        publisher = self._publisher()
+        publisher.get_open_pull_request_for_head.side_effect = GitHubIntegrationError("network error")
+
+        with pytest.raises(CommunitySkillPublishError):
+            self._publish(publisher)

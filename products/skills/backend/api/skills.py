@@ -968,18 +968,25 @@ class LLMSkillViewSet(
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         metadata_tags = (skill.metadata or {}).get("tags")
-        tags = payload.validated_data.get("tags") or (metadata_tags if isinstance(metadata_tags, list) else [])
+        supplied_tags = payload.validated_data.get("tags")
+        # An explicit empty list means "publish with no tags", so fall back to the skill's own tags
+        # only when the caller omitted the field.
+        if supplied_tags is None:
+            supplied_tags = metadata_tags if isinstance(metadata_tags, list) else []
         # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
         display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
 
         try:
             result = publish_skill_to_community(
                 slug=skill.name,
+                # Scopes the publish branch to this team, so one team cannot rewrite another team's
+                # open pull request for the same slug.
+                publisher_id=str(self.team.uuid),
                 name=display_name,
                 description=skill.description,
                 body=skill.body,
                 files=files or None,
-                tags=tags,
+                tags=supplied_tags,
                 allowed_tools=skill.allowed_tools or [],
                 license=skill.license or "",
                 compatibility=skill.compatibility or "",
@@ -991,6 +998,15 @@ class LLMSkillViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except CommunitySkillPublishError as err:
+            # The client sees the reason once; without this the server keeps no record of a publish
+            # that failed against GitHub.
+            logger.warning(
+                "llma_skill_publish_to_community_failed",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                skill_name=skill.name,
+                error=str(err),
+            )
             return Response({"detail": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
 
         props = {**_skill_analytics_props(skill), "community_pr_number": result["pr_number"]}

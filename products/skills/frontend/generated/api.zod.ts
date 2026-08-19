@@ -288,7 +288,9 @@ export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
 
 export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
 
-export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 100
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp = new RegExp(
+    '^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$'
+)
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod
@@ -302,7 +304,9 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
     author_handle: zod
         .string()
-        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
+        .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp)
         .optional()
-        .describe("The publisher's GitHub username, used for public attribution on the listing and PR. Optional."),
+        .describe(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."
+        ),
 })

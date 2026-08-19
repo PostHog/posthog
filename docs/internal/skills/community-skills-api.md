@@ -86,15 +86,30 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   fire here at all: it only counts personal-API-key traffic.
 - `display_name` is capped at 64 characters to match `CommunitySkill.name`. A longer name would pass
   review and then be dropped by ingest, so the skill would never appear in the catalog.
+- `author_handle` is validated against GitHub's username shape, and is self-reported. Nothing checks it
+  against the publisher's PostHog account, so the PR body presents it as a handle the publisher gave.
 - Bundled files are text only. `CommunitySkillFile.content` is a `TextField` and the renderer takes
   `str`, so a skill referencing an image or other binary asset cannot round-trip through the catalog.
+
+### Settings
+
+| Setting                                   | Effect                                                                              |
+| ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` | Installation of the GitHub App that opens the PRs. Empty (the default) returns 503. |
+| `COMMUNITY_SKILLS_GITHUB_REPO`            | Bare repo name to publish into. The owner comes from the installation's account.    |
+
+`COMMUNITY_SKILLS_GITHUB_REPO` is publish-only. The hourly catalog sync reads `registry.json` from the
+repo pinned in `community_skill_sync.py`, so pointing this setting elsewhere sends pull requests to a
+repo the sync never reads back.
 
 ### Repo writes
 
 The target repo is public, so a failed publish must not leave anything behind:
 
-- The branch is `community-skill/<slug>`, derived from the slug rather than random, so re-publishing
-  rewrites that branch and returns the PR already open for it instead of opening a second one.
+- The branch is `community-skill/<slug>-<publisher key>`, so re-publishing rewrites that branch and
+  returns the PR already open for it instead of opening a second one. The publisher key is a short
+  hash of the team's uuid: a slug is only unique within a team, so a branch keyed on the slug alone
+  would let one team force-update another team's open pull request.
 - Every rendered file lands in a single tree and commit, built before the branch reference exists.
   A failure part way through leaves no branch, and reviewers see one commit rather than one per file.
 - If opening the PR fails, the branch is deleted again.

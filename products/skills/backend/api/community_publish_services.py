@@ -8,6 +8,7 @@ powers the Tasks product. This module owns the pure rendering of an `LLMSkill` i
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +17,8 @@ from django.conf import settings
 import yaml
 import structlog
 
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
 logger = structlog.get_logger(__name__)
@@ -24,6 +27,13 @@ logger = structlog.get_logger(__name__)
 # repo's own validation would reject.
 SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 MAX_SLUG_LENGTH = 64
+# GitHub usernames are alphanumeric with single inner hyphens, up to 39 characters. The handle is
+# self-reported and lands in a public PR body and in the listing, so hold it to the shape of a real
+# username rather than letting free text through.
+GITHUB_HANDLE_PATTERN = re.compile(r"^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$")
+# The API field is optional, so the shape it publishes to clients has to accept an empty string too —
+# otherwise generated validators reject the blank the endpoint itself allows.
+OPTIONAL_GITHUB_HANDLE_PATTERN = re.compile(f"^$|{GITHUB_HANDLE_PATTERN.pattern}")
 # Matches CommunitySkill.name — a longer name publishes and merges, then ingest rejects the entry and
 # the skill silently never appears in the catalog.
 MAX_DISPLAY_NAME_LENGTH = 64
@@ -40,12 +50,34 @@ class CommunitySkillPublishNotConfiguredError(CommunitySkillPublishError):
     """Raised when the community-skills GitHub App installation isn't configured on this instance."""
 
 
+class _CommunitySkillsPublisher(GitHubIntegration):
+    """Publisher client whose Integration row is transient and belongs to no team.
+
+    A fresh installation token is minted for every publish, so a 401 is a real failure rather than an
+    expiry to heal — and the inherited refresh would try to save a teamless row, which the model's
+    team foreign key forbids.
+    """
+
+    def refresh_access_token(self) -> None:
+        raise GitHubIntegrationError("The community-skills publisher mints a token per publish and cannot refresh.")
+
+
 @dataclass(frozen=True)
 class RenderedFile:
     """A single file to commit, at its path within the community-skills repo."""
 
     path: str
     content: str
+
+
+def publisher_branch_key(publisher_id: str) -> str:
+    """Short, stable, opaque branch suffix for one publisher.
+
+    Skill slugs are only unique within a team, but a branch name is global to the community repo, so a
+    slug alone would let one team's publish force-update another team's open pull request. Hashing
+    keeps the publisher's identifier out of a public branch name.
+    """
+    return hashlib.sha256(publisher_id.encode()).hexdigest()[:8]
 
 
 def _validate_slug(slug: str) -> str:
@@ -79,6 +111,8 @@ def render_skill_md(
         raise CommunitySkillPublishError(f"Skill name must be {MAX_DISPLAY_NAME_LENGTH} characters or fewer.")
     if not description.strip():
         raise CommunitySkillPublishError("Skill description is required to publish.")
+    if author_handle.strip() and not GITHUB_HANDLE_PATTERN.match(author_handle.strip()):
+        raise CommunitySkillPublishError(f"'{author_handle}' is not a valid GitHub username.")
 
     frontmatter: dict[str, Any] = {
         "name": name.strip(),
@@ -185,13 +219,18 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         config={"account": {"name": account["login"], "type": account.get("type")}},
         sensitive_config={"access_token": token},
     )
-    return GitHubIntegration(integration)
+    return _CommunitySkillsPublisher(integration)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
     # No PostHog user PII here — this PR is public. Attribution is only the GitHub handle the
     # publisher explicitly provided for public sharing.
-    credit = f"Published by @{author_handle}" if author_handle else "Published from the PostHog skills marketplace"
+    # The handle is self-reported, so say so: a maintainer must not read it as a verified identity.
+    credit = (
+        f"Published from the PostHog skills marketplace. The publisher gave @{author_handle} as the author handle"
+        if author_handle
+        else "Published from the PostHog skills marketplace"
+    )
     return (
         f"Adds the **{name}** community skill (`skills/{slug}/`).\n\n"
         f"{credit} via the in-product *Publish to community* flow.\n\n"
@@ -203,6 +242,7 @@ def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
 def publish_skill_to_community(
     *,
     slug: str,
+    publisher_id: str,
     name: str,
     description: str,
     body: str,
@@ -215,10 +255,15 @@ def publish_skill_to_community(
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
-    One open PR per slug: the branch name is derived from the slug, so re-publishing a skill rewrites
-    that branch and returns the PR already open for it instead of opening a second one. Every file
-    lands in a single commit, and a failure after the branch write deletes the branch again — this
-    repo is public, so a half-written skill or an unreviewed branch must not survive a failed publish.
+    One open PR per skill per publisher: the branch is derived from the slug and ``publisher_id``, so
+    re-publishing rewrites that branch and returns the pull request already open for it instead of
+    opening a second one. Every file lands in a single commit, and a failure after the branch write
+    deletes the branch again — this repo is public, so a half-written skill or an unreviewed branch
+    must not survive a failed publish.
+
+    ``publisher_id`` identifies the publishing team and is required. Leaving the branch keyed on the
+    slug alone would let one team's publish force-update another team's open pull request, because a
+    skill slug is only unique within a team.
 
     Raises CommunitySkillPublishError when any GitHub step fails, or
     CommunitySkillPublishNotConfiguredError when publishing is disabled.
@@ -240,9 +285,29 @@ def publish_skill_to_community(
         author_handle=author_handle,
     )
 
+    branch = f"{COMMUNITY_SKILLS_BRANCH_PREFIX}{slug}-{publisher_branch_key(publisher_id)}"
+    try:
+        return _write_branch_and_pull_request(
+            publisher, rendered=rendered, slug=slug, name=name, author_handle=author_handle, branch=branch
+        )
+    except (GitHubIntegrationError, GitHubRateLimitError):
+        # The client only ever sees this class of failure as "GitHub is unreachable", so the detail
+        # has to reach the logs here or it is lost.
+        logger.warning("community_skill_publish_github_unavailable", slug=slug, branch=branch, exc_info=True)
+        raise CommunitySkillPublishError("Could not reach GitHub to publish this skill. Try again in a few minutes.")
+
+
+def _write_branch_and_pull_request(
+    publisher: GitHubIntegration,
+    *,
+    rendered: list[RenderedFile],
+    slug: str,
+    name: str,
+    author_handle: str,
+    branch: str,
+) -> dict[str, Any]:
     repo = settings.COMMUNITY_SKILLS_GITHUB_REPO
     base = COMMUNITY_SKILLS_PR_BASE_BRANCH
-    branch = f"{COMMUNITY_SKILLS_BRANCH_PREFIX}{slug}"
 
     # Read the open PR before writing, so a failed write doesn't get blamed on a PR that predates it.
     existing_pr = publisher.get_open_pull_request_for_head(repo, branch)

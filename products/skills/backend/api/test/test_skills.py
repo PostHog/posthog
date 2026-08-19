@@ -1291,6 +1291,17 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_explicit_empty_tags_are_not_replaced(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
+        self.create_skill(name="make-pr", metadata={"tags": ["github"]})
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={"tags": []}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_publish.call_args.kwargs["tags"] == []
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
