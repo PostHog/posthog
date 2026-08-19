@@ -44,6 +44,7 @@ members = [
   "cymbal",
   "cymbal-proto",
   "usage-ingestion-proto",
+  "usage-ingestion",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
