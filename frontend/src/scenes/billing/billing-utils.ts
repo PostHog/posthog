@@ -587,14 +587,25 @@ export function calculateBillingPeriodMarkers(
     return markers
 }
 
+/** Resolve a billing date bound, which can be relative (e.g. `-30d`, `-1wStart`) or absolute, to a valid day — or `undefined` when it cannot be parsed, so an unparseable bound drops out of the check rather than passing every comparison as `NaN`. */
+function resolveDateBound(bound?: string): dayjs.Dayjs | undefined {
+    if (!bound) {
+        return undefined
+    }
+    const resolved = dateStringToDayJs(bound) ?? dayjs(bound)
+    return resolved.isValid() ? resolved : undefined
+}
+
 /** Reject a `dates` array that sits entirely outside the requested range, so a stale series cannot label the chart with the wrong period. */
 function billingDatesOverlapRange(dates: string[], dateFrom?: string, dateTo?: string): boolean {
     const first = dayjs(dates[0])
     const last = dayjs(dates[dates.length - 1])
-    if (dateTo && first.isAfter(dayjs(dateTo), 'day')) {
+    const from = resolveDateBound(dateFrom)
+    const to = resolveDateBound(dateTo)
+    if (to && first.isAfter(to, 'day')) {
         return false
     }
-    if (dateFrom && last.isBefore(dayjs(dateFrom), 'day')) {
+    if (from && last.isBefore(from, 'day')) {
         return false
     }
     return true

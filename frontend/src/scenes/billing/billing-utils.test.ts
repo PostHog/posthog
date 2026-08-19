@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     buildSpendTrackingProperties,
     filterSpendUsageTypes,
@@ -23,6 +25,17 @@ describe('resolveBillingChartDates', () => {
     it('falls back to the longest array when no series overlaps the range', () => {
         const series = [{ dates: ['2024-01-01'] }, { dates: stale }]
         expect(resolveBillingChartDates(series, '2026-08-01', '2026-08-03')).toEqual(stale)
+    })
+
+    it('resolves a relative preset so a stale longer series is still rejected', () => {
+        // The picker stores relative strings like "-30d"; dayjs cannot parse them directly, so the
+        // range check must resolve them first or it fails open and the longer stale array wins.
+        const recent = [
+            dayjs().subtract(2, 'day').format('YYYY-MM-DD'),
+            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+        ]
+        const series = [{ dates: stale }, { dates: recent }]
+        expect(resolveBillingChartDates(series, '-30d', '-1d')).toEqual(recent)
     })
 })
 
