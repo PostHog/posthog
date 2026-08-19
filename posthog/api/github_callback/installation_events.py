@@ -56,8 +56,6 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
     user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
-    # Approved install requests referencing the installation must go too, or the
-    # desktop keeps deriving an "approved, now connect" state from a dead install.
     requests_deleted, _ = GitHubInstallRequest.objects.filter(installation_id=installation_id).delete()
 
     logger.info(

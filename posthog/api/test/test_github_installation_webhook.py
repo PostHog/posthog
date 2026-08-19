@@ -165,8 +165,6 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Integration.objects.filter(kind="github", integration_id="12345").exists())
         self.assertFalse(UserIntegration.objects.filter(kind="github", integration_id="12345").exists())
-        # An approved request tied to the uninstalled installation would keep the
-        # desktop showing "your org owner approved" for a dead install.
         self.assertFalse(GitHubInstallRequest.objects.filter(id=approved.id).exists())
         self.assertTrue(GitHubInstallRequest.objects.filter(id=other_install.id).exists())
         # Inbound side must never call out to GitHub (loop prevention).
