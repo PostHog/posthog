@@ -10,6 +10,11 @@ import jwt
 from parameterized import parameterized
 
 from products.stamphog.backend.facade.enums import AudienceReason
+from products.stamphog.backend.logic.approval_retention import (
+    RetentionReason,
+    classify_delta,
+    is_trivial_at_dismiss_time,
+)
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
@@ -514,3 +519,76 @@ class OwnedFileCountTests(SimpleTestCase):
             owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
         assert len(owned.owned_files) == 10
         assert owned.owned_file_count == 200
+
+
+def _file(filename: str, sha: str) -> dict:
+    return {"filename": filename, "sha": sha}
+
+
+class ApprovalRetentionTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("docs/how-to.md", True),
+            ("README.md", True),
+            ("products/x/CHANGELOG.mdx", True),
+            ("uv.lock", True),
+            ("pnpm-lock.yaml", True),
+            ("posthog/test/test_thing.py", True),
+            ("frontend/src/thing.test.ts", True),
+            ("products/x/frontend/generated/api.ts", True),
+            ("frontend/__snapshots__/x.snap", True),
+            ("posthog/api/thing.py", False),
+            (".github/workflows/ci.yml", False),
+            ("Dockerfile", False),
+            ("bin/deploy.sh", False),
+            ("Makefile", False),
+            ("go.sum", False),
+            ("config.yaml", False),
+            # The gate's own files are markdown or config that every other rule here calls trivial,
+            # so without the explicit exclusion a retained approval would absorb an edit to the
+            # policy that produced it.
+            (".stamphog/policy.yml", False),
+            ("products/visual_review/AGENT_APPROVALS.md", False),
+            ("tools/pr-approval-agent/gates.py", False),
+            (".github/CODEOWNERS", False),
+        ]
+    )
+    def test_is_trivial_at_dismiss_time(self, path: str, expected: bool) -> None:
+        assert is_trivial_at_dismiss_time(path) is expected
+
+    def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
+        # Merging the base branch into a PR is the most common push on a long-lived PR. It leaves
+        # every blob in the PR's own diff alone, so there is nothing new to review and dismissing
+        # would drop the PR out of merge readiness for no reason.
+        approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
+
+        assert classify_delta(approved, list(approved)) == RetentionReason.UNCHANGED_DIFF
+
+    def test_trivial_paths_retain(self) -> None:
+        approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
+        current = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "ccc")]
+
+        assert classify_delta(approved, current) == RetentionReason.TRIVIAL_PATHS
+
+    @parameterized.expand(
+        [
+            # A source file whose content moved is exactly what the approval no longer covers.
+            ("changed_source", [_file("posthog/api/thing.py", "zzz")]),
+            # A file added after the approval was never reviewed, even alongside untouched ones.
+            ("added_source", [_file("posthog/api/thing.py", "aaa"), _file("posthog/api/new.py", "ccc")]),
+            # A removed file changes what the approval covered just as much as an added one.
+            ("removed_file", []),
+        ]
+    )
+    def test_non_trivial_delta_dismisses(self, _name: str, current: list[dict]) -> None:
+        approved = [_file("posthog/api/thing.py", "aaa")]
+
+        assert classify_delta(approved, current) is None
+
+    def test_missing_blob_sha_fails_closed(self) -> None:
+        # Two file objects with no sha would compare equal and retain an approval over a diff nobody
+        # checked, so an unreadable payload has to mean "cannot answer".
+        approved = [{"filename": "posthog/api/thing.py"}]
+        current = [{"filename": "posthog/api/thing.py"}]
+
+        assert classify_delta(approved, current) is None

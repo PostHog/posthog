@@ -24,6 +24,7 @@ from posthog.models.instance_setting import get_instance_setting
 
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
+from products.stamphog.backend.logic.approval_retention import RetentionReason, classify_delta
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
@@ -514,6 +515,55 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
             superseded=superseded,
             dismissed=dismissed,
         )
+
+
+def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> RetentionReason | None:
+    """Why a standing approval survives this push, or None to dismiss it and re-review.
+
+    Compares the PR's own diff at the approved head, stored on that run when its context was fetched,
+    against the diff at the current head. Returns None for everything ambiguous: no PR row, no
+    standing approval, an approval already at this head (a same-head re-review is deliberately allowed
+    to void it), or a run whose stored file payload is missing.
+    """
+    team_id = repo_config.team_id
+    pr_number = pr.get("number")
+    head_sha = (pr.get("head") or {}).get("sha") or ""
+    if pr_number is None or not head_sha:
+        return None
+
+    # Writer pin for the same reason _retract_stale_approvals_on_skip uses one: this read decides
+    # whether an approval stands, and a lagged reader missing the approving run would fall through to
+    # a dismissal the approval did not need.
+    pull_request = (
+        PullRequest.objects.for_team(team_id)
+        .using(router.db_for_write(PullRequest))
+        .filter(repo_config=repo_config, pr_number=pr_number)
+        .first()
+    )
+    if pull_request is None:
+        return None
+
+    standing = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(
+            pull_request=pull_request,
+            posted_review_id__isnull=False,
+            approval_dismissed_at__isnull=True,
+        )
+        .exclude(head_sha=head_sha)
+        .order_by("-completed_at")
+        .first()
+    )
+    if standing is None:
+        return None
+
+    approved_files = (standing.output or {}).get("files")
+    if not isinstance(approved_files, list):
+        return None
+
+    current_files = StamphogGitHubClient(repo_config.installation_id).get_pr_files(repo_config.repository, pr_number)
+    return classify_delta(approved_files, current_files)
 
 
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
@@ -1057,6 +1107,30 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
         return
+
+    # A push that leaves what stamphog approved untouched needs no fresh verdict, and dismissing over
+    # it would drop the PR out of merge readiness while a full sandboxed review re-derives the answer
+    # it already had. Placed after every trust gate above, so an approval is only ever retained on a
+    # push this same path would have been willing to review. Self-driving inbox runs are excluded to
+    # keep their head-pinning carve-out untouched.
+    if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
+        try:
+            retention = _standing_approval_retention(repo_config, pr)
+        except Exception:
+            # This is an optimization, so it never costs a review: an unreachable GitHub or an
+            # unexpected payload falls through to the full path rather than retrying or retaining.
+            logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
+            retention = None
+        if retention is not None:
+            logger.info(
+                "stamphog_pr_event_approval_retained",
+                repo=repo,
+                pr_number=pr_number,
+                reason=str(retention),
+            )
+            if delivery_id:
+                _mark_pr_event_processed(delivery_id)
+            return
 
     team_id = repo_config.team_id
 

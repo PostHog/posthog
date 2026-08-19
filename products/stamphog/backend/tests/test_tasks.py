@@ -92,7 +92,12 @@ def _pr_payload(
 
 
 def _run_task(
-    payload: dict[str, Any], delivery_id: str, team_id: int, author_permission: str = "write", app_slug: str = APP_SLUG
+    payload: dict[str, Any],
+    delivery_id: str,
+    team_id: int,
+    author_permission: str = "write",
+    app_slug: str = APP_SLUG,
+    pr_files: list[dict[str, Any]] | None = None,
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -106,6 +111,7 @@ def _run_task(
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
+        mock_client.return_value.get_pr_files.return_value = pr_files or []
         process_pull_request_event(payload, delivery_id)
     return mock_execute
 
@@ -1238,3 +1244,45 @@ def test_inbox_receiver_leg_refuses_non_self_driving_prs(team, repo_config, pr_k
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
     mock_execute.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "changed_file,expect_retained",
+    [
+        ({"filename": "docs/thing.md", "sha": "bbb"}, True),
+        ({"filename": "posthog/api/thing.py", "sha": "bbb"}, False),
+    ],
+)
+def test_trivial_push_retains_standing_approval(team, repo_config, changed_file, expect_retained):
+    # A docs-only push on an approved PR must not dismiss the approval or spend a fresh sandboxed
+    # review: dismissing drops the PR out of merge readiness and the LLM re-derives the verdict it
+    # already gave. The same push touching a source file must still dismiss and re-review, which is
+    # the half that keeps the stale-approval invariant intact.
+    # Delivery ids carry the case name: _mark_pr_event_processed writes to the process-wide cache,
+    # so a shared id would let the first case dedupe the second one's deliveries away.
+    case = changed_file["filename"]
+    _run_task(_pr_payload(), f"delivery-retention-approved-{case}", team.id)
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(
+            posted_review_id=9,
+            output={"files": [{"filename": changed_file["filename"], "sha": "aaa"}]},
+        )
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        mock_execute = _run_task(
+            _pr_payload(action="synchronize", head_sha="sha-2"),
+            f"delivery-retention-push-{case}",
+            team.id,
+            pr_files=[changed_file],
+        )
+
+    with team_scope(team.id):
+        run_count = ReviewRun.objects.count()
+    if expect_retained:
+        dismiss.assert_not_called()
+        mock_execute.assert_not_called()
+        assert run_count == 1
+    else:
+        mock_execute.assert_called_once()
+        assert run_count == 2
