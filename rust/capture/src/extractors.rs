@@ -15,6 +15,17 @@ use crate::api::CaptureError;
 const METRIC_BODY_READ_TIMEOUT: &str = "capture_body_read_timeout_total";
 const METRIC_REJECTED_BODY_DRAIN: &str = "capture_rejected_body_drain_total";
 
+/// Wall-clock ceiling on draining a body we have already rejected.
+///
+/// A per-chunk timeout does not bound this work. A client that sends one byte just
+/// before each deadline resets the timer every time, so the byte budget alone would
+/// let a drain run for as long as it takes to drip `payload_size_limit` bytes. One
+/// deadline over the whole drain bounds it regardless of chunk cadence, and it also
+/// covers deployments that leave the per-chunk timeout unset.
+///
+/// Kept short because this is work on a request we are already refusing.
+pub const REJECTED_BODY_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
+
 /// Outcome of draining a request body we have already decided to reject.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrainOutcome {
@@ -43,39 +54,39 @@ impl DrainOutcome {
 /// rather than our status code. Consuming the remainder first lets the rejection be
 /// delivered normally.
 ///
-/// The read is bounded by `budget` bytes and by the same per-chunk timeout as the
-/// main read, so a client cannot make us read indefinitely just to be told no. Only
-/// rejection paths reach this, so it costs nothing on the happy path.
+/// The read is bounded two ways: `budget` bytes, and `deadline` of wall-clock time
+/// across the whole drain. Neither bound depends on the client's chunk cadence, so a
+/// client cannot make us read indefinitely just to be told no. Only rejection paths
+/// reach this, so it costs nothing on the happy path.
 pub async fn drain_rejected_body<S>(
     stream: &mut S,
     budget: usize,
-    chunk_timeout: Option<Duration>,
+    deadline: Duration,
     path: &str,
 ) -> DrainOutcome
 where
     S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
 {
-    let mut remaining = budget;
-    let outcome = loop {
-        let chunk_result = match chunk_timeout {
-            Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
-                Ok(result) => result,
-                // Client stopped sending; waiting longer only holds the connection open.
-                Err(_elapsed) => break DrainOutcome::Abandoned,
-            },
-            None => stream.next().await,
-        };
-
-        match chunk_result {
-            Some(Ok(chunk)) => match remaining.checked_sub(chunk.len()) {
-                Some(left) => remaining = left,
-                None => break DrainOutcome::Abandoned,
-            },
-            // The stream broke while we discarded it, so the connection is already gone.
-            Some(Err(_)) => break DrainOutcome::Abandoned,
-            None => break DrainOutcome::Drained,
+    let drain = async {
+        let mut remaining = budget;
+        loop {
+            match stream.next().await {
+                Some(Ok(chunk)) => match remaining.checked_sub(chunk.len()) {
+                    Some(left) => remaining = left,
+                    None => break DrainOutcome::Abandoned,
+                },
+                // The stream broke while we discarded it, so the connection is already gone.
+                Some(Err(_)) => break DrainOutcome::Abandoned,
+                None => break DrainOutcome::Drained,
+            }
         }
     };
+
+    // Covers both a client that stops sending and one that drips just fast enough
+    // to keep a per-chunk timer alive.
+    let outcome = tokio::time::timeout(deadline, drain)
+        .await
+        .unwrap_or(DrainOutcome::Abandoned);
 
     metrics::counter!(
         METRIC_REJECTED_BODY_DRAIN,
@@ -133,7 +144,13 @@ pub async fn extract_body_with_timeout(
                     // Consume what is left so the 413 reaches the client rather than a
                     // connection reset. Bounded by the size we were willing to accept
                     // in the first place.
-                    drain_rejected_body(&mut stream, payload_size_limit, chunk_timeout, path).await;
+                    drain_rejected_body(
+                        &mut stream,
+                        payload_size_limit,
+                        REJECTED_BODY_DRAIN_DEADLINE,
+                        path,
+                    )
+                    .await;
                     return Err(CaptureError::EventTooBig(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
@@ -189,7 +206,8 @@ mod tests {
     async fn drain_rejected_body_consumes_the_whole_stream() {
         let (mut stream, pulled) = counted_chunks(3);
 
-        let outcome = drain_rejected_body(&mut stream, 1024, None, "/test").await;
+        let outcome =
+            drain_rejected_body(&mut stream, 1024, Duration::from_secs(30), "/test").await;
 
         assert_eq!(outcome, DrainOutcome::Drained);
         assert_eq!(pulled.load(Ordering::SeqCst), 3);
@@ -200,21 +218,45 @@ mod tests {
         let (mut stream, pulled) = counted_chunks(10);
 
         // Budget of 25 bytes covers two ten-byte chunks; the third overruns it.
-        let outcome = drain_rejected_body(&mut stream, 25, None, "/test").await;
+        let outcome = drain_rejected_body(&mut stream, 25, Duration::from_secs(30), "/test").await;
 
         assert_eq!(outcome, DrainOutcome::Abandoned);
         assert_eq!(pulled.load(Ordering::SeqCst), 3);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn drain_rejected_body_gives_up_on_a_stalled_client() {
         let chunks: Vec<Result<Bytes, axum::Error>> = vec![Ok(Bytes::from_static(b"partial"))];
         let mut stream = Box::pin(stream::iter(chunks).chain(stream::pending()));
 
         let outcome =
-            drain_rejected_body(&mut stream, 1024, Some(Duration::from_millis(50)), "/test").await;
+            drain_rejected_body(&mut stream, 1024, Duration::from_millis(50), "/test").await;
 
         assert_eq!(outcome, DrainOutcome::Abandoned);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn drain_rejected_body_bounds_a_slow_drip_client() {
+        // One byte every 10ms, forever. No single gap is long enough to trip a
+        // per-chunk timer, and the byte budget alone would allow hours of this.
+        let mut stream = Box::pin(stream::unfold((), |_| async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            Some((Ok(Bytes::from_static(b"x")), ()))
+        }));
+
+        let started = tokio::time::Instant::now();
+        let outcome = drain_rejected_body(
+            &mut stream,
+            10 * 1024 * 1024,
+            Duration::from_secs(5),
+            "/test",
+        )
+        .await;
+
+        assert_eq!(outcome, DrainOutcome::Abandoned);
+        // The deadline ended this, not the budget: dripping 10MB at one byte per
+        // 10ms would take over a day.
+        assert!(started.elapsed() < Duration::from_secs(6));
     }
 
     #[tokio::test]

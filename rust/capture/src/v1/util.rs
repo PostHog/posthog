@@ -6,7 +6,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use crate::extractors::drain_rejected_body;
+use crate::extractors::{drain_rejected_body, REJECTED_BODY_DRAIN_DEADLINE};
 use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
 
@@ -62,7 +62,13 @@ pub async fn extract_body_with_timeout(
                     // Consume what is left so the 413 reaches the client rather than a
                     // connection reset. Bounded by the size we were willing to accept
                     // in the first place.
-                    drain_rejected_body(&mut stream, payload_size_limit, chunk_timeout, path).await;
+                    drain_rejected_body(
+                        &mut stream,
+                        payload_size_limit,
+                        REJECTED_BODY_DRAIN_DEADLINE,
+                        path,
+                    )
+                    .await;
                     return Err(Error::PayloadTooLarge(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
