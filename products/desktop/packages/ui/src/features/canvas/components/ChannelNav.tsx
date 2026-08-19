@@ -2,6 +2,7 @@ import {
   BellIcon,
   EnvelopeSimple,
   GearSix,
+  HouseSimple,
   Lightning,
 } from "@phosphor-icons/react";
 import {
@@ -33,6 +34,7 @@ import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
+  navigateToHome,
   navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
@@ -200,6 +202,7 @@ export function ChannelNav() {
     action();
   };
 
+  const isHome = view.type === "home";
   const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
@@ -212,6 +215,12 @@ export function ChannelNav() {
     // providers never share it.
     <TooltipProvider delay={400}>
       <div className="flex shrink-0 gap-2 p-2">
+        <NavIcon
+          icon={<HouseSimple size={16} weight={isHome ? "fill" : "regular"} />}
+          label="Home"
+          isActive={isHome}
+          onClick={withTrack("home", navigateToHome)}
+        />
         <NavIcon
           icon={
             <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
