@@ -5472,6 +5472,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("scalar", 5151, "Cohort with id 5151 does not exist"),
             # A list value can't map to a pk and would raise deep in the ORM as a 500.
             ("list", [493183], "Cohort with id [493183] does not exist"),
+            # A numeric-looking string int() can't parse: passes str.isdigit() but
+            # raised ValueError from int() as a 500 before the shape check switched
+            # to actually converting the value.
+            ("unparseable_numeric_string", "--1", "Cohort with id --1 does not exist"),
         ]
     )
     def test_creating_feature_flag_with_invalid_cohort(self, _name, cohort_value, expected_detail):

@@ -76,7 +76,7 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex, str_to_bool
+from posthog.utils import is_valid_regex, safe_int, str_to_bool
 from posthog.views import format_bytes
 
 from products.approvals.backend.decorators import approval_gate
@@ -1746,23 +1746,24 @@ class FeatureFlagSerializer(
             if located.prop.get("type") == "cohort":
                 cohort_id: Any = located.prop.get("value")
                 # The value comes off the request as free-form JSON. Pin it to an integer
-                # id (or a numeric string, which older flags may store) before the lookup.
-                # Django would otherwise coerce a bool or float into a real row id (True
-                # and 1.9 both become pk 1), silently targeting the wrong cohort, and a
-                # list would raise deep in the ORM as an opaque 500. A rejected shape gets
-                # the same validation error a missing cohort does. The lookup below can
-                # then only raise DoesNotExist, so validation of an existing cohort stays
-                # outside the guard and its genuine failures still surface.
-                is_numeric = isinstance(cohort_id, int) and not isinstance(cohort_id, bool)
-                is_numeric_string = isinstance(cohort_id, str) and cohort_id.lstrip("-").isdigit()
-                if not (is_numeric or is_numeric_string):
+                # id before the lookup. Reject bool and float outright: int() would coerce
+                # either into a real row id (True and 1.9 both become pk 1), silently
+                # targeting the wrong cohort. Everything else goes through int() via
+                # safe_int, which turns a list, None, or a numeric-looking string int()
+                # can't actually parse ("--1", a superscript digit, a value past Python's
+                # digit limit — all of which pass str.isdigit()) into the same validation
+                # error a missing cohort gets, rather than an opaque 500. The lookup below
+                # can then only raise DoesNotExist, so validation of an existing cohort
+                # stays outside the guard and its genuine failures still surface.
+                normalized_cohort_id = None if isinstance(cohort_id, (bool, float)) else safe_int(cohort_id)
+                if normalized_cohort_id is None:
                     raise serializers.ValidationError(
                         detail=f"Cohort with id {cohort_id} does not exist",
                         code="cohort_does_not_exist",
                     )
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
-                        pk=int(cohort_id), team__project_id=self.context["project_id"]
+                        pk=normalized_cohort_id, team__project_id=self.context["project_id"]
                     )
                 except Cohort.DoesNotExist:
                     raise serializers.ValidationError(
