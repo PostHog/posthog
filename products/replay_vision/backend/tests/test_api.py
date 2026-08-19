@@ -47,8 +47,8 @@ from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraf
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
-    ON_DEMAND_PRIORITY,
     build_apply_scanner_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.tests.helpers import (
     create_experiment,
@@ -2105,7 +2105,7 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
         self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
-        self.assertEqual(kwargs["priority"], ON_DEMAND_PRIORITY)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")

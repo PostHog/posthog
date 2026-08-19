@@ -140,8 +140,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             team_in_flight = 0
-        # Patched: a changed headroom can flip a replayed tick between dispatching and returning early,
-        # so pre-deploy sweeps must replay against the un-reserved caps they were recorded with.
+        # Patched: a history recorded without the reserve must replay the un-reserved arithmetic it ran,
+        # or the tick can flip between dispatching and returning early mid-replay.
         if wf.patched("replay-vision-on-demand-reserved-headroom"):
             headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         else:

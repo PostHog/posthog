@@ -14,10 +14,15 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
-# Task priority for user-initiated starts (1 = highest of 5, default 3): Temporal inherits it into the
-# rasterize-recording child and its rasterization-queue activity, so on-demand runs jump the sweep and
-# backfill backlog on every queue they touch.
-ON_DEMAND_PRIORITY = Priority(priority_key=1)
+
+def on_demand_priority(team_id: int) -> Priority:
+    """Task priority for user-initiated starts (1 = highest of 5, default 3): Temporal inherits it into
+    the rasterize-recording child and its rasterization-queue activity, so on-demand runs jump the sweep
+    and backfill backlog on every queue they touch. The fairness key shares priority-1 dispatch across
+    teams, so one team's burst cannot starve another team's on-demand work.
+    """
+    return Priority(priority_key=1, fairness_key=str(team_id))
+
 
 # A pending/running row is created inside its workflow, and the workflow cannot outlive its execution timeout
 # (which spans Temporal-level retries), so any such row older than the timeout plus a margin for clock skew

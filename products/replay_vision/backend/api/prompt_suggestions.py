@@ -49,8 +49,8 @@ from products.replay_vision.backend.quota import compute_scanner_budget, quota_s
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
-    ON_DEMAND_PRIORITY,
     build_evaluate_prompt_suggestion_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.temporal.evaluation_types import EvaluatePromptSuggestionInputs
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
@@ -480,7 +480,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
                 # A user waiting on "test this prompt" ranks with the other user-initiated starts.
-                priority=ON_DEMAND_PRIORITY,
+                priority=on_demand_priority(scanner.team_id),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id)]
                 ),

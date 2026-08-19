@@ -38,11 +38,11 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
-    ON_DEMAND_PRIORITY,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     build_process_vision_action_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
@@ -199,7 +199,7 @@ def start_apply_scanner_workflow(
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
             # Every caller of this trigger is user-initiated (observe, bulk, inline, retry), so all runs qualify.
-            priority=ON_DEMAND_PRIORITY,
+            priority=on_demand_priority(scanner.team_id),
             # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
             search_attributes=TypedSearchAttributes(
                 search_attributes=[
@@ -262,7 +262,7 @@ def start_process_vision_action_workflow(
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
-            priority=ON_DEMAND_PRIORITY,
+            priority=on_demand_priority(team_id),
         )
     except WorkflowAlreadyStartedError as exc:
         if exc.workflow_id != workflow_id:
