@@ -58,6 +58,26 @@ def test_emits_once_per_connected_project(produce, org_team_user, workspace_inte
     }
 
 
+@pytest.mark.parametrize(
+    "subtype,emitted",
+    [
+        (None, True),
+        ("bot_message", True),
+        ("file_share", True),
+        ("message_changed", False),
+        ("message_deleted", False),
+        ("channel_join", False),
+    ],
+)
+def test_only_a_new_post_is_emitted(produce, workspace_integration, subtype, emitted) -> None:
+    event = MESSAGE_EVENT if subtype is None else {**MESSAGE_EVENT, "subtype": subtype}
+
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_slack_message_event(event, SLACK_TEAM_ID, event_id="Ev1", is_ext_shared_channel=False)
+
+    assert produce.call_count == (1 if emitted else 0)
+
+
 def test_emits_nothing_for_an_unconnected_workspace(produce, workspace_integration) -> None:
     with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_slack_message_event(MESSAGE_EVENT, "T-OTHER-REGION", event_id="Ev1", is_ext_shared_channel=False)

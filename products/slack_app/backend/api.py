@@ -1967,12 +1967,17 @@ def route_posthog_code_event_to_relevant_region(
         # posts the follow-up pipeline discards are the ones it exists for. Emitting here rather
         # than inside that pipeline keeps the two independent.
         if event_type == "message":
-            emit_slack_message_event(
+            should_try_other_region = emit_slack_message_event(
                 event,
                 slack_team_id,
                 event_id=event_id,
                 is_ext_shared_channel=is_ext_shared_channel,
             )
+            # The emit sees only this region's connections, and the drops below end a top-level post
+            # before the pipeline's region gate could forward it. No US-precedence probe: for a
+            # channel trigger, whichever region holds the connection should run the workflow.
+            if should_try_other_region and not proxied and cross_region_routing_enabled():
+                return _proxy_event_and_return_route(request, other_domain)
 
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
@@ -1997,7 +2002,7 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
-            # Top-level channel posts dominate the wire volume; drop before any DB hit.
+            # Top-level channel posts dominate the wire volume; drop before the pipeline's DB hits.
             top_level_thread_ts = event.get("thread_ts")
             if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
                 return ROUTE_HANDLED_LOCALLY

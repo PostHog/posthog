@@ -1,8 +1,8 @@
 """Forward Slack channel messages onto the internal events topic.
 
-Deliberately dumb: resolve the PostHog projects behind the Slack workspace, then write the message
-out as-is. No matching, no gating, no filtering. A workflow's trigger config decides what it wants,
-and the CDP consumer evaluates that, so nothing here needs to know a trigger exists.
+Deliberately dumb: check Slack is telling us about a new post, resolve the PostHog projects behind
+the Slack workspace, then write the message out as-is. A workflow's trigger config decides what it
+wants, and the CDP consumer evaluates that, so nothing here needs to know a trigger exists.
 """
 
 import uuid
@@ -18,6 +18,12 @@ from posthog.models.integration import Integration
 logger = structlog.get_logger(__name__)
 
 SLACK_MESSAGE_RECEIVED_EVENT = "$slack_message_received"
+
+# Slack labels edits, deletions and joins `message` too, and those retrigger a workflow's own reply.
+# `bot_message` stays in: "apps and bots only" is a trigger mode.
+_TRIGGERING_SUBTYPES: frozenset[str | None] = frozenset(
+    {None, "bot_message", "file_share", "me_message", "thread_broadcast"}
+)
 
 # Fixed namespace so the event uuid is a pure function of (team, Slack event id). Slack redelivers
 # on any non-2xx, and the handler's retry guard only covers the copies that carry the retry header.
@@ -58,14 +64,22 @@ def emit_slack_message_event(
     *,
     event_id: str | None,
     is_ext_shared_channel: bool,
-) -> None:
+) -> bool:
     """Write one internal event per PostHog project connected to this Slack workspace.
+
+    Returns whether the event still needs a home: True only when a workflow could have triggered on
+    it and no connection in this region holds the workspace. The caller turns that into a
+    cross-region hand-off. Every other outcome is False, including the cases where there was nothing
+    to emit at all, so a disabled setting or an edit never costs a hop.
 
     Never raises. This runs inside the Slack event webhook, which owes Slack an ack within three
     seconds and shares the handler with mention routing, so a failure here has to cost neither.
     """
     if not settings.SLACK_WORKFLOW_TRIGGERS_ENABLED:
-        return
+        return False
+
+    if event.get("subtype") not in _TRIGGERING_SUBTYPES:
+        return False
 
     try:
         # A Slack workspace can be connected to several projects (the unique constraint on
@@ -76,8 +90,10 @@ def emit_slack_message_event(
             Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list("team_id", "id")
         )
     except Exception:
+        # Stay put on a lookup failure: handing the workspace over would turn a local database blip
+        # into a cross-region hop for every message in every channel.
         logger.exception("slack_workflow_event_integration_lookup_failed", slack_team_id=slack_team_id)
-        return
+        return False
 
     distinct_id = str(event.get("user") or event.get("bot_id") or event.get("channel") or slack_team_id)
 
@@ -106,3 +122,5 @@ def emit_slack_message_event(
                 team_id=team_id,
                 event_id=event_id,
             )
+
+    return not integrations
