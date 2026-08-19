@@ -70,7 +70,7 @@ describe('Web Bot Auth request signing', () => {
         verifySignedHeaders(url, headers, keyPair.publicKey, 'sig1')
     })
 
-    it('signs with every configured key during rotation', () => {
+    it('signs with the first configured key during rotation', () => {
         const firstKeyPair = generateEd25519KeyPair()
         const secondKeyPair = generateEd25519KeyPair()
         const signer = createWebBotAuthRequestSigner(
@@ -81,12 +81,18 @@ describe('Web Bot Auth request signing', () => {
         const headers = signer.headersFor(url)
 
         verifySignedHeaders(url, headers, firstKeyPair.publicKey, 'sig1')
-        verifySignedHeaders(url, headers, secondKeyPair.publicKey, 'sig2')
+        expect(headers['signature-input']).not.toContain(keyId(secondKeyPair.publicKey))
+        expect(headers.signature).not.toContain('sig2=')
     })
 
     it.each([
         ['an empty value', '', 'must contain at least one'],
         ['a malformed key', 'not a PEM', 'entry 1 could not be loaded'],
+        [
+            'a malformed non-active key',
+            `${generateEd25519KeyPair().privateKeyPem},not a PEM`,
+            'entry 2 could not be loaded',
+        ],
         [
             'a non-Ed25519 key',
             generateKeyPairSync('rsa', { modulusLength: 2048 })

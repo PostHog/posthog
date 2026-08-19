@@ -20,41 +20,30 @@ export function createWebBotAuthRequestSigner(commaSeparatedPrivateKeyPems: stri
     }
 
     const signingKeys = privateKeyPems.map((privateKeyPem, index) => loadSigningKey(privateKeyPem, index + 1))
-    return new Ed25519WebBotAuthRequestSigner(signingKeys)
+    return new Ed25519WebBotAuthRequestSigner(signingKeys[0])
 }
 
 class Ed25519WebBotAuthRequestSigner implements WebBotAuthRequestSigner {
-    constructor(private readonly signingKeys: SigningKey[]) {}
+    constructor(private readonly signingKey: SigningKey) {}
 
     public headersFor(url: string): Record<string, string> {
         const authority = new URL(url).host
         const created = Math.floor(Date.now() / 1000)
         const expires = created + SIGNATURE_LIFETIME_SECONDS
-        const signatureInputs: string[] = []
-        const signatures: string[] = []
-
-        for (const [index, signingKey] of this.signingKeys.entries()) {
-            const label = `sig${index + 1}`
-            const nonce = randomBytes(64).toString('base64url')
-            const parameters =
-                `("@authority" "signature-agent");created=${created};keyid="${signingKey.keyId}";` +
-                `alg="ed25519";expires=${expires};nonce="${nonce}";tag="web-bot-auth"`
-            const signatureBase =
-                `"@authority": ${authority}\n` +
-                `"signature-agent": ${SIGNATURE_AGENT_HEADER}\n` +
-                `"@signature-params": ${parameters}`
-
-            signatureInputs.push(`${label}=${parameters}`)
-            signatures.push(
-                `${label}=:${sign(null, Buffer.from(signatureBase), signingKey.privateKey).toString('base64')}:`
-            )
-        }
+        const nonce = randomBytes(64).toString('base64url')
+        const parameters =
+            `("@authority" "signature-agent");created=${created};keyid="${this.signingKey.keyId}";` +
+            `alg="ed25519";expires=${expires};nonce="${nonce}";tag="web-bot-auth"`
+        const signatureBase =
+            `"@authority": ${authority}\n` +
+            `"signature-agent": ${SIGNATURE_AGENT_HEADER}\n` +
+            `"@signature-params": ${parameters}`
 
         return {
             // Cloudflare rejects the dictionary form from newer drafts, so use the compatible structured string.
             'signature-agent': SIGNATURE_AGENT_HEADER,
-            'signature-input': signatureInputs.join(', '),
-            signature: signatures.join(', '),
+            'signature-input': `sig1=${parameters}`,
+            signature: `sig1=:${sign(null, Buffer.from(signatureBase), this.signingKey.privateKey).toString('base64')}:`,
         }
     }
 }

@@ -7,7 +7,9 @@ The directory publishes the public keys for `PostHogSessionReplayBot` and signs 
 
 Set `WEB_BOT_AUTH_PRIVATE_KEYS` to a comma-separated list of unencrypted Ed25519 private keys in PKCS8 PEM format.
 Encode PEM line breaks as literal `\n` sequences when the secret store requires a single-line value.
-During key rotation, include the old and new keys until consumers have accepted the new key.
+List the active outbound signing key first.
+During key rotation, add the new key after the active key so that the directory publishes both keys.
+Move the new key to the first position after consumers have accepted it, then remove the old key.
 
 Leave the variable unset outside PostHog Cloud US.
 The endpoint returns `404` when the variable is unset or the deployment is not in the US region.
@@ -18,7 +20,7 @@ PostHog Error Tracking receives a sanitized configuration error, and the endpoin
 
 ## Outbound request signing
 
-The Node.js image fetch lane reads the same variable and signs each outbound request with every configured key.
+The Node.js image fetch lane validates every configured key and signs each outbound request with the first key.
 It signs each redirect hop for that hop's authority.
 The signatures expire after one minute and include a unique 64-byte nonce.
 
