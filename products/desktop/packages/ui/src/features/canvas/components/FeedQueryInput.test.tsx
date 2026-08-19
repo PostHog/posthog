@@ -1,5 +1,5 @@
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -94,6 +94,27 @@ describe("FeedQueryInput", () => {
 
     // Completing the value must not drop `not:` and flip the filter to positive.
     expect(screen.getByRole("status")).toHaveTextContent("status:not:failed");
+  });
+
+  it("does not submit while IME text composition is active", () => {
+    const onSubmit = vi.fn();
+    render(
+      <Theme>
+        <FeedQueryInput
+          aria-label="Query"
+          value="請求"
+          onChange={vi.fn()}
+          onSubmit={onSubmit}
+        />
+      </Theme>,
+    );
+
+    fireEvent.keyDown(screen.getByRole("textbox"), {
+      key: "Enter",
+      isComposing: true,
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("quotes a suggested value that carries spaces", async () => {

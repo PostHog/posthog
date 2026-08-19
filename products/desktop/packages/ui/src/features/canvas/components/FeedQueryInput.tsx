@@ -145,6 +145,7 @@ export function FeedQueryInput({
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
     if (visible) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
