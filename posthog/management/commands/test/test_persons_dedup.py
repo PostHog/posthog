@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid as uuid_mod
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -111,6 +112,35 @@ def _add_orphan_pair(conn: psycopg.Connection, uuid: str, distinct_id: str) -> i
     live = _add_person(conn, uuid)
     _add_distinct_id(conn, live, distinct_id)
     return live
+
+
+def _add_orphan_pair_ids(conn: psycopg.Connection, uuid: str, distinct_id: str) -> tuple[int, int]:
+    orphan = _add_person(conn, uuid)
+    live = _add_person(conn, uuid)
+    _add_distinct_id(conn, live, distinct_id)
+    return orphan, live
+
+
+# Runs `action` on a second connection at the one moment that matters: after the command has
+# cleared its pre-flight gates and before it opens the delete transaction. Every gate-failure
+# path is unreachable without this, because staging excludes anything the gates would catch --
+# only a concurrent writer can make a staged victim undeletable. Keyed on the gate SQL rather
+# than a call count so it stays put if another pre-flight check is added.
+@contextmanager
+def _concurrent_write_before_delete(monkeypatch, action):
+    real_scalar = persons_dedup_command._scalar
+    state = {"fired": False}
+
+    def scalar_then_interfere(conn, sql, params=None):
+        result = real_scalar(conn, sql, params)
+        if not state["fired"] and "victims >= members" in sql:
+            state["fired"] = True
+            with persons_db_connection(writer=True, autocommit=True) as other:
+                action(other)
+        return result
+
+    monkeypatch.setattr(persons_dedup_command, "_scalar", scalar_then_interfere)
+    yield lambda: state["fired"]
 
 
 def _add_distinct_id(conn: psycopg.Connection, person_id: int, distinct_id: str) -> None:
@@ -344,6 +374,55 @@ class TestPersonsDedupBatching:
         summary = next(entry for entry in logs if entry["event"] == "persons_dedup.dry_run_ok")
         assert summary["checked"] == 3
         assert summary["batches"] == 3
+
+
+class TestPersonsDedupConcurrentWriters:
+    # The in-transaction gates are the last thing standing between a wrong row and a silent
+    # cascade into feature-flag overrides, and they are the only safety checks in this command
+    # that a single-threaded test can never reach: staging excludes everything they catch, so
+    # they fire only when a concurrent writer changes a staged victim mid-run. These two cases
+    # drive that writer deterministically -- no threads, no sleeps.
+
+    def test_a_victim_that_becomes_reachable_is_dropped_and_the_run_continues(
+        self, persons_conn, tmp_path, monkeypatch
+    ):
+        # A returning user attaches a distinct ID to the orphan after it was staged. It is now
+        # a live person, so deleting it would take its overrides with it.
+        orphan, live = _add_orphan_pair_ids(persons_conn, _uuid(60), "did-60")
+
+        def attach_a_mapping(other):
+            _add_distinct_id(other, orphan, "did-60-returning")
+
+        with _concurrent_write_before_delete(monkeypatch, attach_a_mapping) as fired:
+            with capture_logs() as logs:
+                _run("delete-unreferenced", tmp_path, apply=True)
+
+        assert fired(), "the interfering write never ran; the test proves nothing"
+        assert _persons(persons_conn) == 2, "the newly reachable row must not be deleted"
+        assert any(entry["event"] == "persons_dedup.batch_raced" for entry in logs)
+        assert any(entry["event"] == "persons_dedup.done" for entry in logs), "the run must finish, not abort"
+
+    def test_a_group_that_loses_its_survivor_is_dropped_and_the_run_continues(
+        self, persons_conn, tmp_path, monkeypatch
+    ):
+        # Something else deletes the survivor after staging. The staged victim is now the only
+        # row holding that key, so it is no longer a duplicate and must not be deleted either.
+        orphan, live = _add_orphan_pair_ids(persons_conn, _uuid(61), "did-61")
+
+        def delete_the_survivor(other):
+            with other.cursor() as cur:
+                cur.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s AND person_id = %s", (TEAM, live))
+                cur.execute("DELETE FROM posthog_person WHERE team_id = %s AND id = %s", (TEAM, live))
+
+        with _concurrent_write_before_delete(monkeypatch, delete_the_survivor) as fired:
+            with capture_logs() as logs:
+                _run("delete-unreferenced", tmp_path, apply=True)
+
+        assert fired(), "the interfering write never ran; the test proves nothing"
+        remaining = _count(persons_conn, "SELECT id FROM posthog_person WHERE team_id = %s", (TEAM,))
+        assert remaining == orphan, "the last row holding the key must survive"
+        assert _persons(persons_conn) == 1
+        assert any(entry["event"] == "persons_dedup.done" for entry in logs), "the run must finish, not abort"
 
 
 class TestPersonsDedupRepair:
