@@ -43,13 +43,14 @@ describe('formatExecuteSqlDescription', () => {
 
     // The description ships to every MCP client on every tools/list; keep the flag-gated
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
-    // Budget bumped to 2600 to cover the no-match propose clause: when a reusable measure
-    // has no canonical definition, offer `data-catalog-metric-create` (lands `proposed`).
-    // The earlier 2200 covered the catalog-vs-query-* precedence rule, synonym routing, and
-    // the trust checklist; keep future additions under this so bloat still fails the build.
+    // Budget bumped to 2950 to cover the no-match propose clause plus its guardrails: offer
+    // `data-catalog-metric-create` (lands `proposed`) only under an unused name, and treat a
+    // lone proposed or drifted match as non-canonical rather than overwriting it. The earlier
+    // 2200 covered the catalog-vs-query-* precedence rule, synonym routing, and the trust
+    // checklist; keep future additions under this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const withSection = builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: true })
         const withoutSection = builder.formatExecuteSqlDescription()
-        expect(withSection.length - withoutSection.length).toBeLessThan(2600)
+        expect(withSection.length - withoutSection.length).toBeLessThan(2950)
     })
 })
