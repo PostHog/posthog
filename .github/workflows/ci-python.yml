@@ -4,7 +4,7 @@ on:
     schedule:
         # Hourly full-suite master run. The Trunk merge queue runs the full suite
         # before every merge, so master pushes no longer trigger CI; failed
-        # scheduled runs alert #team-devex via ci-alerts-devex.yml.
+        # scheduled runs alert #alerts-devex via ci-alerts-devex.yml.
         - cron: '17 * * * *'
     pull_request:
 

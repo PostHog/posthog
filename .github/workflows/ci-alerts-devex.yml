@@ -2,7 +2,7 @@ name: Master CI Alerts
 
 # Master CI now runs as an hourly scheduled full-suite run (the Trunk merge
 # queue runs the full suite before every merge, so master pushes no longer
-# trigger CI). When one of those scheduled runs fails, post it to #team-devex.
+# trigger CI). When one of those scheduled runs fails, post it to #alerts-devex.
 # One message per failed workflow run, with no dedup or incident tracking:
 # every commit on master already passed this same suite in the merge queue,
 # so a scheduled failure is rare and each one is worth a look.
@@ -40,11 +40,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
-            - name: Post failure to #team-devex
+            - name: Post failure to #alerts-devex
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  # Posting by name needs the bot to be a member of the channel.
-                  SLACK_CHANNEL: 'team-devex'
+                  SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
                   WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
                   RUN_URL: ${{ github.event.workflow_run.html_url }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
