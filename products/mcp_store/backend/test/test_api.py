@@ -36,7 +36,7 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import DcrClientRegistration
+from products.mcp_store.backend.oauth import DcrClientRegistration, OAuthDiscoveryError, OAuthDiscoveryFailure
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -3855,6 +3855,28 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @patch("products.mcp_store.backend.presentation.views.report_user_action")
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        side_effect=OAuthDiscoveryError(OAuthDiscoveryFailure.ENDPOINTS_UNRELATED_DOMAIN, "endpoints off issuer"),
+    )
+    def test_install_template_dcr_discovery_failure_reports_reason_and_specific_detail(self, _discover, mock_report):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # The user sees the classified message, not one catch-all string.
+        assert "could not verify" in response.json()["detail"]
+        # The failure is captured so a broken catalog entry is visible in analytics.
+        failure_calls = [c for c in mock_report.call_args_list if c.args[1] == "mcp_store oauth discovery failed"]
+        assert len(failure_calls) == 1
+        assert failure_calls[0].kwargs["properties"]["reason"] == "endpoints_unrelated_domain"
 
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",

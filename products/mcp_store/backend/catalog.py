@@ -35,6 +35,18 @@ class CatalogEntry:
     docs_url: str = ""
 
 
+# Human-vetted first-party OAuth delegations: catalog servers whose sign-in lives on a
+# different registrable domain than the MCP endpoint itself. Keyed by the server's
+# registrable domain, the value lists the endpoint domains it may delegate to. A
+# malicious server on its own domain and an honest one that delegates look identical by
+# domain shape, so this map — like every entry below — is a vendor-trust decision gated
+# by review of this file.
+TRUSTED_AUTH_DELEGATIONS: dict[str, frozenset[str]] = {
+    # PlanetScale (https://mcp.pscale.dev/mcp/planetscale) serves OAuth on planetscale.com.
+    "pscale.dev": frozenset({"planetscale.com"}),
+}
+
+
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Atlassian",

@@ -26,6 +26,7 @@ from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 
 from .oauth import (
     TIMEOUT,
+    OAuthDiscoveryError,
     discover_oauth_metadata,
     generate_pkce,
     oauth_resource,
@@ -221,9 +222,13 @@ def _jsonrpc_result(response: requests.Response) -> dict | None:
 def _discover_metadata(url: str, result: ProbeResult, *, auth_required: bool) -> dict | None:
     try:
         return discover_oauth_metadata(url)
-    except Exception as exc:
+    except OAuthDiscoveryError as exc:
         # Open servers legitimately have no discoverable OAuth metadata; only note
         # the failure when the server demanded auth we now can't classify.
+        if auth_required:
+            result.errors.append(f"OAuth discovery failed ({exc.reason.value}): {exc}")
+        return None
+    except Exception as exc:
         if auth_required:
             result.errors.append(f"OAuth discovery failed: {exc}")
         return None

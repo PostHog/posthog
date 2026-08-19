@@ -67,6 +67,7 @@ from ..models import (
 from ..oauth import (
     DcrClientRegistration,
     OAuthAuthorizeURLError,
+    OAuthDiscoveryError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
     exchange_oauth_token,
@@ -980,6 +981,44 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("DCR registration failed", **log_context)
             raise DCRRegistrationFailedError from e
 
+    def _oauth_discovery_failure_response(
+        self,
+        request: Request,
+        exc: OAuthDiscoveryError,
+        *,
+        server_name: str,
+        server_url: str,
+        source: str,
+        install_source: str,
+        template_id: str | None = None,
+    ) -> Response:
+        """Report a discovery failure to analytics, log it, and return a specific 400.
+
+        Capturing the event here — before the early return — is what makes these
+        failures visible: "mcp_store oauth started" only fires after discovery
+        succeeds, so a discovery failure would otherwise leave no trace.
+        """
+        properties: dict[str, Any] = {
+            "reason": exc.reason.value,
+            "server_name": server_name,
+            "server_url": server_url,
+            "source": source,
+            "install_source": install_source,
+        }
+        if template_id:
+            properties["template_id"] = template_id
+        report_user_action(
+            request.user, "mcp_store oauth discovery failed", properties=properties, team=self.team, request=request
+        )
+        logger.warning(
+            "OAuth discovery failed",
+            reason=exc.reason.value,
+            server_url=server_url,
+            source=source,
+            error=str(exc),
+        )
+        return Response({"detail": exc.user_message}, status=status.HTTP_400_BAD_REQUEST)
+
     def _build_authorize_url_from_metadata(
         self,
         *,
@@ -1402,16 +1441,26 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if _template_uses_dcr(template):
             try:
                 metadata = discover_oauth_metadata(template.url)
-            except Exception as e:
-                logger.exception(
-                    "OAuth discovery failed for DCR template",
-                    template_id=str(template.id),
-                    server_url=template.url,
-                    error=str(e),
-                )
+            except OAuthDiscoveryError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return self._oauth_discovery_failure_response(
+                    request,
+                    e,
+                    server_name=template.name,
+                    server_url=template.url,
+                    source="template",
+                    install_source=install_source,
+                    template_id=str(template.id),
+                )
+            except Exception:
+                logger.exception("OAuth discovery failed unexpectedly", server_url=template.url)
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "We could not start the connection. Try again in a moment."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             try:
                 registration = self._register_dcr_client_or_raise(
@@ -1655,11 +1704,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         try:
             metadata = discover_oauth_metadata(mcp_url)
-        except Exception as e:
-            logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
+        except OAuthDiscoveryError as e:
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return self._oauth_discovery_failure_response(
+                request,
+                e,
+                server_name=name,
+                server_url=mcp_url,
+                source="custom",
+                install_source=install_source,
+            )
+        except Exception:
+            logger.exception("OAuth discovery failed unexpectedly", server_url=mcp_url)
+            if created:
+                installation.delete()
+            return Response(
+                {"detail": "We could not start the connection. Try again in a moment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
@@ -1862,14 +1925,22 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if not metadata:
                 try:
                     metadata = discover_oauth_metadata(template.url)
-                except Exception as e:
-                    logger.exception(
-                        "OAuth discovery failed during DCR template reconnect",
-                        template_id=str(template.id),
+                except OAuthDiscoveryError as e:
+                    return self._oauth_discovery_failure_response(
+                        request,
+                        e,
+                        server_name=template.name,
                         server_url=template.url,
-                        error=str(e),
+                        source="template_reconnect",
+                        install_source=install_source,
+                        template_id=str(template.id),
                     )
-                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                except Exception:
+                    logger.exception("OAuth discovery failed unexpectedly", server_url=template.url)
+                    return Response(
+                        {"detail": "We could not start the connection. Try again in a moment."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 installation.oauth_metadata = metadata
                 installation.save(update_fields=["oauth_metadata", "updated_at"])
         else:

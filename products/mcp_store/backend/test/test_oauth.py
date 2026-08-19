@@ -12,6 +12,8 @@ from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTe
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
     DcrClientRegistration,
+    OAuthDiscoveryError,
+    OAuthDiscoveryFailure,
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
@@ -105,14 +107,16 @@ class TestResolveIssuer(TestCase):
             "authorization_endpoint": "https://origin.com/authorize",
             "token_endpoint": "https://origin.com/token",
         }
-        with self.assertRaises(ValueError, msg="Issuer mismatch"):
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
             _resolve_issuer(metadata, "https://origin.com")
+        assert ctx.exception.reason == OAuthDiscoveryFailure.ISSUER_MISMATCH
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
     def test_cross_validation_fetch_fails(self, mock_get, _allow):
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
+        mock_resp.ok = False
+        mock_resp.status_code = 500
         mock_get.return_value = mock_resp
 
         metadata = {
@@ -120,8 +124,9 @@ class TestResolveIssuer(TestCase):
             "authorization_endpoint": "https://origin.com/authorize",
             "token_endpoint": "https://origin.com/token",
         }
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
             _resolve_issuer(metadata, "https://origin.com")
+        assert ctx.exception.reason == OAuthDiscoveryFailure.METADATA_UNAVAILABLE
 
 
 class TestRefreshOauthToken(SimpleTestCase):
@@ -527,6 +532,25 @@ class TestIssuerValidation(SimpleTestCase):
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_step1_accepts_trusted_cross_domain_delegation(self, mock_get, _allow):
+        # PlanetScale: MCP endpoint on pscale.dev, issuer on pscale.dev, OAuth on planetscale.com.
+        server_url = "https://mcp.pscale.dev/mcp/planetscale"
+        resource_resp = self._make_response(json_data={"resource": server_url, "authorization_servers": [server_url]})
+        auth_resp = self._make_response(
+            json_data={
+                "issuer": server_url,
+                "authorization_endpoint": "https://app.planetscale.com/oauth/authorize",
+                "token_endpoint": "https://auth.planetscale.com/oauth/token",
+            }
+        )
+        mock_get.side_effect = [resource_resp, auth_resp]
+
+        metadata = discover_oauth_metadata(server_url)
+
+        assert metadata["token_endpoint"] == "https://auth.planetscale.com/oauth/token"
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
     def test_step1_rejects_resource_on_unrelated_origin(self, mock_get, _allow):
         resource_resp = self._make_response(
             json_data={
@@ -536,7 +560,7 @@ class TestIssuerValidation(SimpleTestCase):
         )
         mock_get.return_value = resource_resp
 
-        with self.assertRaisesMessage(ValueError, "not bound to MCP server"):
+        with self.assertRaisesMessage(OAuthDiscoveryError, "not bound to MCP server"):
             discover_oauth_metadata("https://mcp.attacker.com/mcp")
 
         assert mock_get.call_count == 1
@@ -576,7 +600,7 @@ class TestIssuerValidation(SimpleTestCase):
         auth_resp = self._make_response(json_data=auth_metadata)
         mock_get.side_effect = [resource_resp, auth_resp]
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(OAuthDiscoveryError):
             discover_oauth_metadata("https://mcp.legit.com/mcp")
 
 
@@ -710,8 +734,9 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
 
         mock_get.side_effect = [resource_resp, not_found, not_found, not_found]
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
             discover_oauth_metadata(mcp_url)
+        assert ctx.exception.reason == OAuthDiscoveryFailure.METADATA_UNAVAILABLE
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
@@ -724,8 +749,9 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
 
         mock_get.side_effect = [resource_resp, malformed]
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
             discover_oauth_metadata(mcp_url)
+        assert ctx.exception.reason == OAuthDiscoveryFailure.METADATA_INVALID
 
         assert mock_get.call_count == 2
 
@@ -740,7 +766,7 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
 
         mock_get.side_effect = [resource_resp, server_error]
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(OAuthDiscoveryError):
             discover_oauth_metadata(mcp_url)
 
         assert mock_get.call_count == 2
@@ -883,7 +909,7 @@ class TestValidateEndpointsBoundToIssuer(TestCase):
         ]
     )
     def test_rejects_mismatched_endpoints(self, _name, metadata, offending_field):
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
             _validate_endpoints_bound_to_issuer(metadata)
         self.assertIn(offending_field, str(ctx.exception))
 
@@ -895,8 +921,30 @@ class TestValidateEndpointsBoundToIssuer(TestCase):
         ]
     )
     def test_rejects_invalid_issuer(self, _name, metadata):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(OAuthDiscoveryError):
             _validate_endpoints_bound_to_issuer(metadata)
+
+    def test_accepts_trusted_cross_domain_delegation(self):
+        # PlanetScale serves the MCP endpoint on pscale.dev and its OAuth on planetscale.com.
+        metadata = {
+            "issuer": "https://mcp.pscale.dev/mcp/planetscale",
+            "authorization_endpoint": "https://app.planetscale.com/oauth/authorize",
+            "token_endpoint": "https://auth.planetscale.com/oauth/token",
+            "registration_endpoint": "https://auth.planetscale.com/oauth/registration",
+        }
+        _validate_endpoints_bound_to_issuer(metadata, "https://mcp.pscale.dev/mcp/planetscale")
+
+    def test_rejects_cross_domain_delegation_for_unlisted_server(self):
+        # Same endpoint shape, but the server domain is not on the allowlist, so the
+        # delegation is not trusted and the strict binding check applies.
+        metadata = {
+            "issuer": "https://mcp.pscale.dev/mcp/planetscale",
+            "authorization_endpoint": "https://app.planetscale.com/oauth/authorize",
+            "token_endpoint": "https://auth.planetscale.com/oauth/token",
+        }
+        with self.assertRaises(OAuthDiscoveryError) as ctx:
+            _validate_endpoints_bound_to_issuer(metadata, "https://mcp.other.dev/mcp")
+        assert ctx.exception.reason == OAuthDiscoveryFailure.ENDPOINTS_UNRELATED_DOMAIN
 
 
 class TestRegisterDCRClient(SimpleTestCase):

@@ -5,6 +5,7 @@ import secrets
 import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from urllib.parse import urlparse
 
 import requests
@@ -14,6 +15,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
+from .catalog import TRUSTED_AUTH_DELEGATIONS
 from .models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +35,53 @@ class OAuthTokenExchangeError(Exception):
 
 class OAuthAuthorizeURLError(Exception):
     pass
+
+
+class OAuthDiscoveryFailure(str, Enum):
+    """Distinguishable reasons OAuth discovery can fail, one per failure mode.
+
+    Kept separate so the install flow can log the reason, capture it as an
+    analytics property, and show copy that matches what actually went wrong,
+    instead of one catch-all message for every mode.
+    """
+
+    RESOURCE_NOT_BOUND = "resource_not_bound"
+    ISSUER_MISMATCH = "issuer_mismatch"
+    ENDPOINTS_UNRELATED_DOMAIN = "endpoints_unrelated_domain"
+    METADATA_INVALID = "metadata_invalid"
+    METADATA_UNAVAILABLE = "metadata_unavailable"
+    NETWORK_ERROR = "network_error"
+
+
+_DISCOVERY_FAILURE_MESSAGES: dict[OAuthDiscoveryFailure, str] = {
+    OAuthDiscoveryFailure.RESOURCE_NOT_BOUND: (
+        "This server's sign-in points to a different service, so we stopped for safety. "
+        "Contact the server's maintainer."
+    ),
+    OAuthDiscoveryFailure.ISSUER_MISMATCH: (
+        "This server's sign-in failed a safety check. Contact the server's maintainer."
+    ),
+    OAuthDiscoveryFailure.ENDPOINTS_UNRELATED_DOMAIN: (
+        "This server's sign-in runs on a domain we could not verify. Contact the server's maintainer."
+    ),
+    OAuthDiscoveryFailure.METADATA_INVALID: (
+        "This server's sign-in details are incomplete, so we could not start the connection. "
+        "Contact the server's maintainer."
+    ),
+    OAuthDiscoveryFailure.METADATA_UNAVAILABLE: (
+        "We could not find this server's sign-in details. Check the server URL, or contact its maintainer."
+    ),
+    OAuthDiscoveryFailure.NETWORK_ERROR: ("We could not reach this server's sign-in service. Try again in a moment."),
+}
+
+
+class OAuthDiscoveryError(Exception):
+    """Discovery failed for a classified, user-reportable reason."""
+
+    def __init__(self, reason: OAuthDiscoveryFailure, detail: str = "") -> None:
+        self.reason = reason
+        self.user_message = _DISCOVERY_FAILURE_MESSAGES[reason]
+        super().__init__(detail or reason.value)
 
 
 def _validate_url(url: str) -> None:
@@ -60,13 +109,19 @@ def _canonical_origin(url: str) -> str | None:
 
 def _validate_resource_bound_to_server(resource: object, server_url: str) -> str:
     if not isinstance(resource, str) or not resource:
-        raise ValueError("OAuth protected resource metadata resource must be a non-empty string")
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.RESOURCE_NOT_BOUND, "protected resource metadata resource is not a non-empty string"
+        )
 
     parsed_resource = urlparse(resource)
     if not parsed_resource.scheme or not parsed_resource.netloc:
-        raise ValueError("OAuth protected resource metadata resource is not an absolute URL")
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.RESOURCE_NOT_BOUND, "protected resource metadata resource is not an absolute URL"
+        )
     if parsed_resource.fragment:
-        raise ValueError("OAuth protected resource metadata resource must not include a fragment")
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.RESOURCE_NOT_BOUND, "protected resource metadata resource includes a fragment"
+        )
 
     resource_origin = _canonical_origin(resource)
     server_origin = _canonical_origin(server_url)
@@ -76,7 +131,9 @@ def _validate_resource_bound_to_server(resource: object, server_url: str) -> str
             server_url=server_url,
             resource=resource,
         )
-        raise ValueError("OAuth protected resource metadata resource is not bound to MCP server")
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.RESOURCE_NOT_BOUND, "protected resource metadata resource is not bound to MCP server"
+        )
 
     return resource
 
@@ -154,18 +211,35 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
 
     # Only fall back on "endpoint not implemented" — transient errors must surface as-is.
     FALLBACK_STATUSES = {404, 405}
-    last_exc: Exception = RuntimeError("no discovery candidates were attempted")
+    last_exc: OAuthDiscoveryError = OAuthDiscoveryError(
+        OAuthDiscoveryFailure.METADATA_UNAVAILABLE, "no authorization server metadata was found"
+    )
     for metadata_url in candidates:
         _validate_url(metadata_url)
         metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
         if metadata_resp.status_code in FALLBACK_STATUSES:
-            last_exc = requests.HTTPError(response=metadata_resp)
+            last_exc = OAuthDiscoveryError(
+                OAuthDiscoveryFailure.METADATA_UNAVAILABLE,
+                f"HTTP {metadata_resp.status_code} from {metadata_url}",
+            )
             continue
-        metadata_resp.raise_for_status()
-        metadata = metadata_resp.json()
+        if not metadata_resp.ok:
+            raise OAuthDiscoveryError(
+                OAuthDiscoveryFailure.METADATA_UNAVAILABLE,
+                f"HTTP {metadata_resp.status_code} from {metadata_url}",
+            )
+        try:
+            metadata = metadata_resp.json()
+        except ValueError:
+            raise OAuthDiscoveryError(
+                OAuthDiscoveryFailure.METADATA_INVALID, f"authorization server metadata at {metadata_url} is not JSON"
+            )
         for field in ("authorization_endpoint", "token_endpoint"):
             if field not in metadata:
-                raise ValueError(f"Missing required field '{field}' in authorization server metadata")
+                raise OAuthDiscoveryError(
+                    OAuthDiscoveryFailure.METADATA_INVALID,
+                    f"missing required field '{field}' in authorization server metadata",
+                )
         if metadata_url != candidates[0]:
             logger.info(
                 "OAuth auth-server metadata discovered via fallback URL",
@@ -187,7 +261,9 @@ def _cross_validate_issuer(declared_issuer: str) -> dict:
             declared_issuer=declared_issuer,
             metadata_issuer=metadata.get("issuer", ""),
         )
-        raise ValueError("Issuer mismatch in authorization server metadata")
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.ISSUER_MISMATCH, "issuer mismatch in authorization server metadata"
+        )
     return metadata
 
 
@@ -208,7 +284,7 @@ def _registrable_domain(hostname: str) -> str | None:
     return f"{extracted.domain}.{extracted.suffix}".lower()
 
 
-def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
+def _validate_endpoints_bound_to_issuer(metadata: dict, server_url: str = "") -> None:
     """Reject metadata where OAuth endpoints live on an unrelated registrable domain from the issuer.
 
     Without this, a malicious metadata source can mix endpoints from a real
@@ -220,18 +296,25 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     to a dedicated subdomain) publish the issuer on one subdomain and the
     actual OAuth endpoints on a sibling subdomain — e.g. issuer at
     `mcp.example.com/oauth` with endpoints on `auth.example.com`.
+
+    A server may also delegate to a different registrable domain, but only when
+    ``TRUSTED_AUTH_DELEGATIONS`` (a vendor-trust decision gated by review of the
+    catalog) allows that specific server-to-endpoint pair.
     """
     issuer = (metadata.get("issuer") or "").rstrip("/")
     if not issuer:
-        raise ValueError("OAuth metadata is missing issuer")
+        raise OAuthDiscoveryError(OAuthDiscoveryFailure.METADATA_INVALID, "metadata is missing issuer")
 
     parsed_issuer = urlparse(issuer)
     if not parsed_issuer.scheme or not parsed_issuer.netloc:
-        raise ValueError("OAuth metadata issuer is not an absolute URL")
+        raise OAuthDiscoveryError(OAuthDiscoveryFailure.METADATA_INVALID, "metadata issuer is not an absolute URL")
 
     issuer_domain = _registrable_domain(parsed_issuer.hostname or "")
     if issuer_domain is None:
-        raise ValueError("OAuth metadata issuer has no registrable domain")
+        raise OAuthDiscoveryError(OAuthDiscoveryFailure.METADATA_INVALID, "metadata issuer has no registrable domain")
+
+    server_domain = _registrable_domain(urlparse(server_url).hostname or "")
+    trusted_endpoint_domains = TRUSTED_AUTH_DELEGATIONS.get(server_domain or "", frozenset())
 
     for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
         url = metadata.get(field)
@@ -245,21 +328,42 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
                 field=field,
                 endpoint=url,
             )
-            raise ValueError(f"OAuth endpoint '{field}' scheme does not match issuer")
-        endpoint_domain = _registrable_domain(parsed.hostname or "")
-        if endpoint_domain != issuer_domain:
-            logger.warning(
-                "OAuth endpoint registrable domain does not match issuer",
-                issuer=issuer,
-                field=field,
-                endpoint=url,
-                issuer_domain=issuer_domain,
-                endpoint_domain=endpoint_domain,
+            raise OAuthDiscoveryError(
+                OAuthDiscoveryFailure.ENDPOINTS_UNRELATED_DOMAIN, f"endpoint '{field}' scheme does not match issuer"
             )
-            raise ValueError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
+        endpoint_domain = _registrable_domain(parsed.hostname or "")
+        if endpoint_domain == issuer_domain or endpoint_domain in trusted_endpoint_domains:
+            continue
+        logger.warning(
+            "OAuth endpoint registrable domain does not match issuer",
+            issuer=issuer,
+            field=field,
+            endpoint=url,
+            issuer_domain=issuer_domain,
+            endpoint_domain=endpoint_domain,
+        )
+        raise OAuthDiscoveryError(
+            OAuthDiscoveryFailure.ENDPOINTS_UNRELATED_DOMAIN,
+            f"endpoint '{field}' is on an unrelated domain from issuer",
+        )
 
 
 def discover_oauth_metadata(server_url: str) -> dict:
+    """Discover an MCP server's OAuth metadata.
+
+    Raises ``OAuthDiscoveryError`` with a classified ``reason`` for every
+    failure mode so callers can log, report, and explain each one distinctly.
+    """
+    try:
+        return _discover_oauth_metadata(server_url)
+    except (OAuthDiscoveryError, SSRFBlockedError):
+        # SSRFBlockedError is a security signal callers already handle; keep it distinct.
+        raise
+    except requests.RequestException as exc:
+        raise OAuthDiscoveryError(OAuthDiscoveryFailure.NETWORK_ERROR, str(exc))
+
+
+def _discover_oauth_metadata(server_url: str) -> dict:
     parsed_server = urlparse(server_url)
     origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
     path = parsed_server.path.rstrip("/")
@@ -274,7 +378,10 @@ def discover_oauth_metadata(server_url: str) -> dict:
         resource_resp = requests.get(fallback_url, timeout=TIMEOUT)
 
     if resource_resp.ok:
-        resource_data = resource_resp.json()
+        try:
+            resource_data = resource_resp.json()
+        except ValueError:
+            raise OAuthDiscoveryError(OAuthDiscoveryFailure.METADATA_INVALID, "protected resource metadata is not JSON")
         bound_resource = None
         if "resource" in resource_data:
             bound_resource = _validate_resource_bound_to_server(resource_data["resource"], server_url)
@@ -290,7 +397,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
                 metadata["scopes_supported"] = resource_data["scopes_supported"]
-            _validate_endpoints_bound_to_issuer(metadata)
+            _validate_endpoints_bound_to_issuer(metadata, server_url)
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
@@ -300,7 +407,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
         "RFC 9728 protected resource metadata not available, falling back to direct discovery", server_url=server_url
     )
     metadata = _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
-    _validate_endpoints_bound_to_issuer(metadata)
+    _validate_endpoints_bound_to_issuer(metadata, server_url)
     return metadata
 
 
