@@ -2827,6 +2827,66 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
 
+    def test_postgres_foreign_keys_are_deferred_until_a_warehouse_table_is_accessed(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+
+        # Reading through the tree directly does not resolve via get_table, so it never arms the build.
+        activitylog_before = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert activitylog_before.fields.get("team") is None
+
+        # Accessing a core (non-warehouse) table must not pay for warehouse foreign keys.
+        database.get_table("events")
+        assert database.get_table_node("postgres.ph3.posthog_activitylog").get().fields.get("team") is None
+
+        # The first warehouse-table access wires the whole graph — forward and reverse joins.
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
+
     def test_serialize_direct_postgres_skips_foreign_key_join_when_target_table_is_missing(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

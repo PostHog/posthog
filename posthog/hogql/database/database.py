@@ -593,6 +593,14 @@ class Database(BaseModel):
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
     _data_warehouse_sync_warnings: dict[str, list[DataWarehouseSyncWarning]] = {}
 
+    # Deferred Postgres foreign-key wiring. On teams with many warehouse tables, wiring foreign-key
+    # lazy joins for every table dominates database construction, yet a query that touches no
+    # warehouse table never needs them. The work is stashed here and built the first time a
+    # warehouse table is accessed (see get_table / _ensure_foreign_keys_built).
+    _deferred_foreign_key_tables: list[Any] = []
+    _foreign_keys_built: bool = True
+    _foreign_key_trigger_names: Optional[set[str]] = None
+
     _timezone: str | None
     _week_start_day: WeekStartDay | None
 
@@ -617,6 +625,9 @@ class Database(BaseModel):
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
+        self._deferred_foreign_key_tables = []
+        self._foreign_keys_built = True
+        self._foreign_key_trigger_names = None
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -654,7 +665,7 @@ class Database(BaseModel):
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
-            return cast(Table, self.get_table_node(table_name).get())
+            table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
@@ -663,6 +674,44 @@ class Database(BaseModel):
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+
+        # First access to any warehouse table wires the deferred foreign-key joins for the whole graph.
+        if not self._foreign_keys_built and self._should_build_foreign_keys_for(table_name):
+            self._ensure_foreign_keys_built()
+
+        return table
+
+    def _should_build_foreign_keys_for(self, table_name: str | list[str]) -> bool:
+        trigger_names = self._foreign_key_trigger_names
+        if not trigger_names:
+            return False
+        name = ".".join(str(part) for part in table_name) if isinstance(table_name, list) else table_name
+        return name in trigger_names
+
+    def _ensure_foreign_keys_built(self) -> None:
+        """Wire the deferred Postgres foreign-key lazy joins, at most once.
+
+        The full graph is built in a single pass (not just the accessed table) so reverse joins and
+        field precedence match the eager path exactly. `_foreign_keys_built` is set before the loop
+        because resolving a foreign-key target re-enters get_table, which must not recurse here.
+        Saved expressions were applied at build time (before this runs), so foreign keys are allowed
+        to replace a colliding expression field — preserving the eager "expressions never shadow a
+        join field" invariant.
+        """
+        if self._foreign_keys_built:
+            return
+        self._foreign_keys_built = True
+        pending = self._deferred_foreign_key_tables
+        self._deferred_foreign_key_tables = []
+        with tracer.start_as_current_span("warehouse_foreign_keys"):
+            for hogql_table, warehouse_table_model in pending:
+                add_postgres_foreign_key_lazy_joins(
+                    hogql_table=hogql_table,
+                    warehouse_table=warehouse_table_model,
+                    database=self,
+                    schemas=_get_active_external_data_schemas(warehouse_table_model),
+                    override_expression_fields=True,
+                )
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -2142,14 +2191,10 @@ class Database(BaseModel):
         database._add_views(views)
 
         if build_postgres_foreign_keys:
-            with timings.measure("warehouse_foreign_keys", emit_span=True):
-                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                    add_postgres_foreign_key_lazy_joins(
-                        hogql_table=hogql_table,
-                        warehouse_table=warehouse_table_model,
-                        database=database,
-                        schemas=_get_active_external_data_schemas(warehouse_table_model),
-                    )
+            # Stash the work now; _ensure_foreign_keys_built wires it on first warehouse-table access.
+            # Arming (below, after apply_schema_scope) is deliberately deferred so build-time
+            # get_table calls — e.g. saved expressions — don't trigger the build prematurely.
+            database._deferred_foreign_key_tables = warehouse_tables_to_process
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
@@ -2287,6 +2332,17 @@ class Database(BaseModel):
                     capture_exception(e)
 
         database.apply_schema_scope()
+
+        # Arm the deferred foreign-key build only once the schema scope is final, so the trigger set
+        # reflects the tables that actually survive pruning. Until now _foreign_keys_built stayed
+        # True, keeping build-time get_table calls from wiring foreign keys eagerly.
+        if build_postgres_foreign_keys and database._deferred_foreign_key_tables:
+            database._foreign_key_trigger_names = (
+                set(database._warehouse_table_names)
+                | set(database._warehouse_self_managed_table_names)
+                | set(database._direct_access_warehouse_table_names)
+            )
+            database._foreign_keys_built = False
 
         return database
 
