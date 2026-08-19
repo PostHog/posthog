@@ -31,7 +31,19 @@ export const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
     "Couldn't get an access token from GitHub. Please retry.",
   integration_create_failed:
     "Couldn't save the GitHub connection. Please retry.",
+  github_install_pending:
+    "PostHog needs approval from a GitHub org owner. We sent the request. Until it's approved, your tasks run on your machine. Once it's approved, connect again.",
 };
+
+export const GITHUB_CONNECT_PENDING_APPROVAL_CODE = "github_install_pending";
+
+/** Travels on the error channel but is not a failure: the connect can still
+ * succeed once an org owner approves, so callers render it as informational. */
+export function isGithubConnectPendingApproval(
+  code: string | null | undefined,
+): boolean {
+  return code === GITHUB_CONNECT_PENDING_APPROVAL_CODE;
+}
 
 export function describeGithubConnectError(
   error: GithubConnectError | null,
