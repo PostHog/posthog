@@ -2442,7 +2442,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
-            (s) => [s.querySource, actionsModel.selectors.actions],
+            (s) => [s.querySource, actionsModel({ skipLoad: true }).selectors.actions],
             (
                 querySource:
                     | FunnelsQuery
