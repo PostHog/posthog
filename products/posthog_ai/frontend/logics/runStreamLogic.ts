@@ -998,6 +998,35 @@ export interface FoldedThread {
 }
 
 /**
+ * The plan markdown carried by an ExitPlanMode input, or undefined. An agent that recovered the
+ * plan from a plan file (newer Claude Code writes plans to disk and calls `ExitPlanMode` with empty
+ * input) sends the plan only inside the permission request — the `tool_call` frame stays plan-less.
+ */
+function recoveredPlanOf(input: Record<string, unknown> | undefined): string | undefined {
+    const plan = input?.plan
+    return typeof plan === 'string' && plan.trim() ? plan : undefined
+}
+
+/**
+ * The invocation map with `plan` folded into `toolCallId`'s input, unless the invocation already
+ * carries one (an inline plan always wins). Returns the same map when there is nothing to change,
+ * preserving referential stability for memoized consumers.
+ */
+function withRecoveredPlan(
+    invocations: Map<string, ToolInvocation>,
+    toolCallId: string,
+    plan: string
+): Map<string, ToolInvocation> {
+    const invocation = invocations.get(toolCallId)
+    if (!invocation || recoveredPlanOf(invocation.input)) {
+        return invocations
+    }
+    const next = new Map(invocations)
+    next.set(toolCallId, { ...invocation, input: { ...invocation.input, plan } })
+    return next
+}
+
+/**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
  * human-turn hoisting) are computed deterministically from the ordered log so item ids are stable
@@ -1007,6 +1036,10 @@ export interface FoldedThread {
 export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
+    // Plans recovered from `_posthog/permission_request` frames, keyed by toolCallId and folded into
+    // their invocation after the loop — after, because the resolving `tool_call_update` replays the
+    // raw plan-less input and would otherwise erase the plan again (see `recoveredPlanOf`).
+    const recoveredPlans = new Map<string, string>()
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
@@ -1282,6 +1315,16 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (method === '_posthog/permission_request') {
+            const toolCall = params.toolCall as
+                | { toolCallId?: unknown; rawInput?: Record<string, unknown> }
+                | undefined
+            const plan = recoveredPlanOf(toolCall?.rawInput)
+            if (typeof toolCall?.toolCallId === 'string' && toolCall.toolCallId && plan) {
+                recoveredPlans.set(toolCall.toolCallId, plan)
+            }
+            continue
+        }
         if (method?.startsWith('_posthog/')) {
             // run_started, usage_update, resources_used, sdk_session, sandbox_output, … — no thread item.
             continue
@@ -1343,7 +1386,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
-    return { threadItems: items, toolInvocations: invocations }
+    // Hand each recovered plan to its plan-less invocation so `ExitPlanModeRenderer` renders it while
+    // the approval is pending and behind the post-resolution "show plan" toggle. Permission frames
+    // persist in the run log, so this also covers reloads and historical replays.
+    let finalInvocations = invocations
+    for (const [toolCallId, plan] of recoveredPlans) {
+        finalInvocations = withRecoveredPlan(finalInvocations, toolCallId, plan)
+    }
+
+    return { threadItems: items, toolInvocations: finalInvocations }
 }
 
 /**
@@ -1608,7 +1659,10 @@ export interface runStreamLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
-        toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
+        toolInvocations: (
+            foldedThread: FoldedThread,
+            pendingPermissionRequest: PermissionRequestRecord | null
+        ) => Map<string, ToolInvocation>
         isThinking: (
             runStarted: boolean,
             turnComplete: boolean,
@@ -2164,8 +2218,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 ),
         ],
         toolInvocations: [
-            (s) => [s.foldedThread],
-            (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
+            (s) => [s.foldedThread, s.pendingPermissionRequest],
+            (
+                foldedThread: FoldedThread,
+                pendingPermissionRequest: PermissionRequestRecord | null
+            ): Map<string, ToolInvocation> => {
+                // A live permission request can arrive as a top-level SSE envelope that never enters
+                // the log (see `parsePermissionRequestFrame`), so the fold can't see the plan it
+                // carries — merge it here so a plan recovered from a plan file still renders live.
+                const plan = pendingPermissionRequest
+                    ? recoveredPlanOf(pendingPermissionRequest.rawToolCall.input)
+                    : undefined
+                return pendingPermissionRequest && plan
+                    ? withRecoveredPlan(foldedThread.toolInvocations, pendingPermissionRequest.toolCallId, plan)
+                    : foldedThread.toolInvocations
+            },
         ],
         /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.

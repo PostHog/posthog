@@ -649,6 +649,93 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('plan recovered from a permission request', () => {
+        // An agent that recovers the plan from a plan file sends ExitPlanMode's `tool_call` frame
+        // plan-less; the plan travels only inside the permission request.
+        const PLAN = '# Dummy plan\n\n1. Open `dummy.ts`.\n2. Add a log line.'
+
+        function exitPlanModeToolCall(rawInput: Record<string, unknown> = {}): StoredLogEntry {
+            return sessionUpdate({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'plan-1',
+                title: 'Ready to code?',
+                kind: 'switch_mode',
+                rawInput,
+                status: 'pending',
+                _meta: { claudeCode: { toolName: 'ExitPlanMode' } },
+            })
+        }
+
+        function planPermissionParams(requestId: string, plan: string): Record<string, unknown> {
+            return {
+                requestId,
+                toolCall: {
+                    toolCallId: 'plan-1',
+                    kind: 'switch_mode',
+                    title: 'Ready to code?',
+                    rawInput: { plan, planFilePath: '/root/.claude/plans/plan.md', toolName: 'ExitPlanMode' },
+                },
+                options: [{ optionId: 'default', name: 'Yes, continue', kind: 'allow_once' }],
+            }
+        }
+
+        it('folds the plan from a logged permission_request into the plan-less invocation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(exitPlanModeToolCall())
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/permission_request', planPermissionParams('req-p1', PLAN))
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.toolInvocations.get('plan-1')?.input.plan).toEqual(PLAN)
+        })
+
+        it('keeps the recovered plan across the resolving plan-less tool_call_update', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(exitPlanModeToolCall())
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/permission_request', planPermissionParams('req-p2', PLAN))
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/permission_resolved', { requestId: 'req-p2' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'tool_call_update',
+                        toolCallId: 'plan-1',
+                        rawInput: {},
+                        status: 'completed',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('plan-1')
+            expect(invocation?.status).toEqual('completed')
+            expect(invocation?.input.plan).toEqual(PLAN)
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
+
+        it('merges the plan from a pending permission delivered only as a top-level envelope', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(exitPlanModeToolCall())
+            }).toFinishAllListeners()
+            logic.actions.ingestPermissionRequest(
+                parsePermissionRequestFrame(planPermissionParams('req-p3', PLAN))!
+            )
+
+            expect(logic.values.toolInvocations.get('plan-1')?.input.plan).toEqual(PLAN)
+        })
+
+        it('never overrides an inline plan', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(exitPlanModeToolCall({ plan: 'inline plan' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/permission_request', planPermissionParams('req-p4', PLAN))
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.toolInvocations.get('plan-1')?.input.plan).toEqual('inline plan')
+        })
+    })
+
     describe('streamed tool input', () => {
         it('folds rawInput arriving on a later update into a built-in tool call and keeps _meta raw', async () => {
             // Built-ins carry no top-level toolName — the SDK name arrives only on `_meta.claudeCode`.
