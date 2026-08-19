@@ -1500,8 +1500,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                status=status.HTTP_400_BAD_REQUEST,
                 data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
@@ -1573,8 +1573,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                status=status.HTTP_400_BAD_REQUEST,
                 data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         instance.status = ExternalDataSchema.Status.RUNNING
@@ -1628,8 +1628,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.status = ExternalDataSchema.Status.FAILED
                 instance.save(update_fields=["status", "latest_error", "updated_at"])
                 return Response(
-                    status=status.HTTP_200_OK,
                     data={"detail": "No sync was running. The sync status has been updated."},
+                    status=status.HTTP_200_OK,
                 )
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
