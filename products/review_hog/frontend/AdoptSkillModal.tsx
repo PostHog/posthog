@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
+import { llmSkillsResolveNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import { REVIEW_SKILL_KIND_LABELS, REVIEW_SKILL_PREFIX_BY_KIND, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
@@ -114,7 +114,11 @@ export function AdoptSkillModal(): JSX.Element {
                     emptyMessage='Your team has no other skills to use yet. "Create your own" makes one with an agent.'
                     selectLabel="Use this skill"
                     onSelect={(skill) => chooseAdoptSource({ name: skill.name, description: skill.description })}
-                    loadBody={async (name) => (await llmSkillsNameRetrieve(String(currentTeamId), name)).body}
+                    // Resolve returns the whole body; the plain name endpoint caps it at 8000 chars,
+                    // which would preview an adopted skill short of what the copy actually runs.
+                    loadBody={async (name) =>
+                        (await llmSkillsResolveNameRetrieve(String(currentTeamId), name)).skill.body
+                    }
                     data-attr="review-hog-adopt-skill-picker"
                 />
             )}
