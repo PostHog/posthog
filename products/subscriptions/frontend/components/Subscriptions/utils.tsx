@@ -7,10 +7,24 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
+import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
+
+export function canNudgeToSubscribe(
+    hasSubscriptionsFeature: boolean,
+    freeTierSubscriptionCount: number | null
+): boolean {
+    return (
+        hasSubscriptionsFeature ||
+        (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount))
+    )
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -28,20 +42,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
     return urls.subscriptions()
 }
-
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
- * Single source of truth shared by the producer (dashboard toast) and the consumer (this
- * logic's urlToAction). The backend notification's source_url must mirror these — see the
- * comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
-export const SUBSCRIPTION_PREFILL_PARAMS = {
-    param: 'prefill',
-    nudge: 'nudge',
-    viaParam: 'via',
-    viaToast: 'toast',
-    viaNotification: 'notification',
-} as const
 
 export const urlForSubscription = (
     id: number | 'new',
