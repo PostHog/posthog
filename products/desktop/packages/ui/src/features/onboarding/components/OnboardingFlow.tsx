@@ -33,6 +33,7 @@ import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
+import { primeStartupProvision } from "@posthog/ui/shell/startupLocation";
 import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
@@ -91,6 +92,9 @@ export function OnboardingFlow() {
     if (!apiClient) return;
     const provisioned = await apiClient.provisionDefaultTaskChannels();
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
+    // Whoever provisions first consumes the created flags; hand them to the
+    // startup resolver so the first-run landing still sees them.
+    primeStartupProvision(provisioned);
     if (!selectedCloudRepo) return;
     // Fetched directly: the integrations store only fills once the main app's
     // hooks mount, which has not happened during onboarding.
@@ -107,10 +111,10 @@ export function OnboardingFlow() {
     // user-level-only GitHub connection cannot set a space default. The task
     // input still prefills from the last-used cloud repository there.
     if (integrationId == null) return;
-    for (const channelId of planSpaceRepoAssignments(
-      provisioned.channels,
-      provisioned.general_created,
-    )) {
+    for (const channelId of planSpaceRepoAssignments(provisioned.channels, {
+      personalCreated: provisioned.personal_created,
+      generalCreated: provisioned.general_created,
+    })) {
       await apiClient.updateTaskChannelRepositories(channelId, integrationId, [
         selectedCloudRepo,
       ]);

@@ -14,7 +14,6 @@ import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeRea
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
-import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import {
   keepListForRoute,
   showChannelList,
@@ -38,7 +37,6 @@ import {
   resolveStartupLocation,
 } from "@posthog/ui/shell/startupLocation";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
-import { useQueryClient } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -51,7 +49,6 @@ interface AppProps {
 const log = logger.scope("app");
 
 function App({ devToolbar }: AppProps) {
-  const queryClient = useQueryClient();
   const { isBootstrapped } = useAuthSession();
   const authState = useAuthStateValue((state) => state);
   const hasCompletedOnboarding = useOnboardingStore(
@@ -125,16 +122,7 @@ function App({ devToolbar }: AppProps) {
         // request instead of firing back-to-back.
         const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
-          {
-            getTaskChannels: () =>
-              queryClient.fetchQuery({
-                queryKey: TASK_CHANNELS_QUERY_KEY,
-                queryFn: () => authenticatedClient.getTaskChannels(),
-                staleTime: 60_000,
-              }),
-            provisionDefaultTaskChannels: () =>
-              authenticatedClient.provisionDefaultTaskChannels(),
-          },
+          authenticatedClient,
         );
         if (firstRun) {
           showChannelList();
@@ -160,7 +148,6 @@ function App({ devToolbar }: AppProps) {
     initialRouteLoaded,
     startupIdentity,
     authenticatedClient,
-    queryClient.fetchQuery,
   ]);
 
   useEffect(() => {
