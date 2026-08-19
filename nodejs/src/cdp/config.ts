@@ -120,7 +120,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_TRACKING_URL: string
 
     // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
@@ -290,9 +289,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'

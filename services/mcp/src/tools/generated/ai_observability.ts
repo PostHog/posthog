@@ -53,7 +53,6 @@ import {
     LlmAnalyticsEvaluationReportsRetrieveParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsEvaluationReportsRunsListQueryParams,
-    LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
     LlmAnalyticsProviderKeysListQueryParams,
@@ -1209,38 +1208,6 @@ const llmaEvaluationRun = (): ToolBase<typeof LlmaEvaluationRunSchema, unknown> 
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_runs/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationSummaryCreateSchema = LlmAnalyticsEvaluationSummaryCreateBody
-
-const llmaEvaluationSummaryCreate = (): ToolBase<
-    typeof LlmaEvaluationSummaryCreateSchema,
-    Schemas.EvaluationSummaryResponse
-> => ({
-    name: 'llma-evaluation-summary-create',
-    schema: LlmaEvaluationSummaryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationSummaryCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.evaluation_id !== undefined) {
-            body['evaluation_id'] = params.evaluation_id
-        }
-        if (params.filter !== undefined) {
-            body['filter'] = params.filter
-        }
-        if (params.generation_ids !== undefined) {
-            body['generation_ids'] = params.generation_ids
-        }
-        if (params.force_refresh !== undefined) {
-            body['force_refresh'] = params.force_refresh
-        }
-        const result = await context.api.request<Schemas.EvaluationSummaryResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_summary/`,
             body,
         })
         return result
@@ -2572,7 +2539,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-report-run-list': llmaEvaluationReportRunList,
     'llma-evaluation-report-update': llmaEvaluationReportUpdate,
     'llma-evaluation-run': llmaEvaluationRun,
-    'llma-evaluation-summary-create': llmaEvaluationSummaryCreate,
     'llma-evaluation-test-hog': llmaEvaluationTestHog,
     'llma-evaluation-update': llmaEvaluationUpdate,
     'llma-personal-spend': llmaPersonalSpend,

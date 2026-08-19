@@ -13,7 +13,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token, cre
 @pytest.mark.parametrize(
     ("origin_product", "application"),
     [
-        (Task.OriginProduct.SIGNALS_SCOUT, "array"),
+        (Task.OriginProduct.SIGNALS_SCOUT, "signals"),
         (Task.OriginProduct.SUPPORT_REPLY, "array"),
     ],
 )
@@ -110,6 +110,46 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
         application="array",
         sandbox_task_id=task.id,
     )
+
+
+@pytest.mark.parametrize(
+    ("origin_product", "internal", "application", "interactive"),
+    [
+        (Task.OriginProduct.SIGNAL_REPORT, False, "signals", True),
+        (Task.OriginProduct.SIGNAL_REPORT, True, "signals", False),
+        (Task.OriginProduct.SIGNALS_CHAT, False, "signals", True),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, "signals", False),
+        (Task.OriginProduct.USER_CREATED, False, "array", False),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_runs(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+    origin_product: Task.OriginProduct,
+    internal: bool,
+    application: str,
+    interactive: bool,
+) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=origin_product,
+        internal=internal,
+    )
+
+    assert create_oauth_access_token(task) == "token"
+
+    expected: dict = {
+        "scopes": "read_only",
+        "application": application,
+        "sandbox_task_id": task.id,
+    }
+    if interactive:
+        expected["include_interactive_run_scope"] = True
+    mock_create.assert_called_once_with(task.created_by, 123, **expected)
 
 
 def test_oauth_token_can_disable_task_creator_fallback() -> None:

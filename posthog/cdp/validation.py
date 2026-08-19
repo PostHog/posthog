@@ -606,7 +606,7 @@ class InputsSerializer(serializers.DictField):
 
     def run_child_validation(self, data):
         result = {}
-        errors = {}
+        errors: dict[str, Any] = {}
 
         existing_secret_inputs = self.context.get("encrypted_inputs")
         # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
@@ -621,9 +621,20 @@ class InputsSerializer(serializers.DictField):
             key = str(schema["key"])
             value = data.get(key) or {}
 
-            # We only load the existing secret if the schema is secret and the given value has "secret" set
-            if schema.get("secret") and existing_secret_inputs and ((value and value.get("secret")) or value == {}):
-                value = existing_secret_inputs.get(schema["key"]) or {}
+            if schema.get("secret"):
+                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
+                # stored secret". One that also carries a "value" is a rotation and must win, so it
+                # falls through to normal validation.
+                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                if is_masked or value == {}:
+                    existing_value = (existing_secret_inputs or {}).get(key)
+                    if existing_value:
+                        value = existing_value
+                    elif is_masked:
+                        # Nothing stored to keep. Silently dropping the input here has disabled
+                        # webhook auth in production - fail so the caller re-enters the value.
+                        errors[key] = "No value is saved for this secret input. Enter the value again."
+                        continue
 
             self.context["schema"] = schema
 
