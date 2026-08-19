@@ -32,12 +32,23 @@ let tickerId: number | null = null
 function subscribeToTicker(listener: () => void): () => void {
     tickerListeners.add(listener)
     if (tickerId === null) {
-        tickerId = window.setInterval(() => tickerListeners.forEach((tick) => tick()), 1000)
+        try {
+            tickerId = window.setInterval(() => tickerListeners.forEach((tick) => tick()), 1000)
+        } catch {
+            // Firefox throws "can't access dead object" when `window` belongs to a torn-down
+            // document. Leave the ticker unstarted so one dead label cannot stop relative
+            // timestamps updating for every other label on the page.
+            tickerId = null
+        }
     }
     return () => {
         tickerListeners.delete(listener)
         if (tickerListeners.size === 0 && tickerId !== null) {
-            window.clearInterval(tickerId)
+            try {
+                window.clearInterval(tickerId)
+            } catch {
+                // Same dead-document guard as above.
+            }
             tickerId = null
         }
     }

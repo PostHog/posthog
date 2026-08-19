@@ -111,6 +111,20 @@ describe('usePageVisibility hooks', () => {
         expect(calls).toHaveLength(callsAfterMount)
     })
 
+    // Firefox throws "can't access dead object" reading `document.hidden` on a torn-down document.
+    // The hook must swallow it rather than crash every relative timestamp on the page.
+    it('usePageVisibility treats an unreachable document as visible instead of throwing', () => {
+        Object.defineProperty(document, 'hidden', {
+            configurable: true,
+            get() {
+                throw new TypeError("can't access dead object")
+            },
+        })
+
+        const { result } = renderHook(() => usePageVisibility())
+        expect(result.current.isVisible).toBe(true)
+    })
+
     it('usePageVisibility reflects the current visibility', () => {
         const { result } = renderHook(() => usePageVisibility())
         expect(result.current.isVisible).toBe(true)

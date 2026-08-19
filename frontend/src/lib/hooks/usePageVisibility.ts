@@ -4,7 +4,29 @@ import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 const VISIBILITY_CHANGE_EVENT = 'visibilitychange'
 
 function isPageVisible(): boolean {
-    return !document.hidden
+    try {
+        return !document.hidden
+    } catch {
+        // Firefox throws "can't access dead object" when `document` belongs to a torn-down
+        // document. Treat an unreachable document as visible so callers keep working.
+        return true
+    }
+}
+
+// Returns an unsubscribe function. Guards the same dead-document access as isPageVisible.
+function listenForVisibilityChange(listener: () => void): () => void {
+    try {
+        document.addEventListener(VISIBILITY_CHANGE_EVENT, listener)
+    } catch {
+        return () => {}
+    }
+    return () => {
+        try {
+            document.removeEventListener(VISIBILITY_CHANGE_EVENT, listener)
+        } catch {
+            // Nothing to remove on a torn-down document.
+        }
+    }
 }
 
 /**
@@ -45,11 +67,7 @@ export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void):
         }
 
         callbackRef.current(isPageVisible())
-        document.addEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
-
-        return function cleanUp() {
-            document.removeEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
-        }
+        return listenForVisibilityChange(onVisibilityChange)
     }, [])
 }
 
@@ -58,10 +76,7 @@ export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void):
  */
 export function usePageVisibility(): { isVisible: boolean } {
     const isVisible = useSyncExternalStore(
-        (callback: () => void) => {
-            document.addEventListener(VISIBILITY_CHANGE_EVENT, callback)
-            return () => document.removeEventListener(VISIBILITY_CHANGE_EVENT, callback)
-        },
+        (callback: () => void) => listenForVisibilityChange(callback),
         () => isPageVisible()
     )
 

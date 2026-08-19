@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { LemonDropdown } from './LemonDropdown'
 
@@ -66,6 +67,47 @@ describe('LemonDropdown', () => {
         expect(() => fireEvent.mouseLeave(overlay!, { relatedTarget })).not.toThrow()
 
         // The "cursor has left" branch should still run, closing the dropdown.
+        expect(onVisibilityChange).toHaveBeenCalledWith(false)
+    })
+
+    // A hover popover renders through a portal and only closes on a real mouseleave. Following a
+    // link inside it (or switching projects) changes the route without moving the cursor, so
+    // without this it keeps painting over the next page.
+    it('closes a hover dropdown on route change', () => {
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown
+                trigger="hover"
+                startVisible
+                onVisibilityChange={onVisibilityChange}
+                overlay={<div>Menu</div>}
+            >
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        act(() => router.actions.push('/some/other/path'))
+
+        expect(onVisibilityChange).toHaveBeenCalledWith(false)
+    })
+
+    it('closes a hover dropdown on Escape', () => {
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown
+                trigger="hover"
+                startVisible
+                onVisibilityChange={onVisibilityChange}
+                overlay={<div>Menu</div>}
+            >
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        act(() => fireEvent.keyDown(document, { key: 'Escape' }))
+
         expect(onVisibilityChange).toHaveBeenCalledWith(false)
     })
 })
