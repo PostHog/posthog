@@ -62,7 +62,49 @@ describe('CI report section builders', () => {
         })
     }
 
-    it('renders a docs preview link after a successful trigger', () => {
+    it('renders a direct link per changed docs page after a successful trigger', () => {
+        const section = buildDocsPreviewSection({
+            triggerStatus: 'success',
+            deploymentUrl: 'https://preview.example.com',
+            deploymentId: 'deployment-123',
+            runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+            changedPaths: [
+                'docs/published/docs/data/test-accounts.mdx',
+                'docs/published/handbook/engineering/developing-locally.md',
+                'docs/published/docs/images/diagram.png',
+            ],
+            now: new Date('2026-07-14T10:00:00Z'),
+        })
+        assert.equal(section.status, 'info')
+        assert.match(section.body, /Jul 14, 2026/)
+        // Each markdown page links to its own preview URL, not the site root.
+        assert.match(
+            section.body,
+            /\[`\/docs\/data\/test-accounts`\]\(https:\/\/preview\.example\.com\/docs\/data\/test-accounts\)/
+        )
+        assert.match(
+            section.body,
+            /\[`\/handbook\/engineering\/developing-locally`\]\(https:\/\/preview\.example\.com\/handbook\/engineering\/developing-locally\)/
+        )
+        // Non-page assets are not listed, and the old hardcoded hint is gone.
+        assert.doesNotMatch(section.body, /diagram\.png/)
+        assert.doesNotMatch(section.body, /Open the preview at/)
+    })
+
+    it('caps the docs page list on a large PR', () => {
+        const changedPaths = Array.from({ length: 30 }, (_, i) => `docs/published/docs/page-${i}.md`)
+        const section = buildDocsPreviewSection({
+            triggerStatus: 'success',
+            deploymentUrl: 'https://preview.example.com',
+            deploymentId: 'deployment-123',
+            runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+            changedPaths,
+            now: new Date('2026-07-14T10:00:00Z'),
+        })
+        assert.match(section.body, /…and 5 more changed pages\./)
+    })
+
+    it('falls back to the preview root when no docs pages changed', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',
             deploymentUrl: 'https://preview.example.com',
@@ -71,8 +113,7 @@ describe('CI report section builders', () => {
             now: new Date('2026-07-14T10:00:00Z'),
         })
         assert.equal(section.status, 'info')
-        assert.match(section.body, /https:\/\/preview\.example\.com/)
-        assert.match(section.body, /Jul 14, 2026/)
+        assert.match(section.body, /\[Open preview\]\(https:\/\/preview\.example\.com\)/)
     })
 
     it('links to workflow logs when the docs preview trigger fails', () => {

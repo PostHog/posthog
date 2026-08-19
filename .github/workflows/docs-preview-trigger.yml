@@ -77,6 +77,22 @@ jobs:
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
               run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
 
+            - name: Collect changed docs pages
+              id: changed-docs
+              if: github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  CHANGED=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename' \
+                    | grep '^docs/published/' || true)
+                  {
+                    echo 'changed_docs<<DOCS_EOF'
+                    echo "$CHANGED"
+                    echo 'DOCS_EOF'
+                  } >> "$GITHUB_OUTPUT"
+
             - name: Post docs preview to CI report
               if: github.event_name == 'pull_request'
               env:
@@ -84,4 +100,5 @@ jobs:
                   TRIGGER_STATUS: ${{ steps.trigger-build.outputs.trigger_status }}
                   DEPLOYMENT_URL: ${{ steps.trigger-build.outputs.deployment_url }}
                   DEPLOYMENT_ID: ${{ steps.trigger-build.outputs.deployment_id }}
+                  CHANGED_DOCS: ${{ steps.changed-docs.outputs.changed_docs }}
               run: node .github/scripts/post-docs-preview-section.mjs
