@@ -32,6 +32,24 @@ def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
     )
 
 
+def linked_flag_ids_for_project(project_id: int) -> set[int]:
+    """Flag ids that any team in the project gates session recording on.
+
+    Resolves the whole project at once so a flag list does not run a containment subquery per row.
+    """
+    linked_flags = (
+        Team.objects.filter(project_id=project_id)
+        .exclude(session_recording_linked_flag__isnull=True)
+        .values_list("session_recording_linked_flag", flat=True)
+    )
+    # Only an integer id counts, matching the JSONB containment check in teams_linking_flag.
+    return {
+        linked_flag["id"]
+        for linked_flag in linked_flags
+        if isinstance(linked_flag, dict) and isinstance(linked_flag.get("id"), int)
+    }
+
+
 def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:
     """Rewrite the stored key on a team's replay link, leaving teams that no longer need it alone."""
     # Locks the row and re-reads inside the lock, rather than trusting `team`'s in-memory copy:

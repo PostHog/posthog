@@ -22,6 +22,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { registerChunkReloadAttempt, resetChunkReloadGuard } from 'lib/utils/chunkReloadGuard'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
@@ -238,7 +239,6 @@ export interface sceneLogicValues {
     exportedScenes: Record<string, SceneExport<SceneProps>>
     hashParams: Record<string, any>
     homepage: SceneTab | null
-    lastReloadAt: number | null
     lastSetScenePayload: Record<string, any>
     loadingScene: string | null
     sceneConfig: SceneConfig | null
@@ -470,13 +470,6 @@ export const sceneLogic = kea<sceneLogicType>([
             {
                 loadScene: (_, { sceneId }) => sceneId,
                 setScene: () => null,
-            },
-        ],
-        lastReloadAt: [
-            null as number | null,
-            { persist: true },
-            {
-                reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
         lastSetScenePayload: [
@@ -904,16 +897,14 @@ export const sceneLogic = kea<sceneLogicType>([
                     importedScene = await retryImport(() => importScene())
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
-                        // Reloaded once in the last 20 seconds and now reloading again? Show network error
-                        if (
-                            values.lastReloadAt &&
-                            parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
-                        ) {
-                            console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
-                        } else {
+                        // Already reloaded once for this failure? Show the network error instead
+                        // of looping. Counts consecutive attempts, so a slow reload cycle still trips it.
+                        if (registerChunkReloadAttempt(new Date().valueOf()).shouldReload) {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
+                        } else {
+                            console.error('App assets regenerated. Showing error page.')
+                            actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
                         }
                         return
                     }
@@ -921,6 +912,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
+                // The chunk loaded, so a later transient failure is allowed one reload again.
+                resetChunkReloadGuard()
                 if (values.sceneId !== sceneId) {
                     breakpoint()
                 }

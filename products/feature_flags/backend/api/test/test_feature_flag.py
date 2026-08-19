@@ -4372,7 +4372,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(16, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4388,9 +4388,41 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ).json()
 
         # Query count should stay constant regardless of flag count (no N+1)
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(16, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_getting_flags_with_cohort_filters_is_not_nplus1(self) -> None:
+        def create_flag_with_cohort(index: int) -> None:
+            cohort = Cohort.objects.create(team=self.team, name=f"cohort_{index}")
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={
+                    "name": f"cohort flag {index}",
+                    "key": f"cohort_flag_{index}",
+                    "filters": {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]},
+                },
+                format="json",
+            )
+
+        create_flag_with_cohort(0)
+        with self.assertNumQueries(FuzzyInt(16, 21)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            create_flag_with_cohort(i)
+
+        # Each flag references a distinct cohort, but the list primes cohort names in one query,
+        # so the count must not grow with flag count.
+        with self.assertNumQueries(FuzzyInt(16, 21)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            results = response.json()["results"]
+            self.assertEqual(len(results), 5)
+            for flag in results:
+                cohort_prop = flag["filters"]["groups"][0]["properties"][0]
+                self.assertTrue(cohort_prop["cohort_name"].startswith("cohort_"))
 
     def test_getting_flags_with_no_creator(self) -> None:
         FeatureFlag.objects.all().delete()
@@ -4412,7 +4444,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(16, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4451,7 +4483,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(17, 22)):
+        with self.assertNumQueries(FuzzyInt(15, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4475,7 +4507,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(17, 24)):
+        with self.assertNumQueries(FuzzyInt(15, 24)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
@@ -4526,7 +4558,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 22)):
+        with self.assertNumQueries(FuzzyInt(13, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
