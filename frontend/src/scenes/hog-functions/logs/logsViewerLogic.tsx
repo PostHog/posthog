@@ -571,11 +571,19 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     await breakpoint(10)
 
                     actions.clearHiddenLogs()
+                    let failed = false
                     const results = await loadGroupedLogs(values.logEntryParams).catch((e) => {
                         lemonToast.error('Error loading logs ' + e.message)
+                        failed = true
                         return []
                     })
                     await breakpoint(10)
+
+                    // On failure, keep the logs already on screen. Returning [] would publish an empty
+                    // success value, wiping the table and stopping the live tail instead of just toasting.
+                    if (failed) {
+                        return values.groupedLogs
+                    }
 
                     return groupLogs(results)
                 },
