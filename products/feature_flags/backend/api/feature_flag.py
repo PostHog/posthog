@@ -114,7 +114,7 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
-from products.feature_flags.backend.session_recording_links import teams_linking_flag
+from products.feature_flags.backend.session_recording_links import linked_flag_ids_for_project, teams_linking_flag
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.feature_flags.backend.version_history import (
@@ -1289,6 +1289,10 @@ class FeatureFlagSerializer(
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
         """Check if this feature flag is used in any team's session recording linked flag setting."""
+        # The list resolves the linked flags once for the page and passes them via context.
+        replay_linked_flag_ids = self.context.get("replay_linked_flag_ids")
+        if replay_linked_flag_ids is not None:
+            return feature_flag.id in replay_linked_flag_ids
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
             return bool(feature_flag.is_used_in_replay_settings_annotation)
@@ -2343,20 +2347,14 @@ class FeatureFlagSerializer(
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # Get all cohort IDs used in the feature flag
-        cohort_ids = set()
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_ids.add(cohort_prop.get("value"))
+        cohort_ids = cohort_ids_in_filters(filters)
 
-        # Use prefetched cohorts if available
-        if hasattr(instance.team, "available_cohorts"):
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in instance.team.available_cohorts
-                if str(cohort.id) in map(str, cohort_ids)
-            }
+        # In the list a request-scoped resolver batches these lookups; otherwise query this
+        # flag's cohorts directly.
+        cohort_name_resolver = self.context.get("cohort_name_resolver")
+        if cohort_name_resolver is not None:
+            cohorts = cohort_name_resolver.resolve(cohort_ids)
         else:
-            # Fallback to database query if cohorts weren't prefetched
             cohorts = {
                 str(cohort.id): cohort.name
                 for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
@@ -2983,6 +2981,49 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+def cohort_ids_in_filters(filters: dict | None) -> set:
+    """Collect the cohort ids referenced by a flag's release conditions."""
+    ids = set()
+    for group in (filters or {}).get("groups", []):
+        for prop in group.get("properties", []):
+            if prop.get("type") == PropertyFilterType.COHORT and prop.get("value") is not None:
+                ids.add(prop.get("value"))
+    return ids
+
+
+class CohortNameResolver:
+    """Resolves cohort names for the flag list without loading every cohort on the team.
+
+    Primed once with the ids referenced across the whole page, it answers each flag from cache
+    with no further queries, so the list costs one small lookup instead of one query over the
+    whole cohort set.
+    """
+
+    def __init__(self, project_id: int) -> None:
+        self._project_id = project_id
+        self._names: dict[str, str] = {}
+        self._queried: set[str] = set()
+
+    def prime(self, cohort_ids: set) -> None:
+        """Fetch the names of any not-yet-seen ids in a single query."""
+        wanted = {str(cohort_id) for cohort_id in cohort_ids}
+        missing = wanted - self._queried
+        numeric_missing = [cohort_id for cohort_id in missing if cohort_id.isdigit()]
+        if numeric_missing:
+            for cohort in Cohort.objects.filter(id__in=numeric_missing, team__project_id=self._project_id).only(
+                "id", "name"
+            ):
+                self._names[str(cohort.id)] = cohort.name
+        # Remember every attempted id so an unresolved one is never queried again.
+        self._queried |= missing
+
+    def resolve(self, cohort_ids: set) -> dict[str, str]:
+        self.prime(cohort_ids)
+        return {
+            str(cohort_id): self._names[str(cohort_id)] for cohort_id in cohort_ids if str(cohort_id) in self._names
+        }
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -3063,21 +3104,25 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
-        # so the annotated and unannotated paths agree. Containment never casts, so a
-        # non-integer id in the JSON yields False instead of erroring the query.
-        queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Exists(
-                Team.objects.filter(
-                    project_id=OuterRef("team__project_id"),
-                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
+        if self.action != "list":
+            # Retrieving a single flag can afford the correlated subquery. The list resolves the
+            # same value once for the whole page via `replay_linked_flag_ids` in the serializer
+            # context, so it does not annotate per row.
+            # Containment never casts, so a non-integer id in the JSON yields False instead of erroring.
+            queryset = queryset.annotate(
+                is_used_in_replay_settings_annotation=Exists(
+                    Team.objects.filter(
+                        project_id=OuterRef("team__project_id"),
+                        session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
+                    )
                 )
             )
-        )
-
-        if self.action == "list":
+        else:
             queryset = (
                 queryset.filter(deleted=False)
+                # Join the team so serializing the page does not load it per flag; the list no
+                # longer prefetches team via cohorts.
+                .select_related("team")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -3087,13 +3132,6 @@ class FeatureFlagViewSet(
                             "targeting_flag",
                             "internal_targeting_flag",
                         ).prefetch_related("actions"),
-                    )
-                )
-                .prefetch_related(
-                    Prefetch(
-                        "team__cohort_set",
-                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                        to_attr="available_cohorts",
                     )
                 )
             )
@@ -3118,6 +3156,27 @@ class FeatureFlagViewSet(
             queryset = queryset.order_by("-created_at")
 
         return queryset.select_related("created_by", "last_modified_by")
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        # Stash the page so get_serializer_context can prime the cohort resolver from it.
+        self._paginated_flags = page
+        return page
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action == "list":
+            # Resolve the per-row work once for the whole page instead of per flag: the set of
+            # flags linked in replay settings, and a cohort-name resolver primed from the page's
+            # referenced cohort ids in a single query.
+            context["replay_linked_flag_ids"] = linked_flag_ids_for_project(self.project_id)
+            resolver = CohortNameResolver(project_id=self.project_id)
+            page_cohort_ids: set = set()
+            for flag in getattr(self, "_paginated_flags", None) or []:
+                page_cohort_ids |= cohort_ids_in_filters(flag.filters)
+            resolver.prime(page_cohort_ids)
+            context["cohort_name_resolver"] = resolver
+        return context
 
     @extend_schema(
         parameters=[

@@ -5,7 +5,7 @@ import { Component, type ReactNode } from 'react'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
+const RELOAD_GUARD_KEY = 'posthog-chunk-reload-guard-lazy'
 
 class TestErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
     override state: { error: Error | null } = { error: null }
@@ -60,12 +60,14 @@ describe('ChunkLoadErrorBoundary', () => {
 
         expect(reload).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Failed to fetch dynamically imported module')).not.toBeInTheDocument()
-        expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
+        expect(JSON.parse(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? '{}').count).toBe(1)
     })
 
-    it('surfaces repeated chunk errors instead of reloading in a loop', () => {
+    it('surfaces the second chunk error even when the reload cycle took longer than 20s', () => {
         const reload = jest.fn()
-        window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+        // A prior reload 30s ago - past the old 20s window but still within one slow cycle.
+        // The counter must surface the error here rather than reload into a loop.
+        window.localStorage.setItem(RELOAD_GUARD_KEY, JSON.stringify({ count: 1, at: Date.now() - 30_000 }))
 
         render(
             <TestErrorBoundary>
