@@ -127,6 +127,7 @@ taking into consideration the survey question being asked.
                 },
             ],
             user=f"{instance_region}/{user.pk}",
+            posthog_privacy_mode=True,
             posthog_distinct_id=user.distinct_id,
             posthog_properties={
                 "ai_product": "surveys",

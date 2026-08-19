@@ -245,6 +245,7 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
                     },
                 },
             ),
+            posthog_privacy_mode=True,
             posthog_distinct_id=f"team-{team_id}",
             posthog_properties={
                 "ai_product": "logs",

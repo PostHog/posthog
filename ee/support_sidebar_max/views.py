@@ -277,6 +277,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                 system=system_prompt,
                 messages=messages,
                 extra_headers=headers,
+                posthog_privacy_mode=True,
                 posthog_distinct_id=distinct_id,
                 posthog_properties={
                     "ai_product": "support_sidebar_max",

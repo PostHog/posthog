@@ -54,6 +54,7 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": properties}],
             user="ph/csp/explain",
+            posthog_privacy_mode=True,
             posthog_distinct_id=request.user.distinct_id,
             posthog_properties={
                 "ai_product": "csp_reporting",

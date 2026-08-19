@@ -160,6 +160,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         ).responses.create(  # type: ignore
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
             posthog_properties={
                 "ai_product": "user_interviews",
@@ -242,6 +243,7 @@ Map the speakers in the following transcript:
         summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(  # type: ignore
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
             posthog_properties={
                 "ai_product": "user_interviews",

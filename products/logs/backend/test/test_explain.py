@@ -106,6 +106,7 @@ class TestExplainLogWithOpenAI:
                 "team_id": 1,
             }
             assert mock_client.chat.completions.create.call_args.kwargs["posthog_distinct_id"] == "team-1"
+            assert mock_client.chat.completions.create.call_args.kwargs["posthog_privacy_mode"] is True
 
     @pytest.mark.asyncio
     async def test_empty_response_raises_validation_error(self, sample_log_data):

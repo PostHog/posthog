@@ -61,6 +61,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
             posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
         ).responses.create(
             model="gpt-4.1-mini",
+            posthog_privacy_mode=True,
             posthog_distinct_id=self._user.distinct_id,
             posthog_properties={
                 "ai_product": "user_interviews",

@@ -64,3 +64,4 @@ class AnalyticsContext:
     properties: dict[str, Any] | None = None
     groups: dict[str, Any] | None = None
     capture: bool = True
+    privacy_mode: bool = False
