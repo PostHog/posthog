@@ -85,7 +85,7 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
@@ -140,7 +140,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertIsNone(channel.github_integration_id)
         self.assertEqual(channel.repositories, [])
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):
         list_repositories.return_value = [
             {"full_name": "posthog/posthog"},
@@ -167,7 +167,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(created.json()["repositories"], ["posthog/posthog", "posthog/posthog-js"])
         self.assertEqual(created.json()["github_integration"], integration.id)
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_project_member_can_configure_or_rename_public_channel(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
