@@ -53,7 +53,7 @@ function task(overrides: Partial<Task>): Task {
 const FEED: TaskFeed = {
   id: "feed-1",
   name: "Billing work",
-  query: "billing",
+  query: "billing -status:failed pr:any",
   createdAt: "2026-07-01T08:00:00Z",
 };
 
@@ -69,7 +69,8 @@ const results: Task[] = [
     latest_run: run({
       id: "run-b1",
       task: "task-billing-1",
-      status: "started",
+      status: "in_progress",
+      output: { pr_url: "https://github.com/example-org/webapp/pull/62" },
     }),
   }),
   task({
@@ -77,7 +78,11 @@ const results: Task[] = [
     title: "Add billing period picker to invoices",
     created_at: "2026-07-01T09:30:00Z",
     updated_at: "2026-07-01T09:45:00Z",
-    latest_run: run({ id: "run-b2", task: "task-billing-2" }),
+    latest_run: run({
+      id: "run-b2",
+      task: "task-billing-2",
+      output: { pr_url: "https://github.com/example-org/webapp/pull/58" },
+    }),
   }),
 ];
 

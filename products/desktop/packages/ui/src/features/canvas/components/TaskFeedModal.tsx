@@ -2,20 +2,28 @@ import { XIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
+  FeedQueryChips,
+  FeedQueryInput,
+} from "@posthog/ui/features/canvas/components/FeedQueryInput";
+import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+import {
   type TaskFeed,
   useTaskFeedsStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
+import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { track } from "@posthog/ui/shell/analytics";
 import { Dialog, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
 const MAX_FEED_NAME_LENGTH = 80;
-const MAX_FEED_QUERY_LENGTH = 512;
+const PREVIEW_DEBOUNCE_MS = 400;
 
 /**
  * Create or edit a custom feed: a name plus the query its cards come from.
- * Pass `feed` to edit; without one the modal creates and hands the new feed
- * to `onCreated` so the caller can open it right away.
+ * The query editor autocompletes filter tokens and previews the match count
+ * live, so a bad query is visible before it is saved. Pass `feed` to edit;
+ * without one the modal creates and hands the new feed to `onCreated` so the
+ * caller can open it right away.
  */
 export function TaskFeedModal({
   open,
@@ -46,6 +54,15 @@ export function TaskFeedModal({
   const trimmedQuery = query.trim();
   const canSubmit = trimmedName !== "" && trimmedQuery !== "";
 
+  // Live preview: what the query matches right now, debounced so each
+  // keystroke doesn't become a request.
+  const { debounced: previewQuery, isPending } = useDebouncedValue(
+    open ? trimmedQuery : "",
+    PREVIEW_DEBOUNCE_MS,
+  );
+  const preview = useTaskFeedResults(previewQuery);
+  const previewReady = !isPending && !preview.isLoading && previewQuery !== "";
+
   const submit = () => {
     if (!canSubmit) return;
     if (feed) {
@@ -67,13 +84,6 @@ export function TaskFeedModal({
       onCreated?.(created);
     }
     onOpenChange(false);
-  };
-
-  const onFieldKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      submit();
-    }
   };
 
   return (
@@ -113,7 +123,12 @@ export function TaskFeedModal({
             placeholder="e.g. Billing work"
             maxLength={MAX_FEED_NAME_LENGTH}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={onFieldKeyDown}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
           />
         </Flex>
 
@@ -125,19 +140,25 @@ export function TaskFeedModal({
           >
             Query
           </Text>
-          <TextField.Root
+          <FeedQueryInput
             id="task-feed-query"
-            size="3"
             value={query}
-            placeholder="e.g. billing"
-            maxLength={MAX_FEED_QUERY_LENGTH}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onFieldKeyDown}
+            onChange={setQuery}
+            onSubmit={submit}
+            placeholder="e.g. billing created-by:@me -status:failed"
           />
+          <FeedQueryChips query={trimmedQuery} issues={preview.issues} />
           <Text className="text-gray-9 text-sm">
-            The feed shows tasks whose title, description, or number match this
-            text.
+            Free text searches title, description, and number. Add filters like
+            created-by:, space:, repo:, status:, or negate with -status:failed.
           </Text>
+          {previewReady && (
+            <Text className="text-gray-9 text-sm">
+              {preview.tasks.length}{" "}
+              {preview.tasks.length === 1 ? "task matches" : "tasks match"}{" "}
+              right now
+            </Text>
+          )}
         </Flex>
 
         <Flex gap="3" mt="5" justify="end">

@@ -1,0 +1,120 @@
+import { Theme } from "@radix-ui/themes";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
+  useOrgMembers: () => ({
+    members: [
+      {
+        id: 1,
+        uuid: "uuid-shy",
+        email: "shy@example.com",
+        first_name: "Shy",
+        last_name: "Levi",
+      },
+      {
+        id: 2,
+        uuid: "uuid-moshe",
+        email: "moshe@example.com",
+        first_name: "Moshe",
+        last_name: "Katz",
+      },
+    ],
+    isLoading: false,
+    isError: false,
+    isComplete: true,
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: () => ({
+    channels: [
+      {
+        id: "space-app",
+        name: "desktop app",
+        channelType: "public",
+        starred: false,
+        repositories: ["example-org/webapp"],
+        createdBy: null,
+      },
+    ],
+    isLoading: false,
+  }),
+}));
+
+import { FeedQueryChips, FeedQueryInput } from "./FeedQueryInput";
+
+function Harness({ initial = "" }: { initial?: string }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <Theme>
+      <FeedQueryInput aria-label="Query" value={value} onChange={setValue} />
+      <output>{value}</output>
+    </Theme>
+  );
+}
+
+describe("FeedQueryInput", () => {
+  it("completes a key, then a teammate, into one token", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByRole("textbox");
+
+    await user.type(input, "cre");
+    await user.click(screen.getByRole("option", { name: /created-by:/ }));
+    // The key completion keeps the list open on its values.
+    await user.type(input, "sh");
+    await user.click(
+      screen.getByRole("option", { name: /Shy Levi shy@example.com/ }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("created-by:shy");
+  });
+
+  it("keeps the negation prefix through a completion", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByRole("textbox");
+
+    await user.type(input, "-sta");
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByRole("status").textContent).toMatch(/^-status:/);
+  });
+
+  it("quotes a suggested value that carries spaces", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="space:" />);
+    const input = screen.getByRole("textbox");
+
+    await user.click(input);
+    await user.click(screen.getByRole("option", { name: "desktop app" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent('space:"desktop app"');
+  });
+});
+
+describe("FeedQueryChips", () => {
+  it("renders text, tokens, and negation", () => {
+    render(
+      <Theme>
+        <FeedQueryChips query="billing -status:failed created-by:shy" />
+      </Theme>,
+    );
+    expect(screen.getByText("“billing”")).toBeTruthy();
+    expect(screen.getByText("failed")).toBeTruthy();
+    expect(screen.getByText("not")).toBeTruthy();
+    expect(screen.getByText("shy")).toBeTruthy();
+  });
+
+  it("surfaces an unknown value as an error line", () => {
+    render(
+      <Theme>
+        <FeedQueryChips query="status:sideways" />
+      </Theme>,
+    );
+    expect(screen.getByText(/Unknown status "sideways"/)).toBeTruthy();
+  });
+});

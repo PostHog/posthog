@@ -108,6 +108,20 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
+// The feed modal's live match-count preview and the query input's teammate
+// suggestions reach react-query and the auth stack, neither of which this
+// file mounts.
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
+  useTaskFeedResults: () => ({ tasks: [], isLoading: false, issues: [] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
+  useOrgMembers: () => ({
+    members: [],
+    isLoading: false,
+    isError: false,
+    isComplete: true,
+  }),
+}));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
   useRouterState: () => "/website",

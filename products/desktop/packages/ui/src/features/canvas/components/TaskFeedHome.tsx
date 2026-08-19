@@ -8,6 +8,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelFeedView } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { FeedQueryChips } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
@@ -31,7 +32,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const navigate = useNavigate();
   const feed = useTaskFeedsStore((s) => s.feeds.find((f) => f.id === feedId));
   const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
-  const { tasks, isLoading } = useTaskFeedResults(feed?.query);
+  const { tasks, isLoading, issues } = useTaskFeedResults(feed?.query);
   const [editOpen, setEditOpen] = useState(false);
 
   // The id alone, not the feed object: edits replace the object, and an edit
@@ -94,20 +95,19 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   // Pinned above the cards, sharing their width: what the feed is showing and
   // the two things you can do to it. Doubles as the header of the empty state.
   const queryBar = (
-    <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
-      <MagnifyingGlassIcon size={14} className="shrink-0 text-(--gray-9)" />
-      <span className="min-w-0 flex-1 truncate text-(--gray-11) text-sm">
-        Tasks matching{" "}
-        <span className="font-medium text-foreground">
-          &ldquo;{feed.query}&rdquo;
-        </span>
+    <div className="mb-2 flex w-full items-start gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
+      <MagnifyingGlassIcon
+        size={14}
+        className="mt-1.5 shrink-0 text-(--gray-9)"
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <FeedQueryChips query={feed.query} issues={issues} />
         {!isLoading && (
-          <span className="text-(--gray-9)">
-            {" "}
-            · {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+          <span className="text-(--gray-9) text-xs">
+            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
           </span>
         )}
-      </span>
+      </div>
       <Button
         variant="outline"
         size="xs"

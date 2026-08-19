@@ -244,6 +244,10 @@ export interface TaskListOptions {
   channel?: string;
   /** Case-insensitive substring match over task title, description, and number. */
   search?: string;
+  /** Filter by the status of the task's most recent run. */
+  status?: string;
+  /** List only archived tasks; the server excludes them by default. */
+  archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
   /**
@@ -2360,6 +2364,14 @@ export class PostHogAPIClient {
 
     if (options?.search) {
       params.search = options.search;
+    }
+
+    if (options?.status) {
+      params.status = options.status;
+    }
+
+    if (options?.archived) {
+      params.archived = "true";
     }
 
     if (options?.ordering) {
