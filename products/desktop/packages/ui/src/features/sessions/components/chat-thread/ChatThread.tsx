@@ -75,7 +75,6 @@ import {
   flattenTurnRows,
   keyTurnRows,
   nextThreadFollowState,
-  OLDER_HISTORY_LOAD_THRESHOLD_PX,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
   sampleThreadScroll,
@@ -946,63 +945,6 @@ function ThreadAutoFollow({
 }
 
 /**
- * Older-history paging for the non-virtualized body: fires one page load per gesture when the
- * reader scrolls near the top of the loaded window, plus once when the viewport is already parked
- * there (a viewport at scrollTop 0 produces no scroll events). Once a loaded page pushes the row
- * count past the virtualization threshold, the ratchet flips and the virtualized body's own
- * loader takes over.
- */
-function ThreadOlderHistoryLoader({
-  hasOlderHistory,
-  isLoadingOlderHistory,
-  onLoadOlderHistory,
-}: {
-  hasOlderHistory: boolean;
-  isLoadingOlderHistory: boolean;
-  onLoadOlderHistory?: () => void;
-}) {
-  const probeRef = useRef<HTMLSpanElement>(null);
-  const armedRef = useRef(false);
-  const onLoadRef = useRef(onLoadOlderHistory);
-  useEffect(() => {
-    onLoadRef.current = onLoadOlderHistory;
-  }, [onLoadOlderHistory]);
-
-  useEffect(() => {
-    armedRef.current =
-      hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
-    if (!armedRef.current) return;
-    const viewport = probeRef.current
-      ?.closest('[data-slot="chat-message-scroller"]')
-      ?.querySelector('[data-slot="chat-message-scroller-viewport"]');
-    if (!(viewport instanceof HTMLElement)) return;
-    const maybeLoad = () => {
-      if (!armedRef.current) return;
-      if (viewport.scrollTop > OLDER_HISTORY_LOAD_THRESHOLD_PX) return;
-      armedRef.current = false;
-      onLoadRef.current?.();
-    };
-    const id = window.setTimeout(maybeLoad, 250);
-    viewport.addEventListener("scroll", maybeLoad, { passive: true });
-    return () => {
-      window.clearTimeout(id);
-      viewport.removeEventListener("scroll", maybeLoad);
-    };
-  }, [hasOlderHistory, isLoadingOlderHistory, onLoadOlderHistory]);
-
-  return (
-    <>
-      <span ref={probeRef} className="hidden" aria-hidden="true" />
-      {isLoadingOlderHistory && (
-        <div className="-translate-x-1/2 pointer-events-none absolute top-2 left-1/2 z-10 rounded-full border border-(--gray-5) bg-(--gray-2) px-3 py-1 text-(--gray-11) text-xs">
-          Loading earlier messages…
-        </div>
-      )}
-    </>
-  );
-}
-
-/**
  * Keyboard message navigation (Alt/Option+Up/Down) and the Cmd/Ctrl+J jump picker. Rendered inside
  * `ChatMessageScrollerProvider` so it can call `scrollToMessage` from the engine — the same primitive
  * `MessageMinimap` uses to jump back to an earlier turn.
@@ -1151,9 +1093,6 @@ function ThreadScrollBody({
   onUserInteract,
   resumeStateRef,
   autoFollowRef,
-  hasOlderHistory = false,
-  isLoadingOlderHistory = false,
-  onLoadOlderHistory,
 }: {
   items: ConversationItem[];
   rows: TurnRow[];
@@ -1166,9 +1105,6 @@ function ThreadScrollBody({
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
   autoFollowRef: RefObject<ThreadFollowState>;
-  hasOlderHistory?: boolean;
-  isLoadingOlderHistory?: boolean;
-  onLoadOlderHistory?: () => void;
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
@@ -1183,11 +1119,6 @@ function ThreadScrollBody({
     >
       <MessageMinimap items={items} />
       <ThreadAutoFollow items={items} followRef={autoFollowRef} />
-      <ThreadOlderHistoryLoader
-        hasOlderHistory={hasOlderHistory}
-        isLoadingOlderHistory={isLoadingOlderHistory}
-        onLoadOlderHistory={onLoadOlderHistory}
-      />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -1313,7 +1244,11 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
-  hasOlderHistory?: boolean;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
+   * thread renders windowed regardless of length, because only that body survives a prepend.
+   */
+  olderHistoryCursor?: number;
   isLoadingOlderHistory?: boolean;
   onLoadOlderHistory?: () => void;
 }
@@ -1414,7 +1349,7 @@ function ChatThreadRenderer({
   footerState,
   hasPendingPermission,
   promptRecallRef,
-  hasOlderHistory,
+  olderHistoryCursor = 0,
   isLoadingOlderHistory,
   onLoadOlderHistory,
 }: ChatThreadRendererProps) {
@@ -1445,11 +1380,15 @@ function ChatThreadRenderer({
   // stays there for the life of this mount (see CHAT_THREAD_VIRTUALIZATION_THRESHOLD). Long
   // sessions start virtualized from the first render; a live session flips once mid-stream,
   // resuming from the scroll state the non-virtualized body recorded.
+  //
+  // A pageable transcript is windowed however short it is: prepending older history shifts the
+  // non-virtualized body's ordinal keys, which rebinds mounted rows to older content and loses the
+  // reader's place (see {@link keyTurnRows}).
   const flatCount = useMemo(() => countFlatRows(rows), [rows]);
-  const [virtualized, setVirtualized] = useState(
-    () => flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
-  );
-  if (!virtualized && flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD) {
+  const needsWindowing =
+    flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD || olderHistoryCursor > 0;
+  const [virtualized, setVirtualized] = useState(() => needsWindowing);
+  if (!virtualized && needsWindowing) {
     setVirtualized(true);
   }
   const flatRows = useMemo(
@@ -1613,7 +1552,7 @@ function ChatThreadRenderer({
                 footer={footer}
                 renderNav={renderNav}
                 resumeRef={threadResumeRef}
-                hasOlderHistory={hasOlderHistory}
+                olderHistoryCursor={olderHistoryCursor}
                 isLoadingOlderHistory={isLoadingOlderHistory}
                 onLoadOlderHistory={onLoadOlderHistory}
               />
@@ -1628,9 +1567,6 @@ function ChatThreadRenderer({
                   onUserInteract={clearKeyboardFocus}
                   footer={footer}
                   resumeStateRef={threadResumeRef}
-                  hasOlderHistory={hasOlderHistory}
-                  isLoadingOlderHistory={isLoadingOlderHistory}
-                  onLoadOlderHistory={onLoadOlderHistory}
                 />
                 {renderNav()}
               </>

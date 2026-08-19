@@ -1985,6 +1985,70 @@ describe("SessionService", () => {
       );
     });
 
+    it("follows the log past a probe count the run grew behind", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      // The probe sees 30 entries; terminal log persistence lands 10 more while
+      // the tail page is in flight.
+      const chainEntries = Array.from({ length: 40 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+        notification: { method: `entry-${i}` },
+      }));
+      let probed = false;
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockImplementation(
+        async (
+          _taskId: string,
+          _runId: string,
+          options: { limit: number; offset?: number },
+        ) => {
+          const offset = options.offset ?? 0;
+          const visible = probed ? chainEntries.length : 30;
+          probed = true;
+          const entries = chainEntries.slice(offset, offset + options.limit);
+          return {
+            entries,
+            hasMore: offset + entries.length < visible,
+            matchingCount: visible,
+          };
+        },
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        undefined,
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "completed",
+      );
+
+      await vi.waitFor(() => {
+        expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            transcriptWindowStart: 0,
+            cloudTranscriptEntryCount: 40,
+          }),
+        );
+      });
+    });
+
     it("falls back to the sequential fetch when the server omits the matching count", async () => {
       const service = getSessionService();
       const session = createMockSession({

@@ -99,7 +99,8 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
-  hasOlderHistory?: boolean;
+  /** See `SharedChatThreadProps.olderHistoryCursor`. */
+  olderHistoryCursor?: number;
   isLoadingOlderHistory?: boolean;
   onLoadOlderHistory?: () => void;
 }

@@ -258,9 +258,8 @@ export function SessionView({
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
-  const hasOlderHistory = useSessionSelector(
-    taskId,
-    (session) => isCloud && (session?.transcriptWindowStart ?? 0) > 0,
+  const olderHistoryCursor = useSessionSelector(taskId, (session) =>
+    isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
   );
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
@@ -736,7 +735,7 @@ export function SessionView({
                   compact={compact}
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
-                  hasOlderHistory={hasOlderHistory}
+                  olderHistoryCursor={olderHistoryCursor}
                   isLoadingOlderHistory={isLoadingOlderHistory}
                   onLoadOlderHistory={handleLoadOlderHistory}
                 />

@@ -6595,17 +6595,24 @@ export class SessionService {
       const tailStart = Math.max(0, probe.matchingCount - INITIAL_TAIL_WINDOW);
       const tail: StoredLogEntry[] = [];
       let offset = tailStart;
-      while (offset < probe.matchingCount) {
+      // The probe's count is a snapshot, and a run whose log is still being
+      // persisted grows behind it. Following the server's own end-of-log signal
+      // as well keeps those newest entries from going missing until a restart —
+      // older-history paging only moves backward, so nothing else recovers them.
+      let chainEnd = probe.matchingCount;
+      while (offset < chainEnd && tail.length < CLOUD_HYDRATION_MAX_ENTRIES) {
         const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
-          limit: Math.min(
-            SESSION_LOGS_MAX_PAGE_SIZE,
-            probe.matchingCount - offset,
-          ),
+          limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, chainEnd - offset),
           offset,
         });
         if (page.entries.length === 0) break;
         tail.push(...page.entries);
         offset += page.entries.length;
+        if (page.matchingCount !== null && page.matchingCount > chainEnd) {
+          chainEnd = page.matchingCount;
+        } else if (offset >= chainEnd && page.hasMore) {
+          chainEnd = offset + SESSION_LOGS_MAX_PAGE_SIZE;
+        }
       }
       const chainTotal = tailStart + tail.length;
       if (tailStart > 0) {
