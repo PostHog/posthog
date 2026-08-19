@@ -35,7 +35,7 @@ high volume, `exploring-llm-clusters`.
 | Tool                            | Purpose                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------ |
 | `posthog:query-llm-traces-list` | List candidate traces — filter by error, sort by a metric, scope by type |
-| `posthog:query-llm-trace`       | Read a trace in full to see what actually went wrong                     |
+| `posthog:query-llm-trace`       | Read a trace in full — pass the list's `id` as `traceId` (see Step 3)     |
 | `posthog:execute-sql`           | Find metric outliers, discover the trace taxonomy, count failure modes   |
 | `posthog:llma-evaluation-list`  | Find existing evals whose failures might reveal a new mode               |
 | `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list       |
@@ -91,7 +91,9 @@ signals you have, and combine them:
 
 ## Step 3 — Read a batch (this is the job)
 
-Open and actually read the traces you selected — plan on roughly 20–30 for a use case. This step is not
+Open and actually read the traces you selected — plan on roughly 20–30 for a use case. Read each with
+`query-llm-trace`. Set its `traceId` argument to the trace's `id` from the `query-llm-traces-list` result
+— the tool takes `traceId`, and it does not accept an `id` field. This step is not
 optional, and nothing substitutes for it. You **cannot** find silent failures with `GROUP BY` or by
 grepping outputs for "refusal" / "sorry" language, because you don't yet know the patterns to search for —
 reading is how you discover them. A clever SQL proxy that returns nothing is not evidence the failures

@@ -64,7 +64,15 @@ posthog:query-llm-traces-list
 { "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true }
 ```
 
-Then `query-llm-trace` on each. Reading ~20–30 across a use case usually surfaces the main modes.
+Then read each with `query-llm-trace`. Pass the trace's `id` from the list as the `traceId` argument —
+the tool requires `traceId`, and it does not accept an `id` field:
+
+```json
+posthog:query-llm-trace
+{ "traceId": "<id from a query-llm-traces-list result>" }
+```
+
+Reading ~20–30 across a use case usually surfaces the main modes.
 
 ## Existing-eval spikes
 
