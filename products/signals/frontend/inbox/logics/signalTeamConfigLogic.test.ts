@@ -326,26 +326,6 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.teamConfigUpdating).toBe(false)
     })
 
-    it('re-anchors the draft when the daily limit modal opens, and closes it on save', async () => {
-        await mountWith({})
-        logic.actions.setDraftMaxReportsPerDay(5)
-        logic.actions.saveDraftMaxReportsPerDay()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.isDailyLimitModalOpen).toBe(false)
-
-        // An abandoned edit must not resurface as pending when the modal reopens.
-        logic.actions.setDraftMaxReportsPerDay(99)
-        logic.actions.openDailyLimitModal()
-        expect(logic.values.isDailyLimitModalOpen).toBe(true)
-        expect(logic.values.draftMaxReportsPerDay).toBe(5)
-
-        logic.actions.setDraftMaxReportsPerDay(8)
-        logic.actions.saveDraftMaxReportsPerDay()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.maxReportsPerDay).toBe(8)
-        expect(logic.values.isDailyLimitModalOpen).toBe(false)
-    })
-
     it('treats a cleared (NaN) daily limit input as unlimited', async () => {
         await mountWith({})
         logic.actions.setDraftMaxReportsPerDay(5)

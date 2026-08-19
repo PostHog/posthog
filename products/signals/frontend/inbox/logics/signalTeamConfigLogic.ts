@@ -33,7 +33,6 @@ export interface signalTeamConfigLogicValues {
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
     draftMaxReportsPerDay: number | null
-    isDailyLimitModalOpen: boolean
     maxReportsPerDay: number | null
     patchesInFlight: number
     reportsGeneratedToday: number
@@ -51,9 +50,6 @@ export interface signalTeamConfigLogicActions {
     clearDraftBaseBranch: () => {
         value: true
     }
-    closeDailyLimitModal: () => {
-        value: true
-    }
     loadTeamConfig: () => any
     loadTeamConfigFailure: (
         error: string,
@@ -68,9 +64,6 @@ export interface signalTeamConfigLogicActions {
     ) => {
         teamConfig: SignalTeamConfig
         payload?: any
-    }
-    openDailyLimitModal: () => {
-        value: true
     }
     patchTeamConfig: (
         patch: Partial<SignalTeamConfig>,
@@ -182,8 +175,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         removeBaseBranchOverride: (repo: string) => ({ repo }),
         setDraftMaxReportsPerDay: (value: number | null) => ({ value }),
         saveDraftMaxReportsPerDay: true,
-        openDailyLimitModal: true,
-        closeDailyLimitModal: true,
     }),
     loaders(() => {
         // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
@@ -269,13 +260,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                     payload?.patch && 'max_reports_per_day' in payload.patch
                         ? (teamConfig?.max_reports_per_day ?? null)
                         : state,
-            },
-        ],
-        isDailyLimitModalOpen: [
-            false,
-            {
-                openDailyLimitModal: () => true,
-                closeDailyLimitModal: () => false,
             },
         ],
     }),
@@ -401,18 +385,10 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                     actions.setDraftMaxReportsPerDay(teamConfig?.max_reports_per_day ?? null)
                 }
             },
-            // The modal edits a copy: re-anchor the draft to the saved value on open, so a
-            // previously abandoned edit doesn't resurface as if it were pending.
-            openDailyLimitModal: () => {
-                actions.setDraftMaxReportsPerDay(values.maxReportsPerDay)
-            },
             patchTeamConfigSuccess: ({ payload }) => {
                 captureSettled(true)
                 if (payload?.clearDraftOnSuccess) {
                     actions.clearDraftBaseBranch()
-                }
-                if (payload?.patch && 'max_reports_per_day' in payload.patch) {
-                    actions.closeDailyLimitModal()
                 }
             },
             patchTeamConfigFailure: ({ error, errorObject }) => {
