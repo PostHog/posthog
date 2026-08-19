@@ -23,7 +23,6 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
@@ -259,6 +258,17 @@ export function SessionView({
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
+  const olderHistoryCursor = useSessionSelector(taskId, (session) =>
+    isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const isLoadingOlderHistory = useSessionSelector(
+    taskId,
+    (session) => session?.isLoadingOlderTranscript ?? false,
+  );
+  const handleLoadOlderHistory = useCallback(() => {
+    if (!taskId) return;
+    void sessionService.loadOlderCloudTranscript(taskId);
+  }, [sessionService, taskId]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -725,6 +735,9 @@ export function SessionView({
                   compact={compact}
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
+                  olderHistoryCursor={olderHistoryCursor}
+                  isLoadingOlderHistory={isLoadingOlderHistory}
+                  onLoadOlderHistory={handleLoadOlderHistory}
                 />
 
                 <PlanStatusBar plan={latestPlan} />
@@ -853,13 +866,7 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <>
-                              <CloudArtifactDownloads
-                                taskId={taskId}
-                                task={task}
-                              />
-                              <ContextUsageIndicator usage={contextUsage} />
-                            </>
+                            <ContextUsageIndicator usage={contextUsage} />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

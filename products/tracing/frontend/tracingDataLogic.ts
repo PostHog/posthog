@@ -206,6 +206,9 @@ export interface tracingDataLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    refreshDeferredFilters: () => {
+        value: true
+    } // tracingFiltersLogic
     setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
         chartType: import('./tracingFiltersLogic').TracingChartType
     } // tracingFiltersLogic
@@ -215,8 +218,12 @@ export interface tracingDataLogicActions {
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // tracingFiltersLogic
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        skipQuery?: boolean | undefined
+    ) => {
         filterGroup: UniversalFiltersGroup
+        skipQuery: boolean
     } // tracingFiltersLogic
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>
@@ -658,6 +665,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'setComparison',
                 'updateComparisonWindows',
                 'setFilters',
+                'refreshDeferredFilters',
             ],
             featureFlagLogic,
             ['setFeatureFlags'],
@@ -1397,7 +1405,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         setDateRange: () => actions.handleFilterChange('date_range'),
         setServiceNames: () => actions.handleFilterChange('service_names'),
-        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
+        // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.
+        setFilterGroup: ({ skipQuery }) => {
+            if (!skipQuery) {
+                actions.handleFilterChange('filter_group')
+            }
+        },
+        refreshDeferredFilters: () => actions.handleFilterChange('filter_group'),
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
         setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),

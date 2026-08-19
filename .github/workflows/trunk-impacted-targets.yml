@@ -24,7 +24,7 @@ name: Trunk impacted targets
 # secrets to code from untrusted forks ("pwn request"). The fork path
 # deliberately needs no secret, so `pull_request` is sufficient and safe.
 #
-# SECURITY: the two jobs below MUST stay separate, and `upload` MUST NOT check
+# SECURITY: `compute` and `upload` MUST stay separate. `upload` MUST NOT check
 # out or run anything from the PR. `compute` executes PR-controlled code (the
 # target script, and whatever the PR did to it), so it is kept free of secrets.
 # Splitting on a step boundary instead of a job boundary would not be enough:
@@ -133,6 +133,8 @@ jobs:
         # Talks only to Trunk. It never checks out the repo, so it needs no
         # GitHub permissions whatsoever.
         permissions: {}
+        outputs:
+            uploaded: ${{ steps.upload.outputs.uploaded }}
         env:
             IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
             RUN_ID: ${{ github.run_id }}
@@ -145,6 +147,7 @@ jobs:
             TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
         steps:
             - name: Upload impacted targets to Trunk
+              id: upload
               # Not continue-on-error: a silent failure here is exactly what keeps
               # fork PRs out of the queue, so surface upload problems loudly.
               # --retry rides out transient Trunk/network blips.
@@ -191,6 +194,7 @@ jobs:
                       -H "$auth_header" \
                       --data "$payload" \
                       --output "$RUNNER_TEMP/trunk-response.json"
+                  echo 'uploaded=true' >> "$GITHUB_OUTPUT"
 
             # Lane-cost telemetry. Runs here rather than in `compute` because
             # `compute` executes PR-controlled code and is deliberately kept free
@@ -248,3 +252,45 @@ jobs:
                       -X POST "$POSTHOG_TELEMETRY_HOST/i/v0/e/" \
                       -H "Content-Type: application/json" \
                       --data "$event" > /dev/null
+
+    comment:
+        name: Update Trunk lane in CI report
+        needs: [compute, upload]
+        if: >-
+            ${{
+                !cancelled() &&
+                needs.upload.outputs.uploaded == 'true' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                !startsWith(github.head_ref, 'trunk-merge/')
+            }}
+        concurrency:
+            group: trunk-lane-report-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Run only trusted base-branch code with the token that can edit PR comments.
+                  ref: ${{ github.event.pull_request.base.sha }}
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Post Trunk lane to CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+              run: |
+                  if [ -f .github/scripts/post-trunk-lane-section.mjs ]; then
+                      node .github/scripts/post-trunk-lane-section.mjs
+                  else
+                      echo "::warning::Skipping the Trunk lane section because the trusted base does not contain its poster."
+                  fi

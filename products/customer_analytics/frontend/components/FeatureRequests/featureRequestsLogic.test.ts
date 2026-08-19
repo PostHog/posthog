@@ -116,6 +116,54 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
     })
 
+    it('filters product areas by name without changing the available areas', () => {
+        const productArea = createdRequest.product_areas[0]
+        const dataPlatformArea = { ...productArea, id: 'area-2', name: 'Data platform' }
+        logic.actions.loadProductAreasSuccess([productArea, dataPlatformArea])
+
+        logic.actions.setProductAreaSearch(' DATA ')
+
+        expect(logic.values.filteredProductAreas).toEqual([dataPlatformArea])
+        expect(logic.values.productAreas).toEqual([productArea, dataPlatformArea])
+    })
+
+    it('keeps the product area form hidden until adding or editing an area', async () => {
+        await expectLogic(logic, () => logic.actions.openProductAreas()).toFinishAllListeners()
+
+        expect(logic.values.productAreaFormOpen).toBe(false)
+
+        logic.actions.startNewProductArea()
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBeNull()
+
+        logic.actions.closeProductAreaForm()
+        logic.actions.startEditingProductArea(createdRequest.product_areas[0])
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBe('area-1')
+    })
+
+    it('keeps a newer product area draft open when an earlier save finishes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const productArea = createdRequest.product_areas[0]
+        const secondProductArea = { ...productArea, id: 'area-2', name: 'Data platform' }
+        let resolveUpdate: (area: typeof productArea) => void = () => undefined
+        const updatePromise = new Promise<typeof productArea>((resolve) => {
+            resolveUpdate = resolve
+        })
+        jest.spyOn(generatedApi, 'featureRequestProductAreasPartialUpdate').mockReturnValue(updatePromise)
+        logic.actions.startEditingProductArea(productArea)
+        logic.actions.setProductAreaName('Updated product analytics')
+
+        logic.actions.saveProductArea()
+        logic.actions.startEditingProductArea(secondProductArea)
+        resolveUpdate({ ...productArea, name: 'Updated product analytics' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBe(secondProductArea.id)
+        expect(logic.values.productAreaName).toBe(secondProductArea.name)
+    })
+
     it('reloads request rows after a linked product area changes', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const productArea = createdRequest.product_areas[0]
@@ -141,6 +189,7 @@ describe('featureRequestsLogic', () => {
             .toFinishAllListeners()
 
         expect(logic.values.featureRequestsResponse.results).toEqual([renamedRequest])
+        expect(logic.values.productAreaFormOpen).toBe(false)
     })
 
     it('loads the requested page with 20 requests per page', async () => {
