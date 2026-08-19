@@ -74,21 +74,48 @@ export function ContextBreakdownPopover({
       )}
 
       {taskUsage && (
-        <div className="flex flex-col gap-2 border-border border-t pt-2 text-[13px]">
-          <CostRow label="Estimated cost" value={taskUsage.total_cost_usd} />
-          <CostRow label="Tokens" value={taskUsage.token_cost_usd} />
-          <CostRow label="Cloud compute" value={taskUsage.compute_cost_usd} />
+        <div className="border-border border-t pt-3">
+          <div className="overflow-hidden rounded-lg border border-border bg-muted/30">
+            <div className="flex items-end justify-between gap-6 px-3 py-2.5">
+              <span className="pb-0.5 font-medium text-[12px] text-muted-foreground">
+                Estimated cost
+              </span>
+              <span className="font-semibold text-[20px] text-foreground tabular-nums leading-none tracking-tight">
+                {formatCostUsd(taskUsage.total_cost_usd)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 border-border border-t bg-background/60">
+              <CostDetail label="Tokens" value={taskUsage.token_cost_usd} />
+              <CostDetail
+                label="Cloud compute"
+                value={taskUsage.compute_cost_usd}
+                divided
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function CostRow({ label, value }: { label: string; value: number }) {
+function CostDetail({
+  label,
+  value,
+  divided = false,
+}: {
+  label: string;
+  value: number;
+  divided?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-6">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground tabular-nums">
+    <div
+      className={`flex min-w-0 flex-col gap-0.5 px-3 py-2 ${divided ? "border-border border-l" : ""}`}
+    >
+      <span className="truncate text-[11px] text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-medium text-[13px] text-foreground tabular-nums">
         {formatCostUsd(value)}
       </span>
     </div>
