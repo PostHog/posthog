@@ -1,6 +1,7 @@
 import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { GithubPrRefChip } from "@posthog/ui/features/editor/components/GithubPrRefChip";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
@@ -183,8 +184,15 @@ export const baseComponents: Components = {
       const label = isAutoLink
         ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
         : children;
+      if (githubRef.kind === "pr") {
+        return (
+          <GithubPrRefChip href={githubRef.normalizedUrl}>
+            {label}
+          </GithubPrRefChip>
+        );
+      }
       return (
-        <GithubRefChip href={githubRef.normalizedUrl} kind={githubRef.kind}>
+        <GithubRefChip href={githubRef.normalizedUrl} kind="issue">
           {label}
         </GithubRefChip>
       );

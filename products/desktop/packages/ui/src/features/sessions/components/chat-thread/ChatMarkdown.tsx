@@ -12,12 +12,15 @@ import {
 } from "@posthog/quill";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { GithubPrRefChip } from "@posthog/ui/features/editor/components/GithubPrRefChip";
+import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
   markOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
+import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import {
   BareFileLink,
   hasDirectoryPath,
@@ -98,6 +101,25 @@ const components: Components = {
     if (evidenceTarget) {
       return (
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
+      );
+    }
+    const githubRef = href ? parseGithubIssueUrl(href) : null;
+    if (githubRef) {
+      const isAutoLink = typeof children === "string" && children === href;
+      const label = isAutoLink
+        ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
+        : children;
+      if (githubRef.kind === "pr") {
+        return (
+          <GithubPrRefChip href={githubRef.normalizedUrl}>
+            {label}
+          </GithubPrRefChip>
+        );
+      }
+      return (
+        <GithubRefChip href={githubRef.normalizedUrl} kind="issue">
+          {label}
+        </GithubRefChip>
       );
     }
     const link = (
