@@ -625,7 +625,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
 
-    if template == SandboxTemplate.VM_BASE:
+    if template in {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE}:
         destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
         destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)

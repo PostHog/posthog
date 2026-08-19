@@ -81,7 +81,6 @@ def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[s
         task_run_id=run_uuid,
         ended_at__isnull=True,
         user_attributed_at__isnull=True,
-        vm_runtime=True,
     )
     measurements: dict[str, tuple[int, int | None, datetime]] = {}
     for session in sessions:
@@ -236,7 +235,7 @@ def record_task_run_user_activity(
     client_provenance = (
         TaskRun.objects.filter(id=run_uuid, team_id=team_id).values_list("task__client_provenance", flat=True).first()
     )
-    unattributed_sessions = list(open_sessions.filter(user_attributed_at__isnull=True, vm_runtime=True))
+    unattributed_sessions = list(open_sessions.filter(user_attributed_at__isnull=True))
     for session in unattributed_sessions:
         measurement = (cpu_attribution or {}).get(session.sandbox_id)
         attribution_time = measurement[2] if measurement else now

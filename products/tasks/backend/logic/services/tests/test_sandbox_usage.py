@@ -86,7 +86,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
     def test_warm_claim_snapshots_provenance_set_after_provisioning(self):
         run = self._run(state={"await_user_message": True, "prewarmed": True})
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=True))
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=False))
         Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
         with patch.object(Sandbox, "get_by_id") as get_by_id:
