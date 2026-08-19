@@ -70,6 +70,32 @@ describe("startup location", () => {
     });
   });
 
+  it("carries an install from before provisioning back to where it was", async () => {
+    // The old key is the only trace of an install that predates the default spaces.
+    // Nothing else provisions now, so this launch is its one chance to get them, and it
+    // must still land where the user left off rather than on a first-run #general.
+    vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
+      key.includes(":v2:") ? null : "/website/old-space",
+    );
+    const removeItem = vi
+      .spyOn(stateStorage, "removeItem")
+      .mockResolvedValue(undefined);
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
+        channels: [personal, general],
+        personal_created: true,
+        general_created: true,
+      }),
+    };
+
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/website/old-space",
+      firstRun: null,
+    });
+    expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
+    expect(removeItem).toHaveBeenCalledWith("startup-location:project");
+  });
+
   it("consumes a primed provisioning result exactly once", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = { provisionDefaultTaskChannels: vi.fn() };
