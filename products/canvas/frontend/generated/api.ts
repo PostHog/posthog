@@ -585,6 +585,24 @@ export const canvasesRevertCreate = async (
     })
 }
 
+export const getCanvasesSetHomeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/set-home/`
+}
+
+/**
+ * Set this canvas as the caller's home canvas.
+ */
+export const canvasesSetHomeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasApi> => {
+    return apiMutator<CanvasApi>(getCanvasesSetHomeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getCanvasesSourceRetrieveUrl = (projectId: string, id: string, params?: CanvasesSourceRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
