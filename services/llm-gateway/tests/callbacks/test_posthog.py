@@ -226,7 +226,7 @@ class TestPostHogCallback:
         else:
             assert props["team_id"] == expected_team_id
             assert isinstance(props["team_id"], int)
-        expected_groups = {"instance": "https://us.posthog.com"}
+        expected_groups: dict[str, str | int] = {"instance": "https://us.posthog.com"}
         if team_id is not None:
             expected_groups["project"] = team_id
         assert call_kwargs["groups"] == expected_groups
