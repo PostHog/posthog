@@ -17,7 +17,12 @@ import {
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
-import { MAX_BRACKETS, retentionLogic } from 'scenes/retention/retentionLogic'
+import {
+    MAX_BRACKETS,
+    MAX_ROLLING_TOTAL_INTERVALS,
+    MAX_TOTAL_INTERVALS,
+    retentionLogic,
+} from 'scenes/retention/retentionLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
@@ -162,8 +167,18 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange, isRetentionDWHEnabled } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
-    const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
-        retentionFilter || {}
+    const {
+        targetEntity,
+        returningEntity,
+        retentionType,
+        totalIntervals,
+        period,
+        retentionCustomBrackets,
+        cumulative,
+    } = retentionFilter || {}
+
+    // Rolling (cumulative) retention needs a longer window to count late first returns.
+    const maxIntervals = (cumulative ? MAX_ROLLING_TOTAL_INTERVALS : MAX_TOTAL_INTERVALS) - 1
 
     const actionsTaxonomicGroupTypes = isRetentionDWHEnabled
         ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.DataWarehouse]
@@ -240,19 +255,19 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                             className="ml-2 w-20"
                             defaultValue={(totalIntervals ?? 7) - 1}
                             min={1}
-                            max={31}
+                            max={maxIntervals}
                             onBlur={({ target }) => {
                                 let newValue = Number(target.value)
-                                if (newValue > 31) {
-                                    // See if just the first two numbers are under 31 (when someone mashed keys)
+                                if (newValue > maxIntervals) {
+                                    // See if just the first two numbers are in range (when someone mashed keys)
                                     newValue = Number(target.value.substring(0, 2))
-                                    if (newValue > 31) {
+                                    if (newValue > maxIntervals) {
                                         newValue = 10
                                     }
                                     toast.warn(
                                         <>
                                             The maximum number of {dateOptionPlurals[period || 'Day']} is{' '}
-                                            <strong>31</strong>
+                                            <strong>{maxIntervals}</strong>
                                         </>
                                     )
                                 }

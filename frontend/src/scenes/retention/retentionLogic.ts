@@ -49,6 +49,11 @@ export const OVERALL_MEAN_KEY = '__overall__'
 export const DEFAULT_RETENTION_TOTAL_INTERVALS = 8
 export const RETENTION_EMPTY_BREAKDOWN_VALUE = '(empty)'
 export const MAX_BRACKETS = 30
+// `totalIntervals` counts the acquisition interval plus each return interval.
+// Standard retention keeps the smaller ceiling; rolling (cumulative) retention needs a longer
+// window, because a user whose first return lands past the window counts toward no interval.
+export const MAX_TOTAL_INTERVALS = 32
+export const MAX_ROLLING_TOTAL_INTERVALS = 100
 
 // Define a type for the output of the retentionMeans selector
 export interface MeanRetentionValue {

@@ -596,11 +596,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 tool.handler(context, {
                     source: {
                         ...retentionSource,
-                        retentionFilter: { ...retentionSource.retentionFilter, totalIntervals: 50 },
+                        retentionFilter: { ...retentionSource.retentionFilter, totalIntervals: 150 },
                     },
                     interval: 0,
                 })
-            ).rejects.toThrow(/maximum is 32/)
+            ).rejects.toThrow(/maximum is 100/)
         })
     })
 

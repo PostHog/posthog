@@ -1379,9 +1379,9 @@ export class ApiClient {
                 // The schema codegen doesn't propagate `@minimum`/`@maximum` on integer fields (only array
                 // `@maxItems`, which already bounds `retentionCustomBrackets`), so `totalIntervals` can't be
                 // capped in the generated zod — enforce it here instead. The limit matches the app's
-                // retention UI (period count capped at 31; totalIntervals adds the acquisition interval → 32).
+                // retention UI, where rolling (cumulative) retention allows the longest window.
                 // TODO: drop this guard once the schema generator supports integer min/max.
-                const MAX_RETENTION_INTERVALS = 32
+                const MAX_RETENTION_INTERVALS = 100
                 if (count > MAX_RETENTION_INTERVALS) {
                     throw new Error(
                         `Retention query requests ${count} intervals; the maximum is ${MAX_RETENTION_INTERVALS}.`
