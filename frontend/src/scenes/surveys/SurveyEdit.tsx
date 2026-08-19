@@ -1695,7 +1695,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="CSS selector matches"
-                                                                              help="The survey shows when a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, go to Presentation and set the feedback button type to Custom."
+                                                                              help="The survey shows when a matching element is present on the page. This does not wait for a click. To open a survey when a button is clicked, go to Presentation, select Feedback Button, and set the feedback button type to Custom."
                                                                           >
                                                                               <LemonInput
                                                                                   value={value?.selector}
