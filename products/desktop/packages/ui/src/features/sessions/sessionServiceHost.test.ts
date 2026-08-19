@@ -3,6 +3,7 @@ import type {
   SessionConfigOption,
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
@@ -499,6 +500,7 @@ describe("SessionService", () => {
     mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
       entries: [],
       complete: true,
+      truncatedHeadCount: 0,
     });
     mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
     mockSessionStoreSetters.getSessions.mockReturnValue({});
@@ -1720,6 +1722,7 @@ describe("SessionService", () => {
       mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
         entries: finalEntries,
         complete: true,
+        truncatedHeadCount: 0,
       });
       mockConvertStoredEntriesToEvents.mockReturnValueOnce(finalEvents);
 
@@ -1765,6 +1768,57 @@ describe("SessionService", () => {
           processedLineCount: finalEntries.length,
         }),
       );
+    });
+
+    it("counts a truncated head into the stream cursors", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+        processedLineCount: 1,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
+        entries: [
+          { timestamp: "2024-01-01T00:00:00Z", notification: {} },
+          { timestamp: "2024-01-01T00:01:00Z", notification: {} },
+        ],
+        complete: true,
+        truncatedHeadCount: 5,
+      });
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        undefined,
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "completed",
+      );
+
+      // The cloud stream still counts the dropped entries, so a cursor of 2
+      // would make every later total look 5 entries ahead of the transcript.
+      await vi.waitFor(() => {
+        expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            cloudTranscriptEntryCount: 7,
+            processedLineCount: 7,
+          }),
+        );
+      });
     });
 
     it("falls back to the run log URL when terminal chain hydration is empty", async () => {
@@ -1904,16 +1958,22 @@ describe("SessionService", () => {
       let resolveFirstHydration!: (result: {
         entries: Array<{ timestamp: string; notification: object }>;
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       const firstHydration = new Promise<{
         entries: Array<{ timestamp: string; notification: object }>;
         complete: boolean;
+        truncatedHeadCount: number;
       }>((resolve) => {
         resolveFirstHydration = resolve;
       });
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockReturnValueOnce(firstHydration)
-        .mockResolvedValueOnce({ entries: [], complete: true });
+        .mockResolvedValueOnce({
+          entries: [],
+          complete: true,
+          truncatedHeadCount: 0,
+        });
 
       service.watchCloudTask(
         "task-123",
@@ -1964,7 +2024,11 @@ describe("SessionService", () => {
           mockAuthenticatedClient.getTaskRunSessionLogsResult,
         ).toHaveBeenCalledTimes(3);
       });
-      resolveFirstHydration({ entries: [], complete: true });
+      resolveFirstHydration({
+        entries: [],
+        complete: true,
+        truncatedHeadCount: 0,
+      });
     });
 
     it("keeps the settled terminal cursor when a resume-chain hydration resolves late", async () => {
@@ -1996,10 +2060,12 @@ describe("SessionService", () => {
       let resolveAncestor!: (r: {
         entries: object[];
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       let resolveCurrent!: (r: {
         entries: object[];
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockReturnValueOnce(
@@ -2041,8 +2107,16 @@ describe("SessionService", () => {
       session.cloudStatus = "completed";
       session.processedLineCount = 5;
 
-      resolveAncestor({ entries: [entry("a"), entry("b")], complete: true });
-      resolveCurrent({ entries: [entry("c")], complete: true });
+      resolveAncestor({
+        entries: [entry("a"), entry("b")],
+        complete: true,
+        truncatedHeadCount: 0,
+      });
+      resolveCurrent({
+        entries: [entry("c")],
+        complete: true,
+        truncatedHeadCount: 0,
+      });
 
       // The late resume-chain write must not lower the settled cursor to its
       // leaf-only count.
@@ -4162,6 +4236,7 @@ describe("SessionService", () => {
       });
       mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
         complete: true,
+        truncatedHeadCount: 0,
         entries: [
           {
             type: "notification",
@@ -4394,7 +4469,11 @@ describe("SessionService", () => {
           { timestamp: "2024-01-01T00:01:00Z", notification: {} },
         ];
         mockAuthenticatedClient.getTaskRunSessionLogsResult
-          .mockResolvedValueOnce({ entries: parentEntries, complete: true })
+          .mockResolvedValueOnce({
+            entries: parentEntries,
+            complete: true,
+            truncatedHeadCount: 0,
+          })
           .mockResolvedValueOnce({
             entries:
               responseShape === "full"
@@ -4403,6 +4482,7 @@ describe("SessionService", () => {
                   ? [parentEntries[1], ...leafEntries]
                   : leafEntries,
             complete: true,
+            truncatedHeadCount: 0,
           });
         mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
           JSON.stringify(leafEntries[0]),
@@ -4591,8 +4671,16 @@ describe("SessionService", () => {
         notification: {},
       };
       mockAuthenticatedClient.getTaskRunSessionLogsResult
-        .mockResolvedValueOnce({ entries: [parentEntry], complete: true })
-        .mockResolvedValueOnce({ entries: [parentEntry], complete: true });
+        .mockResolvedValueOnce({
+          entries: [parentEntry],
+          complete: true,
+          truncatedHeadCount: 0,
+        })
+        .mockResolvedValueOnce({
+          entries: [parentEntry],
+          complete: true,
+          truncatedHeadCount: 0,
+        });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
@@ -4691,8 +4779,16 @@ describe("SessionService", () => {
         notification: {},
       };
       mockAuthenticatedClient.getTaskRunSessionLogsResult
-        .mockResolvedValueOnce({ entries: [parentEntry], complete: true })
-        .mockResolvedValueOnce({ entries: [parentEntry], complete: true });
+        .mockResolvedValueOnce({
+          entries: [parentEntry],
+          complete: true,
+          truncatedHeadCount: 0,
+        })
+        .mockResolvedValueOnce({
+          entries: [parentEntry],
+          complete: true,
+          truncatedHeadCount: 0,
+        });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
@@ -4807,6 +4903,7 @@ describe("SessionService", () => {
       let resolveAncestor!: (result: {
         entries: typeof ancestorEntries;
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockImplementationOnce(
@@ -4818,6 +4915,7 @@ describe("SessionService", () => {
         .mockResolvedValueOnce({
           entries: [...ancestorEntries, leafEntry],
           complete: true,
+          truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
@@ -4861,7 +4959,11 @@ describe("SessionService", () => {
       });
       expect(mockSessionStoreSetters.appendEvents).not.toHaveBeenCalled();
 
-      resolveAncestor({ entries: ancestorEntries, complete: true });
+      resolveAncestor({
+        entries: ancestorEntries,
+        complete: true,
+        truncatedHeadCount: 0,
+      });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledWith(
           "run-456",
@@ -5021,6 +5123,7 @@ describe("SessionService", () => {
       let resolveInherited!: (result: {
         entries: typeof inheritedEntries;
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockImplementationOnce(
@@ -5032,6 +5135,7 @@ describe("SessionService", () => {
         .mockResolvedValueOnce({
           entries: [...inheritedEntries, cEntry],
           complete: true,
+          truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(cEntry),
@@ -5067,7 +5171,11 @@ describe("SessionService", () => {
       });
       expect(mockSessionStoreSetters.appendEvents).not.toHaveBeenCalled();
 
-      resolveInherited({ entries: inheritedEntries, complete: true });
+      resolveInherited({
+        entries: inheritedEntries,
+        complete: true,
+        truncatedHeadCount: 0,
+      });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledWith(
           "run-c",
@@ -5157,6 +5265,7 @@ describe("SessionService", () => {
       let resolveAncestor!: (result: {
         entries: typeof parentEntries;
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockImplementationOnce(
@@ -5168,6 +5277,7 @@ describe("SessionService", () => {
         .mockResolvedValueOnce({
           entries: [...parentEntries, leafEntry],
           complete: true,
+          truncatedHeadCount: 0,
         });
       mockConvertStoredEntriesToEvents.mockImplementation((entries) =>
         entries.some(
@@ -5226,7 +5336,11 @@ describe("SessionService", () => {
       });
       expect(mockSessionStoreSetters.appendEvents).not.toHaveBeenCalled();
 
-      resolveAncestor({ entries: parentEntries, complete: false });
+      resolveAncestor({
+        entries: parentEntries,
+        complete: false,
+        truncatedHeadCount: 0,
+      });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledWith(
           "run-456",
@@ -5239,6 +5353,7 @@ describe("SessionService", () => {
       let resolveRetryAncestor!: (result: {
         entries: typeof parentEntries;
         complete: boolean;
+        truncatedHeadCount: number;
       }) => void;
       mockAuthenticatedClient.getTaskRunSessionLogsResult
         .mockImplementationOnce(
@@ -5250,6 +5365,7 @@ describe("SessionService", () => {
         .mockResolvedValueOnce({
           entries: [...parentEntries, leafEntry],
           complete: true,
+          truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
@@ -5275,7 +5391,11 @@ describe("SessionService", () => {
         appendCountBeforeRetryUpdate,
       );
 
-      resolveRetryAncestor({ entries: parentEntries, complete: true });
+      resolveRetryAncestor({
+        entries: parentEntries,
+        complete: true,
+        truncatedHeadCount: 0,
+      });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
           "run-456",
@@ -7029,6 +7149,41 @@ describe("SessionService", () => {
       expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
     });
 
+    it("refetches the run for the real error when none is cached", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession();
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: null,
+        runtime_adapter: "claude",
+        model: "claude-sonnet-4-20250514",
+        reasoning_effort: null,
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "GitHub is not connected for this project",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      const stored: Record<string, AgentSession> = {};
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (id: string, patch: Partial<AgentSession>) => {
+          stored[id] = { ...(stored[id] ?? createMockSession()), ...patch };
+        },
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() => stored);
+
+      await expect(service.sendPrompt("task-123", "retry?")).rejects.toThrow(
+        "GitHub is not connected for this project",
+      );
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+    });
+
     it("still resumes when a previously running agent failed mid-execution", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
@@ -7085,6 +7240,82 @@ describe("SessionService", () => {
 
       expect(result.stopReason).toBe("queued");
       expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        name: "maps a resume 404 for a non-author to the creator-only error",
+        isTaskAuthor: false,
+        resumeError: new ApiRequestError(404, "{}"),
+        expected: /Only the person who created this task/,
+      },
+      {
+        name: "keeps the original 404 for the task author",
+        isTaskAuthor: true,
+        resumeError: new ApiRequestError(404, "{}"),
+        expected: /Failed request: \[404\]/,
+      },
+      {
+        name: "keeps a non-404 resume error for a non-author",
+        isTaskAuthor: false,
+        resumeError: new ApiRequestError(500, "{}"),
+        expected: /Failed request: \[500\]/,
+      },
+    ])("$name", async ({ isTaskAuthor, resumeError, expected }) => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "failed",
+          status: "connected",
+          isTaskAuthor,
+        }),
+      );
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: null,
+        runtime_adapter: "claude",
+        model: "claude-sonnet-4-20250514",
+        reasoning_effort: null,
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "agent crashed",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+      mockAuthenticatedClient.runTaskInCloud.mockRejectedValue(resumeError);
+
+      await expect(service.sendPrompt("task-123", "try again")).rejects.toThrow(
+        expected,
+      );
+    });
+
+    it("keeps a non-author 404 from the previous-run fetch as its real error", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "failed",
+          status: "connected",
+          isTaskAuthor: false,
+        }),
+      );
+      mockAuthenticatedClient.getTaskRun.mockRejectedValue(
+        new ApiRequestError(404, "{}"),
+      );
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+
+      await expect(service.sendPrompt("task-123", "try again")).rejects.toThrow(
+        /Failed request: \[404\]/,
+      );
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
     });
 
     it("attempts automatic recovery on fatal error", async () => {
