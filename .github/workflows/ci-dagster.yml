@@ -127,6 +127,7 @@ jobs:
                         - 'posthog/errors.py'
                         - 'posthog/exceptions.py'
                         - 'posthog/exceptions_capture.py'
+                        - 'posthog/temporal/common/db_errors.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
                         - 'posthog/llm/**'
