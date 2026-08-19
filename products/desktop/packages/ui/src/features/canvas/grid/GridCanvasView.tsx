@@ -147,11 +147,37 @@ export function GridCanvasView({
     [versions],
   );
 
+  // Rects a finished drag has committed but the server hasn't confirmed yet.
+  // The patch is a round trip, and without holding the new rect the tile snaps
+  // back to its old cell for its duration and then jumps to where it was
+  // dropped.
+  const [pendingRects, setPendingRects] = useState<Record<string, GridRect>>(
+    {},
+  );
+  const clearPending = useCallback((placementId: string) => {
+    setPendingRects((current) => {
+      const next = { ...current };
+      delete next[placementId];
+      return next;
+    });
+  }, []);
+  // What the grid actually shows: the server's placements, with any in-flight
+  // rect applied. Collision checks and the surface height read this too, so a
+  // second gesture is judged against the canvas the user is looking at.
+  const placedNow = useMemo(
+    () =>
+      placements?.map((placement) => {
+        const pending = pendingRects[placement.id];
+        return pending ? { ...placement, ...pending } : placement;
+      }),
+    [placements, pendingRects],
+  );
+
   const onDragComplete = useCallback(
     (outcome: GridDragOutcome) => {
-      if (!placements) return;
+      if (!placedNow) return;
       if (outcome.kind === "draw") {
-        if (collides(outcome.rect, placements)) return;
+        if (collides(outcome.rect, placedNow)) return;
         void patch([
           {
             op: "add_placement",
@@ -171,10 +197,16 @@ export function GridCanvasView({
         rect.y !== origin.y ||
         rect.w !== origin.w ||
         rect.h !== origin.h;
-      if (!moved || collides(rect, placements, placementId)) return;
-      void patch([{ op: "update_placement", id: placementId, changes: rect }]);
+      if (!moved || collides(rect, placedNow, placementId)) return;
+      setPendingRects((current) => ({ ...current, [placementId]: rect }));
+      // Whether the patch lands or fails, the cache is authoritative by the
+      // time it settles: on success it holds the server's document, on failure
+      // the queue has already refetched the real head.
+      void patch([
+        { op: "update_placement", id: placementId, changes: rect },
+      ]).finally(() => clearPending(placementId));
     },
-    [placements, patch],
+    [placedNow, patch, clearPending],
   );
 
   const {
@@ -277,7 +309,7 @@ export function GridCanvasView({
     discuss,
   };
 
-  if (isLoading || !layout || !placements || !dashboard) {
+  if (isLoading || !layout || !placedNow || !dashboard) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
@@ -326,7 +358,7 @@ export function GridCanvasView({
               gap: `${grid.gap}px`,
               // Fill the viewport even when the content needs fewer rows, so the
               // whole visible page is drawable (and dotted) rather than a strip.
-              minHeight: `max(100%, ${surfaceRows(placements) * pitchY}px)`,
+              minHeight: `max(100%, ${surfaceRows(placedNow) * pitchY}px)`,
               cursor: interactive ? "crosshair" : undefined,
             }}
             onPointerDown={onSurfacePointerDown}
@@ -353,7 +385,7 @@ export function GridCanvasView({
                 }}
               />
             ) : null}
-            {placements.length === 0 && !drag ? (
+            {placedNow.length === 0 && !drag ? (
               // How-to placed on the grid as a tile of its own, instead of a
               // full-width overlay that looks like broken chrome. Pointer events
               // pass through so the user can draw right over it.
@@ -380,7 +412,7 @@ export function GridCanvasView({
                 </Empty>
               </div>
             ) : null}
-            {placements.map((placement) => {
+            {placedNow.map((placement) => {
               const dragged =
                 drag &&
                 drag.kind !== "draw" &&
