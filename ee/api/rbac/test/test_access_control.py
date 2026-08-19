@@ -2234,7 +2234,11 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         # Create another team and set different member override directly in DB
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         AccessControl.objects.create(
-            team=other_team, resource="project", organization_member=self.user2_membership, access_level="admin"
+            team=other_team,
+            resource="project",
+            resource_id=str(other_team.id),
+            organization_member=self.user2_membership,
+            access_level="admin",
         )
 
         # Request should only return current team's member overrides
