@@ -11,6 +11,8 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_SEARCH_ADS_ENDPOINTS,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
@@ -311,13 +313,19 @@ def _report_start_date(
     return today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS)
 
 
-def _report_windows(start: date, end: date) -> list[tuple[date, date]]:
+@frozen
+class ReportWindow:
+    start: date
+    end: date
+
+
+def _report_windows(start: date, end: date) -> list[ReportWindow]:
     """Split ``start..end`` (inclusive) into ascending windows of at most one week."""
-    windows: list[tuple[date, date]] = []
+    windows: list[ReportWindow] = []
     window_start = start
     while window_start <= end:
         window_end = min(window_start + timedelta(days=REPORT_WINDOW_DAYS - 1), end)
-        windows.append((window_start, window_end))
+        windows.append(ReportWindow(start=window_start, end=window_end))
         window_start = window_end + timedelta(days=1)
     return windows
 
@@ -442,9 +450,9 @@ def _report_tasks(start: date, end: date, campaign_ids: list[Optional[int]]) -> 
     Yielded rather than listed so a large window range never materialises as millions of
     tuples up front.
     """
-    for window_start, window_end in _report_windows(start, end):
+    for window in _report_windows(start, end):
         for campaign_id in campaign_ids:
-            yield window_start, window_end, campaign_id
+            yield window.start, window.end, campaign_id
 
 
 def _advance_to_resume(

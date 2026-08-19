@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     AppleSearchAdsClient,
     AppleSearchAdsCredentials,
     AppleSearchAdsResumeConfig,
+    ReportWindow,
     _report_start_date,
     _report_windows,
     apple_search_ads_source,
@@ -339,33 +340,41 @@ class TestAppleSearchAdsTransport:
 class TestReportWindows:
     @parameterized.expand(
         [
-            ("single_day", date(2026, 1, 1), date(2026, 1, 1), [(date(2026, 1, 1), date(2026, 1, 1))]),
+            (
+                "single_day",
+                date(2026, 1, 1),
+                date(2026, 1, 1),
+                [ReportWindow(start=date(2026, 1, 1), end=date(2026, 1, 1))],
+            ),
             (
                 "exactly_one_window",
                 date(2026, 1, 1),
                 date(2026, 1, 7),
-                [(date(2026, 1, 1), date(2026, 1, 7))],
+                [ReportWindow(start=date(2026, 1, 1), end=date(2026, 1, 7))],
             ),
             (
                 "spills_into_a_second_window",
                 date(2026, 1, 1),
                 date(2026, 1, 9),
-                [(date(2026, 1, 1), date(2026, 1, 7)), (date(2026, 1, 8), date(2026, 1, 9))],
+                [
+                    ReportWindow(start=date(2026, 1, 1), end=date(2026, 1, 7)),
+                    ReportWindow(start=date(2026, 1, 8), end=date(2026, 1, 9)),
+                ],
             ),
             ("end_before_start", date(2026, 1, 9), date(2026, 1, 1), []),
         ]
     )
     def test_windows_are_ascending_and_inclusive(
-        self, _name: str, start: date, end: date, expected: list[tuple[date, date]]
+        self, _name: str, start: date, end: date, expected: list[ReportWindow]
     ) -> None:
         assert _report_windows(start, end) == expected
 
     def test_windows_never_exceed_the_configured_length(self) -> None:
         windows = _report_windows(date(2026, 1, 1), date(2026, 3, 1))
 
-        assert all((end - start).days + 1 <= REPORT_WINDOW_DAYS for start, end in windows)
+        assert all((window.end - window.start).days + 1 <= REPORT_WINDOW_DAYS for window in windows)
         # Contiguous with no gaps or overlaps.
-        assert all(later[0] == earlier[1] + timedelta(days=1) for earlier, later in zip(windows, windows[1:]))
+        assert all(later.start == earlier.end + timedelta(days=1) for earlier, later in zip(windows, windows[1:]))
 
     @parameterized.expand(
         [
