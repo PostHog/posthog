@@ -599,6 +599,13 @@ class TestResolver(BaseTest):
                 "Integer, String, and Array",
                 "'abc' as x",
             ),
+            # INTERSECT and EXCEPT reach the same unification, so the wording cannot name UNION.
+            (
+                "select 1 as x intersect select 'abc' as x",
+                "Cannot find a common type for column `x` between the branches of this set operation, of type "
+                "Integer and String. Cast the column in every branch, e.g. `toString(<expression>)`",
+                "'abc' as x",
+            ),
         ]
     )
     def test_set_operation_column_type_mismatch_warns_naming_the_column(

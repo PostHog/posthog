@@ -843,6 +843,9 @@ class SetOperationColumnTypeMismatch:
         )
         if self.cast_hint is None:
             return message
+        # The example wraps the expression rather than the column name, because a branch that only
+        # defines the name with AS cannot refer to it: the alias registers after its own expression
+        # resolves, so `toString(token) as token` fails to resolve `token`.
         return f"{message}. Cast the column in every branch, e.g. `{self.cast_hint}(<expression>)`"
 
 
