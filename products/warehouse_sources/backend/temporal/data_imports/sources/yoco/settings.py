@@ -1,7 +1,5 @@
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import timedelta
-
-from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -38,7 +36,10 @@ ENDPOINT_SCOPES: dict[str, str] = {
 }
 
 
-@frozen
+# Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class YocoEndpointConfig:
     name: str
     path: str
