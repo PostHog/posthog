@@ -6822,10 +6822,17 @@ jane@example.com
 
         # pmat_email materialized column doesn't exist in the test CH schema,
         # so we mock the CH lookup to return the expected UUIDs.
-        with patch.object(
-            Cohort,
-            "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person1.uuid), str(person2.uuid)],
+        with (
+            patch.object(
+                Cohort,
+                "_get_uuids_for_emails_batch_ch",
+                return_value=[str(person1.uuid), str(person2.uuid)],
+            ),
+            patch.object(
+                Cohort,
+                "_get_matched_emails_batch_ch",
+                return_value={"john@example.com", "jane@example.com"},
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6966,11 +6973,14 @@ Jane Smith,user456,jane@example.com
 
         # pmat_email materialized column doesn't exist in the test CH schema,
         # so we mock the CH lookup to return the expected UUID.
-        with patch.object(
-            Cohort,
-            "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person.uuid)],
-        ) as ch_mock:
+        with (
+            patch.object(
+                Cohort,
+                "_get_uuids_for_emails_batch_ch",
+                return_value=[str(person.uuid)],
+            ) as ch_mock,
+            patch.object(Cohort, "_get_matched_emails_batch_ch", return_value={"test@example.com"}),
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
                 {"name": "test_email_ch", "csv": csv_file, "is_static": True},

@@ -493,6 +493,34 @@ describe('cohortEditLogic', () => {
         )
     })
 
+    describe('import warning', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('stays hidden after an import that matched every ID', async () => {
+            const cohortId = 5
+            const cohortName = 'Clean import cohort'
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        last_import_total_count: 5,
+                        last_import_unmatched_count: 0,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            expect(screen.queryByText("Some IDs in the last import didn't match a person")).not.toBeInTheDocument()
+        })
+    })
+
     describe('criteria row type switching', () => {
         afterEach(() => {
             cleanup()

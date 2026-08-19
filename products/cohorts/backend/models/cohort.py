@@ -152,6 +152,8 @@ COHORT_RECALCULATION_FIELDS = frozenset(
 
 
 class ImportResolution:
+    """Accumulates matched and unmatched import IDs, deduplicated across batches."""
+
     def __init__(self) -> None:
         self.inputs: set[str] = set()
         self.matched_inputs: set[str] = set()
@@ -761,6 +763,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 state is left for the caller to finalize, instead of being swallowed and
                 recorded on the cohort here. Use when the caller must not treat a partial
                 insert as success.
+            import_resolution: Optional accumulator for deduplicated matched and unmatched IDs.
         """
         if team_id is None:
             team_id = self.team_id
@@ -808,6 +811,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 cohort state is left for the caller to finalize, instead of being swallowed
                 and recorded on the cohort here. Use when the caller records its own
                 success/failure outcome and must not treat a partial insert as success.
+            import_resolution: Optional accumulator for deduplicated matched and unmatched UUIDs.
 
         Returns:
             The number of batches processed.
@@ -885,6 +889,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 state is left for the caller to finalize, instead of being swallowed and
                 recorded on the cohort here. Use when the caller must not treat a partial
                 insert as success.
+            import_resolution: Optional accumulator for deduplicated matched and unmatched emails.
         """
         if team_id is None:
             team_id = self.team_id
@@ -899,10 +904,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_items = items[start_idx:end_idx]
-            matched: set[str] | None = set() if import_resolution is not None else None
-            uuids = self._get_uuids_for_emails_batch_ch(batch_items, team_id, matched_emails=matched)
+            uuids = self._get_uuids_for_emails_batch_ch(batch_items, team_id)
             if import_resolution is not None:
-                assert matched is not None
+                matched = self._get_matched_emails_batch_ch(batch_items, uuids, team_id)
                 import_resolution.record([email.strip().lower() for email in batch_items], matched)
             return uuids
 
@@ -911,31 +915,39 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
         )
 
-    def _get_uuids_for_emails_batch_ch(
-        self, emails: list[str], team_id: int, *, matched_emails: set[str] | None = None
-    ) -> list[str]:
+    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
         if not emails:
             return []
 
-        select_fields = "person.pmat_email, person.id" if matched_emails is not None else "person.id"
-        group_fields = "person.pmat_email, person.id" if matched_emails is not None else "person.id"
         query = """
-        SELECT {select_fields}
+        SELECT person.id
         FROM person
         WHERE person.team_id = %(team_id)s
           AND person.pmat_email IN %(emails)s
-        GROUP BY {group_fields}
+        GROUP BY person.id
         HAVING argMax(person.is_deleted, person.version) = 0
         SETTINGS optimize_aggregation_in_order = 1
-        """.format(select_fields=select_fields, group_fields=group_fields)
+        """
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(query, {"team_id": team_id, "emails": emails})
-        if matched_emails is None:
-            return [str(row[0]) for row in result]
+        return [str(row[0]) for row in result]
 
-        matched_emails.update(str(row[0]).strip().lower() for row in result)
-        return [str(row[1]) for row in result]
+    def _get_matched_emails_batch_ch(self, emails: list[str], person_uuids: list[str], team_id: int) -> set[str]:
+        if not emails or not person_uuids:
+            return set()
+
+        query = """
+        SELECT DISTINCT person.pmat_email
+        FROM person
+        WHERE person.team_id = %(team_id)s
+          AND person.id IN %(person_uuids)s
+          AND person.pmat_email IN %(emails)s
+        """
+
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        result = sync_execute(query, {"team_id": team_id, "person_uuids": person_uuids, "emails": emails})
+        return {str(row[0]).strip().lower() for row in result}
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
