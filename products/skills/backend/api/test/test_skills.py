@@ -152,6 +152,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
             ("reserved_scouts", "scouts"),
             ("reserved_review_hog", "review-hog"),
+            ("reserved_community", "community"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
