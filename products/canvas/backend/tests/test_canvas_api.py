@@ -114,6 +114,17 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
+    def test_retrieve_includes_the_stable_discussion_task(self):
+        canvas_id = self._create_canvas()
+        discussion_task_id = uuid4()
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=canvas_id).update(discussion_task_id=discussion_task_id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["discussion_task_id"] == str(discussion_task_id)
+
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):
             public = Channel.objects.create(team=self.team, name="public")

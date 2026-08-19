@@ -1360,6 +1360,8 @@ class ExternalDataSourceType(models.TextChoices):
     HOOTSUITE = "Hootsuite", "Hootsuite"
     WISPRFLOW = "WisprFlow", "WisprFlow"
     SAMCART = "SamCart", "SamCart"
+    IRONSOURCEADS = "IronSourceAds", "IronSourceAds"
+    MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
