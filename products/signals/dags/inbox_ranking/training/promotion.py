@@ -44,6 +44,15 @@ def decide_promotion(
     if champion is None:
         return PromotionDecision(promote=True, reason="no champion yet")
 
+    # A backfill replays old partitions, so reject any candidate not newer than the champion to keep
+    # the pointer from moving backwards to a stale model. model_version is the partition date, and
+    # ISO date strings compare chronologically (same ordering the dataset dag's latest/ stamp relies on).
+    if candidate["model_version"] <= champion["model_version"]:
+        return PromotionDecision(
+            promote=False,
+            reason=f"candidate {candidate['model_version']} is not newer than champion {champion['model_version']}",
+        )
+
     promoted_at = datetime.datetime.fromisoformat(champion["promoted_at"])
     if now - promoted_at < datetime.timedelta(days=min_days_between):
         return PromotionDecision(

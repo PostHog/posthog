@@ -221,6 +221,20 @@ def _metadata(version: str, **aucs: float | None) -> dict:
             False,
             "action readable on champion but not on candidate",
         ),
+        # A backfilled older candidate, even a much better one, must not roll the champion backwards.
+        (
+            _metadata("2026-08-11", open=0.90),
+            {**_metadata("2026-08-12", open=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            False,
+            "not newer",
+        ),
+        # Re-running the champion's own partition must not re-promote it.
+        (
+            _metadata("2026-08-12", open=0.90),
+            {**_metadata("2026-08-12", open=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            False,
+            "not newer",
+        ),
     ],
 )
 def test_decide_promotion(candidate, champion, expected_promote, reason_fragment):
