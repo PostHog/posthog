@@ -75,7 +75,7 @@ Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack 
 **Whole stack at once (default).**
 The queue handles stacks natively: enqueueing a PR enqueues it and every unmerged layer below it, tests them together, and merges them atomically.
 Comment `/trunk merge` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part.
-Every layer being merged must individually pass `/merging-prs` preflight (ready, approved, checks green) — a mid-stack draft or missing approval blocks the layers above it.
+Every layer being merged must individually pass `/merging-prs` preflight (ready, approved, no failing checks — pending ones are fine, the queue waits for them) — a mid-stack draft or missing approval blocks the layers above it.
 
 **Bottom-first, one layer at a time.**
 Merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR.
