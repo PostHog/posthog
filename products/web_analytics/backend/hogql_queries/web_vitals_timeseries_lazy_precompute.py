@@ -27,6 +27,7 @@ from posthog.week_start_day import WeekStartDay
 
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     ceil_utc_day,
     floor_utc_day,
 )
@@ -334,6 +335,7 @@ def execute_lazy_precomputed_vitals_timeseries(runner: "WebVitalsQueryRunner") -
             for order, series in enumerate(runner.query.series)
             if isinstance(series, EventsNode)
         ]
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_vitals_timeseries_lazy_precompute_served",
             team_id=team.pk,
