@@ -72,6 +72,7 @@ import {
     ActivityLogOrgLevelSettings,
     ActivityLogSettings,
 } from './environment/ActivityLogSettings'
+import { ApplyTestAccountFilterToExistingInsights } from './environment/ApplyTestAccountFilterToExistingInsights'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
@@ -299,6 +300,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
+                id: 'internal-user-filtering-existing-insights',
+                title: 'Apply the filter to existing insights',
+                description:
+                    'Turning the filter on for new insights leaves the insights you already have alone. Use this to turn it on or off across them.',
+                component: <ApplyTestAccountFilterToExistingInsights />,
+                keywords: ['test account', 'internal', 'exclude', 'filter', 'bulk', 'existing'],
             },
             {
                 id: 'business-model',
