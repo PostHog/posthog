@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.pluralsight_flow import (
     PluralsightFlowResumeConfig,
@@ -68,13 +69,20 @@ class TestDefaultMetricsDateRange:
         assert _default_metrics_date_range(today=date(2026, 4, 30)) == "[2026-01-30:2026-04-30]"
 
 
+def _endpoint_params(resource: EndpointResource) -> dict[str, Any]:
+    # `endpoint` is typed as `str | Endpoint | None` (a dlt-style shorthand union), so mypy can't
+    # index into it directly even though these tests only ever build the dict form.
+    endpoint = cast(dict[str, Any], resource["endpoint"])
+    return cast(dict[str, Any], endpoint["params"])
+
+
 class TestCoreResource:
     def test_incremental_endpoint_sets_merge_disposition_and_filter_param(self):
         resource = _core_resource("Commits", should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert resource["table_name"] == "commits"
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        params = _endpoint_params(resource)
         assert "author_date__gte" in params
         assert params["author_date__gte"]["type"] == "incremental"
 
@@ -82,7 +90,7 @@ class TestCoreResource:
         resource = _core_resource("Commits", should_use_incremental_field=False)
 
         assert resource["write_disposition"] == "replace"
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        params = _endpoint_params(resource)
         assert params == {}
 
     def test_endpoint_with_no_incremental_fields_ignores_the_flag(self):
@@ -91,7 +99,7 @@ class TestCoreResource:
         resource = _core_resource("Repos", should_use_incremental_field=True)
 
         assert resource["write_disposition"] == "replace"
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        params = _endpoint_params(resource)
         assert params == {}
 
 
