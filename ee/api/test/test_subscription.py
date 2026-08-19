@@ -3161,11 +3161,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             **overrides,
         )
 
-    def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True) -> None:
+    def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True, team=None) -> None:
         # A rule with no member attached applies to the whole project. Access controls are cached,
         # so a new rule only takes effect once that cache is cleared.
         AccessControl.objects.create(
-            team=self.team,
+            team=team or self.team,
             resource=resource,
             resource_id=str(obj.id) if obj is not None else None,
             organization_member=self.organization_membership if for_member else None,
@@ -3403,6 +3403,22 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert filtered.status_code == status.HTTP_200_OK
         assert filtered.json()["results"] == []
         assert Subscription.objects.filter(pk=hidden.pk).exists()
+
+    def test_tile_rule_holds_for_a_dashboard_read_through_an_environment(self):
+        # Dashboards save under the project's root team while an environment route supplies the
+        # environment's id, so scoping the tiles by `dashboard__team_id` matches no dashboard at all
+        # and the rule stops hiding anything.
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        self._rule("insight", obj=self.restricted_insight, team=environment)
+        dashboard = Dashboard.objects.create(team=environment, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = create_subscription(team=environment, created_by=self.user, dashboard=dashboard)
+
+        listed = self.client.get(f"/api/environments/{environment.id}/subscriptions")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
 
     def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
         # A join on the M2M would return the row once per insight and make detail routes 500.
