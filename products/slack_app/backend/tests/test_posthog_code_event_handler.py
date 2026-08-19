@@ -16,6 +16,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.api import _app_mention_ignore_reason
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
@@ -60,8 +61,6 @@ class TestAppMentionIgnoreReason(SimpleTestCase):
         ]
     )
     def test_mentions_glued_to_a_path_are_ignored(self, _name: str, text: str, expected: str | None) -> None:
-        from products.slack_app.backend.api import _app_mention_ignore_reason
-
         event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678", "text": text}
         assert _app_mention_ignore_reason(event) == expected
 
