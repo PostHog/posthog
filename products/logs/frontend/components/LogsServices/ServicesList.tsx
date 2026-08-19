@@ -9,7 +9,7 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { ServiceRow } from './logsServicesLogic'
+import { NO_SERVICE_LABEL, ServiceRow } from './logsServicesLogic'
 import { copyServiceDeepLink, serviceViewerUrl } from './serviceViewerUrl'
 
 const ROW_HEIGHT = 30
@@ -124,6 +124,20 @@ function ServicesListRow({
     style: CSSProperties
 } & ServicesListRowProps): JSX.Element {
     const service = services[index]
+    // The placeholder rows stand for logs that carry no service name at all. `parseTagsFilter`
+    // drops the empty value they map back to, so a link would open the viewer unfiltered.
+    const deepLinkable = service.service_name !== NO_SERVICE_LABEL
+    const cells = (
+        <>
+            <span className="truncate font-medium">{service.service_name}</span>
+            <span className="text-right tabular-nums">{humanFriendlyLargeNumber(service.log_count)}</span>
+            <span className="text-right">
+                <ErrorRateTag errorRate={service.error_rate} />
+            </span>
+            <ServiceRulesSummary rules={service.active_rules ?? []} />
+        </>
+    )
+    const cellsClassName = cn(COLUMN_TEMPLATE, 'flex-1 min-w-0 h-full pl-2')
     return (
         <div
             // eslint-disable-next-line react/forbid-dom-props
@@ -131,28 +145,30 @@ function ServicesListRow({
             className="flex items-center gap-2 pr-2 border-b hover:bg-accent-highlight-secondary"
             data-attr="logs-services-row"
         >
-            {/* The link carries the row's left padding so clicking anywhere but the share cell navigates. */}
-            <Link
-                subtle
-                to={serviceViewerUrl(service.service_name)}
-                className={cn(COLUMN_TEMPLATE, 'flex-1 min-w-0 h-full pl-2')}
-            >
-                <span className="truncate font-medium">{service.service_name}</span>
-                <span className="text-right tabular-nums">{humanFriendlyLargeNumber(service.log_count)}</span>
-                <span className="text-right">
-                    <ErrorRateTag errorRate={service.error_rate} />
-                </span>
-                <ServiceRulesSummary rules={service.active_rules ?? []} />
-            </Link>
-            <Tooltip title="Copy a link to the viewer filtered to this service">
-                <LemonButton
-                    size="xsmall"
-                    noPadding
-                    icon={<IconShare />}
-                    onClick={() => copyServiceDeepLink(service.service_name)}
-                    data-attr="logs-services-row-share"
-                />
-            </Tooltip>
+            {deepLinkable ? (
+                /* The link carries the row's left padding so clicking anywhere but the share cell navigates. */
+                <Link subtle to={serviceViewerUrl(service.service_name)} className={cellsClassName}>
+                    {cells}
+                </Link>
+            ) : (
+                <Tooltip title="These logs have no service name, so the viewer can't filter to them">
+                    <div className={cellsClassName}>{cells}</div>
+                </Tooltip>
+            )}
+            {deepLinkable ? (
+                <Tooltip title="Copy a link to the viewer filtered to this service">
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={<IconShare />}
+                        onClick={() => copyServiceDeepLink(service.service_name)}
+                        data-attr="logs-services-row-share"
+                    />
+                </Tooltip>
+            ) : (
+                /* Holds the share button's width so the columns line up across every row. */
+                <span className="w-6 shrink-0" />
+            )}
         </div>
     )
 }
