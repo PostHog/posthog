@@ -39,6 +39,7 @@ from posthog.schema import (
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.project import Project
+from posthog.temporal.common.client import TemporalConnectionError
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
@@ -1155,6 +1156,42 @@ class TestExternalDataSource(APIBaseTest):
         assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
         # ...and the failure was logged with the schema id.
         assert any(call.kwargs.get("schema_id") == str(schema.id) for call in mock_logger.warning.call_args_list)
+
+    def test_bulk_update_schemas_stops_connecting_after_first_temporal_connect_failure(self):
+        # Each schema's schedule update opens its own Temporal client. When Temporal is unreachable,
+        # every connect now backs off for several seconds before failing, so attempting all of them
+        # would pin a worker for seconds per schema on rows that are already committed. Once the first
+        # connect fails, the batch must stop attempting Temporal and just record the drift.
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=f"Table{i}",
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            )
+            for i in range(3)
+        ]
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+            side_effect=TemporalConnectionError("Could not connect to Temporal"),
+        ) as mock_workflow_exists:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
+                format="json",
+            )
+
+        # A transient connect blip is drift, not a failure: the request still succeeds.
+        assert response.status_code == status.HTTP_200_OK
+        # The connect is attempted once and then skipped for the rest of the batch, not once per schema.
+        assert mock_workflow_exists.call_count == 1
+        # Every row still committed its new cadence; only the schedule update was deferred.
+        for schema in schemas:
+            schema.refresh_from_db()
+            assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",

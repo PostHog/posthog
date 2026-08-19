@@ -5433,13 +5433,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             post_commit_actions.extend((schema, action) for action in schema_post_commit_actions)
 
         post_commit_error: Exception | None = None
+        # Once a connect fails, Temporal is unreachable for the rest of this request. Every remaining
+        # action opens its own client and would re-pay the full connect-retry budget (several seconds
+        # of backoff each) only to fail the same way, pinning a Django worker on rows that are already
+        # committed. Stop attempting Temporal after the first connect failure and just record the
+        # drift for the rest, so a large batch during an outage costs one retry budget, not one per
+        # schema.
+        temporal_unreachable = False
         for action_schema, post_commit_action in post_commit_actions:
+            if temporal_unreachable:
+                logger.warning(
+                    "bulk_update_schemas saved the schema but skipped its schedule update because "
+                    "Temporal was unreachable earlier in this batch",
+                    source_id=str(source.id),
+                    schema_id=str(action_schema.id),
+                )
+                continue
             try:
                 post_commit_action()
             except TemporalConnectionError as e:
                 # Temporal was briefly unreachable. The schema row is saved and keeps its old
                 # cadence until the next reload. Record the drift, but do not fail a successful save
                 # over a transient blip — a real schedule failure below still fails the request.
+                temporal_unreachable = True
                 capture_exception(e)
                 logger.warning(
                     "bulk_update_schemas saved the schema but could not reach Temporal to update its schedule",
