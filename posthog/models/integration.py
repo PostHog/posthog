@@ -307,6 +307,12 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
     if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Meta Graph nests its error as an object (`{"error": {"code": 190, ...}}`) and never
+    # sends the `invalid_grant` string. Code 190 means the access token is dead (password
+    # change, checkpoint, expiry, revocation). Without this mapping, a revoked Meta token
+    # classifies as `other`. Meta rate limits use codes 4, 17, and 32, which do not match.
+    if kind in ("meta-ads", "instagram") and status_code < 500 and isinstance(error, dict) and error.get("code") == 190:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
     # Transient throttling, not a credential problem: the backoff cap synchronises failed
     # integrations into retry herds that can trip a provider's per-second limit and take
     # healthy refreshes in the same second down with them.
@@ -505,15 +511,14 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
-# Graph API version the Instagram OAuth dialog, token exchange and refresh are pinned to. Kept in
-# step with the warehouse Instagram source's `default_version`, which calls the same Graph version.
-INSTAGRAM_GRAPH_API_VERSION = "v23.0"
-
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
-# it is linked to, so the grant needs the page permissions as well as the Instagram ones.
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones. Meta
+# replaced the legacy `instagram_*` permission names with `instagram_business_*`; the old names are
+# rejected at the OAuth dialog ("This app needs at least one supported permission").
 # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
 INSTAGRAM_OAUTH_SCOPE = (
-    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
+    "instagram_business_basic instagram_business_manage_insights instagram_business_manage_comments"
+    " pages_show_list pages_read_engagement"
 )
 
 
@@ -1074,7 +1079,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
-                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1238,9 +1243,9 @@ class OauthIntegration:
             # Meta app, but the two grants request different scopes so they stay separate kinds.
             # The token response carries no account identifier, so id/name come from `/me`.
             return OauthConfig(
-                authorize_url=f"https://www.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/dialog/oauth",
-                token_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/oauth/access_token",
-                token_info_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/me",
+                authorize_url=f"https://www.facebook.com/{InstagramIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/me",
                 token_info_config_fields=["id", "name"],
                 client_id=settings.INSTAGRAM_APP_CLIENT_ID,
                 client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
@@ -4189,7 +4194,6 @@ class MetaAdsIntegration(MetaGraphIntegration):
 
 class InstagramIntegration(MetaGraphIntegration):
     kind = "instagram"
-    api_version = INSTAGRAM_GRAPH_API_VERSION
 
 
 class TwilioIntegration:
@@ -4955,25 +4959,16 @@ class S3CompatibleIntegration:
 class StripeIntegration:
     integration: Integration
 
-    # These are the scopes we'll give Stripe when creating a local OAuth App
-    # and sending them access
+    # Every endpoint services/stripe-app/src/posthog/client.ts calls, and nothing else.
+    # This token is readable by every member of the customer's Stripe account, so anything
+    # granted here is granted to all of them. Read-only by design; do not add a write scope.
     SCOPES: str = " ".join(
         [
             "customer_journey:read",
-            "query:read",
-            "conversation:read",
-            "conversation:write",
             "experiment:read",
             "feature_flag:read",
             "insight:read",
-            "organization:read",
-            "person:read",
-            "project:read",
-            "ticket:read",
-            "ticket:write",
-            "user:read",
-            "hog_flow:read",
-            "hog_flow:write",
+            "query:read",
         ]
     )
 

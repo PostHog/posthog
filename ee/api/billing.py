@@ -1,7 +1,6 @@
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
@@ -19,8 +18,9 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, OrganizationIntegration, Team
+from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -30,21 +30,56 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 
 
-class IsOrganizationAdmin(permissions.BasePermission):
+def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
+    if not user.distinct_id:
+        return None
+
+    try:
+        return posthog_feature_flag_enabled(
+            OWNER_ONLY_BILLING_FLAG,
+            str(user.distinct_id),
+            organization_id=organization.id,
+        )
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
+        return None
+
+
+def user_has_billing_access(user: User, organization: Organization) -> bool:
+    membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
+    if not membership:
+        return False
+
+    if membership.level >= OrganizationMembership.Level.OWNER:
+        return True
+
+    if membership.level < OrganizationMembership.Level.ADMIN:
+        return False
+
+    # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
+    return _owner_only_billing_enabled(user, organization) is False
+
+
+class HasBillingAccess(permissions.BasePermission):
     """
-    Permission to allow only organization admins (level >= ADMIN) to access billing endpoints.
+    Permission to allow users with Billing access to access Billing endpoints.
     """
 
-    def has_permission(self, request, view):
+    message = "You do not have access to Billing for this organization."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
         try:
             org = view._get_org_required()
         except Exception:
             return False
-        return OrganizationMembership.objects.filter(
-            user=request.user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
-        ).exists()
+
+        if not isinstance(request.user, User):
+            return False
+
+        return user_has_billing_access(request.user, org)
 
 
 class BillingSerializer(serializers.Serializer):
@@ -111,9 +146,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
-        user = (
-            self.request.user if isinstance(self.request.user, AbstractUser) and self.request.user.distinct_id else None
-        )
+        user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -172,7 +205,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["PATCH"],
         detail=False,
         url_path="/",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
@@ -227,7 +260,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
@@ -241,7 +274,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -275,7 +308,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="subscription/switch-plan",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -286,7 +319,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["GET"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -361,7 +394,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="credits/purchase",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -381,7 +414,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/activate",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -393,7 +426,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/cancel",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -432,7 +465,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["PATCH"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -473,7 +506,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         user = self.request.user
-        if not isinstance(user, AbstractUser):
+        if not isinstance(user, User):
             raise PermissionDenied("You must be logged in to apply for the startup program")
 
         organization_id = request.data.get("organization_id")
@@ -484,10 +517,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not organization:
             raise ValidationError({"organization_id": "Organization not found."})
 
-        if not OrganizationMembership.objects.filter(
-            user=user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
-        ).exists():
-            raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
+        if not user_has_billing_access(user, organization):
+            raise PermissionDenied("You need Billing access to apply for the startup program")
 
         billing_manager = self.get_billing_manager()
 
@@ -524,7 +555,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -569,10 +600,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="usage",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
+
         billing_manager = self.get_billing_manager()
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
@@ -605,11 +637,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
         organization = self._get_org_required()
+
         billing_manager = self.get_billing_manager()
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
