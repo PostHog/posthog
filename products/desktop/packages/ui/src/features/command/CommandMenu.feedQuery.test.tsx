@@ -188,6 +188,10 @@ describe("CommandMenu feed queries", () => {
       "saved:fail",
     );
     expect(screen.queryByText("My failing tasks elsewhere")).toBeNull();
+    // A pure `saved:` query is saved-search completion, so it must not run a
+    // task query or show unrelated task results or a match summary.
+    expect(screen.queryByText("Fix billing address validation")).toBeNull();
+    expect(screen.queryByText(/save search/)).toBeNull();
     await user.click(await screen.findByText("My failing tasks"));
     expect(mocks.navigateToFeed).toHaveBeenCalledWith("feed-1");
   });

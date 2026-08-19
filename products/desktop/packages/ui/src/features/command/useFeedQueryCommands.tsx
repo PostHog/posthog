@@ -85,8 +85,11 @@ export function useFeedQueryCommands({
   const trimmed = query.trim();
   const parsed = useMemo(() => parseFeedQuery(trimmed), [trimmed]);
   const scope = enabled ? feedQueryTypeScope(parsed) : null;
+  // `type:` and `saved:` never filter task results — the planner ignores both —
+  // so they must not push the palette into task-query mode. A pure `saved:`
+  // query is saved-search completion, not a task search.
   const hasFilterTokens =
-    enabled && parsed.tokens.some((t) => t.key !== "type");
+    enabled && parsed.tokens.some((t) => t.key !== "type" && t.key !== "saved");
   const searchText = enabled ? parsed.text : query;
 
   const { group, context } = useFeedQuerySuggestions(query, caret, {
