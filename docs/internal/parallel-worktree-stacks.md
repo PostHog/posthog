@@ -47,15 +47,36 @@ Index 0 is the main checkout (plain single stack, untouched defaults). Worktree 
 | Vite dev server          | 8234 + 100i | 8334 |
 | debugpy (with `DEBUG=1`) | 5678 + i    | 5679 |
 | plugin-server HTTP       | 6739 + 100i | 6839 |
+| ingestion HTTP           | 6740 + 100i | 6840 |
+| capture                  | 3307 + 100i | 3407 |
 
 The 100 spacing keeps derived ports clear of the fixed infra ports (5432, 6379, 8123, 9000, 9092, 7233).
+
+## Header routing
+
+Every entry proxy — the main stack's `:8010` and each worktree's — also routes by header: a request carrying `X-Worktree: <i>` on an app path is served by worktree `i`'s Django instead of the port's default backend.
+This reaches a worktree's code from clients whose base URL is fixed (registered webhooks, API test suites, another service's callback), without repointing them at the worktree's port.
+Capture, flags, and the other special paths ignore the header; they route as the serving stack always routes them.
+
+## Queue splitting
+
+Queue work follows the worktree that created it, instead of racing the shared stack's consumers:
+
+- **Celery.** Starting `celery-worker` puts the worktree's Django and worker on their own broker (`redis://redis7:6379/<i>` — Redis database = worktree index; the shared stack stays on database 0).
+  Tasks enqueued by this worktree's app are processed by this worktree's worker, deterministically.
+  Without `celery-worker`, the worktree's Django enqueues to the shared broker and the shared workers process as usual.
+  `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` are plain env overrides honored by `posthog/settings/celery.py`.
+- **Event ingestion.** Starting `ingestion` or `capture` starts both: they form the worktree's ingestion lane on its own Kafka topic (`events_plugin_ingestion_wt<i>`, auto-created by Redpanda) and consumer group (`clickhouse-ingestion-wt<i>`).
+  The worktree's proxy routes `/e/`, `/batch`, and the other capture paths to the worktree's capture (built with cargo from the worktree's `rust/` — the first start pays a compile), which produces to the worktree topic; the worktree's `ingestion` (plugin-server in `ingestion-v2` mode) consumes it and writes to the shared ClickHouse topics.
+  Events entering through the main stack's `:8010` flow through the shared lane untouched, so both lanes are deterministic.
+  Only the main analytics-event path splits; historical/overflow, heatmaps, AI events, and the general `nodejs` proc's consumers (CDP, …) still run against the shared topics.
 
 ## Semantics and caveats
 
 - **One database.** All stacks share Postgres and ClickHouse. Migrations are not run automatically; if `/_health` reports migrations out of date, run `python manage.py migrate` from the most-migrated branch. Worktrees whose branches carry conflicting migrations will fight — coordinate schema changes through the shared DB deliberately.
-- **Queue consumers compete.** `celery-worker` and `nodejs` (plugin-server) started per-worktree join the same consumer groups as the shared stack. Each message is processed exactly once, by either a shared or a worktree instance, nondeterministically. To route deterministically to your instance, stop the shared one while testing.
+- **Queue work splits by lane.** See "Queue splitting" above: `celery-worker` and the `capture`+`nodejs` pair process their own worktree's work deterministically. What isn't split (celery-beat schedules, the plugin-server's non-ingestion consumers) is handled by the shared stack or competes as before.
 - **`celery-beat` is a singleton.** Never run it per worktree; `worktree-stack` refuses.
-- **Overriding more services.** Any Caddy upstream can be pointed at a worktree port via the `PROXY_*` variables when starting the worktree proxy, e.g. a locally built capture on `PROXY_CAPTURE_PORT`. The plumbing accepts any service; only backend/frontend/celery-worker/nodejs have first-class recipes in `worktree-stack`.
+- **Overriding more services.** Any Caddy upstream can be pointed at a worktree port via the `PROXY_*` variables when starting the worktree proxy, e.g. a locally built feature-flags on `PROXY_FLAGS_PORT`. The plumbing accepts any service; only backend/frontend/celery-worker/nodejs/capture have first-class recipes in `worktree-stack`.
 
 ## Why not mirrord
 

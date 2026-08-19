@@ -40,6 +40,23 @@ services:
                     }
                 }
                 ${CADDY_HOST:-http://localhost:8000} {
+                    # An X-Worktree: <i> header routes app-path requests to that parallel
+                    # worktree's Django (8000 + 100i) through any stack's entry proxy
+                    # (see docs/internal/parallel-worktree-stacks.md).
+                    map {header.x-worktree} {wt_backend} {
+                        0 web:8000
+                        1 web:8100
+                        2 web:8200
+                        3 web:8300
+                        4 web:8400
+                        5 web:8500
+                        6 web:8600
+                        7 web:8700
+                        8 web:8800
+                        9 web:8900
+                        default web:${PROXY_WEB_PORT:-8000}
+                    }
+
                     @replay-capture {
                         path /s
                         path /s/*
@@ -128,7 +145,7 @@ services:
                     }
 
                     handle {
-                        reverse_proxy web:${PROXY_WEB_PORT:-8000}
+                        reverse_proxy {wt_backend}
                     }
                 }
 

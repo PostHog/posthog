@@ -51,7 +51,7 @@ case "$RS_SVC" in
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
-    export ADDRESS=0.0.0.0:3307 # avoid port conflict in local dev
+    export ADDRESS=${ADDRESS:-0.0.0.0:3307} # avoid port conflict in local dev
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"

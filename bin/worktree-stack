@@ -12,9 +12,10 @@
 # The app URL for this worktree is printed by `worktree-stack url`.
 #
 # The shared infra and the database stay singletons: worktrees do not run
-# migrations automatically, and queue consumers started here (celery-worker,
-# nodejs) join the same consumer groups as the shared stack, so each message is
-# handled by exactly one instance (shared or worktree, nondeterministic).
+# migrations automatically. Queue work splits deterministically: celery-worker
+# pairs with the worktree's Django on a per-worktree broker (Redis db = index),
+# and capture + ingestion form a per-worktree ingestion lane on their own Kafka
+# topic and consumer group, fed by this worktree's proxy.
 # Never run celery-beat per worktree; the scheduler is a singleton.
 
 set -e
@@ -43,8 +44,15 @@ Services:
   proxy          Caddy entrypoint for this worktree (docker)
   backend        Django via granian on BACKEND_PORT
   frontend       Vite dev server on VITE_PORT
-  celery-worker  Celery worker (competing consumer with the shared stack)
-  nodejs         plugin-server (competing consumer with the shared stack)
+  celery-worker  Celery worker on this worktree's own broker (Redis db = index);
+                 the worktree's Django enqueues there, so tasks split
+                 deterministically from the shared stack
+  nodejs         plugin-server, general mode (cdp etc.; competing consumer with
+                 the shared stack)
+  ingestion      plugin-server in ingestion-v2 mode consuming this worktree's
+                 own ingestion topic (selecting it also starts capture)
+  capture        capture (cargo, from this worktree's rust/) producing to this
+                 worktree's own ingestion topic (selecting it also starts ingestion)
 
 phrocs resolves its control socket per directory, so from inside the worktree
 plain `hogli wait` and `hogli stop` target this stack too.
@@ -121,9 +129,14 @@ export BACKEND_PORT=$((8000 + 100 * IDX))
 export VITE_PORT=$((8234 + 100 * IDX))
 export DEBUGPY_PORT=$((5678 + IDX))
 export PLUGIN_HTTP_PORT=$((6739 + 100 * IDX))
+export INGESTION_HTTP_PORT=$((6740 + 100 * IDX))
+export CAPTURE_PORT=$((3307 + 100 * IDX))
 export SITE_URL="http://localhost:$PROXY_PORT"
 export JS_URL="http://localhost:$VITE_PORT"
 export PROXY_WEB_PORT="$BACKEND_PORT"
+INGESTION_TOPIC="events_plugin_ingestion_wt$IDX"
+INGESTION_GROUP="clickhouse-ingestion-wt$IDX"
+CELERY_WT_BROKER_URL="redis://redis7:6379/$IDX"
 
 COMPOSE_PROJECT="posthog-wt$IDX"
 
@@ -213,14 +226,18 @@ EOF
 # TUI reads identically. Services not selected on `start` are defined with
 # autostart: false — visible in phrocs and toggleable there, but off.
 # ---------------------------------------------------------------------------
-KNOWN_SERVICES=(proxy backend frontend celery-worker nodejs)
+KNOWN_SERVICES=(proxy backend frontend celery-worker nodejs ingestion capture)
 
-autostart_flag() {
+has_service() {
     local svc
     for svc in "${AUTOSTART_SERVICES[@]}"; do
-        [[ "$svc" == "$1" ]] && { echo true; return; }
+        [[ "$svc" == "$1" ]] && return 0
     done
-    echo false
+    return 1
+}
+
+autostart_flag() {
+    if has_service "$1"; then echo true; else echo false; fi
 }
 
 write_phrocs_config() {
@@ -266,6 +283,25 @@ procs:
         ready_pattern: 'All systems go'
         env:
             HTTP_SERVER_PORT: '$PLUGIN_HTTP_PORT'
+
+    ingestion:
+        shell: './bin/posthog-node'
+        autostart: $(autostart_flag ingestion)
+        ready_pattern: 'All systems go'
+        env:
+            PLUGIN_SERVER_MODE: 'ingestion-v2'
+            HTTP_SERVER_PORT: '$INGESTION_HTTP_PORT'
+            INGESTION_CONSUMER_CONSUME_TOPIC: '$INGESTION_TOPIC'
+            INGESTION_CONSUMER_GROUP_ID: '$INGESTION_GROUP'
+
+    capture:
+        shell: './bin/start-rust-service capture'
+        autostart: $(autostart_flag capture)
+        ready_pattern: 'listening on'
+        env:
+            ADDRESS: '0.0.0.0:$CAPTURE_PORT'
+            KAFKA_TOPIC: '$INGESTION_TOPIC'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: '$INGESTION_TOPIC'
 EOF
 }
 
@@ -297,12 +333,31 @@ case "$COMMAND" in
             shift
         done
         [[ ${#AUTOSTART_SERVICES[@]} -eq 0 ]] && AUTOSTART_SERVICES=(proxy backend frontend)
+        # capture and ingestion form this worktree's isolated ingestion lane
+        # (own Kafka topic + consumer group); one without the other either
+        # produces to a topic nothing drains or consumes a topic nothing
+        # fills, so selecting either brings both.
+        if has_service capture || has_service ingestion; then
+            has_service capture || AUTOSTART_SERVICES+=(capture)
+            has_service ingestion || AUTOSTART_SERVICES+=(ingestion)
+            export PROXY_CAPTURE_PORT=$CAPTURE_PORT
+        fi
+        if has_service celery-worker; then
+            export CELERY_BROKER_URL=$CELERY_WT_BROKER_URL
+            export CELERY_RESULT_BACKEND=$CELERY_WT_BROKER_URL
+        fi
         check_infra
         load_dev_env
         PHROCS_BIN="$(resolve_phrocs)"
         write_phrocs_config
         echo "worktree-stack #$IDX ($WORKTREE_ROOT)"
         echo "App URL: $SITE_URL"
+        if has_service capture; then
+            echo "Ingestion lane: capture + ingestion on topic $INGESTION_TOPIC"
+        fi
+        if has_service celery-worker; then
+            echo "Celery lane: broker $CELERY_WT_BROKER_URL"
+        fi
         cd "$WORKTREE_ROOT"
         exec "$PHROCS_BIN" "${DETACH_ARGS[@]}" --config "$PHROCS_CONFIG"
         ;;
