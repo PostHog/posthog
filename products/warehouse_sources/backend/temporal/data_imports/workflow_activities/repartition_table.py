@@ -531,19 +531,24 @@ def _handle_budget_exceeded(
     appended nothing this run is stuck; that one falls through to `_handle_failure` so a rewrite which
     genuinely can't advance in one budget still gives up.
 
-    Progress means this attempt inherited rows and added to them. Neither count alone can say that. A
-    cumulative temp size against a stored high-water mark is not monotonic, because the rewrite
-    restarts from row 0 whenever its checkpoint is discarded (the source's Delta version moved between
-    runs), so a fresh rebuild reading back below an earlier attempt's mark was charged a spurious
-    failure. But the rows written this attempt cannot say it either: a rewrite that restarts every run
-    writes hundreds of millions of rows each time, clears any `> 0` test, and ends exactly where it
-    began. Three schemas sat in that loop for six weeks, each burning a full budget per run and
-    finishing nothing, because the cap could never count to three. `resumed_from` separates them: an
-    attempt that inherited nothing re-covered ground the last one already covered, however much it
-    wrote.
+    Progress means this attempt left the rewrite further along than it found it. Neither row count
+    alone can say that. A cumulative temp size against a stored high-water mark is not monotonic,
+    because the rewrite restarts from row 0 whenever its checkpoint is discarded (the source's Delta
+    version moved between runs), so a fresh rebuild reading back below an earlier attempt's mark was
+    charged a spurious failure. But the rows written this attempt cannot say it either: a rewrite that
+    restarts every run writes hundreds of millions of rows each time, clears any `> 0` test, and ends
+    exactly where it began. Three schemas sat in that loop for six weeks, each burning a full budget per
+    run and finishing nothing, because the cap could never count to three.
+
+    Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
+    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
+    keeps that first attempt apart from a restart that inherited nothing because it discarded an
+    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
+    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
-    the rewrite extended what it inherited, otherwise whatever `_handle_failure` returns.
+    the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
     """
     schema.refresh_from_db(fields=["sync_type_config"])
     claim = schema.repartition_claim
@@ -552,7 +557,12 @@ def _handle_budget_exceeded(
         return "superseded"
 
     pending = schema.repartition_pending or pending or {}
-    if error.resumed_from > 0 and error.rows_written > 0:
+    resumed_and_advanced = error.resumed_from > 0 and error.rows_written > 0
+    # A first attempt inherits nothing, so `resumed_from` is 0, but saving a fresh checkpoint the next
+    # run resumes from is still forward progress. Only a restart that discarded an existing checkpoint
+    # (`had_prior_checkpoint`) re-covered ground already covered — that one is the treadmill to stop.
+    fresh_and_checkpointed = not error.had_prior_checkpoint and error.checkpoint_saved
+    if resumed_and_advanced or fresh_and_checkpointed:
         # Forward progress this attempt: keep the checkpoint and reset the failure counter — a rewrite
         # still advancing is not the doomed one the cap exists to stop. The next run resumes from the
         # checkpoint rather than giving up.
