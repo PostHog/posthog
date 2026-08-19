@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -8,7 +8,7 @@ G2_BASE_URL = "https://data.g2.com"
 PAGE_SIZE = 250
 
 
-@dataclass
+@frozen
 class G2EndpointConfig:
     # Relative to /api/{version}. `{product_id}` is filled in from the source's product_id field.
     path: str

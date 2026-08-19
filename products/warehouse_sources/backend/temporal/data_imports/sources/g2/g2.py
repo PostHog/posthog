@@ -1,10 +1,11 @@
-import dataclasses
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -22,7 +23,7 @@ class MissingProductIdError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class G2ResumeConfig:
     next_url: str | None = None
 
