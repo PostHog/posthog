@@ -7,13 +7,9 @@ from posthog.test.base import BaseTest
 import pyarrow as pa
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.ranking.inventory import inventory_filter
 from products.signals.dags.inbox_ranking import common
-from products.signals.dags.inbox_ranking.dataset.dag import (
-    MODEL_DATA_SCHEMA,
-    assemble_model_rows,
-    label_provenance_ok,
-    spine_report_filter,
-)
+from products.signals.dags.inbox_ranking.dataset.dag import MODEL_DATA_SCHEMA, assemble_model_rows, label_provenance_ok
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -339,7 +335,7 @@ class TestSpineInclusion(BaseTest):
 
         in_spine = {
             str(report_id)
-            for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
+            for report_id in SignalReport.objects.filter(inventory_filter(SNAPSHOT_END)).values_list("id", flat=True)
         }
 
         assert in_spine == {promoted, born_visible}

@@ -303,6 +303,7 @@ rules:
                               |SignalReportCanvas
                               |SignalReportCanvasGeneration
                               |SignalReportRefund
+                              |SignalReportScore
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
@@ -667,6 +668,7 @@ rules:
                         |SignalReportCanvas
                         |SignalReportCanvasGeneration
                         |SignalReportRefund
+                        |SignalReportScore
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig

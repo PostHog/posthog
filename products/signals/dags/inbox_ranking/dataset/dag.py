@@ -32,12 +32,8 @@ Point-in-time caveats, per source:
   fix, and is a v2 change.
 """
 
-import json
 import datetime
-from collections.abc import Iterator
 from typing import Any, cast
-
-from django.db.models import Q
 
 import dagster
 import pyarrow as pa
@@ -47,7 +43,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport
+from products.signals.backend.ranking.inventory import inventory_filter
+from products.signals.backend.ranking.judgments import chunked, latest_judgments
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
@@ -92,16 +90,6 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
 )
 
 FEATURE_SCHEMA_VERSION = 3
-
-# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
-# and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
-# promotion. Suppressed and deleted are absent on purpose: authored-then-hidden is not inventory.
-BORN_VISIBLE_STATUSES = (
-    SignalReport.Status.READY,
-    SignalReport.Status.PENDING_INPUT,
-    SignalReport.Status.IN_PROGRESS,
-    SignalReport.Status.RESOLVED,
-)
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -303,82 +291,6 @@ _STATE_PASSTHROUGH_COLUMNS = (
 )
 
 
-# Stay far below Postgres's 65,535 bind-parameter cap when expanding id__in filters.
-_ORM_ID_CHUNK = 10_000
-
-
-def _chunked(ids: list[str]) -> Iterator[list[str]]:
-    for offset in range(0, len(ids), _ORM_ID_CHUNK):
-        yield ids[offset : offset + _ORM_ID_CHUNK]
-
-
-def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
-    # Legacy artefact content is unconstrained JSON; a non-string value must not reach the
-    # pa.string() column, where it would abort the whole partition build.
-    value = parsed.get(key)
-    return value if isinstance(value, str) else None
-
-
-def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
-    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON.
-
-    Artefacts are appended in normal operation but the API permits editing one in place
-    (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
-    current content is not necessarily what it held at the cutoff. The latest pre-cutoff row is
-    therefore chosen first and then nulled if it was edited afterwards: skipping edited rows during
-    selection instead would hand back the judgment they superseded, which was already stale at the
-    cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
-    status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | None]] = {}
-    for chunk in _chunked(report_ids):
-        artefacts = (
-            SignalReportArtefact.objects.filter(
-                report_id__in=chunk,
-                type__in=[
-                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                ],
-                created_at__lt=snapshot_end,
-            )
-            .order_by("report_id", "type", "-created_at")
-            .distinct("report_id", "type")
-            .values_list("report_id", "type", "content", "updated_at")
-        )
-        for report_id, artefact_type, content, updated_at in artefacts.iterator(chunk_size=2000):
-            # A null updated_at is a row predating the field, never an edit.
-            if updated_at is not None and updated_at >= snapshot_end:
-                continue
-            try:
-                parsed = json.loads(content)
-            except ValueError:
-                continue
-            # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
-            if not isinstance(parsed, dict):
-                continue
-            entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
-            if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                entry["priority"] = _judgment_value(parsed, "priority")
-            else:
-                entry["actionability"] = _judgment_value(parsed, "actionability")
-    return judgments
-
-
-def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
-    """Reports that were in the inbox before the cutoff.
-
-    Two ways in, because not every visible report was promoted: the pipeline promotes a `potential`
-    report and stamps promoted_at, but the scout and custom-agent authoring paths create a report
-    already in a visible status and never stamp it. Keying only on promotion dropped every
-    directly-authored report until a user happened to interact with it, biasing the inventory toward
-    reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
-    is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
-    null) still cannot leak in through the second branch."""
-    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
-        promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
-    )
-
-
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
@@ -403,9 +315,9 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     # via the labels asset.
     spine_ids: set[str] = {
         str(report_id)
-        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+        for report_id in SignalReport.objects.filter(inventory_filter(snapshot_end)).values_list("id", flat=True)
     }
-    for chunk in _chunked(sorted(labeled_ids)):
+    for chunk in chunked(sorted(labeled_ids)):
         spine_ids |= {
             str(report_id)
             for report_id in SignalReport.objects.filter(id__in=chunk, created_at__lt=snapshot_end).values_list(
@@ -413,10 +325,10 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
             )
         }
     ordered_spine_ids = sorted(spine_ids)
-    judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
+    judgments = latest_judgments(ordered_spine_ids, snapshot_end)
 
     rows: list[dict[str, Any]] = []
-    for spine_chunk in _chunked(ordered_spine_ids):
+    for spine_chunk in chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
             .values(
@@ -439,7 +351,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
             report_id = str(report["id"])
             created_at = ensure_utc(report["created_at"])
             promoted_at = ensure_utc(report["promoted_at"])
-            judgment = judgments.get(report_id, {})
+            judgment = judgments.get(report_id)
             rows.append(
                 {
                     "snapshot_date": snapshot_date,
@@ -459,8 +371,8 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "signal_count": report["signal_count"],
                     "total_weight": report["total_weight"],
                     "run_count": report["run_count"],
-                    "priority": judgment.get("priority"),
-                    "actionability": judgment.get("actionability"),
+                    "priority": judgment.priority if judgment else None,
+                    "actionability": judgment.actionability if judgment else None,
                     "title_chars": len(report["title"] or ""),
                     "summary_chars": len(report["summary"] or ""),
                     "features_observed_at": features_observed_at,

@@ -8,7 +8,8 @@ import pandas as pd
 import xgboost as xgb
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
-from products.signals.dags.inbox_ranking.training.dag import champion_object_key, model_object_key, snapshot_dates
+from products.signals.backend.ranking.model_store import champion_object_key, model_object_key
+from products.signals.dags.inbox_ranking.training.dag import snapshot_dates
 from products.signals.dags.inbox_ranking.training.examples import (
     EXAMPLE_COLUMNS,
     Snapshot,

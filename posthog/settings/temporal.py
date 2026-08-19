@@ -249,5 +249,17 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
 
+# Signals inbox ranking scoring sweep (products/signals/backend/ranking): shadow-mode scoring of
+# inbox reports with the champion model the training dag publishes. Off by default; the schedule
+# still ticks but the activity returns without touching the model or the database.
+SIGNALS_RANKING_SCORING_ENABLED: bool = get_from_env("SIGNALS_RANKING_SCORING_ENABLED", False, type_cast=str_to_bool)
+SIGNALS_RANKING_SWEEP_INTERVAL_MINUTES: int = get_from_env("SIGNALS_RANKING_SWEEP_INTERVAL_MINUTES", 15, type_cast=int)
+# Reports older than this are not re-scored: the inbox is about recent reports, and age-decay
+# re-scoring of stale ones would only grow the log.
+SIGNALS_RANKING_SCORE_MAX_AGE_DAYS: int = get_from_env("SIGNALS_RANKING_SCORE_MAX_AGE_DAYS", 30, type_cast=int)
+# A report is re-scored when it changed since its last score, or its last score is older than this.
+SIGNALS_RANKING_RESCORE_HOURS: int = get_from_env("SIGNALS_RANKING_RESCORE_HOURS", 24, type_cast=int)
+SIGNALS_RANKING_SCORE_BATCH_LIMIT: int = get_from_env("SIGNALS_RANKING_SCORE_BATCH_LIMIT", 2000, type_cast=int)
+
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")

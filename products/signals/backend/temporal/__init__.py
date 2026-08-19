@@ -1,3 +1,4 @@
+from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
@@ -97,9 +98,11 @@ WORKFLOWS = [
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
     SignalReportCanvasWorkflow,
+    InboxRankingScoringWorkflow,
 ]
 
 ACTIVITIES = [
+    score_inbox_reports_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_inbox_notifications_activity,

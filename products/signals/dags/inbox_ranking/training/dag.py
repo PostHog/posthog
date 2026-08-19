@@ -27,6 +27,7 @@ from botocore.exceptions import ClientError
 from posthog import settings
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
+from products.signals.backend.ranking.model_store import METADATA_FILE, champion_object_key, model_object_key
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     S3_BUCKET_ENV,
@@ -53,9 +54,6 @@ from products.signals.dags.inbox_ranking.training.promotion import decide_promot
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, train_head
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
-MODELS_TABLE = "inbox_ranking_models"
-CHAMPION_FILE = "champion.json"
-METADATA_FILE = "metadata.json"
 
 # Label columns the heads read; everything else in the labels snapshot stays on disk.
 _LABEL_COLUMNS = (
@@ -74,14 +72,6 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     "retry_policy": dagster.RetryPolicy(max_retries=1, delay=60),
     "pool": "inbox_ranking_etl",
 }
-
-
-def model_object_key(prefix: str, partition_key: str, filename: str) -> str:
-    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/dt={partition_key}/{filename}"
-
-
-def champion_object_key(prefix: str) -> str:
-    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{CHAMPION_FILE}"
 
 
 def _read_json_if_exists(client, bucket: str, key: str) -> dict[str, Any] | None:

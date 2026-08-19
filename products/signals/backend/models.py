@@ -2171,3 +2171,39 @@ class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "area"], name="signal_repo_area_activity_uniq"),
         ]
+
+
+class SignalReportScore(TeamScopedRootMixin, UUIDModel):
+    """One row per scoring of a report by the inbox ranking model - an append-only log.
+
+    The scoring sweep (`products/signals/backend/ranking/`) writes a row every time it scores a
+    report: on creation, after an edit, and on its periodic re-score. Rows are never updated, so
+    the table is the point-in-time record of what the model believed at each moment, which is what
+    the online shadow read joins impressions against and what the next training run learns from
+    (`features` is the exact vector the booster saw). Nothing orders the inbox by these yet.
+    """
+
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
+    # explicit user code; `all_teams` is the unscoped sibling for framework internals and the
+    # cross-team sweep. Same pattern as SignalReportRefund.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # db_constraint=False: an FK constraint on the hot posthog_team table locks it on create.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="ranking_scores")
+    # The champion's `model_version` (a dataset partition date) and the feature contract it was
+    # trained under, so a score is always interpretable against the artifact that produced it.
+    model_version = models.CharField(max_length=32)
+    feature_schema_version = models.PositiveSmallIntegerField()
+    # The feature vector the boosters saw, keyed by feature name.
+    features = models.JSONField()
+    # Head name -> probability, e.g. {"open": 0.31, "action": 0.04}. A head the champion could not
+    # train is simply absent, so new heads need no schema change.
+    scores = models.JSONField()
+    scored_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["report", "-scored_at"], name="signals_rpt_score_latest_idx"),
+            models.Index(fields=["team", "scored_at"], name="signals_rpt_score_team_idx"),
+        ]
