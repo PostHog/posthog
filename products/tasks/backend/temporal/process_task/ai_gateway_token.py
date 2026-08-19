@@ -1,16 +1,11 @@
 """Per-run scoped-token minting for sandboxes routed to the Go ai-gateway.
 
-A sandbox run whose product is on the `AI_GATEWAY_PRODUCTS` allowlist authenticates to the
-Go gateway with a short-lived `phe_` scoped token minted here from the worker's own gateway
-credential, not with the run's per-team OAuth token. The scoped token pins the product and
-the on-behalf-of team, and carries a per-run spend cap, so one internal wallet funds the
-traffic while spend stays attributed and bounded per run.
-
-Minting is best-effort: a run whose mint fails gets no token, and the agent server routes
-that run to the Python gateway. The product/stage matching here must agree with
-`resolveGatewayTarget` in products/desktop/packages/agent/src/utils/gateway.ts — the agent
-routes to the Go gateway only when the product is allowlisted AND a token is present, so a
-matcher disagreement degrades to the Python gateway rather than failing the run.
+Routed runs authenticate with a short-lived `phe_` token minted here from the worker's
+gateway credential: pinned product and on-behalf-of team, per-run spend cap, one internal
+wallet. Minting is best-effort and the matching must agree with `resolveGatewayTarget` in
+products/desktop/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
+only when the product is allowlisted AND a token is present, so a mint failure or matcher
+disagreement degrades the run to the Python gateway rather than failing it.
 """
 
 import time
@@ -78,15 +73,11 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
 
 
 def _token_ttl_seconds() -> int:
-    """Token lifetime, structurally longer than any capped run.
-
-    An explicit setting wins; otherwise derive from the run-duration cap plus a
-    settle buffer so a capped run can never outlive its token mid-run (a token
-    expiring under a live run fails every remaining LLM call with no fallback).
-    A disabled run cap derives the gateway's 24h mint maximum. Interactive
-    sessions are exempt from the cap and could still outlive the token; only
-    capped background products are routed today. Clamped to the gateway's mint
-    bounds (60s..24h).
+    """Token lifetime: the explicit setting, else the run-duration cap plus a settle
+    buffer, so a capped run cannot outlive its token (expiry under a live run fails
+    every remaining LLM call with no fallback). A disabled run cap derives the 24h
+    mint maximum; interactive sessions are cap-exempt and could still outlive it,
+    but only capped background products are routed. Clamped to mint bounds (60s..24h).
     """
     configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
     if configured <= 0:

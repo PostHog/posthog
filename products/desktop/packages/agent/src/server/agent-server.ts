@@ -418,10 +418,9 @@ function buildMissingAttachmentNotice(count: number): string {
 }
 
 /**
- * The codex session's LLM auth, taken from the resolved gateway env. Codex must
- * never read the raw run credential directly: on the Go-gateway path the bearer
- * is the per-run scoped token, and the run's own OAuth token belongs to a team
- * with no gateway wallet, so presenting it gets every call refused.
+ * The codex session's LLM auth, from the resolved gateway env. Codex must never
+ * read the raw run credential: on the Go-gateway path the bearer is the per-run
+ * scoped token (see configureEnvironment).
  */
 export function codexAuthFromGatewayEnv(env: GatewayEnv): {
   apiBaseUrl: string;
