@@ -93,22 +93,16 @@ export function FeaturesTab(): JSX.Element {
                 <FeatureDiscoveryBanner key={run.id} run={run} />
             ))}
             {latestFailedRun && activeDiscoveryRuns.length === 0 && (
-                <LemonBanner type="error">
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: openDiscoveryModal }}>
                     Feature discovery for <strong>{latestFailedRun.repository}</strong> failed.{' '}
                     {latestFailedRun.error || 'Check the GitHub connection and try again.'}
-                    <LemonButton type="secondary" size="small" onClick={openDiscoveryModal} className="ml-2">
-                        Try again
-                    </LemonButton>
                 </LemonBanner>
             )}
             {latestEmptyRun && activeDiscoveryRuns.length === 0 && (
-                <LemonBanner type="info">
+                <LemonBanner type="info" action={{ children: 'Discover again', onClick: openDiscoveryModal }}>
                     Discovery found no features in <strong>{latestEmptyRun.repository}</strong>
                     {latestEmptyRun.focus ? ` for “${latestEmptyRun.focus}”` : ''}. Try a broader focus or another
                     repository.
-                    <LemonButton type="secondary" size="small" onClick={openDiscoveryModal} className="ml-2">
-                        Discover again
-                    </LemonButton>
                 </LemonBanner>
             )}
 
