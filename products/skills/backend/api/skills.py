@@ -27,7 +27,7 @@ from posthog.auth import (
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -48,6 +48,7 @@ from .community_publish_services import (
     CommunitySkillPublishNotConfiguredError,
     publish_skill_to_community,
 )
+from .community_skills import CommunitySkillFeatureFlagPermission
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
@@ -166,6 +167,33 @@ ALLOWED_LIST_ORDERINGS = frozenset(
 )
 
 
+class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission):
+    """Gates publishing to the community marketplace, and nothing else on this viewset.
+
+    The Skills product is GA and the marketplace is not, so the flag can only bind to the one action —
+    otherwise the whole product goes dark, and without it publish goes live everywhere the moment the
+    GitHub App is installed and the 503 fail-safe stops firing.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if getattr(view, "action", None) != "publish_to_community":
+            return True
+        return super().has_permission(request, view)
+
+
+class CommunityPublishBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
+    # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
+    # PersonalApiKeyRateThrottle, which ignores session traffic — and this endpoint is session-only.
+    scope = "community_skill_publish_burst"
+    rate = "6/hour"
+
+
+class CommunityPublishSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "community_skill_publish_sustained"
+    rate = "20/day"
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -176,13 +204,15 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission]
+    permission_classes = [AccessControlPermission, CommunityPublishFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
 
     def get_throttles(self):
-        if self.action in ["update_by_name", "get_by_name", "resolve_by_name", "publish_to_community"]:
+        if self.action == "publish_to_community":
+            return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
+        if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 

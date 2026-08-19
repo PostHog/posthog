@@ -8,7 +8,6 @@ powers the Tasks product. This module owns the pure rendering of an `LLMSkill` i
 from __future__ import annotations
 
 import re
-import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,8 +24,12 @@ logger = structlog.get_logger(__name__)
 # repo's own validation would reject.
 SLUG_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 MAX_SLUG_LENGTH = 64
+# Matches CommunitySkill.name — a longer name publishes and merges, then ingest rejects the entry and
+# the skill silently never appears in the catalog.
+MAX_DISPLAY_NAME_LENGTH = 64
 SKILLS_DIR = "skills"
 COMMUNITY_SKILLS_PR_BASE_BRANCH = "main"
+COMMUNITY_SKILLS_BRANCH_PREFIX = "community-skill/"
 
 
 class CommunitySkillPublishError(Exception):
@@ -72,6 +75,8 @@ def render_skill_md(
     """
     if not name.strip():
         raise CommunitySkillPublishError("Skill name is required to publish.")
+    if len(name.strip()) > MAX_DISPLAY_NAME_LENGTH:
+        raise CommunitySkillPublishError(f"Skill name must be {MAX_DISPLAY_NAME_LENGTH} characters or fewer.")
     if not description.strip():
         raise CommunitySkillPublishError("Skill description is required to publish.")
 
@@ -210,8 +215,13 @@ def publish_skill_to_community(
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
-    Reuses the existing GitHubIntegration branch/commit/PR helpers. Raises CommunitySkillPublishError
-    when any GitHub step fails, or CommunitySkillPublishNotConfiguredError when publishing is disabled.
+    One open PR per slug: the branch name is derived from the slug, so re-publishing a skill rewrites
+    that branch and returns the PR already open for it instead of opening a second one. Every file
+    lands in a single commit, and a failure after the branch write deletes the branch again — this
+    repo is public, so a half-written skill or an unreviewed branch must not survive a failed publish.
+
+    Raises CommunitySkillPublishError when any GitHub step fails, or
+    CommunitySkillPublishNotConfiguredError when publishing is disabled.
     """
     publisher = get_community_skills_publisher()
     if publisher is None:
@@ -232,18 +242,27 @@ def publish_skill_to_community(
 
     repo = settings.COMMUNITY_SKILLS_GITHUB_REPO
     base = COMMUNITY_SKILLS_PR_BASE_BRANCH
-    branch = f"community-skill/{slug}-{uuid.uuid4().hex[:8]}"
+    branch = f"{COMMUNITY_SKILLS_BRANCH_PREFIX}{slug}"
 
-    branch_result = publisher.create_branch(repo, branch, base)
-    if not branch_result.get("success"):
-        raise CommunitySkillPublishError(f"Failed to create branch: {branch_result.get('error')}")
+    # Read the open PR before writing, so a failed write doesn't get blamed on a PR that predates it.
+    existing_pr = publisher.get_open_pull_request_for_head(repo, branch)
 
-    for rendered_file in rendered:
-        commit_result = publisher.update_file(
-            repo, rendered_file.path, rendered_file.content, f"Add {rendered_file.path}", branch
-        )
-        if not commit_result.get("success"):
-            raise CommunitySkillPublishError(f"Failed to commit {rendered_file.path}: {commit_result.get('error')}")
+    commit_result = publisher.commit_files_to_branch(
+        repo,
+        branch,
+        base,
+        {rendered_file.path: rendered_file.content for rendered_file in rendered},
+        f"{'Update' if existing_pr else 'Add'} community skill: {name}",
+    )
+    if not commit_result.get("success"):
+        raise CommunitySkillPublishError(f"Failed to commit skill files: {commit_result.get('error')}")
+
+    if existing_pr is not None:
+        pr_url = existing_pr.get("url")
+        if not pr_url:
+            raise CommunitySkillPublishError("A pull request for this skill is already open for review.")
+        logger.info("community_skill_publish_updated_open_pr", slug=slug, pr_number=existing_pr["number"])
+        return {"pr_url": pr_url, "pr_number": existing_pr["number"], "branch": branch}
 
     pr_result = publisher.create_pull_request(
         repo,
@@ -252,8 +271,26 @@ def publish_skill_to_community(
         branch,
         base,
     )
-    if not pr_result.get("success"):
-        raise CommunitySkillPublishError(f"Failed to open pull request: {pr_result.get('error')}")
+    if pr_result.get("success"):
+        logger.info("community_skill_published", slug=slug, pr_number=pr_result.get("pr_number"))
+        return {"pr_url": pr_result["pr_url"], "pr_number": pr_result["pr_number"], "branch": branch}
 
-    logger.info("community_skill_published", slug=slug, pr_number=pr_result.get("pr_number"))
-    return {"pr_url": pr_result["pr_url"], "pr_number": pr_result["pr_number"], "branch": branch}
+    error = str(pr_result.get("error") or "")
+    # Cleanup is for debris this call just created. A branch that already heads a pull request (a
+    # concurrent publish won the race) belongs to that review, so leave it alone.
+    if "already exists" not in error.lower():
+        cleanup_result = publisher.delete_branch(repo, branch)
+        if not cleanup_result.get("success"):
+            logger.warning(
+                "community_skill_publish_branch_cleanup_failed",
+                slug=slug,
+                branch=branch,
+                error=cleanup_result.get("error"),
+            )
+    # GitHub refuses a pull request with an empty diff, which is what an unchanged skill produces.
+    if "no commits between" in error.lower():
+        raise CommunitySkillPublishError(
+            "This skill already matches what's published, so there's nothing to send. "
+            "Edit the skill, then publish again."
+        )
+    raise CommunitySkillPublishError(f"Failed to open pull request: {error}")

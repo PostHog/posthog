@@ -1933,11 +1933,103 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def _github_for_org(self) -> GitHubIntegration:
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        return GitHubIntegration(integration)
+
+    @staticmethod
+    def _git_data_api_request(*, ref_status: int = 201):
+        """Fake the git-data endpoints commit_files_to_branch walks, recording each call."""
+        calls: list[tuple[str, str, Optional[dict]]] = []
+
+        def _request(method, path, **kwargs):
+            calls.append((method, path, kwargs.get("json_body")))
+            if "/git/ref/heads/" in path and method == "GET":
+                return MagicMock(status_code=200, **{"json.return_value": {"object": {"sha": "base-sha"}}})
+            if "/git/commits/" in path:
+                return MagicMock(status_code=200, **{"json.return_value": {"tree": {"sha": "base-tree"}}})
+            if path.endswith("/git/trees"):
+                return MagicMock(status_code=201, **{"json.return_value": {"sha": "new-tree"}})
+            if path.endswith("/git/commits"):
+                return MagicMock(status_code=201, **{"json.return_value": {"sha": "new-commit"}})
+            if path.endswith("/git/refs"):
+                return MagicMock(status_code=ref_status, text="Reference already exists")
+            if "/git/refs/heads/" in path and method == "PATCH":
+                return MagicMock(status_code=200)
+            raise AssertionError(f"unexpected request {method} {path}")
+
+        return _request, calls
+
+    def test_commit_files_to_branch_writes_every_file_in_one_commit(self):
+        github = self._github_for_org()
+        request, calls = self._git_data_api_request()
+
+        with patch.object(github, "api_request", side_effect=request):
+            result = github.commit_files_to_branch(
+                "community-skills", "community-skill/x", "main", {"a.md": "A", "b/c.md": "C"}, "msg"
+            )
+
+        assert result["success"] is True
+        assert result["commit_sha"] == "new-commit"
+        tree_body = next(body for _, path, body in calls if path.endswith("/git/trees"))
+        assert {entry["path"] for entry in tree_body["tree"]} == {"a.md", "b/c.md"}
+        assert tree_body["base_tree"] == "base-tree"
+        # The branch reference is written last, so a failure earlier leaves no branch in the repo.
+        assert calls[-1][1].endswith("/git/refs")
+
+    def test_commit_files_to_branch_force_updates_an_existing_branch(self):
+        github = self._github_for_org()
+        request, calls = self._git_data_api_request(ref_status=422)
+
+        with patch.object(github, "api_request", side_effect=request):
+            result = github.commit_files_to_branch(
+                "community-skills", "community-skill/x", "main", {"a.md": "A"}, "msg"
+            )
+
+        assert result["success"] is True
+        assert result["created_branch"] is False
+        method, path, body = calls[-1]
+        assert (method, path) == ("PATCH", "/repos/PostHog/community-skills/git/refs/heads/community-skill/x")
+        assert body == {"sha": "new-commit", "force": True}
+
+    @parameterized.expand([("deleted", 204), ("already gone", 404)])
+    def test_delete_branch_treats_a_missing_branch_as_deleted(self, _name: str, status_code: int):
+        github = self._github_for_org()
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=status_code)):
+            assert github.delete_branch("community-skills", "community-skill/x")["success"] is True
+
+    def test_get_open_pull_request_for_head_returns_number_and_url(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = [
+            {
+                "number": 7,
+                "html_url": "https://github.com/PostHog/posthog/pull/7",
+                "base": {"ref": "master"},
+            }
+        ]
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            assert github.get_open_pull_request_for_head("PostHog/posthog", "posthog-code/fix") == {
+                "number": 7,
+                "url": "https://github.com/PostHog/posthog/pull/7",
+                "base": "master",
+            }
+
     def test_get_open_pr_base_for_head_returns_base_ref_of_open_pr(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200)
-        mock_response.json.return_value = [{"base": {"ref": "master"}, "head": {"ref": "posthog-code/fix"}}]
+        mock_response.json.return_value = [
+            {
+                "number": 7,
+                "html_url": "https://github.com/PostHog/posthog/pull/7",
+                "base": {"ref": "master"},
+                "head": {"ref": "posthog-code/fix"},
+            }
+        ]
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
             result = github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix")
         assert result == "master"

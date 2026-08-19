@@ -65,3 +65,42 @@ trusting the sync:
 
 Errors surface as `400` (invalid payload / duplicate name) or `404` (unknown or removed slug).
 A duplicate-name conflict only blames the `new_name` field when the caller actually supplied it.
+
+## Publishing to the community
+
+Publishing runs the other way: it renders a team's own `LLMSkill` into the repo's
+`skills/<slug>/SKILL.md` layout and opens a pull request for a maintainer to review.
+
+| Method | Path                                              | Purpose                                  |
+| ------ | ------------------------------------------------- | ---------------------------------------- |
+| `POST` | `llm_skills/name/{skill_name}/publish-community/` | Open a PR adding or updating this skill. |
+
+Lives on `LLMSkillViewSet` (`products/skills/backend/api/skills.py`), not the community viewset,
+because the subject is a team-owned skill.
+Rendering and the GitHub calls are in `community_publish_services.py`.
+
+- Gated by `CommunityPublishFeatureFlagPermission`, which applies the same
+  `llm-analytics-community-skills` check as the browse endpoints to this action alone. Skills is GA,
+  so the flag cannot sit on the viewset.
+- Session auth only, and throttled at 6/hour and 20/day. The API-shaped `BurstRateThrottle` would not
+  fire here at all: it only counts personal-API-key traffic.
+- `display_name` is capped at 64 characters to match `CommunitySkill.name`. A longer name would pass
+  review and then be dropped by ingest, so the skill would never appear in the catalog.
+- Bundled files are text only. `CommunitySkillFile.content` is a `TextField` and the renderer takes
+  `str`, so a skill referencing an image or other binary asset cannot round-trip through the catalog.
+
+### Repo writes
+
+The target repo is public, so a failed publish must not leave anything behind:
+
+- The branch is `community-skill/<slug>`, derived from the slug rather than random, so re-publishing
+  rewrites that branch and returns the PR already open for it instead of opening a second one.
+- Every rendered file lands in a single tree and commit, built before the branch reference exists.
+  A failure part way through leaves no branch, and reviewers see one commit rather than one per file.
+- If opening the PR fails, the branch is deleted again.
+- Content becomes public at the branch write, before the pull request that moderates it. Confirming
+  that with the user is a UI concern, and it gates enabling the flag rather than shipping this code.
+
+Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
+`503` when the instance has no `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` configured. The 503 is the
+fail-safe that keeps publishing off until the GitHub App is installed.

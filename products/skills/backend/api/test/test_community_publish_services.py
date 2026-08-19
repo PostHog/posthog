@@ -1,12 +1,14 @@
 import re
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 import yaml
 from parameterized import parameterized
 
 from products.skills.backend.api.community_publish_services import (
     CommunitySkillPublishError,
+    publish_skill_to_community,
     render_community_skill_files,
     render_skill_md,
 )
@@ -56,7 +58,14 @@ class TestRenderSkillMd:
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
 
-    @parameterized.expand([("blank name", "  ", "d"), ("blank description", "n", "")])
+    @parameterized.expand(
+        [
+            ("blank name", "  ", "d"),
+            ("blank description", "n", ""),
+            # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
+            ("name over 64 chars", "x" * 65, "d"),
+        ]
+    )
     def test_requires_name_and_description(self, _label: str, name: str, description: str) -> None:
         with pytest.raises(CommunitySkillPublishError):
             render_skill_md(name=name, description=description, body="b")
@@ -94,3 +103,77 @@ class TestRenderCommunitySkillFiles:
         except CommunitySkillPublishError:
             return
         raise AssertionError("expected rejection for path traversal")
+
+
+class TestPublishSkillToCommunity:
+    def _publisher(self, *, open_pr: dict | None = None) -> MagicMock:
+        publisher = MagicMock()
+        publisher.get_open_pull_request_for_head.return_value = open_pr
+        publisher.commit_files_to_branch.return_value = {"success": True, "commit_sha": "abc123"}
+        publisher.create_pull_request.return_value = {
+            "success": True,
+            "pr_number": 12,
+            "pr_url": "https://github.com/PostHog/community-skills/pull/12",
+        }
+        publisher.delete_branch.return_value = {"success": True}
+        return publisher
+
+    def _publish(self, publisher: MagicMock) -> dict:
+        with patch(
+            "products.skills.backend.api.community_publish_services.get_community_skills_publisher",
+            return_value=publisher,
+        ):
+            return publish_skill_to_community(
+                slug="make-pr",
+                name="Make PR",
+                description="Open a PR.",
+                body="body",
+                files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
+            )
+
+    def test_commits_every_file_in_one_commit(self) -> None:
+        publisher = self._publisher()
+
+        result = self._publish(publisher)
+
+        assert result == {
+            "pr_url": "https://github.com/PostHog/community-skills/pull/12",
+            "pr_number": 12,
+            "branch": "community-skill/make-pr",
+        }
+        publisher.commit_files_to_branch.assert_called_once()
+        committed_files = publisher.commit_files_to_branch.call_args.args[3]
+        assert set(committed_files) == {"skills/make-pr/SKILL.md", "skills/make-pr/references/playbook.md"}
+
+    @parameterized.expand(
+        [
+            ("transient github failure", "GitHub said no", True),
+            # A branch that already heads a pull request belongs to that review, not to this call.
+            (
+                "pull request already exists",
+                "A pull request already exists for PostHog:community-skill/make-pr.",
+                False,
+            ),
+        ]
+    )
+    def test_branch_cleanup_when_the_pull_request_fails(self, _label: str, error: str, deleted: bool) -> None:
+        publisher = self._publisher()
+        publisher.create_pull_request.return_value = {"success": False, "error": error}
+
+        with pytest.raises(CommunitySkillPublishError):
+            self._publish(publisher)
+
+        assert publisher.delete_branch.called is deleted
+        if deleted:
+            assert publisher.delete_branch.call_args.args[1] == "community-skill/make-pr"
+
+    def test_reuses_the_open_pull_request_for_the_same_slug(self) -> None:
+        publisher = self._publisher(
+            open_pr={"number": 5, "url": "https://github.com/PostHog/community-skills/pull/5", "base": "main"}
+        )
+
+        result = self._publish(publisher)
+
+        assert result["pr_number"] == 5
+        publisher.create_pull_request.assert_not_called()
+        publisher.commit_files_to_branch.assert_called_once()

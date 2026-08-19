@@ -3807,6 +3807,142 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def commit_files_to_branch(
+        self,
+        repository: str,
+        branch_name: str,
+        base_branch: str,
+        files: Mapping[str, str],
+        commit_message: str,
+    ) -> dict[str, Any]:
+        """Point ``branch_name`` at a single commit on top of ``base_branch`` writing every file in
+        ``files`` (repo-relative path → text content).
+
+        Prefer this over ``create_branch`` plus one ``update_file`` per file when the files only make
+        sense together: the commit object is built before the branch reference exists, so a failure
+        part way through leaves nothing in the repository, and reviewers get one commit rather than
+        one per file. An existing branch is force-updated to the new commit, discarding whatever was
+        on it — callers republishing generated content want exactly that, callers collaborating on a
+        branch do not.
+        """
+        if not files:
+            return {"success": False, "error": "No files to commit"}
+
+        org = self.organization()
+
+        base_ref_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+        )
+        if base_ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get base branch {base_branch}: {base_ref_response.text}",
+                "status_code": base_ref_response.status_code,
+            }
+        base_sha = base_ref_response.json()["object"]["sha"]
+
+        base_commit_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/commits/{base_sha}",
+            endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}",
+        )
+        if base_commit_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to read base commit {base_sha}: {base_commit_response.text}",
+                "status_code": base_commit_response.status_code,
+            }
+        base_tree_sha = base_commit_response.json()["tree"]["sha"]
+
+        # Inline `content` lets GitHub create the blobs as part of the tree, so no separate blob
+        # round trip per file. 100644 is a non-executable file.
+        tree_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/trees",
+            endpoint="/repos/{owner}/{repo}/git/trees",
+            json_body={
+                "base_tree": base_tree_sha,
+                "tree": [
+                    {"path": path, "mode": "100644", "type": "blob", "content": content}
+                    for path, content in files.items()
+                ],
+            },
+        )
+        if tree_response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to create tree: {tree_response.text}",
+                "status_code": tree_response.status_code,
+            }
+
+        commit_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/commits",
+            endpoint="/repos/{owner}/{repo}/git/commits",
+            json_body={
+                "message": commit_message,
+                "tree": tree_response.json()["sha"],
+                "parents": [base_sha],
+            },
+        )
+        if commit_response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to create commit: {commit_response.text}",
+                "status_code": commit_response.status_code,
+            }
+        commit_sha = commit_response.json()["sha"]
+
+        create_ref_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/refs",
+            endpoint="/repos/{owner}/{repo}/git/refs",
+            json_body={"ref": f"refs/heads/{branch_name}", "sha": commit_sha},
+        )
+        if create_ref_response.status_code == 201:
+            return {"success": True, "branch_name": branch_name, "commit_sha": commit_sha, "created_branch": True}
+
+        # 422 is what GitHub returns for a reference that already exists; move it instead.
+        if create_ref_response.status_code != 422:
+            return {
+                "success": False,
+                "error": f"Failed to create branch {branch_name}: {create_ref_response.text}",
+                "status_code": create_ref_response.status_code,
+            }
+
+        update_ref_response = self.api_request(
+            "PATCH",
+            f"/repos/{org}/{repository}/git/refs/heads/{branch_name}",
+            endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            json_body={"sha": commit_sha, "force": True},
+        )
+        if update_ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to update branch {branch_name}: {update_ref_response.text}",
+                "status_code": update_ref_response.status_code,
+            }
+        return {"success": True, "branch_name": branch_name, "commit_sha": commit_sha, "created_branch": False}
+
+    def delete_branch(self, repository: str, branch_name: str) -> dict[str, Any]:
+        """Delete a branch reference. A branch that is already gone counts as success."""
+        org = self.organization()
+
+        response = self.api_request(
+            "DELETE",
+            f"/repos/{org}/{repository}/git/refs/heads/{branch_name}",
+            endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+        )
+        if response.status_code in (204, 404, 422):
+            return {"success": True, "branch_name": branch_name}
+        return {
+            "success": False,
+            "error": f"Failed to delete branch {branch_name}: {response.text}",
+            "status_code": response.status_code,
+        }
+
     def get_diff(
         self,
         repository: str,

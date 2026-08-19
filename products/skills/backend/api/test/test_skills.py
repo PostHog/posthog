@@ -26,6 +26,8 @@ from ...api.skill_services import (
 )
 from ...models.skills import LLMSkill, LLMSkillFile
 
+COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
+
 
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
@@ -1249,12 +1251,13 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish to community ---
 
+    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_succeeds(self, mock_publish):
+    def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
         mock_publish.return_value = {
             "pr_url": "https://github.com/PostHog/community-skills/pull/7",
             "pr_number": 7,
-            "branch": "community-skill/make-pr-abc123",
+            "branch": "community-skill/make-pr",
         }
         skill = self.create_skill(
             name="make-pr",
@@ -1286,15 +1289,41 @@ class TestLLMSkillAPI(APIBaseTest):
             {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}
         ]
 
+    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish):
+    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_publish.assert_not_called()
 
+    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_not_configured_returns_503(self, mock_publish):
+    def test_publish_to_community_rejects_display_name_over_catalog_limit(self, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"display_name": "x" * 65},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=False)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         self.create_skill(name="make-pr")
 
@@ -1302,8 +1331,9 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
+    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_github_error_returns_502(self, mock_publish):
+    def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         self.create_skill(name="make-pr")
 

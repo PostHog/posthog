@@ -11,6 +11,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from .community_publish_services import MAX_DISPLAY_NAME_LENGTH
 from .skill_services import (
     LLMSkillOwnerNotFoundError,
     resolve_owner_users,
@@ -852,7 +853,7 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
     display_name = serializers.CharField(
         required=False,
         allow_blank=True,
-        max_length=200,
+        max_length=MAX_DISPLAY_NAME_LENGTH,
         help_text="Human-friendly display name for the community listing. Defaults to a title-cased skill slug.",
     )
     tags = serializers.ListField(
