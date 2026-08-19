@@ -1275,7 +1275,7 @@ def create_and_run_task(
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
-        channel = _ensure_personal_channel(team.id, user_id)
+        channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -1398,7 +1398,7 @@ def create_task_without_run(
     """
     if channel is None:
         channel = (
-            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
@@ -5037,7 +5037,7 @@ def create_task(
         and not validated_data.get("internal", False)
         and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
     ):
-        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)
+        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)[0]
     validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
@@ -6459,15 +6459,17 @@ def _ensure_system_channel(
     owner_lookup: dict[str, Any],
     legacy_lookup: dict[str, Any],
     create_defaults: dict[str, Any],
-) -> Channel:
+) -> tuple[Channel, bool]:
     """Get-or-create one of the two system-provisioned channels, keyed by ``system_role``
     within ``owner_lookup`` (the requester for personal, the whole team for general).
 
     Rows created before ``system_role`` existed match ``legacy_lookup`` instead; those are
     adopted and stamped lazily rather than backfilled, so both shapes resolve to one row.
     ``legacy_lookup`` must be covered by a unique constraint, which is what makes the
-    IntegrityError fallback safe under concurrent first lists.
+    IntegrityError fallback safe under concurrent provisioning calls. Returns the channel
+    and whether this call created it.
     """
+    created = False
     channels = _team_channels(team_id).select_related("created_by")
     channel = channels.filter(system_role=role, deleted=False, **owner_lookup).first()
     if channel is None:
@@ -6485,10 +6487,10 @@ def _ensure_system_channel(
     if channel.system_role != role:
         channel.system_role = role
         channel.save(update_fields=["system_role"])
-    return channel
+    return channel, created
 
 
-def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
@@ -6504,10 +6506,10 @@ def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
 
     For callers outside a request (Temporal activities) that need somewhere to file a task.
     """
-    return _ensure_personal_channel(team_id, user_id).id
+    return _ensure_personal_channel(team_id, user_id)[0].id
 
 
-def _ensure_general_channel(team_id: int, user_id: int) -> Channel:
+def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
@@ -6522,14 +6524,36 @@ def _ensure_general_channel(team_id: int, user_id: int) -> Channel:
     )
 
 
+def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
+    """Explicitly get-or-create the requester's personal channel and the team's #general
+    channel, then return the full channel list plus which of the two this call created.
+
+    The created flags are what let a client distinguish "this onboarding provisioned
+    #general" (first user in the team) from inheriting a teammate's space."""
+    _, personal_created = _ensure_personal_channel(team_id, user_id)
+    _, general_created = _ensure_general_channel(team_id, user_id)
+    return contracts.ProvisionedChannelsDTO(
+        channels=list_channels(team_id, user_id),
+        personal_created=personal_created,
+        general_created=general_created,
+    )
+
+
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """All live public channels plus the requester's personal channel (provisioned lazily),
+    """All live public channels plus the requester's personal channel if it exists,
     personal first, then the general channel, then the rest by name. ``starred`` reflects
-    the requester's stars."""
+    the requester's stars. Pure read: provisioning happens in ``provision_default_channels``."""
     channels: list[Channel] = []
     if user_id is not None:
-        channels.append(_ensure_personal_channel(team_id, user_id))
-        _ensure_general_channel(team_id, user_id)
+        personal = (
+            _team_channels(team_id)
+            .select_related("created_by")
+            .filter(deleted=False, created_by_id=user_id)
+            .filter(Q(system_role=Channel.SystemRole.PERSONAL) | Q(channel_type=Channel.ChannelType.PERSONAL))
+            .first()
+        )
+        if personal is not None:
+            channels.append(personal)
     channels.extend(
         Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
         .select_related("created_by")

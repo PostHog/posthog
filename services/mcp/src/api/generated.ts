@@ -66531,6 +66531,18 @@ export namespace Schemas {
     }
 
     /**
+     * Response for explicit default-channel provisioning.
+     */
+    export interface ProvisionedChannels {
+      /** The full channel list after provisioning, same shape as the list endpoint. */
+      channels: ChannelDTO[];
+      /** Whether this call created the requester's personal #me channel. */
+      personal_created: boolean;
+      /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+      general_created: boolean;
+    }
+
+    /**
      * * `waiting` - Waiting
      * * `issuing` - Issuing
      * * `valid` - Valid

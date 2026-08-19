@@ -114,6 +114,12 @@ export interface TaskSearchResult {
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
  * user's private "#me" channel. `starred` is per-user.
  */
+export interface ProvisionedTaskChannels {
+  channels: TaskChannel[];
+  personal_created: boolean;
+  general_created: boolean;
+}
+
 export interface TaskChannel {
   id: string;
   name: string;

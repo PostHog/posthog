@@ -1716,6 +1716,24 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class ProvisionedChannelsSerializer(serializers.Serializer):
+    """Response for explicit default-channel provisioning."""
+
+    channels = ChannelSerializer(
+        many=True,
+        help_text="The full channel list after provisioning, same shape as the list endpoint.",
+    )
+    personal_created = serializers.BooleanField(
+        help_text="Whether this call created the requester's personal #me channel."
+    )
+    general_created = serializers.BooleanField(
+        help_text=(
+            "Whether this call created the team's shared #general channel. True only for "
+            "the first user to provision it, so clients can branch first-user setup on it."
+        )
+    )
+
+
 class ChannelDeleteConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 

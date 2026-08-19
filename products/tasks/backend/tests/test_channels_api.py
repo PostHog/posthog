@@ -36,32 +36,44 @@ class ChannelsAPITestCase(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
+    def _provision(self, client=None) -> dict:
+        response = (client or self.client).post(f"{self._channels_url()}provision_defaults/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return response.json()
+
     def _channels_url(self) -> str:
         return f"/api/projects/{self.team.id}/task_channels/"
 
     def _tasks_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/"
 
-    def test_list_provisions_personal_channel(self):
-        response = self.client.get(self._channels_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        personal = [c for c in response.json() if c["channel_type"] == "personal"]
+    def test_provision_creates_personal_channel(self):
+        provisioned = self._provision()
+        self.assertTrue(provisioned["personal_created"])
+        personal = [c for c in provisioned["channels"] if c["channel_type"] == "personal"]
         self.assertEqual(len(personal), 1)
         self.assertEqual(personal[0]["name"], "me")
         self.assertEqual(personal[0]["created_by"]["id"], self.user.id)
 
-        # Listing again reuses the same personal channel
-        again = self.client.get(self._channels_url()).json()
+        # Provisioning again reuses the same personal channel and reports nothing created
+        again = self._provision()
+        self.assertFalse(again["personal_created"])
         self.assertEqual(
-            [c["id"] for c in again if c["channel_type"] == "personal"],
+            [c["id"] for c in again["channels"] if c["channel_type"] == "personal"],
             [personal[0]["id"]],
         )
 
+    def test_list_does_not_provision(self):
+        response = self.client.get(self._channels_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+        self.assertFalse(Channel.objects.for_team(self.team.id).exists())
+
     def test_personal_channels_are_per_user(self):
-        mine = self.client.get(self._channels_url()).json()
+        mine = self._provision()["channels"]
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
-        theirs = other_client.get(self._channels_url()).json()
+        theirs = self._provision(other_client)["channels"]
 
         my_personal = [c["id"] for c in mine if c["channel_type"] == "personal"]
         their_personal = [c["id"] for c in theirs if c["channel_type"] == "personal"]
@@ -76,7 +88,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(second.json()["id"], first.json()["id"])
 
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
-        self.client.get(self._channels_url())
+        self._provision()
         # Direct ORM reads in tests bypass the DRF-set team context, so opt out
         # of the fail-closed scoping explicitly (see test_presence.py).
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
@@ -85,17 +97,22 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_list_provisions_general_channel_once(self):
-        first = self.client.get(self._channels_url()).json()
-        general = [c for c in first if c["system_role"] == "general"]
+    def test_provision_creates_general_channel_once(self):
+        first = self._provision()
+        self.assertTrue(first["general_created"])
+        general = [c for c in first["channels"] if c["system_role"] == "general"]
         self.assertEqual(len(general), 1)
         self.assertEqual(general[0]["name"], "general")
         self.assertEqual(general[0]["channel_type"], "public")
         self.assertFalse(general[0]["starred"])
 
-        again = self.client.get(self._channels_url()).json()
+        # A second user provisioning inherits the team's #general rather than creating it
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        again = self._provision(other_client)
+        self.assertFalse(again["general_created"])
         self.assertEqual(
-            [c["id"] for c in again if c["system_role"] == "general"],
+            [c["id"] for c in again["channels"] if c["system_role"] == "general"],
             [general[0]["id"]],
         )
 
@@ -106,14 +123,14 @@ class ChannelsAPITestCase(TestCase):
         ]
     )
     def test_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
-        self.client.get(self._channels_url())
+        self._provision()
         general = Channel.objects.unscoped().get(team=self.team, system_role=Channel.SystemRole.GENERAL)
         response = act(self.client, f"{self._channels_url()}{general.id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_legacy_personal_channel_is_stamped_with_system_role_on_list(self):
+    def test_legacy_personal_channel_is_stamped_with_system_role_on_provision(self):
         # Personal channels created before system_role shipped are identified by
-        # channel_type alone; the next list should adopt the row, not duplicate it.
+        # channel_type alone; provisioning should adopt the row, not duplicate it.
         legacy = Channel.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             created_by=self.user,
@@ -121,15 +138,16 @@ class ChannelsAPITestCase(TestCase):
             channel_type=Channel.ChannelType.PERSONAL,
         )
 
-        response = self.client.get(self._channels_url()).json()
-        personal = [c for c in response if c["channel_type"] == "personal"]
+        provisioned = self._provision()
+        self.assertFalse(provisioned["personal_created"])
+        personal = [c for c in provisioned["channels"] if c["channel_type"] == "personal"]
         self.assertEqual([c["id"] for c in personal], [str(legacy.id)])
         self.assertEqual(personal[0]["system_role"], "personal")
 
         legacy.refresh_from_db()
         self.assertEqual(legacy.system_role, Channel.SystemRole.PERSONAL)
 
-    def test_legacy_general_channel_is_adopted_and_stamped_on_list(self):
+    def test_legacy_general_channel_is_adopted_and_stamped_on_provision(self):
         # A user-created "general" channel from before system_role shipped should be
         # adopted as the team's #general rather than provisioning a duplicate.
         legacy = Channel.objects.for_team(self.team.id).create(
@@ -139,8 +157,9 @@ class ChannelsAPITestCase(TestCase):
             channel_type=Channel.ChannelType.PUBLIC,
         )
 
-        response = self.client.get(self._channels_url()).json()
-        general = [c for c in response if c["system_role"] == "general"]
+        provisioned = self._provision()
+        self.assertFalse(provisioned["general_created"])
+        general = [c for c in provisioned["channels"] if c["system_role"] == "general"]
         self.assertEqual([c["id"] for c in general], [str(legacy.id)])
 
         legacy.refresh_from_db()
@@ -150,7 +169,7 @@ class ChannelsAPITestCase(TestCase):
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
 
         other_client = APIClient()
@@ -285,7 +304,7 @@ class ChannelsAPITestCase(TestCase):
         ]
     )
     def test_task_in_private_space_stays_private(self, _name: str, select_channel: bool):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         payload = {"title": "Secret", "description": "mine"}
         if select_channel:
@@ -304,7 +323,7 @@ class ChannelsAPITestCase(TestCase):
         )
 
     def test_team_readable_origin_does_not_widen_private_space(self):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         task = Task.objects.create(
             team=self.team,
@@ -339,7 +358,7 @@ class ChannelsAPITestCase(TestCase):
     def test_task_controller_can_move_public_task_to_private_space(self):
         public_space_id = self.client.post(self._channels_url(), {"name": "shared"}).json()["id"]
         private_space_id = next(
-            space["id"] for space in self.client.get(self._channels_url()).json() if space["channel_type"] == "personal"
+            space["id"] for space in self._provision()["channels"] if space["channel_type"] == "personal"
         )
         task = self.client.post(
             self._tasks_url(),
@@ -388,7 +407,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertFalse(Channel.objects.unscoped().get(id=channel_id).deleted)
 
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
-        self.client.get(self._channels_url())
+        self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
@@ -997,9 +1016,8 @@ class ChannelFeedMessageAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_personal_channel_feed_is_owner_only(self):
-        # Listing provisions the requester's personal channel.
-        mine = self.client.get(self._channels_url()).json()
-        personal_id = next(c["id"] for c in mine if c["channel_type"] == "personal")
+        mine = self.client.post(f"{self._channels_url()}provision_defaults/").json()
+        personal_id = next(c["id"] for c in mine["channels"] if c["channel_type"] == "personal")
         self.client.post(
             self._feed_url(personal_id),
             {"event": "context_created", "payload": {"context_name": "me"}},
