@@ -1753,6 +1753,13 @@ class ChannelWriteSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_name(self, value: str) -> str:
+        # "general" resolves the team's general space here, so only the personal names are
+        # refused.
+        if tasks_facade.is_personal_space_name(value):
+            raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
+        return value
+
 
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
@@ -1772,6 +1779,11 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_reserved_channel_name(value):
+            raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
 
     def validate_github_integration(self, value):
         if value is not None and value.team_id != self.context["team_id"]:
