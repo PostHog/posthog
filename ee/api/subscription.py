@@ -1,11 +1,11 @@
 import uuid
 import asyncio
 from collections.abc import Callable
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q, QuerySet
+from django.db.models import Manager, Q, QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
@@ -32,6 +32,7 @@ from posthog.constants import (
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -98,7 +99,39 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
-_Surface = Literal["subscription", "delivery"]
+@frozen
+class _TargetLookups:
+    insight: str
+    dashboard: str
+    exported_insights: str
+    no_selection: str
+    insights: Manager
+    dashboards: Manager
+    tiles: Manager
+
+
+_SUBSCRIPTION_TARGETS = _TargetLookups(
+    insight="insight_id__in",
+    dashboard="dashboard_id__in",
+    exported_insights="dashboard_export_insights__id__in",
+    no_selection="dashboard_export_insights__isnull",
+    insights=Insight.objects,
+    dashboards=Dashboard.objects,
+    tiles=DashboardTile.objects,
+)
+
+# A delivery holds the results it rendered in content_snapshot, so a target that was soft-deleted
+# since then still has to restrict it. The subscription itself stays reachable, so its creator can
+# turn off a row that renders nothing.
+_DELIVERY_TARGETS = _TargetLookups(
+    insight="subscription__insight_id__in",
+    dashboard="subscription__dashboard_id__in",
+    exported_insights="subscription__dashboard_export_insights__id__in",
+    no_selection="subscription__dashboard_export_insights__isnull",
+    insights=Insight.objects_including_soft_deleted,
+    dashboards=Dashboard.objects_including_soft_deleted,
+    tiles=DashboardTile.objects_including_soft_deleted,
+)
 
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
@@ -111,15 +144,11 @@ def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight 
 def _viewable_queryset(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
-    # Pass the resource explicitly: filter_queryset_by_access_level returns the queryset unfiltered
-    # for a model it cannot map to one.
     viewable = user_access_control.filter_queryset_by_access_level(
         queryset, include_all_if_admin=True, resource=resource
     )
     if user_access_control.is_organization_admin or user_access_control.has_resource_access(resource):
         return viewable
-    # filter_queryset_by_access_level narrows a resource-wide deny only when the caller also holds an
-    # object grant, so a member with no grants would otherwise get every row back.
     allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get(resource, frozenset())
     return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
@@ -449,12 +478,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Check the target the row will have after this write, so a PATCH that omits the field
         # cannot skip the check.
         user_access_control = self.context["view"].user_access_control
+        # A soft-deleted target renders nothing, and the read filter keeps its subscription reachable
+        # so the creator can turn the row off. Only that write skips the check: any other edit could
+        # re-aim the row and start delivering again once an admin restores the target.
+        turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
         for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
-            # A soft-deleted target renders nothing, and the read filter keeps its subscription
-            # reachable so the creator can turn the row off. Checking access here would reject that
-            # write, and the field's queryset excludes deleted rows, so this cannot select a new one.
-            if target is not None and not target.deleted:
+            if target is not None and not (target.deleted and turning_off):
                 _require_viewer_access(user_access_control, target, field)
 
         if existing is None:
@@ -751,13 +781,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             return
 
-        # A PATCH that omits the field keeps the selection the row already has, and that selection
-        # is what the delivery renders, so there is nothing new to check.
-        if self.instance is not None and self.instance.dashboard_export_insights.exists():
+        if self._keeps_its_own_selection():
             return
 
-        # With no selection the delivery renders every live tile instead. Rows in this shape predate
-        # the selection requirement above, so the tiles are what needs checking.
+        self._require_viewer_access_to_every_live_tile(dashboard)
+
+    def _keeps_its_own_selection(self) -> bool:
+        return self.instance is not None and self.instance.dashboard_export_insights.exists()
+
+    def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard) -> None:
         live_tile_insights = Insight.objects.filter(
             team_id=self.context["team_id"],
             id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
@@ -991,9 +1023,6 @@ def _blocked_target_ids(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
     if user_access_control.has_resource_access(resource):
-        # Without a resource-wide deny, only an object the caller was explicitly denied can be
-        # blocked, and those ids are already resolved in memory. Narrowing to them keeps this off
-        # the team's whole insight or dashboard table on every request.
         denied_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
         queryset = queryset.filter(id__in=denied_ids)
     return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset, resource).values("id")).values(
@@ -1001,13 +1030,15 @@ def _blocked_target_ids(
     )
 
 
-def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, surface: _Surface) -> Q:
-    """Match only rows whose rendered targets the caller can view.
+def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
+    return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
 
-    `surface` decides how a soft-deleted target counts. On "subscription" it stops restricting, so
-    the owner can still find the subscription and turn it off. On "delivery" it keeps restricting,
-    because a delivery holds the results it rendered in content_snapshot after the target is gone.
-    """
+
+def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
+    return _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
+
+
+def _target_filter(user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups) -> Q:
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
@@ -1019,34 +1050,19 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    prefix = "subscription__" if surface == "delivery" else ""
-    insights = Insight.objects_including_soft_deleted if surface == "delivery" else Insight.objects
-    dashboards = Dashboard.objects_including_soft_deleted if surface == "delivery" else Dashboard.objects
-    tiles = DashboardTile.objects_including_soft_deleted if surface == "delivery" else DashboardTile.objects
-
-    team_dashboards = dashboards.filter(team_id=team_id)
-    blocked_insights = _blocked_target_ids(user_access_control, insights.filter(team_id=team_id), "insight")
+    team_dashboards = targets.dashboards.filter(team_id=team_id)
+    blocked_insights = _blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
     blocked_dashboards = _blocked_target_ids(user_access_control, team_dashboards, "dashboard")
-    # Scope the tiles through team_dashboards. A `dashboard__team_id` lookup would skip the rewrite
-    # that RootTeamQuerySet applies to a literal team_id, and an environment's id matches no
-    # dashboard directly, so the rule would silently match nothing.
-    dashboards_with_blocked_tiles = tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights).values(
-        "dashboard_id"
-    )
+    # Scoping the tiles by `dashboard__team_id` would skip the rewrite RootTeamQuerySet applies to a
+    # literal team_id, and an environment's id matches no dashboard, so the rule would match nothing.
+    dashboards_with_blocked_tiles = targets.tiles.filter(
+        dashboard__in=team_dashboards, insight_id__in=blocked_insights
+    ).values("dashboard_id")
 
-    # The interpolated prefix is one of two literals set from `surface`, so no caller input reaches a
-    # field path. That is what the nosemgrep lines below assert.
-    # nosemgrep: orm-field-injection
-    targets_a_blocked_insight = Q(**{f"{prefix}insight_id__in": blocked_insights})
-    # nosemgrep: orm-field-injection
-    targets_a_blocked_dashboard = Q(**{f"{prefix}dashboard_id__in": blocked_dashboards})
-    # nosemgrep: orm-field-injection
-    exports_a_blocked_insight = Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights})
-    # An empty selection means the delivery renders every live tile of the dashboard.
-    # nosemgrep: orm-field-injection
-    renders_a_blocked_tile = Q(**{f"{prefix}dashboard_export_insights__isnull": True}) & Q(
-        **{f"{prefix}dashboard_id__in": dashboards_with_blocked_tiles}
-    )
+    targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
+    targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
+    exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
+    renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
     # Negating here compiles the M2M lookups to NOT EXISTS; positive ones would join the
     # through table and return one row per selected insight.
@@ -1283,7 +1299,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
-        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, "subscription"))
+        return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1620,8 +1636,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        # Delivery rows carry the rendered results (content_snapshot), so they get the same gate.
-        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, "delivery"))
+        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
 
 
 def unsubscribe(request: HttpRequest):

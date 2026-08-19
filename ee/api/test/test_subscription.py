@@ -3179,8 +3179,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         return dashboard
 
-    # Each builder below returns the subscription under test, already in its final state.
-
     def _sub_on_an_open_insight(self) -> Subscription:
         return self._subscription_for(insight=self.open_insight)
 
@@ -3288,10 +3286,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         ]
     )
     def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):
-        # List, retrieve and the delivery route all resolve from the target filter, so one table
-        # covers every branch of it. The two asymmetric rows are the ones where a restricted target
-        # went away: it stops restricting the subscription, so its owner can turn the row off, but
-        # the deliveries keep the results they rendered while it was still there.
         subscription = getattr(self, builder)()
         self._delivery_for(subscription)
 
@@ -3362,8 +3356,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         ]
     )
     def test_write_is_rejected_when_the_caller_cannot_view_a_target(self, _name, request_builder, attr, message):
-        # A selected insight can be restricted independently of its dashboard, and each one is
-        # rendered and delivered on its own, so dashboard access alone is not enough.
         response = getattr(self, request_builder)()
 
         body = response.json()
@@ -3405,9 +3397,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert Subscription.objects.filter(pk=hidden.pk).exists()
 
     def test_tile_rule_holds_for_a_dashboard_read_through_an_environment(self):
-        # Dashboards save under the project's root team while an environment route supplies the
-        # environment's id, so scoping the tiles by `dashboard__team_id` matches no dashboard at all
-        # and the rule stops hiding anything.
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
         self._rule("insight", obj=self.restricted_insight, team=environment)
         dashboard = Dashboard.objects.create(team=environment, name="Team dashboard")
@@ -3429,6 +3418,24 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=True)
 
+    @parameterized.expand(
+        [
+            ("a rename", {"title": "Renamed"}, status.HTTP_400_BAD_REQUEST),
+            ("a new recipient", {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
+            ("turning it off", {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_write_to_a_soft_deleted_restricted_target_may_only_turn_it_off(self, _name, body, expected):
+        # Otherwise a denied member could re-aim the row while its target is deleted, and restoring
+        # the target would resume delivery to whatever they set.
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == expected, response.json()
+
     @parameterized.expand([("an open insight", False), ("a restricted insight", True)])
     def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, _name, restricted):
         # Nothing renders from it any more, but the owner still has to be able to switch it off, and
@@ -3445,9 +3452,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand([("a rename", {"title": "Renamed"}), ("turning it off", {"deleted": True})])
     def test_patch_that_omits_the_selection_is_accepted(self, _name, body):
-        # This row selects only insights the caller can view, on a dashboard that also holds one they
-        # cannot. Omitting the field keeps that selection, so the write has nothing new to check.
-        # Checking the dashboard's tiles here would leave the row visible, delivering, and unwritable.
         subscription = self._sub_selecting_only_the_open_tile()
 
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
@@ -3455,8 +3459,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_repointing_an_empty_selection_at_a_restricted_tile_is_rejected(self):
-        # Rows without a selection predate the rule requiring one, and they render every live tile.
-        # Re-pointing one at a dashboard holding a restricted tile would render and deliver it.
         subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
         target_dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
 
