@@ -539,10 +539,25 @@ export const RowExpandedEmailThreads: Story = {
             { timeout: 15000 }
         )
         const table = canvasElement.querySelector('[data-attr="account-email-threads-table"]') as HTMLElement
-        await userEvent.click(await within(table).findByTitle('Show more'))
+        if (within(table).queryByTitle('Show more')) {
+            throw new Error('Email thread expansion toggle should not render')
+        }
+        await userEvent.click(await within(table).findByText('Renewal planning'))
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
                 throw new Error('Email thread detail did not render')
+            }
+        })
+        await userEvent.click(await within(table).findByText('Renewal planning'))
+        await waitFor(() => {
+            if (canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
+                throw new Error('Email thread detail did not collapse')
+            }
+        })
+        await userEvent.click(await within(table).findByText('Example buyer'))
+        await waitFor(() => {
+            if (!canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
+                throw new Error('Email thread detail did not render from participant click')
             }
         })
     },
