@@ -130,6 +130,12 @@ pub enum FlagError {
     RemoteConfigDecryptFailed(String),
 }
 
+/// Codes that `IntoResponse` branches on, so the constructor and the arm cannot
+/// drift apart. The codes used at one site only stay inline: a single literal has
+/// no second reference to disagree with.
+pub(crate) const CODE_FLAG_DATA_PARSING: &str = "flag_data_parsing_error";
+pub(crate) const CODE_PERSON_NOT_FOUND: &str = "person_not_found";
+
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
     /// event property, so changing it changes their data. `context` keeps the chain.
@@ -145,7 +151,7 @@ impl FlagError {
     /// Corrupt or mismatched data, so a 500 rather than a retryable 503.
     pub fn flag_data_parsing(details: impl std::fmt::Display) -> Self {
         FlagError::InternalError {
-            code: "flag_data_parsing_error",
+            code: CODE_FLAG_DATA_PARSING,
             cause: anyhow::anyhow!("Failed to parse flag data: {details}"),
         }
     }
@@ -180,7 +186,7 @@ impl FlagError {
 
     pub fn person_not_found() -> Self {
         FlagError::Unavailable {
-            code: "person_not_found",
+            code: CODE_PERSON_NOT_FOUND,
             cause: anyhow::anyhow!("Person not found"),
         }
     }
@@ -389,7 +395,7 @@ impl IntoResponse for FlagError {
                 tracing::error!(error_code = code, "Internal server error: {cause:?}");
                 // Corrupt flag data will fail every retry, so this one names the
                 // thing the customer can actually fix.
-                let detail = if code == "flag_data_parsing_error" {
+                let detail = if code == CODE_FLAG_DATA_PARSING {
                     "Failed to parse flag configuration data. This may indicate a misconfigured feature flag. Please check your flag definitions or contact support."
                 } else {
                     "An internal server error occurred. Please try again later or contact support if the problem persists."
@@ -400,7 +406,7 @@ impl IntoResponse for FlagError {
                 match code {
                     // A person row that has not landed yet is expected under
                     // replication lag, so it does not deserve an error line.
-                    "person_not_found" => tracing::warn!(
+                    CODE_PERSON_NOT_FOUND => tracing::warn!(
                         error_code = code,
                         "Service dependency unavailable: {cause:?}"
                     ),
@@ -790,21 +796,110 @@ mod tests {
         );
     }
 
-    /// A corrupt flag definition fails every retry, so the generic "try again later"
-    /// body would send the customer in a loop instead of at the broken flag.
-    #[test]
-    fn test_flag_data_parsing_body_keeps_its_own_guidance() {
+    fn response_body(error: FlagError) -> (StatusCode, String) {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let response = FlagError::flag_data_parsing("bad json").into_response();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
-        let body_bytes = rt
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = rt
             .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
             .unwrap();
-        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    /// Every bucketed code renders one of three bodies. A corrupt flag definition
+    /// fails each retry, so it gets guidance the other two cannot give; the rest
+    /// share a body, which is the wording that replaced their per-variant text.
+    #[rstest]
+    #[case(
+        FlagError::flag_data_parsing("bad json"),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "check your flag definitions"
+    )]
+    #[case(
+        FlagError::data_parsing(anyhow::anyhow!("bad payload")),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "An internal server error occurred"
+    )]
+    #[case(
+        FlagError::batch_evaluation_panicked(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "An internal server error occurred"
+    )]
+    #[case(
+        FlagError::internal(anyhow::anyhow!("boom")),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "An internal server error occurred"
+    )]
+    #[case(
+        FlagError::redis_unavailable(anyhow::anyhow!("connection refused")),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "A service dependency is temporarily unavailable"
+    )]
+    #[case(
+        FlagError::cache_miss(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "A service dependency is temporarily unavailable"
+    )]
+    #[case(
+        FlagError::person_not_found(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "A service dependency is temporarily unavailable"
+    )]
+    fn test_bucketed_response_bodies(
+        #[case] error: FlagError,
+        #[case] expected_status: StatusCode,
+        #[case] expected_body: &str,
+    ) {
+        let (status, body) = response_body(error);
+        assert_eq!(status, expected_status);
         assert!(
-            body.contains("check your flag definitions"),
-            "body should point at the flag definitions, got: {body}"
+            body.contains(expected_body),
+            "expected body to contain {expected_body:?}, got: {body}"
+        );
+    }
+
+    /// `IntoResponse` picks the log level by comparing `code`, which the compiler
+    /// cannot check. A drift here would silently bury a Redis outage at warn.
+    #[rstest]
+    #[case(FlagError::redis_unavailable(anyhow::anyhow!("refused")), "ERROR")]
+    #[case(FlagError::cache_miss(), "ERROR")]
+    #[case(FlagError::person_not_found(), "WARN")]
+    #[case(FlagError::internal(anyhow::anyhow!("boom")), "ERROR")]
+    fn test_bucketed_log_levels(#[case] error: FlagError, #[case] expected_level: &str) {
+        #[derive(Clone, Default)]
+        struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Capture {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+            type Writer = Self;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let writer = Capture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_writer(writer.clone())
+            .with_max_level(tracing::Level::INFO)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            drop(error.into_response());
+        });
+
+        let logs = String::from_utf8(writer.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains(&format!("\"level\":\"{expected_level}\"")),
+            "expected a {expected_level} line, got: {logs}"
         );
     }
 
