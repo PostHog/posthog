@@ -194,10 +194,13 @@ export function TaskItem({
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       e.dataTransfer.setData("text/x-task-id", taskId);
-      e.dataTransfer.effectAllowed = isPinned ? "move" : "copyMove";
+      // Both, always. Command Center tiles ask for `copy` and the pinned run
+      // asks for `move`; a source that permits only one resolves the other
+      // pairing to no drop, and the tile silently stops accepting the row.
+      e.dataTransfer.effectAllowed = "copyMove";
       onDragStart?.(e);
     },
-    [isPinned, onDragStart, taskId],
+    [onDragStart, taskId],
   );
 
   if (isEditing) {

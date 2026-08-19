@@ -273,10 +273,13 @@ export function ChannelItemRow({
       if (item.kind !== "task") return;
 
       event.dataTransfer.setData("text/x-task-id", item.id);
-      event.dataTransfer.effectAllowed = item.pinned ? "move" : "copyMove";
+      // Both, always. Command Center tiles ask for `copy` and the pinned run
+      // asks for `move`; a source that permits only one resolves the other
+      // pairing to no drop, and the tile silently stops accepting the row.
+      event.dataTransfer.effectAllowed = "copyMove";
       onDragStart?.(event);
     },
-    [item.id, item.kind, item.pinned, onDragStart],
+    [item.id, item.kind, onDragStart],
   );
 
   // A canvas gets the same menu with the items it actually has: pin, and delete

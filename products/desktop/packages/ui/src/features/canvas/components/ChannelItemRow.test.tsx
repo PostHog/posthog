@@ -258,13 +258,11 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  // The cursor is the only thing saying what the release will do.
-  it.each([
-    { pinned: false, effectAllowed: "copyMove" },
-    { pinned: true, effectAllowed: "move" },
-  ])(
-    "makes tasks draggable, offering $effectAllowed when pinned=$pinned",
-    ({ pinned, effectAllowed }) => {
+  // A pinned row offering only `move` resolves against the Command Center's
+  // `copy` as no drop, so the tile stops accepting it with nothing to show why.
+  it.each([{ pinned: false }, { pinned: true }])(
+    "makes tasks draggable into the Command Center, pinned=$pinned",
+    ({ pinned }) => {
       renderRow(item({ pinned }));
       const setData = vi.fn();
       const dataTransfer = { setData, effectAllowed: "none" };
@@ -272,7 +270,7 @@ describe("ChannelItemRow", () => {
       fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
       expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
-      expect(dataTransfer.effectAllowed).toBe(effectAllowed);
+      expect(dataTransfer.effectAllowed).toBe("copyMove");
     },
   );
 

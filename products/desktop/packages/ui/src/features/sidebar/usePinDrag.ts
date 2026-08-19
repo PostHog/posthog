@@ -116,6 +116,9 @@ export function usePinDrag<T>({
       window.removeEventListener("dragover", followPointer, true);
       window.removeEventListener("dragend", endStrandedDrag, true);
       window.removeEventListener("mouseup", endStrandedDrag, true);
+      // The store outlives the hook. Unmounting mid-drag would strand the flag
+      // true, and every hover card in the sidebar reads it.
+      usePinDragStore.getState().setDragging(false);
     };
   }, [clear, overPinnedAt, previewX, previewY, write]);
 
