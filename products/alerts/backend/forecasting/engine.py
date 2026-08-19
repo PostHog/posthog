@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from math import ceil
 from typing import Protocol
 
@@ -52,6 +52,16 @@ def forecast_reach_days(horizon: int, interval: IntervalType | None) -> float:
     """How far ahead an interval-count horizon actually reaches. Named for the unit so a caller
     cannot read a count of intervals as a number of days."""
     return horizon * _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)
+
+
+def save_time_anchor(interval: IntervalType | None, today: date) -> date:
+    """The point a saved target date is measured from, so save and evaluation agree.
+
+    Evaluation counts intervals from the last completed bucket, which the extractor puts one
+    interval behind today. Validating from today would accept a date that the first check then
+    rejects as out of range, auto-disabling the alert and emailing its subscribers.
+    """
+    return today - timedelta(days=ceil(_INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)) - 1)
 
 
 def horizon_for_target_date(target_date: date, interval: IntervalType | None, today: date) -> int:

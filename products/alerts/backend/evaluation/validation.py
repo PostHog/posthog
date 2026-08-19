@@ -32,6 +32,7 @@ from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, F
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.forecasting.engine import (
     horizon_for_target_date,
+    save_time_anchor,
     validate_forecast_horizon_and_width,
     validate_forecast_interval,
 )
@@ -237,8 +238,11 @@ def _validate_target_by_date(
     # A date already in the past is only rejected when this request is setting it. Re-rejecting an
     # inherited one would make a finished alert uneditable, including turning it off.
     today = datetime.now(UTC).date()
+    # Measure from the same anchor evaluation will use, not from today, or a date accepted here
+    # fails its own bound on the first check.
+    anchor = save_time_anchor(interval, today)
     if require_future_date or target_date > today:
-        horizon_for_target_date(target_date, interval, today)
+        horizon_for_target_date(target_date, interval, anchor)
 
 
 def _validate_forecast_config(
