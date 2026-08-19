@@ -34,8 +34,11 @@ export function BillingDataTable({
     valueFormatter = defaultFormatter,
     totalLabel = 'Total',
 }: BillingDataTableProps): JSX.Element {
+    // Count only series present in the current response — hiddenSeries can retain stable keys for
+    // products that dropped out of the date range, which would otherwise skew the tri-state header.
+    const hiddenCount = series.filter((record) => hiddenSeries.includes(record.key)).length
     const headerChecked: boolean | 'indeterminate' =
-        hiddenSeries.length === 0 ? true : hiddenSeries.length === series.length ? false : 'indeterminate'
+        hiddenCount === 0 ? true : hiddenCount === series.length ? false : 'indeterminate'
 
     const dateColumns = useMemo<LemonTableColumn<BillingSeriesType, keyof BillingSeriesType | undefined>[]>(() => {
         if (!dates || dates.length === 0) {
