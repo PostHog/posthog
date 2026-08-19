@@ -219,7 +219,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                         return null
                     }
                     return (await warehouseSavedQueriesRetrieve(
-                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         props.viewId
                     )) as unknown as DataWarehouseSavedQuery
@@ -234,7 +233,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
                     return (await warehouseSavedQueriesCheckIncrementalCreate(String(ApiConfig.getCurrentProjectId()), {
                         query: sql,
                     })) as unknown as DataWarehouseSavedQueryIncrementalCheck

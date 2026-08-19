@@ -2152,7 +2152,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
                     try {
                         incrementalCheck = await warehouseSavedQueriesCheckIncrementalCreate(
-                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             {
                                 query: selectedRef.current ?? values.queryInput ?? '',
@@ -2184,7 +2183,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         },
                         onSubmit: async ({ folderName }) => {
                             const folder = await warehouseSavedQueryFoldersCreate(
-                                // nosemgrep: prefer-codegen-api
                                 String(ApiConfig.getCurrentProjectId()),
                                 { name: folderName.trim() }
                             )
@@ -2478,7 +2476,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     if (!nextView.query) {
                         nextView = (await warehouseSavedQueriesRetrieve(
-                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             view.id
                         )) as unknown as DataWarehouseSavedQuery
@@ -2670,7 +2667,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const endpoint = await endpointsCreate(String(ApiConfig.getCurrentProjectId()), {
                         name: slugify(name),
                         description: description || undefined,
@@ -2976,7 +2972,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
                 const latestView = (await warehouseSavedQueriesRetrieve(
-                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     view.id
                 )) as unknown as DataWarehouseSavedQuery
@@ -3037,7 +3032,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // this head; without re-basing, reverting the query and saving again is misread as a
                     // foreign edit and wrongly raises "View has been edited by another user".
                     const refreshedView = (await warehouseSavedQueriesRetrieve(
-                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         view.id
                     )) as unknown as DataWarehouseSavedQuery
@@ -3524,7 +3518,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (!view.query) {
                         try {
                             view = (await warehouseSavedQueriesRetrieve(
-                                // nosemgrep: prefer-codegen-api
                                 String(ApiConfig.getCurrentProjectId()),
                                 viewId
                             )) as unknown as DataWarehouseSavedQuery

@@ -46,7 +46,6 @@ import {
     externalDataSourcesWizardRetrieve,
 } from './generated/api'
 
-// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 const requestOptions = (options?: ApiMethodOptions): RequestInit | undefined =>
     options ? { headers: options.headers, signal: options.signal } : undefined

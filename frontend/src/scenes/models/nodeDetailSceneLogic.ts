@@ -246,7 +246,6 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
-                // nosemgrep: prefer-codegen-api
                 return await warehouseSavedQueriesRetrieve(String(ApiConfig.getCurrentProjectId()), node.saved_query_id)
             },
         },
