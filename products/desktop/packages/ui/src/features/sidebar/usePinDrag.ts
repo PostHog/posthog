@@ -40,7 +40,7 @@ export interface PinDragApi<T> {
     onDrop: (event: DragEvent) => void;
   };
   onItemDragStart: (item: T, event: DragEvent) => void;
-  onItemDragEnd: (event: DragEvent) => void;
+  onItemDragEnd: () => void;
   previewX: MotionValue<number>;
   previewY: MotionValue<number>;
 }
@@ -106,6 +106,15 @@ export function usePinDrag<T>({
     [isPinned, togglePin],
   );
 
+  // The listeners below register once for the life of the hook. Re-registering
+  // tears the effect down, and its cleanup reports the drag as over while it is
+  // still under the pointer. `applyDrop` closes over callers' inline callbacks,
+  // so it changes identity every render and can't be a dep.
+  const applyDropRef = useRef(applyDrop);
+  useEffect(() => {
+    applyDropRef.current = applyDrop;
+  }, [applyDrop]);
+
   const overPinnedAt = useCallback(
     (x: number, y: number) =>
       isPointInsideRect(
@@ -119,6 +128,14 @@ export function usePinDrag<T>({
     const followPointer = (event: globalThis.DragEvent) => {
       const current = dragRef.current;
       if (!current) return;
+      // Every dragover, before anything else: the preview card promises an
+      // unpin wherever the pointer leaves the run, and only a `preventDefault`
+      // here makes the surface under it somewhere the drag can be released. A
+      // more specific target still sets its own `dropEffect` afterwards.
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = current.sourcePinned ? "move" : "copy";
+      }
       previewX.set(event.clientX - pointerOffsetRef.current.x);
       previewY.set(event.clientY - pointerOffsetRef.current.y);
       const overPinned = overPinnedAt(event.clientX, event.clientY);
@@ -127,6 +144,21 @@ export function usePinDrag<T>({
       if (current.sourcePinned && !overPinned) playTrashSound();
       write({ ...current, overPinned });
     };
+    // Releasing over a surface with no drop target of its own still has to do
+    // what the card promised. `defaultPrevented` says whether something more
+    // specific already took this drop: a Command Center tile takes it to file
+    // the session, and must not also unpin what it just filed. The list takes
+    // its own and has already cleared, so this finds nothing to do.
+    //
+    // Bubble phase, so those handlers run first. Reading a drop rather than
+    // reading `dropEffect` on `dragend` is what separates a release from an
+    // Escape, which reports `none` and fires no drop at all.
+    const takeDrop = (event: globalThis.DragEvent) => {
+      const current = dragRef.current;
+      if (!current) return;
+      if (!event.defaultPrevented) applyDropRef.current(current);
+      clear();
+    };
     // A drag whose source leaves the DOM dies without a `dragend`, and the
     // lists poll. Once it is dead the pointer works again, which is the signal.
     const endStrandedDrag = () => {
@@ -134,9 +166,11 @@ export function usePinDrag<T>({
     };
     // Capture, so a drop target that stops propagation can't freeze the card.
     window.addEventListener("dragover", followPointer, true);
+    window.addEventListener("drop", takeDrop);
     window.addEventListener("mouseup", endStrandedDrag, true);
     return () => {
       window.removeEventListener("dragover", followPointer, true);
+      window.removeEventListener("drop", takeDrop);
       window.removeEventListener("mouseup", endStrandedDrag, true);
       // The store outlives the hook. Unmounting mid-drag would strand the flag
       // true, and every hover card in the sidebar reads it.
@@ -189,27 +223,14 @@ export function usePinDrag<T>({
     [applyDrop, clear],
   );
 
-  // Releasing anywhere the list doesn't cover still has to do what the preview
-  // card promised. `dropEffect` is what separates that from a drop another
-  // target took: a Command Center tile resolves to `copy`, and that drop is the
-  // tile's, so it must not also unpin what it just filed. A drop the list took
-  // has already cleared, so this finds nothing to do.
-  const onItemDragEnd = useCallback(
-    (event: DragEvent) => {
-      const current = dragRef.current;
-      if (!current) return;
-      if (event.dataTransfer.dropEffect === "none") applyDrop(current);
-      clear();
-    },
-    [applyDrop, clear],
-  );
-
   return {
     drag,
     pinnedZoneRef,
     listProps: { onDragOver: onListDragOver, onDrop: onListDrop },
     onItemDragStart,
-    onItemDragEnd,
+    // Reached by a cancelled drag, which fires no drop. A released one has
+    // already been taken and cleared above.
+    onItemDragEnd: clear,
     previewX,
     previewY,
   };

@@ -91,10 +91,30 @@ describe("usePinDrag", () => {
   // The card promises "Remove from pinned" the moment the pointer leaves the
   // run, wherever it goes. Only the list used to take the drop, so releasing
   // over the main pane showed the promise and did nothing.
+  //
+  // Escape cancels a drag without firing a drop, which is what separates it
+  // from a release. Reading `dropEffect` on `dragend` cannot: both report
+  // "none", so a cancelled drag would unpin what the user was still holding.
   it.each([
-    { dropEffect: "none", unpinned: true, where: "over nothing" },
-    { dropEffect: "copy", unpinned: false, where: "on another drop target" },
-  ])("released $where, unpins=$unpinned", ({ dropEffect, unpinned }) => {
+    {
+      event: "drop",
+      defaultPrevented: false,
+      unpins: true,
+      when: "released over nothing",
+    },
+    {
+      event: "drop",
+      defaultPrevented: true,
+      unpins: false,
+      when: "released on another drop target",
+    },
+    {
+      event: "dragend",
+      defaultPrevented: false,
+      unpins: false,
+      when: "cancelled with Escape",
+    },
+  ])("$when, unpins=$unpins", ({ event, defaultPrevented, unpins }) => {
     const togglePin = vi.fn();
     const { result } = renderHook(() =>
       usePinDrag<Row>({ isPinned: (row) => row.pinned, togglePin }),
@@ -108,12 +128,16 @@ describe("usePinDrag", () => {
     });
 
     act(() => {
-      result.current.onItemDragEnd({
-        dataTransfer: { dropEffect },
-      } as unknown as React.DragEvent);
+      if (event === "dragend") {
+        result.current.onItemDragEnd();
+        return;
+      }
+      const drop = new Event("drop", { cancelable: true });
+      if (defaultPrevented) drop.preventDefault();
+      window.dispatchEvent(drop);
     });
 
-    expect(togglePin).toHaveBeenCalledTimes(unpinned ? 1 : 0);
+    expect(togglePin).toHaveBeenCalledTimes(unpins ? 1 : 0);
     expect(isDragging()).toBe(false);
   });
 });
