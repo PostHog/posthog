@@ -64,7 +64,7 @@ class BusinessCentralConfigurationError(Exception):
     """A tenant id, environment name or API version that can't be put in a request path."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Dynamics365BusinessCentralResumeConfig:
     # Framework resume snapshot for the current endpoint: `{"next_url": ...}` for the top-level
     # `companies` walk, or the per-company fan-out shape
