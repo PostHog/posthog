@@ -3169,8 +3169,20 @@ class SandboxCustomImage(TeamScopedRootMixin):
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
 
 
+class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
+    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
+        at = at or django_timezone.now()
+        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
+
+    def expire(self, at: datetime | None = None) -> int:
+        at = at or django_timezone.now()
+        return self.unexpired(at).update(expires_at=at)
+
+
 class CodeInvite(UUIDModel):
     """Invite codes for PostHog Desktop access."""
+
+    objects = CodeInviteQuerySet.as_manager()
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
