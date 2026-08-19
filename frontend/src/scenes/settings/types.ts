@@ -183,7 +183,6 @@ export type SettingId =
     | 'integration-slack'
     | 'integration-webhooks'
     | 'internal-user-filtering'
-    | 'internal-user-filtering-existing-insights'
     | 'invites'
     | 'js-snippet-version'
     | 'logs'

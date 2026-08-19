@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -36,7 +36,11 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
                         <p className="mb-1">Left as they are:</p>
                         <ul className="list-disc pl-5 mb-0">
                             <li>SQL insights, which have no such filter</li>
-                            <li>Insights you can't edit</li>
+                            <li>
+                                Insights you can't edit. An organization admin can run this to cover those, or you can
+                                ask for edit access to them.{' '}
+                                <Link to="https://posthog.com/docs/settings/access-control">About access control</Link>
+                            </li>
                         </ul>
                     </div>
                     <p className="mb-0">Dashboards follow their insights, unless a dashboard sets its own override.</p>
@@ -55,21 +59,29 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
     }
 
     return (
-        <div className="flex gap-2">
-            {[true, false].map((enabled) => (
-                <LemonButton
-                    key={String(enabled)}
-                    type="secondary"
-                    size="small"
-                    data-attr={`apply-test-account-filter-to-existing-insights-${enabled ? 'on' : 'off'}`}
-                    loading={bulkSetResponseLoading && pendingEnabled === enabled}
-                    disabled={currentTeamLoading}
-                    disabledReason={restrictedReason ?? noFiltersReason ?? inFlightReason}
-                    onClick={() => confirm(enabled)}
-                >
-                    {enabled ? 'Turn on for existing insights' : 'Turn off for existing insights'}
-                </LemonButton>
-            ))}
+        <div>
+            {/* Sized below the settings section's own h2, so this reads as part of it rather than a sibling. */}
+            <h3 className="text-sm font-semibold mb-1">Existing insights</h3>
+            <p className="text-secondary text-sm">
+                Turning the filter on for new insights leaves the insights you already have alone. Use these to turn it
+                on or off across them.
+            </p>
+            <div className="flex gap-2">
+                {[true, false].map((enabled) => (
+                    <LemonButton
+                        key={String(enabled)}
+                        type="secondary"
+                        size="small"
+                        data-attr={`apply-test-account-filter-to-existing-insights-${enabled ? 'on' : 'off'}`}
+                        loading={bulkSetResponseLoading && pendingEnabled === enabled}
+                        disabled={currentTeamLoading}
+                        disabledReason={restrictedReason ?? noFiltersReason ?? inFlightReason}
+                        onClick={() => confirm(enabled)}
+                    >
+                        {enabled ? 'Turn on for existing insights' : 'Turn off for existing insights'}
+                    </LemonButton>
+                ))}
+            </div>
         </div>
     )
 }

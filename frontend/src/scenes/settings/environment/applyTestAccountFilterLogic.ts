@@ -84,14 +84,17 @@ export const applyTestAccountFilterLogic = kea<applyTestAccountFilterLogicType>(
             const direction = payload?.enabled ? 'on' : 'off'
             const noun = updated === 1 ? 'insight' : 'insights'
             const extras = [
-                unsupported > 0 ? `${unsupported} have no such filter, like SQL insights` : null,
-                skipped > 0 ? `${skipped} you can't edit` : null,
+                unsupported > 0 ? `${unsupported} with no such filter, like SQL insights` : null,
+                // Access is the only one of the two with a next step: nothing can put the toggle on a SQL insight.
+                skipped > 0 ? `${skipped} you can't edit (an organization admin can apply it to those)` : null,
             ].filter(Boolean)
-            const suffix = extras.length > 0 ? ` Left alone: ${extras.join(', ')}.` : ''
+            const leftAlone = extras.length > 0 ? ` Left alone: ${extras.join(', ')}.` : ''
             if (updated > 0) {
-                lemonToast.success(`Turned this filter ${direction} for ${updated} ${noun}.${suffix}`)
+                lemonToast.success(`Turned the filter ${direction} for ${updated} ${noun}.${leftAlone}`)
             } else {
-                lemonToast.info(`No insights needed changing.${suffix}`)
+                // "Needed changing" would be a lie when insights were held back rather than already correct.
+                const nothing = extras.length > 0 ? 'No insights changed.' : 'No insights needed changing.'
+                lemonToast.info(`${nothing}${leftAlone}`)
             }
         },
         applyToExistingInsightsFailure: () => {
