@@ -449,6 +449,27 @@ describe("ArchiveService integration", () => {
         expect(ctx.service.getArchivedTaskIds()).toEqual([TASK_ID]);
       }));
 
+    it("overlapping archive requests share one archive", () =>
+      withTestContext({}, async (ctx) => {
+        const { worktreePath } = await ctx.setupWorktree("detached");
+        await fs.writeFile(path.join(worktreePath, "file.txt"), "content");
+
+        // Both requests start before either finishes, so neither can see the
+        // other's archive row. A second teardown would delete the checkpoint
+        // the surviving archive restores from.
+        const [first, second] = await Promise.all([
+          ctx.service.archiveTask(ctx.archiveInput()),
+          ctx.service.archiveTask(ctx.archiveInput()),
+        ]);
+
+        expect(second).toEqual(first);
+        expect(ctx.archiveRepo.findAll()).toHaveLength(1);
+        expect(first.checkpointId).toBeTruthy();
+        expect(ctx.git("for-each-ref --format='%(refname)'")).toContain(
+          first.checkpointId,
+        );
+      }));
+
     it("archive finds worktree at legacy path format", () =>
       withTestContext({}, async (ctx) => {
         const repoName = path.basename(ctx.repoPath);

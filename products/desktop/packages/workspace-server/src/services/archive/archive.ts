@@ -92,6 +92,7 @@ export class ArchiveService {
 
   private readonly log: ScopedLogger;
   private recoveryStarted = false;
+  private readonly inFlightArchives = new Map<string, Promise<ArchivedTask>>();
 
   /**
    * Idempotent: archiving an already-archived task returns the existing record
@@ -99,8 +100,27 @@ export class ArchiveService {
    * is — reporting that as an error made the renderer roll its archived-state
    * cache back to "not archived", putting the row back in the sidebar and
    * leaving no way to archive it again.
+   *
+   * A request that arrives while one is running joins it rather than starting a
+   * second teardown. The existing-record check alone can't cover that: it runs
+   * before the awaited worktree teardown, and the archive row lands after, so
+   * both requests would pass it, and the loser's rollback would delete the
+   * checkpoint the winner's restore point points at.
    */
-  async archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
+  archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
+    const inFlight = this.inFlightArchives.get(input.taskId);
+    if (inFlight) {
+      this.log.info(`Joining the archive already running for ${input.taskId}`);
+      return inFlight;
+    }
+    const run = this.runArchive(input).finally(() => {
+      this.inFlightArchives.delete(input.taskId);
+    });
+    this.inFlightArchives.set(input.taskId, run);
+    return run;
+  }
+
+  private async runArchive(input: ArchiveTaskInput): Promise<ArchivedTask> {
     this.log.info(`Archiving task ${input.taskId}`);
 
     const rollbacks: RollbackFn[] = [];
