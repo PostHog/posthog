@@ -911,6 +911,11 @@ export interface HogInvocationResultDetailApi {
     is_retry: boolean
 }
 
+export interface HogInvocationResultsCountApi {
+    /** Number of invocations matching the filters, without the list endpoint's 500-row cap. */
+    count: number
+}
+
 /**
  * Test trigger payload, typically {event, person, groups}.
  */
@@ -1591,6 +1596,35 @@ export type HogFlowsInvocationResultsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type HogFlowsInvocationResultsCountRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
      * @minLength 1

@@ -41,10 +41,13 @@ from posthog.api.hog_invocation_cancel import (
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
     HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
     HogInvocationResultsRequestSerializer,
     fetch_hog_invocation_result,
     fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
     tag_invocation_results_query,
 )
 from posthog.api.log_entries import LogEntryMixin
@@ -2767,8 +2770,9 @@ class HogFlowViewSet(
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
-        # able to enumerate who a workflow ran for.
-        if self.action in ("invocation_results", "invocation_result"):
+        # able to enumerate who a workflow ran for. The count endpoint returns no person data but
+        # accepts a distinct_id filter, so without person:read it would be a person-existence oracle.
+        if self.action in ("invocation_results", "invocation_result", "invocation_results_count"):
             return ["hog_flow:read", "person:read"]
         # Assets expose recipient/distinct_id/person_id and the message bytes — require
         # person:read so a hog_flow:read-only token can't enumerate who got emailed.
@@ -3869,6 +3873,43 @@ class HogFlowViewSet(
             before=before_date,
         )
         return Response(HogInvocationResultSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_results_count_retrieve",
+        parameters=[HogInvocationResultsFiltersSerializer],
+        responses=HogInvocationResultsCountSerializer,
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def invocation_results_count(self, request: Request, *args, **kwargs):
+        """
+        Count invocations matching the same filters as the list endpoint,
+        without its 500-row cap.
+        """
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        param_serializer = HogInvocationResultsFiltersSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date = None
+        before_date = None
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        count = fetch_hog_invocation_results_count(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            status=params["status"].split(",") if params.get("status") else None,
+            distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(HogInvocationResultsCountSerializer({"count": count}).data)
 
     @extend_schema(
         operation_id="hog_flows_invocation_result_retrieve",

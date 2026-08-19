@@ -11,7 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { AccessControlLevel } from '~/types'
 
 import {
-    hogFlowsInvocationResultsRetrieve,
+    hogFlowsInvocationResultsCountRetrieve,
     hogFlowsList,
     hogFlowsRerunCreate,
 } from 'products/workflows/frontend/generated/api'
@@ -150,43 +150,43 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                     }
 
                     // App metrics are historical counters, so a fully replayed workflow would sit in
-                    // the banner forever. Only keep workflows that still have a failed invocation
-                    // carrying the incident's error message - the same server-side filter the rerun
-                    // uses - so a workflow drops off once its replay drains, and stays while a >10k
-                    // replay still has a leftover. A check that errors keeps its row (never hide the
-                    // recovery path on a transient failure).
+                    // the banner forever, and their counts can't be narrowed to the incident's error.
+                    // Count the still-failing invocations that carry the incident message instead -
+                    // the same server-side filter the rerun uses - so the displayed number is what a
+                    // replay would actually target, it shrinks as a replay drains, and the workflow
+                    // drops off at zero. A count that errors falls back to the metric total and keeps
+                    // the row (never hide the recovery path on a transient failure).
                     //
                     // No `before`: replay lifecycle rows land in the partition of their own
                     // scheduled_at (replay time), so capping at the window end would hide them and
                     // a replayed invocation would read as failed forever. `after` alone bounds the
                     // partition scan; the failed-status collapse then reflects the true latest state.
-                    const stillFailing = await Promise.all(
+                    const remainingCounts = await Promise.all(
                         visible.map(async (row) => {
                             try {
-                                const invocations = await hogFlowsInvocationResultsRetrieve(projectId, row.id, {
+                                const response = await hogFlowsInvocationResultsCountRetrieve(projectId, row.id, {
                                     status: 'failed',
                                     error_message_contains: INCIDENT_ERROR_MESSAGE_PREFIX,
                                     after: INCIDENT_WINDOW_START,
-                                    limit: 1,
                                 })
-                                return invocations.length > 0
+                                return response.count
                             } catch {
-                                return true
+                                return row.failedCount
                             }
                         })
                     )
 
                     return visible
-                        .filter((_, index) => stillFailing[index])
-                        .map((row) => {
+                        .map((row, index) => {
                             const flow = flowsById.get(row.id)
                             return {
                                 id: row.id,
                                 name: flow?.name ?? '',
-                                failedCount: row.failedCount,
+                                failedCount: remainingCounts[index],
                                 userAccessLevel: (flow?.user_access_level ?? null) as AccessControlLevel | null,
                             }
                         })
+                        .filter((row) => row.failedCount > 0)
                         .sort((a, b) => b.failedCount - a.failedCount)
                 },
             },
