@@ -69,6 +69,9 @@ export type MlMirrorConfig = {
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
 
+    // US-only, PEM, multiple keys allowed (comma-separated)
+    WEB_BOT_AUTH_PRIVATE_KEYS: string
+
     /**
      * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
      * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
@@ -242,6 +245,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,

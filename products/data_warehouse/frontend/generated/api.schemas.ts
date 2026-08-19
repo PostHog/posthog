@@ -86,6 +86,22 @@ export interface CheckSchemaNameResponseApi {
     available: boolean
 }
 
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface DataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks: boolean
+}
+
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface PatchedDataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks?: boolean
+}
+
 export interface DeleteWarehouseOrgResponseApi {
     /** Deletion lifecycle message from the provisioner */
     status?: string
@@ -3170,6 +3186,9 @@ export interface CredentialApi {
  * * `Dokploy` - Dokploy
  * * `Hootsuite` - Hootsuite
  * * `WisprFlow` - WisprFlow
+ * * `SamCart` - SamCart
+ * * `IronSourceAds` - IronSourceAds
+ * * `MicrosoftExcel` - MicrosoftExcel
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4472,6 +4491,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Dokploy: 'Dokploy',
     Hootsuite: 'Hootsuite',
     WisprFlow: 'WisprFlow',
+    SamCart: 'SamCart',
+    IronSourceAds: 'IronSourceAds',
+    MicrosoftExcel: 'MicrosoftExcel',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

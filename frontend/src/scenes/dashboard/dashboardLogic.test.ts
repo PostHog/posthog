@@ -2522,6 +2522,30 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
         })
+
+        it('reloads when an external rename lands before the tile is in state', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 9 }],
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboard'])
+        })
+
+        it('does not reload when an external rename targets a different dashboard only', async () => {
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 10 }],
+                })
+            }).toFinishAllListeners()
+            expect(loadDashboardSpy).not.toHaveBeenCalled()
+        })
     })
 
     describe('text tiles', () => {

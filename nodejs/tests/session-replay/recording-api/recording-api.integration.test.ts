@@ -6,15 +6,14 @@
  * 2. Decrypting block data
  * 3. Handling deleted sessions (crypto shredding)
  * 4. HTTP endpoints via supertest
- * 5. S3 + decryption pipeline via localstack
+ * 5. S3 + decryption pipeline
  * 6. Cache invalidation on delete
  *
- * Includes tests with:
- * - MemoryKeyStore (always run)
- * - DynamoDB/KMS/S3 via Localstack (run by default, skip with LOCALSTACK_DISABLED=1)
- *
- * To skip localstack tests (e.g. when localstack isn't running):
- *   LOCALSTACK_DISABLED=1 pnpm jest src/session-replay/recording-api/recording-api.integration.test.ts
+ * The encryption contract runs against MemoryKeyStore and always runs. The DynamoDBKeyStore
+ * block covers what only a real DynamoDB can show: the composite key, the conditional writes,
+ * and the tombstones behind crypto shredding. It needs the dynamodb and objectstorage services
+ * from the dev stack, so it skips with:
+ *   DYNAMODB_TESTS_DISABLED=1 pnpm jest tests/session-replay/recording-api/recording-api.integration.test.ts
  */
 import {
     CreateTableCommand,
@@ -23,21 +22,8 @@ import {
     DynamoDBClient,
     ResourceNotFoundException,
 } from '@aws-sdk/client-dynamodb'
-import {
-    CreateAliasCommand,
-    CreateKeyCommand,
-    DeleteAliasCommand,
-    DescribeKeyCommand,
-    KMSClient,
-} from '@aws-sdk/client-kms'
-import {
-    CreateBucketCommand,
-    DeleteBucketCommand,
-    DeleteObjectCommand,
-    ListObjectsV2Command,
-    PutObjectCommand,
-    S3Client,
-} from '@aws-sdk/client-s3'
+import { KMSClient } from '@aws-sdk/client-kms'
+import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
@@ -57,16 +43,21 @@ import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import { RecordingService } from '~/session-replay/recording-api/recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'
 
+import { createStubKmsClient } from './stub-kms-client'
+
 const mockOutputs = {
     queueMessages: jest.fn().mockResolvedValue(undefined),
     produce: jest.fn().mockResolvedValue(undefined),
 } as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
 
-// Localstack configuration
-const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
+// Dev-stack services backing the DynamoDBKeyStore block
+const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18010'
+const S3_ENDPOINT = 'http://127.0.0.1:19000'
+const S3_BUCKET = 'posthog'
+const S3_PREFIX = 'session_recordings_recording_api_test'
+const S3_CREDENTIALS = { accessKeyId: 'object_storage_root_user', secretAccessKey: 'object_storage_root_password' }
 const KEYS_TABLE_NAME = 'session-recording-keys'
-const KMS_KEY_ALIAS = 'alias/session-replay-master-key'
-const shouldRunLocalstackTests = process.env.LOCALSTACK_DISABLED !== '1'
+const shouldRunDynamoDBTests = process.env.DYNAMODB_TESTS_DISABLED !== '1'
 
 const isResourceNotFoundException = (error: unknown): boolean => {
     return (
@@ -449,51 +440,21 @@ describe('Recording API encryption integration', () => {
         })
     })
 
-    // Tests with DynamoDB/KMS via Localstack (run when LOCALSTACK_ENABLED=1)
-    const describeLocalstack = shouldRunLocalstackTests ? describe : describe.skip
+    const describeDynamoDB = shouldRunDynamoDBTests ? describe : describe.skip
 
-    describeLocalstack('with Localstack (DynamoDB + KMS)', () => {
+    describeDynamoDB('with DynamoDBKeyStore', () => {
         let dynamoDBClient: DynamoDBClient
         let kmsClient: KMSClient
-        let kmsKeyId: string
         let keyStore: DynamoDBKeyStore
         let encryptor: SodiumRecordingEncryptor
         let decryptor: SodiumRecordingDecryptor
-
-        async function setupKmsKey(): Promise<void> {
-            try {
-                const describeResult = await kmsClient.send(new DescribeKeyCommand({ KeyId: KMS_KEY_ALIAS }))
-                if (describeResult.KeyMetadata?.KeyId) {
-                    kmsKeyId = describeResult.KeyMetadata.KeyId
-                    return
-                }
-            } catch {
-                // Alias doesn't exist, create key and alias
-            }
-
-            const createKeyResult = await kmsClient.send(
-                new CreateKeyCommand({
-                    Description: 'Session replay master key for testing',
-                    KeyUsage: 'ENCRYPT_DECRYPT',
-                })
-            )
-
-            kmsKeyId = createKeyResult.KeyMetadata!.KeyId!
-
-            await kmsClient.send(
-                new CreateAliasCommand({
-                    AliasName: KMS_KEY_ALIAS,
-                    TargetKeyId: kmsKeyId,
-                })
-            )
-        }
 
         async function setupDynamoDBTable(): Promise<void> {
             try {
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await waitForTableDeletion()
             } catch {
-                // Best-effort cleanup: table absence and Localstack's modeled errors vary in CI.
+                // Best-effort cleanup: the table is usually absent, and how that surfaces varies.
             }
 
             await dynamoDBClient.send(
@@ -545,30 +506,19 @@ describe('Recording API encryption integration', () => {
 
         beforeAll(async () => {
             dynamoDBClient = new DynamoDBClient({
-                endpoint: LOCALSTACK_ENDPOINT,
+                endpoint: DYNAMODB_ENDPOINT,
                 region: 'us-east-1',
                 credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
             })
 
-            kmsClient = new KMSClient({
-                endpoint: LOCALSTACK_ENDPOINT,
-                region: 'us-east-1',
-                credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
-            })
+            kmsClient = await createStubKmsClient()
 
-            await setupKmsKey()
             await setupDynamoDBTable()
         }, 30000)
 
         afterAll(async () => {
             try {
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
-            } catch {
-                // Ignore
-            }
-
-            try {
-                await kmsClient.send(new DeleteAliasCommand({ AliasName: KMS_KEY_ALIAS }))
             } catch {
                 // Ignore
             }
@@ -588,15 +538,11 @@ describe('Recording API encryption integration', () => {
             await decryptor.start()
         })
 
-        runEncryptionTests(
-            () => keyStore,
-            () => encryptor,
-            () => decryptor
-        )
-
+        // The encryption contract itself is a property of the encryptor, not of the keystore, so it
+        // runs once against MemoryKeyStore above. What follows is only what DynamoDB decides.
         describe('DynamoDBKeyStore specific', () => {
-            it('should generate and retrieve an encrypted key via KMS', async () => {
-                const sessionId = `kms-test-${Date.now()}`
+            it('should round-trip a wrapped key through DynamoDB', async () => {
+                const sessionId = `wrapped-key-${Date.now()}`
                 const teamId = 1
 
                 const generatedKey = await keyStore.generateKey(sessionId, teamId, 30)
@@ -612,16 +558,58 @@ describe('Recording API encryption integration', () => {
                 expect(retrievedKey.encryptedKey.equals(generatedKey.encryptedKey)).toBe(true)
             })
 
+            it('should return the existing key instead of overwriting on a second generate', async () => {
+                const sessionId = `regenerate-${Date.now()}`
+                const teamId = 50
+
+                const firstKey = await keyStore.generateKey(sessionId, teamId, 30)
+                const secondKey = await keyStore.generateKey(sessionId, teamId, 30)
+
+                expect(secondKey.sessionState).toBe('ciphertext')
+                expect(secondKey.plaintextKey.equals(firstKey.plaintextKey)).toBe(true)
+                expect(secondKey.encryptedKey.equals(firstKey.encryptedKey)).toBe(true)
+            })
+
+            it('should not resurrect a shredded session on regenerate', async () => {
+                const sessionId = `shredded-regenerate-${Date.now()}`
+                const teamId = 60
+
+                await keyStore.generateKey(sessionId, teamId, 30)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+
+                const regenerated = await keyStore.generateKey(sessionId, teamId, 30)
+                expect(regenerated.sessionState).toBe('deleted')
+
+                const tombstone = await keyStore.getKey(sessionId, teamId)
+                expect(tombstone.sessionState).toBe('deleted')
+            })
+
             it('should return already_deleted when deleting already deleted key', async () => {
                 const sessionId = `double-delete-${Date.now()}`
                 const teamId = 4
 
                 await keyStore.generateKey(sessionId, teamId, 30)
+                const beforeDelete = Math.floor(Date.now() / 1000)
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+                const afterDelete = Math.floor(Date.now() / 1000) + 1
 
                 const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 expect(result.status).toBe('already_deleted')
-                expect(result.deletedAt).toBeDefined()
+                expect(result.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
+                expect(result.deletedAt).toBeLessThanOrEqual(afterDelete)
+            })
+
+            it('should write a tombstone when deleting a session that has no key', async () => {
+                const sessionId = `never-generated-${Date.now()}`
+
+                const result = await keyStore.deleteKey(sessionId, 999, 'test@example.com')
+                expect(result.status).toBe('deleted')
+
+                // Reading it back is the half that catches a tombstone DynamoDB accepted but
+                // getKey cannot parse, which serves a 500 instead of a 410 for a deleted session.
+                const tombstone = await keyStore.getKey(sessionId, 999)
+                expect(tombstone.sessionState).toBe('deleted')
+                expect(tombstone.deletedAt).toBe(result.deletedAt)
             })
 
             it('should isolate keys between teams', async () => {
@@ -662,31 +650,25 @@ describe('Recording API encryption integration', () => {
         describe('S3 + decryption pipeline', () => {
             let s3Client: S3Client
             let recordingService: RecordingService
-            const S3_BUCKET = 'test-recording-bucket'
-            const S3_PREFIX = 'session_recordings'
 
-            beforeAll(async () => {
+            beforeAll(() => {
                 s3Client = new S3Client({
-                    endpoint: LOCALSTACK_ENDPOINT,
+                    endpoint: S3_ENDPOINT,
                     region: 'us-east-1',
-                    credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+                    credentials: S3_CREDENTIALS,
                     forcePathStyle: true,
                 })
-
-                try {
-                    await s3Client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }))
-                } catch {
-                    // Bucket may already exist
-                }
-            }, 30000)
+            })
 
             afterAll(async () => {
                 try {
-                    const objects = await s3Client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET }))
+                    // The bucket is shared with the rest of the dev stack, so clean by prefix.
+                    const objects = await s3Client.send(
+                        new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: S3_PREFIX })
+                    )
                     for (const obj of objects.Contents ?? []) {
                         await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: obj.Key }))
                     }
-                    await s3Client.send(new DeleteBucketCommand({ Bucket: S3_BUCKET }))
                 } catch {
                     // Ignore cleanup errors
                 }
