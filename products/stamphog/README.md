@@ -23,6 +23,15 @@ Each audience resolves to a Slack channel in three steps (`backend/logic/channel
 
 Summaries are written where the diff is. The reviewer emits a one-line `change_summary` alongside its verdict, which is stamped onto the merged PR; the daily run condenses those rather than guessing from PR titles, and for an owning team it also sees which of the changed files are theirs, so a repo-wide sweep that grazed two of them can be dropped as noise.
 
+## Stacked PRs
+
+A stacked PR targets its parent's branch, not the repo's default branch, and depends on parent code that hasn't merged yet.
+The sandbox clones and checks out the PR head for every review, so the reviewer's Read/Grep/Glob already see the post-stack tree and parent symbols resolve.
+The engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch).
+The diff stays scoped `base...head`.
+When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base (ref and SHA) against the reviewed one before posting.
+Engine details: [`tools/pr-approval-agent/README.md`](../../tools/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+
 ## Configuration
 
 Per-repo settings live on `StamphogRepoConfig` (synced via the GitHub App install flow, managed in the Stamphog scene): review on/off, review mode (auto vs trigger label), digest on/off. Review policy (gates, deny-lists, tiers, ownership) is read from `.stamphog/policy.yml` on the repo's **default branch** — never from the PR head — layered over hosted defaults in [`backend/logic/policy_defaults/`](backend/logic/policy_defaults/).
