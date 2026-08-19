@@ -34,9 +34,15 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
-from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
+from products.signals.backend.task_run_artefacts import (
+    TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    append_task_run_artefact,
+    record_implementation_task,
+    record_report_task,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -574,7 +580,12 @@ class TestSignalReportListAPI(APIBaseTest):
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(
-        self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
+        self,
+        report: SignalReport,
+        *,
+        pr_url: str | None = None,
+        output: dict | None = None,
+        relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
     ) -> "tuple[Task, TaskRun]":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -584,10 +595,11 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        record_implementation_task(
+        record_report_task(
             team_id=self.team.id,
             report_id=str(report.id),
             task_id=str(task.id),
+            relationship=relationship,
         )
         run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
         run = TaskRun.objects.create(
@@ -606,6 +618,31 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+
+    def test_report_includes_its_canvas_session(self):
+        report = self._create_report()
+        canvas_id = uuid.uuid4()
+        discussion_task_id = uuid.uuid4()
+        SignalReportCanvas.objects.create(
+            team=self.team,
+            report=report,
+            canvas_id=canvas_id,
+            discussion_task_id=discussion_task_id,
+            generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["canvas_session"] == {
+            "canvas_id": str(canvas_id),
+            "discussion_task_id": str(discussion_task_id),
+            "generation_task_id": None,
+            "generation_status": "generating",
+            "collaboration_mode": "managed",
+            "failure_reason": "",
+            "updated_at": response.json()["canvas_session"]["updated_at"],
+        }
 
     def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
         report = self._create_report()
@@ -644,6 +681,28 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
+
+    @parameterized.expand(
+        [
+            # A "Discuss" task runs the same agent against the same repo, so the PR it opens is the
+            # report's PR. Without it the report offers "Create PR" for work that already shipped.
+            ("discussion_only", False, "https://github.com/o/r/pull/5"),
+            # Implementation still wins when both have one, even though the discussion task is older
+            # and would come first on association order alone.
+            ("implementation_wins_over_discussion", True, "https://github.com/o/r/pull/6"),
+        ]
+    )
+    def test_implementation_pr_url_resolves_discussion_task_pr(self, _name, with_implementation, expected_url):
+        report = self._create_report()
+        self._create_implementation_task_with_run(
+            report, pr_url="https://github.com/o/r/pull/5", relationship=TASK_RUN_TYPE_DISCUSSION
+        )
+        if with_implementation:
+            self._create_implementation_task_with_run(report, pr_url="https://github.com/o/r/pull/6")
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+
+        assert row["implementation_pr_url"] == expected_url
 
     @parameterized.expand(
         [

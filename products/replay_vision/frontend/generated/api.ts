@@ -46,6 +46,7 @@ import type {
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
@@ -615,6 +616,24 @@ export const visionScannersObserveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(observeRequestApi),
+    })
+}
+
+export const getVisionScannersSelfDrivingStatsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/self_driving_stats/`
+}
+
+/**
+ * What self-driving did with this scanner's signals: reports contributed to and PRs opened.
+ */
+export const visionScannersSelfDrivingStatsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScannerSelfDrivingStatsApi> => {
+    return apiMutator<ScannerSelfDrivingStatsApi>(getVisionScannersSelfDrivingStatsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

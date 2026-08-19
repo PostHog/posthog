@@ -3,7 +3,8 @@ import json
 from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.base_variables import TEST
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -123,6 +124,20 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Staged rollout switch for feature flag filters validation (#50084). When off (the
+# production default for now), the new structural and cross-field filter tiers on the flag
+# API log violations (`feature_flag_filters_enforcement_bypassed`) instead of rejecting
+# them. Not gated by this switch: the pre-enforcement type/bounds checks
+# (_reject_serde_unsafe_filters — the cache-poisoning class) and contextual checks (cohort
+# existence, circular dependencies, size limits) always reject, so off means exactly the
+# protection that predated enforcement, plus observation logging. Rollout: ship with the
+# default off, compare the bypass-log volume against the audit's per-rule predictions for
+# a few days of live traffic (the audit measured stored data, never request-shaped input),
+# then enable via env var. The follow-up flip PR removes this switch and the now-redundant
+# _reject_serde_unsafe_filters. Defaults on under TEST so the suite validates the enforced
+# behavior.
+FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", TEST, type_cast=str_to_bool)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

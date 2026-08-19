@@ -58,23 +58,20 @@ export function useGenerateFreeformCanvas(args: {
 
   const generate = useCallback(
     async (opts: {
-      // The canvas being generated, when the surface already knows it. The
-      // channel composer omits it — the agent resolves or creates the target
-      // itself, so no canvas record is touched client-side.
-      dashboardId?: string;
-      name?: string;
+      dashboardId: string;
+      name: string;
       templateId?: string;
       instruction: string;
-      /** True when the canvas already has published source (a follow-up edit
-       * rather than a first build). The agent re-reads the live source itself
-       * through the canvas tools. */
-      isEdit?: boolean;
+      // When set, the run fills ONE placement on a grid canvas (the agent
+      // follows the composing-grid-canvases skill instead of building-canvases).
+      placement?: { placementId: string; w: number; h: number };
+      // "grid" routes a whole-canvas run to the grid skill (edit the layout
+      // and its components) instead of freeform canvas authoring.
+      canvasKind?: "grid";
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
       reasoningLevel?: string;
-      // Seed the starter scaffold on first build.
-      useStarter?: boolean;
       // Dev-only override (the bar exposes a local/cloud picker in dev so a
       // local build of these features can be tested before merging). Production
       // always runs in the cloud.
@@ -108,8 +105,8 @@ export function useGenerateFreeformCanvas(args: {
             name,
             templateId: opts.templateId,
             instruction,
-            isEdit: opts.isEdit ?? false,
-            useStarter: opts.useStarter,
+            placement: opts.placement,
+            canvasKind: opts.canvasKind,
             channelId,
             channelName,
             channelContext,
@@ -134,16 +131,16 @@ export function useGenerateFreeformCanvas(args: {
         }
 
         // Track this run so a toast (with a link back here) fires when it
-        // finishes, even after the user navigates to another canvas.
-        // Target-less runs aren't tracked: there is no canvas to link to until
-        // the agent resolves or creates one, and their channel feed card
-        // already carries completion.
-        if (dashboardId) {
+        // finishes, even after the user navigates to another canvas. Placement
+        // fills are excluded: the completion toast judges the canvas's build
+        // health, and a grid canvas has no builds — the empty lifecycle would
+        // read as "finished with a failed build". The tile shows the progress.
+        if (!opts.placement && opts.canvasKind !== "grid") {
           useCanvasGenerationTrackerStore.getState().track({
             taskId: result.taskId,
             dashboardId,
             channelId,
-            name: name ?? "Canvas",
+            name,
           });
         }
         // Refresh the workspace cache so the new cloud workspace row appears and

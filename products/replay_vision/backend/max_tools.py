@@ -1228,7 +1228,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
         # which a scanner silently never scans, the unique-name race, the estimate refresh, the built-in
-        # daily digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
+        # featured digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
         serializer = ReplayScannerSerializer(
             data={
                 "name": name.strip(),
@@ -2238,7 +2238,7 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
         # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
         # executor would queue every other database operation behind it. Still connection-managed,
         # because the suggestion path reads observations and event definitions.

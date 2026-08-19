@@ -115,6 +115,10 @@ class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
         )
 
 
+class SandboxNetworkPolicyError(ProcessTaskFatalError):
+    pass
+
+
 class SandboxNotFoundError(ProcessTaskFatalError):
     """Sandbox does not exist."""
 
@@ -137,6 +141,13 @@ class SandboxMissingRepositoryError(ProcessTaskFatalError):
     """
 
     pass
+
+
+class RequiredMcpUnavailableError(ProcessTaskFatalError):
+    """A task that cannot run without PostHog MCP cannot reach its configured server."""
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
 
 class SandboxNotRunningError(SandboxExecutionError):
