@@ -183,12 +183,14 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 maxAttempts: 5,
                 requestHandler: new NodeHttpHandler(),
             })
-            crawlHistory = new DynamoDBCrawlHistory(
+            const dynamoDBCrawlHistory = new DynamoDBCrawlHistory(
                 this.crawlHistoryClient,
                 tableName,
                 dynamoDBTimeoutMs,
                 STORE_BATCH_BUDGET_MS
             )
+            await dynamoDBCrawlHistory.validateAccess(Date.now())
+            crawlHistory = dynamoDBCrawlHistory
             crawlHistoryTtlSeconds = this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS
         } else {
             const connection = resolveMlMirrorRedisConnection(this.config)

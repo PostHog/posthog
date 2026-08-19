@@ -1,14 +1,14 @@
-import { BatchGetItemCommand, BatchWriteItemCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { BatchGetItemCommand, BatchWriteItemCommand } from '@aws-sdk/client-dynamodb'
 
-import { DynamoDBCrawlHistory } from './dynamodb-crawl-history'
+import { DynamoDBCrawlHistory, DynamoDBCrawlHistoryClient } from './dynamodb-crawl-history'
 
 const TABLE = 'ai-research-image-fetch-crawl-history'
 const NOW_MS = 1_700_000_000_000
 const NOW_SECONDS = Math.floor(NOW_MS / 1000)
 const KEYS = Array.from({ length: 205 }, (_value, index) => `k${index}`)
 
-function dynamoClient(send: jest.Mock): DynamoDBClient {
-    return { send } as unknown as DynamoDBClient
+function dynamoClient(send: jest.Mock): DynamoDBCrawlHistoryClient {
+    return { send }
 }
 
 function requestedReadKeys(command: BatchGetItemCommand): string[] {
@@ -24,6 +24,48 @@ function requestedWriteKeys(command: BatchWriteItemCommand): string[] {
 describe('DynamoDBCrawlHistory', () => {
     const build = (send: jest.Mock): DynamoDBCrawlHistory =>
         new DynamoDBCrawlHistory(dynamoClient(send), TABLE, 1_000, 60_000)
+
+    it('validates batch write and consistent read access', async () => {
+        const send = jest.fn((command: BatchGetItemCommand | BatchWriteItemCommand) =>
+            command instanceof BatchWriteItemCommand
+                ? Promise.resolve({})
+                : Promise.resolve({ Responses: { [TABLE]: [{ key: { S: 'imgfetch:access-probe' } }] } })
+        )
+
+        await build(send).validateAccess(NOW_MS)
+
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(send.mock.calls[0][0]).toBeInstanceOf(BatchWriteItemCommand)
+        const readCommand = send.mock.calls[1][0] as BatchGetItemCommand
+        expect(readCommand).toBeInstanceOf(BatchGetItemCommand)
+        expect(readCommand.input.RequestItems?.[TABLE].ConsistentRead).toBe(true)
+    })
+
+    it.each([
+        {
+            name: 'an unprocessed write',
+            responses: [
+                {
+                    UnprocessedItems: {
+                        [TABLE]: [{ PutRequest: { Item: { key: { S: 'imgfetch:access-probe' } } } }],
+                    },
+                },
+            ],
+        },
+        {
+            name: 'an unprocessed read',
+            responses: [{}, { UnprocessedKeys: { [TABLE]: { Keys: [{ key: { S: 'imgfetch:access-probe' } }] } } }],
+        },
+        {
+            name: 'a missing probe record',
+            responses: [{}, { Responses: { [TABLE]: [] } }],
+        },
+    ])('rejects $name during access validation', async ({ responses }) => {
+        const send = jest.fn()
+        responses.forEach((response) => send.mockResolvedValueOnce(response))
+
+        await expect(build(send).validateAccess(NOW_MS)).rejects.toThrow('access probe')
+    })
 
     it('reads the whole candidate set with DynamoDB batch operations', async () => {
         const active = new Set(['k0', 'k99', 'k100', 'k204'])
@@ -117,6 +159,37 @@ describe('DynamoDBCrawlHistory', () => {
         expect(result.known).toEqual(new Set([0]))
         expect(result.failed.size).toBe(0)
         expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+        {
+            name: 'read',
+            response: { UnprocessedKeys: { [TABLE]: { Keys: [{ key: { S: 'retry' } }] } } },
+            run: (crawlHistory: DynamoDBCrawlHistory) => crawlHistory.read(['retry'], NOW_MS),
+        },
+        {
+            name: 'write',
+            response: {
+                UnprocessedItems: {
+                    [TABLE]: [{ PutRequest: { Item: { key: { S: 'retry' } } } }],
+                },
+            },
+            run: (crawlHistory: DynamoDBCrawlHistory) => crawlHistory.record(['retry'], NOW_MS, 60),
+        },
+    ])('reports a failed key when unprocessed $name retries are exhausted', async ({ response, run }) => {
+        jest.useFakeTimers()
+        try {
+            const send = jest.fn().mockResolvedValue(response)
+            const resultPromise = run(build(send))
+
+            await jest.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.failed).toEqual(new Set([0]))
+            expect(send).toHaveBeenCalledTimes(5)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('flushes every new row with bounded batch writes and one expiry', async () => {

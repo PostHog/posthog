@@ -43,6 +43,7 @@ describe('DynamoDBCrawlHistory integration', () => {
     it('records and reads a full ingestion batch through DynamoDB', async () => {
         const crawlHistory = new DynamoDBCrawlHistory(client, TABLE_NAME, 5_000, 30_000)
 
+        await crawlHistory.validateAccess(NOW_MS)
         const writeResult = await crawlHistory.record(KEYS, NOW_MS, TTL_SECONDS)
         const readResult = await crawlHistory.read([...KEYS, 'missing'], NOW_MS)
         const storedItem = await client.send(

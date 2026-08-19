@@ -16,6 +16,10 @@ const BATCH_WRITE_SIZE = 25
 const MAX_CONCURRENT_BATCH_REQUESTS = 8
 const UNPROCESSED_MAX_ATTEMPTS = 5
 const UNPROCESSED_INITIAL_BACKOFF_MS = 50
+const ACCESS_PROBE_KEY = 'imgfetch:access-probe'
+const ACCESS_PROBE_TTL_SECONDS = 5 * 60
+
+export type DynamoDBCrawlHistoryClient = Pick<DynamoDBClient, 'send'>
 
 function chunk<T>(items: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -52,11 +56,54 @@ function keysFromWriteRequests(requests: WriteRequest[]): string[] {
 
 export class DynamoDBCrawlHistory implements CrawlHistoryStore {
     constructor(
-        private readonly client: DynamoDBClient,
+        private readonly client: DynamoDBCrawlHistoryClient,
         private readonly tableName: string,
         private readonly commandTimeoutMs: number,
         private readonly batchBudgetMs: number
     ) {}
+
+    public async validateAccess(nowMs: number): Promise<void> {
+        const expiresAt = Math.floor(nowMs / 1000) + ACCESS_PROBE_TTL_SECONDS
+        const writeResponse = await this.sendBatchWrite(
+            new BatchWriteItemCommand({
+                RequestItems: {
+                    [this.tableName]: [
+                        {
+                            PutRequest: {
+                                Item: {
+                                    [KEY_ATTRIBUTE]: { S: ACCESS_PROBE_KEY },
+                                    [EXPIRES_AT_ATTRIBUTE]: { N: String(expiresAt) },
+                                },
+                            },
+                        },
+                    ],
+                },
+            })
+        )
+        if ((writeResponse.UnprocessedItems?.[this.tableName] ?? []).length > 0) {
+            throw new Error('DynamoDB crawl-history access probe write was not processed')
+        }
+
+        const readResponse = await this.sendBatchGet(
+            new BatchGetItemCommand({
+                RequestItems: {
+                    [this.tableName]: {
+                        Keys: [{ [KEY_ATTRIBUTE]: { S: ACCESS_PROBE_KEY } }],
+                        ProjectionExpression: '#key',
+                        ExpressionAttributeNames: { '#key': KEY_ATTRIBUTE },
+                        ConsistentRead: true,
+                    },
+                },
+            })
+        )
+        const readWasUnprocessed = (readResponse.UnprocessedKeys?.[this.tableName]?.Keys ?? []).length > 0
+        const probeWasRead = (readResponse.Responses?.[this.tableName] ?? []).some(
+            (item) => item[KEY_ATTRIBUTE]?.S === ACCESS_PROBE_KEY
+        )
+        if (readWasUnprocessed || !probeWasRead) {
+            throw new Error('DynamoDB crawl-history access probe read was not processed')
+        }
+    }
 
     public async read(keys: string[], nowMs: number): Promise<CrawlHistoryReadResult> {
         const known = new Set<number>()

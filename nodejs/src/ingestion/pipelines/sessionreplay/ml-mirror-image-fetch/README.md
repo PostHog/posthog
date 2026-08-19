@@ -28,7 +28,8 @@ domain's partition.
 The lane reads the crawl history after parsing and in-batch deduplication. It makes fetch decisions
 from the result, then writes completed URLs at the end of the Kafka batch. The DynamoDB backend uses
 batch operations with service limits of 100 reads and 25 writes. An expired row counts as absent
-before DynamoDB removes it.
+before DynamoDB removes it. Before Kafka consumption starts, the lane writes and consistently reads
+a short-lived probe record so that a missing table or IAM permission stops the pod.
 
 ## Limits
 
