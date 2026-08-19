@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -8,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_bea import (
     UsBeaAuthenticationError,
     UsBeaRequestError,
+    UsBeaResponseTooLargeError,
     build_query_url,
     get_data_rows,
     get_endpoint_rows,
@@ -24,6 +26,9 @@ def _mock_response(status_code: int = 200, json_data: Any = None) -> MagicMock:
     response.status_code = status_code
     response.ok = status_code < 400
     response.json.return_value = json_data
+    # _fetch reads the body via stream=True + iter_content, not response.json()/response.text.
+    body = json.dumps(json_data).encode("utf-8") if json_data is not None else b""
+    response.iter_content.return_value = iter([body]) if body else iter([])
     return response
 
 
@@ -112,6 +117,27 @@ class TestUsBea:
 
         with pytest.raises(UsBeaRequestError):
             get_data_rows(session, "user-id", "Regional", {})
+
+    def test_get_data_rows_raises_when_response_body_exceeds_size_cap(self):
+        response = _mock_response(json_data=_data_payload([{"Code": "SAINC1-1"}]))
+        response.iter_content.return_value = iter([b"a" * 1024, b"b" * 1024])
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch(f"{_MODULE}._MAX_RESPONSE_BYTES", 1500):
+            with pytest.raises(UsBeaResponseTooLargeError):
+                get_data_rows(session, "user-id", "Regional", {})
+
+    def test_fetch_streams_the_request_instead_of_buffering_it_whole(self):
+        response = _mock_response(json_data=_data_payload([{"Code": "SAINC1-1"}]))
+        session = MagicMock()
+        session.get.return_value = response
+
+        get_data_rows(session, "user-id", "Regional", {})
+
+        assert session.get.call_args.kwargs["stream"] is True
+        response.json.assert_not_called()
+        response.close.assert_called_once()
 
     def test_get_endpoint_rows_issues_one_call_per_line_code_and_merges(self):
         endpoint = ENDPOINTS["StatePersonalIncomeSummary"]

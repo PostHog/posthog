@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_bea import (
     AUTH_ERROR_MESSAGE,
+    RESPONSE_TOO_LARGE_ERROR,
     parse_custom_query_params,
     us_bea_source,
     validate_credentials as validate_us_bea_credentials,
@@ -57,6 +58,7 @@ class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
             AUTH_ERROR_MESSAGE: "Your BEA UserID is missing or invalid. Register a free UserID at https://apps.bea.gov/api/signup/ and update the source.",
             "BEA custom query": "The custom query on this source is incomplete or invalid. Update the custom query fields on the source and retry.",
             "BEA API rejected the request": "BEA rejected the request. Check the custom query parameters against the API user guide.",
+            RESPONSE_TOO_LARGE_ERROR: "The BEA response was too large to process. Narrow the custom query parameters (e.g. a smaller Year range or GeoFips selection) and retry.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

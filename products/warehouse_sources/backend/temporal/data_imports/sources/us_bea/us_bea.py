@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Iterator, Mapping
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -20,9 +21,18 @@ _REQUEST_TIMEOUT = 120
 # pipeline's batcher.
 _ROWS_PER_CHUNK = 5000
 
+# GetData isn't paginated, so a broad custom query (e.g. GeoFips=STATE with Year=ALL across a
+# large dataset) can return a very large single body. requests buffers the whole response into
+# memory by default and json.loads then duplicates it while parsing, so stream the body and cap
+# what's read into memory instead of trusting the request to stay small. Generous enough for any
+# documented BEA regional/national table.
+_MAX_RESPONSE_BYTES = 128 * 1024 * 1024
+_RESPONSE_CHUNK_BYTES = 256 * 1024
+
 AUTH_ERROR_MESSAGE = "BEA UserID is missing or invalid"
 REQUEST_ERROR_PREFIX = "BEA API rejected the request"
 RESPONSE_SHAPE_ERROR_PREFIX = "Unexpected response from the BEA API"
+RESPONSE_TOO_LARGE_ERROR = "BEA API response body was too large"
 
 # BEA dataset names are a single alphanumeric token (NIPA, Regional, ITA, GDPbyIndustry, ...).
 _DATASET_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
@@ -38,6 +48,10 @@ class UsBeaAuthenticationError(UsBeaApiError):
 
 class UsBeaRequestError(UsBeaApiError):
     """A rejected request that retrying cannot fix - an unknown table, geography, or year."""
+
+
+class UsBeaResponseTooLargeError(UsBeaApiError):
+    """Non-retryable: re-issuing the same query returns the same oversized body."""
 
 
 def build_query_url(
@@ -130,14 +144,35 @@ def _raise_for_error(response: Response, payload: Any) -> None:
         raise UsBeaApiError(f"BEA API error: status={response.status_code}")
 
 
+def _read_capped_body(response: Response, max_bytes: int = _MAX_RESPONSE_BYTES) -> bytes:
+    """Read a streamed response body into memory, aborting past `max_bytes`.
+
+    Called on a response opened with `stream=True` so nothing is buffered until here.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            raise UsBeaResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {max_bytes} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _fetch(session: Session, url: str) -> dict[str, Any]:
-    response = session.get(url, timeout=_REQUEST_TIMEOUT)
+    response = session.get(url, timeout=_REQUEST_TIMEOUT, stream=True)
     try:
-        payload = response.json()
-    except ValueError as e:
-        if not response.ok:
-            raise UsBeaApiError(f"BEA API error: status={response.status_code}") from e
-        raise ValueError(f"{RESPONSE_SHAPE_ERROR_PREFIX}: body is not valid JSON") from e
+        body = _read_capped_body(response)
+        try:
+            payload = json.loads(body)
+        except ValueError as e:
+            if not response.ok:
+                raise UsBeaApiError(f"BEA API error: status={response.status_code}") from e
+            raise ValueError(f"{RESPONSE_SHAPE_ERROR_PREFIX}: body is not valid JSON") from e
+    finally:
+        response.close()
     _raise_for_error(response, payload)
     if not isinstance(payload, dict):
         raise ValueError(f"{RESPONSE_SHAPE_ERROR_PREFIX}: expected a JSON object")
