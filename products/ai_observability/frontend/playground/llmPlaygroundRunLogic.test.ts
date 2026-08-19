@@ -10,7 +10,13 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
-import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
+import {
+    appendToolCallChunk,
+    describeError,
+    escapeMarkdownInline,
+    llmPlaygroundRunLogic,
+    mergeUsage,
+} from './llmPlaygroundRunLogic'
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -248,6 +254,20 @@ describe('llmPlaygroundRunLogic', () => {
 
         it('returns the fallback for non-Error values', () => {
             expect(describeError('nope', 'fallback')).toEqual({ message: 'fallback' })
+        })
+    })
+
+    describe('escapeMarkdownInline', () => {
+        // A model id can reach the result card straight from an ingested `$ai_model` property,
+        // and that card renders markdown with images enabled.
+        it('defuses image syntax so an ingested model id cannot issue a request', () => {
+            expect(escapeMarkdownInline('![x](https://example.com/pixel)')).toBe(
+                '\\!\\[x\\]\\(https\\:\\/\\/example\\.com\\/pixel\\)'
+            )
+        })
+
+        it('leaves an ordinary model id alone apart from its punctuation', () => {
+            expect(escapeMarkdownInline('gpt-4-turbo')).toBe('gpt\\-4\\-turbo')
         })
     })
 })
