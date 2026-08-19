@@ -448,4 +448,5 @@ def test_build_environment_variables_forwards_run_context_to_token_minting():
         origin_product="signals_scout",
         ai_stage="scout:logs",
         internal=True,
+        distinct_id=ctx.distinct_id,
     )

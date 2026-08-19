@@ -1238,6 +1238,7 @@ def build_sandbox_environment_variables(
     origin_product: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
+    distinct_id: str | None = None,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
 
@@ -1274,6 +1275,7 @@ def build_sandbox_environment_variables(
             origin_product=origin_product,
             ai_stage=ai_stage,
             internal=internal,
+            distinct_id=distinct_id,
         )
     )
 
@@ -1307,6 +1309,7 @@ def ai_gateway_env_vars(
     origin_product: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
+    distinct_id: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1330,7 +1333,7 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id)
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
     return env_vars

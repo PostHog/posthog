@@ -471,6 +471,7 @@ def _build_environment_variables(
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
             internal=task.internal,
+            distinct_id=ctx.distinct_id,
         )
     )
 

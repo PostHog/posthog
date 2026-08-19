@@ -262,6 +262,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 origin_product=ctx.origin_product,
                 ai_stage=(ctx.state or {}).get("ai_stage"),
                 internal=task.internal,
+                distinct_id=ctx.distinct_id,
             )
         )
 

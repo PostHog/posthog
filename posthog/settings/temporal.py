@@ -65,6 +65,8 @@ SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_
 # TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
 # never outlives its token; a positive value overrides.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "5")
+# Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 

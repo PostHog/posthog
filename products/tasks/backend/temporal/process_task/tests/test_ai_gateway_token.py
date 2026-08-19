@@ -72,6 +72,7 @@ def mint_settings(settings):
     settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
     settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD = "3"
     settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 14400
+    settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = ""
     return settings
 
 
@@ -173,7 +174,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
         }
-        mint.assert_called_once_with(ai_product="signals_scout", team_id=123)
+        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
     def test_unrouted_run_gets_no_token(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
@@ -244,5 +245,45 @@ class TestProvisioningBoundaries:
                 origin_product="signals_scout",
                 ai_stage="scout:logs",
                 internal=True,
+                distinct_id="user-1",
             )
-        env.assert_called_once_with(team_id=7, origin_product="signals_scout", ai_stage="scout:logs", internal=True)
+        env.assert_called_once_with(
+            team_id=7, origin_product="signals_scout", ai_stage="scout:logs", internal=True, distinct_id="user-1"
+        )
+
+
+class TestUserPinAndCapOverride:
+    def _response(self, body):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = body
+        response.text = ""
+        return response
+
+    def test_mint_pins_the_acting_user(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1")
+        assert post.call_args.kwargs["json"]["user"] == "user-distinct-1"
+
+    def test_mint_omits_user_when_unknown(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+        assert "user" not in post.call_args.kwargs["json"]
+
+    def test_cap_override_applies_per_team(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+        assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "10"
+        assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "3"
+
+    def test_malformed_overrides_fall_back_to_default(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=2)
+        assert post.call_args.kwargs["json"]["cap_usd"] == "3"

@@ -135,6 +135,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
             internal=task.internal,
+            distinct_id=ctx.distinct_id,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

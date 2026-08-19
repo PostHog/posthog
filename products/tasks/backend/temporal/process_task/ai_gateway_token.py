@@ -8,6 +8,7 @@ only when the product is allowlisted AND a token is present, so a mint failure o
 disagreement degrades the run to the Python gateway rather than failing it.
 """
 
+import json
 import time
 import random
 import logging
@@ -101,11 +102,31 @@ def _token_ttl_seconds() -> int:
     return max(60, min(configured, 86400))
 
 
-def mint_scoped_token(*, ai_product: str, team_id: int) -> str | None:
+def _token_cap_usd(team_id: int) -> str:
+    """Per-run cap, with per-team overrides (JSON map of team id to dollars).
+
+    Team 2's custom scouts run hotter than the external fleet, so it carries a
+    higher cap than the default without raising everyone's ceiling.
+    """
+    raw = settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES
+    if raw:
+        try:
+            override = json.loads(raw).get(str(team_id))
+        except (ValueError, AttributeError):
+            override = None
+            logger.warning("ai_gateway_token: cap overrides setting is not a JSON object; using the default cap")
+        if override is not None:
+            return str(override)
+    return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
+
+
+def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
-    Retries mint rate limits (429) and transient upstream errors with jittered backoff.
-    Callers treat None as "route this run to the Python gateway".
+    `user` pins the acting identity (the run's distinct id) so routed runs keep
+    per-user ledger and budget attribution instead of pooling under the team.
+    Retries mint rate limits (429) and transient upstream errors with jittered
+    backoff. Callers treat None as "route this run to the Python gateway".
     """
     base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
@@ -113,11 +134,13 @@ def mint_scoped_token(*, ai_product: str, team_id: int) -> str | None:
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD),
+        "cap_usd": _token_cap_usd(team_id),
         "ttl_seconds": _token_ttl_seconds(),
         "product": ai_product,
         "obo": str(team_id),
     }
+    if user:
+        body["user"] = user
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
