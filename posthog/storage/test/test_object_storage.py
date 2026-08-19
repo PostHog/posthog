@@ -241,7 +241,7 @@ class TestStorage(APIBaseTest):
 class TestObjectStorageRead(SimpleTestCase):
     @parameterized.expand(
         [
-            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),  # type: ignore[arg-type]
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
             ("other_error", ValueError("Invalid endpoint")),
         ]
     )
