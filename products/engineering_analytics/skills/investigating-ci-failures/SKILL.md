@@ -97,8 +97,9 @@ threshold aren't recorded, so there is no honest denominator.
   fingerprint is weak evidence (the job may simply not have run). Greens come from
   `ci_job_history` only.
 - **Fingerprints are pytest-only (v1).** Jest / playwright / cargo failures appear in the raw
-  failure logs but are not in `ci_failures`. For those, fall back to grouped triage via the
-  `engineering-analytics-master-failures` / `engineering-analytics-ci-failure-logs` MCP tools.
+  failure logs but are not in `ci_failures`. For those, fall back to the raw failure logs via the
+  `engineering-analytics-ci-failure-logs` (PR-scoped) / `engineering-analytics-run-failure-logs`
+  (run-scoped) MCP tools.
 - **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
@@ -118,15 +119,15 @@ threshold aren't recorded, so there is no honest denominator.
 
 ## Choosing a surface
 
-| Question                               | Use                                                                    |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)    |
-| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
-| "Who broke master / when did X start?" | The two views, workflow above                                          |
-| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
-| "What's failing on master right now?"  | `engineering-analytics-master-failures` MCP tool (grouped triage feed) |
-| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
-| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |
+| Question                               | Use                                                                        |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)        |
+| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)      |
+| "Who broke master / when did X start?" | The two views, workflow above                                              |
+| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                            |
+| "What's failing on master right now?"  | `breaking_master` rows + `breaking_master_jobs` from the broken-tests tool |
+| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                            |
+| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                    |
 
 ## Output expectations
 

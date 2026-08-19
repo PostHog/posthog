@@ -78,6 +78,14 @@ Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments 
 
 Like `ci:insights`, this is corroboration and history, not the classification authority — flaky-vs-deterministic and the rate still come from the run data above.
 
+### Corroborate with engineering analytics (posthog MCP)
+
+When the `posthog` MCP server is connected, `engineering-analytics-flaky-tests` reads the per-test CI spans:
+`confirmed_flake` means one commit was seen both failing and passing the test (a re-run attempt went green, or an in-job retry recovered it): direct nondeterminism proof. `suspected_regression` means only failures were recorded, which is absence of proof.
+Counts are absolute, never rates: passing runs are mostly not emitted, so there is no honest denominator.
+Same rule as the others: corroboration and blast radius, not the classification authority.
+The product skill [products/engineering_analytics/skills/investigating-ci-failures/SKILL.md](../../../products/engineering_analytics/skills/investigating-ci-failures/SKILL.md) carries the failure-shape analysis (cross-branch burst = trunk break, sporadic = flaky) over the warehouse views.
+
 ## 2. Extract the failure from CI
 
 ```bash

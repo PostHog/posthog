@@ -122,6 +122,17 @@ token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
 
+When the `posthog` MCP server is connected, the engineering analytics tools add
+cross-run warehouse history that `gh` can't give cheaply:
+`engineering-analytics-broken-tests` classifies the last 2 days of CI failures
+(`breaking_master`, `blocking_merge_queue`, `flaky`, `pr_only`, ...), and
+`engineering-analytics-ci-failure-logs` / `engineering-analytics-run-failure-logs`
+return a PR's or run's thinned failure logs without log scraping. For the full
+"who broke master → culprit commit, author, fix" workflow over the
+`engineering_analytics_ci_failures` / `engineering_analytics_ci_job_history`
+warehouse views, follow the product skill
+[products/engineering_analytics/skills/investigating-ci-failures/SKILL.md](../../../products/engineering_analytics/skills/investigating-ci-failures/SKILL.md).
+
 ## Classification
 
 | Signal in the log                                                        | Class               | First action                                                       |

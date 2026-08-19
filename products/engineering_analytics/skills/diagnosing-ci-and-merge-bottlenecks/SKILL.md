@@ -7,7 +7,9 @@ description: >
   flaky long-pole, how long PRs take from open to merge, how an author's merge time compares to the cohort, which
   open PRs have failing or pending CI, or where a specific pull request is stuck. Triggers on "engineering
   analytics", "is CI getting slower", "slow workflow", "flaky CI", "time to merge", "cycle time", "PR throughput",
-  "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up this PR".
+  "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up this PR". For a verdict on one
+  specific CI failure (whose fault, which commit) use investigating-ci-failures; to save these numbers as insights
+  use turning-engineering-analytics-into-insights.
 ---
 
 # Diagnosing CI and merge bottlenecks
@@ -15,7 +17,9 @@ description: >
 Engineering analytics treats a pull request like product analytics treats a user: a PR moves through a pipeline
 (`opened → CI → review → merged → deployed`) and the job is to find where it slows down. The surface is **named
 MCP tools** — you call them, you don't write SQL. Dogfooded on `PostHog/posthog`; the same tools serve
-autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
+autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs. This skill is for aggregate pipeline
+health; to take one failing test or red run to a verdict (whose fault, which commit, is it fixed), switch to the
+`investigating-ci-failures` skill.
 
 ## The tools
 
@@ -51,6 +55,10 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
 
+- **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. On a team with more than
+  one, call it first and pass the chosen entry's `source_id` and `repo` to `pull-requests`, `workflow-health`, and
+  `pr-lifecycle`; with a single source/repo the tools default to it.
+
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
 
@@ -75,9 +83,9 @@ These are structural limits of today's snapshot data — state them, don't paper
   (nested under `author`, not a row-level field) and `is_draft` for throughput / merge-time questions; keep them in
   for bot-impact questions.
 - **`pull-requests` returns a capped page.** At most `limit` rows (newest first); `truncated` is `true` when more
-  match, and there is no repo or limit filter to narrow the call. When `truncated` is `true`, any percentile or
-  count you derive covers only the newest page — not the whole window — so say so and shrink `date_from` until the
-  real set fits under the cap.
+  match, and there is no limit parameter. When `truncated` is `true`, any percentile or count you derive covers
+  only the newest page, not the whole window; say so, scope to one repo (`source_id` / `repo` from
+  `engineering-analytics-sources`), and shrink `date_from` until the real set fits under the cap.
 
 ## Choosing a tool
 
@@ -88,7 +96,7 @@ These are structural limits of today's snapshot data — state them, don't paper
 | Which PRs are stuck open longest?                      | `pull-requests`                     | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                                                                                     |
 | How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `ready_to_merge_seconds` where non-null (fall back to `open_to_merge_seconds`, labeled as coarse) — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows. |
 | Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → ready_for_review` (draft time, when transition events are present), the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long ready→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so.             |
-| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven, and only for tests hand-marked with reruns.                                                                                                                |
+| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven (one commit both failed and passed: a re-run attempt went green, or an in-job retry recovered it).                                                          |
 
 ## The high-value chain
 
