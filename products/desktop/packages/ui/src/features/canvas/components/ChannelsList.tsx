@@ -5,6 +5,7 @@ import {
   CaretRightIcon,
   DotsThreeIcon,
   LinkIcon,
+  MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
   StarIcon,
@@ -55,6 +56,7 @@ import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/c
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
+import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
@@ -96,6 +98,10 @@ import {
   useCurrentChannelStore,
 } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import {
+  type TaskFeed,
+  useTaskFeedsStore,
+} from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import {
   formatHotkey,
@@ -1467,9 +1473,157 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
 // sidebar's folder sections, which key the same set by folder path.
 const STARRED_SECTION_ID = "channels:starred";
 const CHANNELS_SECTION_ID = "channels:all";
+const FEEDS_SECTION_ID = "channels:feeds";
+
+/** What the keyboard's flat list calls a feed row. */
+const feedRowValue = (feedId: string) => `feed:${feedId}`;
+const NEW_FEED_ROW_VALUE = "feed:new";
 
 /** A heading's identity in the flat list, kept clear of any channel's id. */
 const sectionValue = (sectionId: string) => `section:${sectionId}`;
+
+/**
+ * One custom feed in the sidebar: dressed like a space row, but opening it
+ * shows the feed in the main window right away — a feed is a saved view over
+ * tasks, not a space to slide the sidebar into, so the list stays put.
+ */
+const TaskFeedRow = memo(function TaskFeedRow({
+  feed,
+  asOption,
+  onEdit,
+}: {
+  feed: TaskFeed;
+  asOption: boolean;
+  onEdit: (feed: TaskFeed) => void;
+}) {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isActive = pathname === `/website/feeds/${feed.id}`;
+  const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const openFeed = () => {
+    track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
+      action_type: "open",
+      surface: "sidebar",
+      feed_id: feed.id,
+    });
+    keepListForNextRoute();
+    void navigate({
+      to: "/website/feeds/$feedId",
+      params: { feedId: feed.id },
+    });
+  };
+
+  const actions: ChannelActionItem[] = [
+    {
+      key: "edit",
+      label: "Edit feed",
+      icon: <PencilSimpleIcon size={14} />,
+      onSelect: () => onEdit(feed),
+    },
+    {
+      key: "delete",
+      label: "Delete feed",
+      icon: <TrashIcon size={14} />,
+      variant: "destructive",
+      separatorBefore: true,
+      // No confirm: the feed is a locally saved query, and recreating one is
+      // typing its text again — nothing shared or irreversible is lost.
+      onSelect: () => {
+        removeFeed(feed.id);
+        track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
+          action_type: "delete",
+          surface: "sidebar",
+          feed_id: feed.id,
+        });
+        toast.success("Feed deleted");
+      },
+    },
+  ];
+
+  return (
+    <Box className="group/chan relative">
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <SpaceRowSurface
+              asOption={asOption}
+              optionValue={feedRowValue(feed.id)}
+              data-selected={isActive || undefined}
+              onClick={openFeed}
+              className={asOption ? "pl-2" : undefined}
+            >
+              {/* Sits in the disclosure's slot so feed names line up with the
+                  space names above — and says what a feed is: a query. */}
+              <MagnifyingGlassIcon
+                size={14}
+                className={cn(
+                  "shrink-0",
+                  isActive
+                    ? "text-foreground"
+                    : "text-muted-foreground/60 group-hover/button:text-foreground",
+                )}
+              />
+              <span
+                className={cn(
+                  "min-w-0 truncate font-medium text-[13px]",
+                  "group-hover/chan:mr-7",
+                  menuOpen && "mr-7",
+                  isActive ? "text-foreground" : ROW_LABEL_TONE,
+                )}
+              >
+                {feed.name}
+              </span>
+            </SpaceRowSurface>
+          }
+        />
+        <ContextMenuContent>
+          <ChannelActionItems actions={actions} kind="context" />
+        </ContextMenuContent>
+      </ContextMenu>
+      <div className="absolute top-1 right-1">
+        <ChannelMenu
+          channelName={feed.name}
+          actions={actions}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+        />
+      </div>
+    </Box>
+  );
+});
+
+/** The feeds section's trailing "New feed" row — the one create entry point. */
+function NewTaskFeedRow({
+  asOption,
+  onCreate,
+}: {
+  asOption: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <SpaceRowSurface
+      asOption={asOption}
+      optionValue={NEW_FEED_ROW_VALUE}
+      onClick={onCreate}
+      className={asOption ? "pl-2" : undefined}
+    >
+      <PlusIcon
+        size={14}
+        className="shrink-0 text-muted-foreground/60 group-hover/button:text-foreground"
+      />
+      <span
+        className={cn(
+          "min-w-0 truncate font-medium text-[13px]",
+          ROW_LABEL_TONE,
+        )}
+      >
+        New feed
+      </span>
+    </SpaceRowSurface>
+  );
+}
 
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
@@ -1477,7 +1631,7 @@ const sectionValue = (sectionId: string) => `section:${sectionId}`;
 // long). Unstyled parts give a plain label row that snaps.
 //
 // The whole header row is the trigger, and the label is all of it: the headings
-// are two, named, and always in the same order, so a glyph beside each was
+// are few, named, and always in the same order, so a glyph beside each was
 // decoration rather than a way of telling them apart.
 function ChannelGroup({
   sectionId,
@@ -1599,16 +1753,42 @@ export function ChannelsList() {
   const starred = channels.filter((c) => c.starred);
   const others = channels.filter((c) => !c.starred);
 
+  // Custom feeds: saved task queries, listed under their own heading so they
+  // read like spaces without claiming to be one. Spaces-layout only — the
+  // feed page renders the spaces feed cards, which the legacy chrome lacks.
+  const feeds = useTaskFeedsStore((s) => s.feeds);
+  const showFeeds = channelsLayout;
+  const navigate = useNavigate();
+  // One modal for create and edit; `feed` set means editing that feed.
+  const [feedModal, setFeedModal] = useState<{
+    open: boolean;
+    feed?: TaskFeed;
+  }>({ open: false });
+  const openCreateFeed = () => setFeedModal({ open: true });
+  const openEditFeed = (feed: TaskFeed) => setFeedModal({ open: true, feed });
+  // A just-created feed opens right away — creating one is asking to see it.
+  const onFeedCreated = (feed: TaskFeed) => {
+    keepListForNextRoute();
+    void navigate({
+      to: "/website/feeds/$feedId",
+      params: { feedId: feed.id },
+    });
+  };
+
   // Searching collapses the sections into one flat list: the group labels only
   // stand between you and the row you already named, and an empty "Starred"
   // heading reads as a result that isn't there.
   const searchResults = channels.filter((c) => matches(c.name));
+  const feedResults = showFeeds ? feeds.filter((f) => matches(f.name)) : [];
   // Its old name too, so someone who still types "me" lands on it. A search
   // alias, not a second identity: nothing else matches on the old name.
   const meMatches =
     matches(PERSONAL_CHANNEL_LABEL) || matches(PERSONAL_CHANNEL_NAME);
   const noMatches =
-    normalizedQuery !== "" && !meMatches && !searchResults.length;
+    normalizedQuery !== "" &&
+    !meMatches &&
+    !searchResults.length &&
+    !feedResults.length;
 
   // The tree's expansion, and the tasks the expanded spaces show. Searching
   // flattens the list — a query is a request for the space you named, and rows
@@ -1682,11 +1862,45 @@ export function ChannelsList() {
         : []),
     ];
   };
+  const feedsValue = sectionValue(FEEDS_SECTION_ID);
+  // Feed rows are leaves of the flat list like spaces: ArrowRight has nothing
+  // to expand (no spaceId), and ArrowLeft steps up to the Feeds heading.
+  const feedNodes: SpaceTreeNode[] = showFeeds
+    ? [
+        { kind: "section", value: feedsValue, sectionId: FEEDS_SECTION_ID },
+        ...(collapsedSections.has(FEEDS_SECTION_ID)
+          ? []
+          : [
+              ...feeds.map(
+                (feed): SpaceTreeNode => ({
+                  kind: "space",
+                  value: feedRowValue(feed.id),
+                  spaceId: undefined,
+                  parentValue: feedsValue,
+                }),
+              ),
+              {
+                kind: "space" as const,
+                value: NEW_FEED_ROW_VALUE,
+                spaceId: undefined,
+                parentValue: feedsValue,
+              },
+            ]),
+      ]
+    : [];
   const nodes: SpaceTreeNode[] = normalizedQuery
     ? [
         ...(meMatches ? spaceNodes(meValue, me?.id) : []),
         ...searchResults.flatMap((channel) =>
           spaceNodes(channel.id, channel.id),
+        ),
+        ...feedResults.map(
+          (feed): SpaceTreeNode => ({
+            kind: "space",
+            value: feedRowValue(feed.id),
+            spaceId: undefined,
+            parentValue: undefined,
+          }),
         ),
       ]
     : [
@@ -1715,6 +1929,7 @@ export function ChannelsList() {
           : others.flatMap((channel) =>
               spaceNodes(channel.id, channel.id, channelsValue),
             )),
+        ...feedNodes,
       ];
   const optionValues = nodes.map((node) => node.value);
 
@@ -1834,6 +2049,14 @@ export function ChannelsList() {
           blockedSessions={blockedSessions(channel.id)}
         />
       ))}
+      {feedResults.map((feed) => (
+        <TaskFeedRow
+          key={feed.id}
+          feed={feed}
+          asOption={channelsLayout}
+          onEdit={openEditFeed}
+        />
+      ))}
       {noMatches && (
         <Empty className="px-2 py-1 text-subtle-foreground text-xs">
           <EmptyHeader className="text-left">
@@ -1900,6 +2123,27 @@ export function ChannelsList() {
           />
         ))}
       </ChannelGroup>
+
+      {/* Custom feeds: saved task queries that open as a feed of cards. */}
+      {showFeeds && (
+        <ChannelGroup
+          sectionId={FEEDS_SECTION_ID}
+          label="Feeds"
+          flat
+          keepMounted={false}
+          asOption
+        >
+          {feeds.map((feed) => (
+            <TaskFeedRow
+              key={feed.id}
+              feed={feed}
+              asOption
+              onEdit={openEditFeed}
+            />
+          ))}
+          <NewTaskFeedRow asOption onCreate={openCreateFeed} />
+        </ChannelGroup>
+      )}
     </>
   );
 
@@ -1966,6 +2210,15 @@ export function ChannelsList() {
         <Flex direction="column" gap="px" className={scrollClass}>
           {rows}
         </Flex>
+      )}
+      {/* One modal for the "New feed" row and every feed's Edit action. */}
+      {showFeeds && (
+        <TaskFeedModal
+          open={feedModal.open}
+          onOpenChange={(open) => setFeedModal((prev) => ({ ...prev, open }))}
+          feed={feedModal.feed}
+          onCreated={onFeedCreated}
+        />
       )}
     </Flex>
   );
