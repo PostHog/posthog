@@ -106,7 +106,9 @@ describe('dataNodeLogic', () => {
             }),
         })
         logic.mount()
-        await expectLogic(logic).delay(0).toMatchValues({ response: partial(results) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial(results) })
 
         // A request that never reached the server is transient: the rows stay so a retry can recover them.
         mockedQuery.mockRejectedValueOnce(new NetworkError('network'))
