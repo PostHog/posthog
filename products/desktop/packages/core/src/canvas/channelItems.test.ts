@@ -36,6 +36,8 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     id: "d1",
     channelId: "c1",
     name: "Canvas",
+    kind: "freeform" as const,
+    description: "",
     templateId: "freeform",
     context: "",
     createdAt: 0,
