@@ -28,7 +28,10 @@ describe('actionsModel', () => {
         await expectLogic(logic).toDispatchActions(['loadActionsSuccess'])
 
         logic.unmount()
+        expect(logic.isMounted()).toBe(true)
+
         logic.mount()
+        await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(requestCount).toBe(1)
     })

@@ -2,6 +2,7 @@ import { MakeLogicType, connect, events, kea, key, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ActionType } from '~/types'
@@ -201,4 +202,5 @@ export const actionsModel = kea<actionsModelType>([
             }
         },
     })),
+    permanentlyMount(),
 ])
