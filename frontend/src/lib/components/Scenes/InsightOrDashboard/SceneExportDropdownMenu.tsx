@@ -41,6 +41,7 @@ interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
 export function SceneExportDropdownMenu({
     dropdownMenuItems,
     disabledReasons,
+    insightShortId,
 }: SceneExportDropdownMenuProps): JSX.Element | null {
     const { startExport } = useActions(exportsLogic)
 
@@ -96,6 +97,7 @@ export function SceneExportDropdownMenu({
                                     void onExportClick({
                                         export_format: item.format,
                                         ...(item.insight && { insight: item.insight }),
+                                        ...(insightShortId && { insightShortId }),
                                         ...(item.dashboard && { dashboard: item.dashboard }),
                                         ...(item.context && { export_context: item.context }),
                                     })
