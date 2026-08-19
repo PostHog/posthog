@@ -78,6 +78,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
     scope_object_write_actions = [
         "create",
+        "provision_defaults",
         "partial_update",
         "destroy",
         "publish_instructions",
