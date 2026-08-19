@@ -127,6 +127,8 @@ def bigeye_source(
                 "location": "header",
             },
             "request_timeout": REQUEST_TIMEOUT_SECONDS,
+            # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
+            "allow_redirects": False,
         },
         "resource_defaults": {},
         "resources": [get_resource(endpoint, workspace_id)],

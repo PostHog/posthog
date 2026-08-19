@@ -202,6 +202,18 @@ class TestSinglePageEndpoints:
 
         assert session.send.call_args.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_never_follows_redirects(self, MockSession: mock.MagicMock) -> None:
+        # A validated host could still 3xx a sync request to an internal address; refuse to
+        # follow redirects on every sync request (SSRF defense-in-depth).
+        session = MockSession.return_value
+        manager = _make_manager()
+        _wire(session, [_response({"workspaces": [{"id": 1, "name": "Default"}]})])
+
+        _rows(_build("Workspaces", manager))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
+
 
 class TestCursorPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
