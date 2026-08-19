@@ -131,8 +131,9 @@ const ADOPT_TEAMMATE_GROUP_LABELS: Record<ReviewSkillKind, string> = {
 /** Mirrors the skills API name limit: the whole adopted name (prefix + slug) must fit. */
 export const SKILL_NAME_MAX_LENGTH = 64
 
-// One page covers a team's whole skill store today; the adopt picker searches client-side over it.
-const ADOPTABLE_SKILLS_LIMIT = 300
+// Page size for loading the skill store; the loader follows the pagination to the end, so this
+// only bounds how many requests a large store takes, never which skills the picker offers.
+const ADOPTABLE_SKILLS_PAGE_SIZE = 300
 
 /** The existing skill an adoption copies from. */
 export interface AdoptSource {
@@ -707,14 +708,28 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         // Every live team skill, for the adopt picker. Fetched fresh on each modal open so a skill
-        // created since the last open (e.g. by an authoring task) is offered.
+        // created since the last open (e.g. by an authoring task) is offered. The picker's search,
+        // grouping, and name-collision checks all assume the complete store, so the loader follows
+        // the pagination to the end instead of trusting one page to cover it.
         adoptableSkills: [
             null as LLMSkillListApi[] | null,
             {
                 loadAdoptableSkills: async (_ = null, breakpoint) => {
-                    const response = await llmSkillsList(currentProjectId(), { limit: ADOPTABLE_SKILLS_LIMIT })
-                    breakpoint()
-                    return response.results
+                    const skills: LLMSkillListApi[] = []
+                    let hasMore = true
+                    while (hasMore) {
+                        // `offset: skills.length` adapts to the page size the server actually
+                        // returned, so a server-side clamp below the requested limit skips nothing.
+                        const response = await llmSkillsList(currentProjectId(), {
+                            limit: ADOPTABLE_SKILLS_PAGE_SIZE,
+                            offset: skills.length,
+                        })
+                        breakpoint()
+                        skills.push(...response.results)
+                        // An empty page stops the loop too, so a buggy `next` can never spin it forever.
+                        hasMore = Boolean(response.next) && response.results.length > 0
+                    }
+                    return skills
                 },
             },
         ],

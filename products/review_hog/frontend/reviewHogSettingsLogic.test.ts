@@ -712,4 +712,33 @@ describe('reviewHogSettingsLogic', () => {
             'closeAdoptSkillModal',
         ])
     })
+
+    it('loads every skills page so skills beyond the first stay adoptable', async () => {
+        // The picker's search, grouping, and name-collision checks assume the complete store — a
+        // loader that stops at one page would silently hide older skills and miss name conflicts.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    const pages: Record<number, { name: string; description: string }[]> = {
+                        0: [{ name: 'newest-skill', description: '' }],
+                        1: [{ name: 'older-skill', description: '' }],
+                    }
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: pages[offset] ?? [],
+                            next: offset === 0 ? '/api/projects/997/llm_skills/?offset=1' : null,
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        expect(logic.values.adoptableSkills?.map((skill) => skill.name)).toEqual(['newest-skill', 'older-skill'])
+    })
 })
