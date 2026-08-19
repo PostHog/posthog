@@ -1,4 +1,4 @@
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { ReactNode } from 'react'
 
@@ -24,6 +24,7 @@ jest.mock('lib/api', () =>
 )
 
 const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provider>{children}</Provider>
+const actionList = jest.requireMock('lib/api').default.actions.list as jest.Mock
 
 describe('useTaxonomicFilter', () => {
     beforeEach(() => {
@@ -65,6 +66,25 @@ describe('useTaxonomicFilter', () => {
             TaxonomicFilterGroupType.PersonProperties,
         ])
         expect(result.current.groups.map((g) => g.type)).toEqual(result.current.groupTypes)
+    })
+
+    it('loads actions after the user opens the Actions category', async () => {
+        actionsModel({ skipLoad: true }).unmount()
+        actionList.mockClear()
+
+        const { result } = renderHook(
+            () =>
+                useTaxonomicFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                }),
+            { wrapper }
+        )
+
+        expect(actionList).not.toHaveBeenCalled()
+
+        act(() => result.current.setActiveGroupType(TaxonomicFilterGroupType.Actions))
+
+        await waitFor(() => expect(actionList).toHaveBeenCalledTimes(1))
     })
 
     it.each([

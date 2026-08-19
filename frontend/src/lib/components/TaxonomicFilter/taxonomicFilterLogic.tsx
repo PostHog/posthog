@@ -423,6 +423,9 @@ export interface taxonomicFilterLogicActions {
     ensureLoadedForEvents: (eventNames: string[]) => {
         eventNames: string[]
     } // primaryEventPropertiesModel
+    ensureActionsLoaded: () => {
+        value: true
+    }
     appendTopMatches: (
         items: (TaxonomicDefinitionTypes & {
             group: TaxonomicFilterGroupType
@@ -668,9 +671,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
-        logic: [actionsModel],
+        logic: [actionsModel({ skipLoad: true })],
     })),
     actions(() => ({
+        ensureActionsLoaded: true,
         moveUp: true,
         moveDown: true,
         selectSelected: true,
@@ -1049,7 +1053,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Actions',
                         searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
-                        logic: actionsModel,
+                        logic: actionsModel({ skipLoad: true }),
                         value: 'actionsSorted',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
@@ -2358,9 +2362,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, props, cache }) => {
+    afterMount(({ actions, props, values, cache }) => {
         cache.openedAt = Date.now()
         cache.hadSelection = false
+        if (values.activeTab === TaxonomicFilterGroupType.Actions) {
+            actions.ensureActionsLoaded()
+        }
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
@@ -2389,6 +2396,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupType: values.activeTab,
             })
         }
+        if (cache.taxonomicActionsMounted) {
+            actionsModel({ skipLoad: true }).unmount()
+        }
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // When the in-context events change (e.g. an insight series swaps event), ask the model
@@ -2398,6 +2408,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     listeners(({ actions, values, props, cache }) => ({
+        ensureActionsLoaded: () => {
+            if (!cache.taxonomicActionsMounted) {
+                actionsModel({ skipLoad: true }).mount()
+                cache.taxonomicActionsMounted = true
+            }
+            actionsModel({ skipLoad: true }).actions.loadActions()
+        },
+        setActiveTab: ({ activeTab }) => {
+            if (activeTab === TaxonomicFilterGroupType.Actions) {
+                actions.ensureActionsLoaded()
+            }
+        },
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
