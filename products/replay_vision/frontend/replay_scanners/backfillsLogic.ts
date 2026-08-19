@@ -35,7 +35,10 @@ export interface backfillsLogicValues {
     estimate: BackfillEstimateResponseApi | null
     estimateError: string | null
     estimateLoading: boolean
-    lastRequestedWindow: { windowStart: string; windowEnd: string } | null
+    lastRequestedWindow: {
+        windowEnd: string
+        windowStart: string
+    } | null
     transitioningIds: string[]
     windowDateFrom: string | null
     windowDateTo: string | null
@@ -78,11 +81,11 @@ export interface backfillsLogicActions {
     requestEstimateSuccess: (estimate: BackfillEstimateResponseApi) => {
         estimate: BackfillEstimateResponseApi
     }
-    retryEstimate: () => {
-        value: true
-    }
     resumeBackfill: (id: string) => {
         id: string
+    }
+    retryEstimate: () => {
+        value: true
     }
     setWindowRange: (
         dateFrom: string | null,

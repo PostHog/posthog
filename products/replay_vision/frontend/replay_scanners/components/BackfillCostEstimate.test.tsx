@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -42,7 +41,7 @@ describe('BackfillCostEstimate', () => {
 
     it('keeps the last estimate and offers a retry when the request failed', async () => {
         const onRetry = jest.fn()
-        render(
+        const { container } = render(
             <BackfillCostEstimate
                 estimate={ESTIMATE}
                 loading={false}
@@ -59,7 +58,8 @@ describe('BackfillCostEstimate', () => {
 
         // The inline retry means the user never re-picks the date range to recover. The banner renders
         // responsive duplicate buttons, so click the first.
-        await userEvent.click(screen.getAllByRole('button', { name: 'Retry' })[0])
+        const retry = container.querySelector('[data-attr="vision-backfill-retry-estimate"]')
+        fireEvent.click(retry as Element)
         await waitFor(() => expect(onRetry).toHaveBeenCalledTimes(1))
     })
 })

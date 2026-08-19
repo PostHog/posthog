@@ -142,6 +142,7 @@ export function BackfillCostEstimate({ estimate, loading, error, onRetry }: Prop
                         children: 'Retry',
                         onClick: onRetry,
                         disabledReason: loading ? 'Counting recordings…' : undefined,
+                        'data-attr': 'vision-backfill-retry-estimate',
                     }}
                 >
                     {error}
