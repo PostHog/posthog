@@ -176,16 +176,7 @@ def _make_paginate_dependent_resource(
         nonlocal current_path, current_child_state, parent_rows_consumed
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
 
-        parent_rows_consumed += len(items)
-        # A running total instead of a final one: this generator has no end-of-parent signal,
-        # so the last line of a run carries the fan-out's true size. The warehouse parent logs
-        # what it STREAMED (fanout_parent_rows_streamed); this is the count either parent kind
-        # actually HANDED to the child, which the API path never surfaced anywhere.
-        logger.info(
-            "data_imports.fanout_parent_rows_consumed",
-            page_rows=len(items),
-            rows_total=parent_rows_consumed,
-        )
+        page_rows = 0
 
         if incremental_object:
             params = _set_incremental_params(
@@ -201,6 +192,9 @@ def _make_paginate_dependent_resource(
 
             if resume_hook is not None and formatted_path in completed:
                 continue
+
+            page_rows += 1
+            parent_rows_consumed += 1
 
             # Resume this parent's child cursor only if it's the one we were mid-way through.
             child_initial = (
@@ -251,6 +245,15 @@ def _make_paginate_dependent_resource(
                 current_path = None
                 current_child_state = None
                 checkpoint(None, None)
+
+        # Counted after the page so parents a resume skips don't inflate it. A running total,
+        # since there's no end-of-parent signal: the last line of a run carries the fan-out's
+        # size, for either parent kind, which the API path never surfaced anywhere.
+        logger.info(
+            "data_imports.fanout_parent_rows_consumed",
+            page_rows=page_rows,
+            rows_total=parent_rows_consumed,
+        )
 
     return paginate_dependent_resource
 
