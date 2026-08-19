@@ -84,4 +84,25 @@ describe('dataQualityGateLogic', () => {
         expect(logic.values.gateConfig?.gate_materialization_on_checks).toBe(false)
         expect(lemonToast.error).toHaveBeenCalledWith('You need editor access.')
     })
+
+    it('locks the toggle while a write is in flight and adopts the stored value', async () => {
+        let resolvePatch!: (value: { gate_materialization_on_checks: boolean }) => void
+        ;(dataWarehouseDataQualityGatePartialUpdate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolvePatch = resolve
+            })
+        )
+        await mountLogic()
+
+        logic.actions.setGateEnabled(true)
+        // The switch is disabled via this flag until the PATCH settles, so a second click cannot
+        // start an overlapping write.
+        expect(logic.values.gateSaving).toBe(true)
+
+        resolvePatch({ gate_materialization_on_checks: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.gateSaving).toBe(false)
+        expect(logic.values.gateConfig?.gate_materialization_on_checks).toBe(true)
+    })
 })

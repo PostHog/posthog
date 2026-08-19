@@ -133,7 +133,7 @@ function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
 }
 
 function GateToggle(): JSX.Element | null {
-    const { gateConfig, gateReadable } = useValues(dataQualityGateLogic)
+    const { gateConfig, gateReadable, gateSaving } = useValues(dataQualityGateLogic)
     const { setGateEnabled } = useActions(dataQualityGateLogic)
 
     if (!gateReadable || !gateConfig) {
@@ -145,6 +145,7 @@ function GateToggle(): JSX.Element | null {
             bordered
             checked={gateConfig.gate_materialization_on_checks}
             onChange={setGateEnabled}
+            loading={gateSaving}
             disabledReason={getAccessControlDisabledReason(
                 AccessControlResourceType.WarehouseObjects,
                 AccessControlLevel.Editor
