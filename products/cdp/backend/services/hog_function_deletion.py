@@ -9,14 +9,12 @@ from products.cdp.backend.models.hog_functions.utils import humanize_hog_functio
 def bulk_soft_delete_hog_functions(functions: Iterable[HogFunction], *, deleted: bool = True) -> int:
     """Soft-delete (or restore) hog functions and write one activity log entry per function.
 
-    Backend removal paths — data migrations, Celery tasks, management commands — must call this
+    Backend removal paths (data migrations, Celery tasks, management commands) must call this
     instead of a queryset `update(deleted=True)`. A bare `update()` skips the activity log, so a
-    customer's transformation or destination disappears with no audit trail that names who removed
-    it. The entries here are system-triggered (no request user), which the reader shows as an
-    automated change.
+    customer's transformation or destination disappears with no record of who removed it. The
+    entries are system-triggered because no request user is present.
 
-    Pass functions with their team preloaded (`select_related("team")`) to avoid a query per row.
-    Returns the number of functions changed.
+    Preload the team (`select_related("team")`) to avoid a query per row. Returns the count changed.
     """
     functions = list(functions)
     if not functions:
