@@ -92,6 +92,34 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+# ClickHouse phrases code 6 as `Cannot parse string 'the actual value' as Float64: ... In scope
+# SELECT toFloat64('the actual value')`, so the message is rebuilt rather than filtered: everything
+# but the target type is either the failing value or the query fragment that contains it.
+#
+# The whole prefix is matched, not a bare `as <Type>`, because the value is arbitrary user data that
+# can itself contain `as Int64` - matching loosely reports the value's type name instead of the real
+# target. The value pattern stays greedy so it consumes up to the *last* `' as <Type>:`, which is the
+# real one. Only the closed set of type names can reach the reader, and a message that doesn't fit
+# this shape drops the type rather than guessing.
+CANNOT_PARSE_TEXT_TARGET_TYPE_PATTERN = re.compile(
+    r"Cannot parse string '.*' as (U?Int(?:8|16|32|64|128|256)|Float(?:32|64)"
+    r"|Decimal(?:32|64|128|256)?|DateTime(?:64)?|Date(?:32)?|UUID|Bool|IPv4|IPv6)\b\s*:"
+)
+
+
+def _wrap_cannot_parse_text_error(err: ServerException) -> "CHQueryErrorCannotParseText":
+    match = CANNOT_PARSE_TEXT_TARGET_TYPE_PATTERN.search(err.message)
+    target = f" as {match.group(1)}" if match else ""
+    return CHQueryErrorCannotParseText(
+        f"A value in your data can't be read{target}. Usually a column holds text that doesn't parse "
+        "as the type the query expects. Cast the column explicitly, or switch to the OrNull variant "
+        "of the conversion function so values that don't parse become NULL instead of failing the "
+        "whole query.",
+        code=err.code,
+        code_name="cannot_parse_text",
+    )
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -187,6 +215,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
     elif name == "CANNOT_PARSE_BOOL":
         return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
+    elif name == "CANNOT_PARSE_TEXT":
+        return _wrap_cannot_parse_text_error(err)
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
@@ -303,6 +333,13 @@ class CHQueryErrorCannotParseBool(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorCannotParseText(ExposedCHQueryError):
+    """A value in the data can't be read as the type the query expects. Carries a sanitized message,
+    never ClickHouse's, which quotes the offending value."""
+
+    pass
+
+
 class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
@@ -358,8 +395,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    # Stays internal: the CH message embeds the failing data value, which would leak stored
-    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
+    # Sanitized in wrap_clickhouse_query_error rather than user_safe here: the CH message embeds the
+    # failing data value, which would leak stored data to anonymous viewers of public shared insights.
     6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),

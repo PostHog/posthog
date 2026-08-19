@@ -52,6 +52,7 @@ from posthog.hogql.resolver_utils import (
     suggest_field_names,
 )
 from posthog.hogql.type_system import (
+    describe_set_operation_type_mismatch,
     infer_array_access_constant_type,
     infer_array_constant_type,
     infer_array_slice_constant_type,
@@ -251,8 +252,21 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
+def _select_branch_column_expr(branch: ast.SelectQuery | ast.SelectSetQuery, index: int) -> Optional[ast.Expr]:
+    """The select-list expression backing one column position of a set operation branch, used to point
+    a warning at the offending column. Only unaliased or duplicate-aliased select items are dropped
+    from a query's column map, so a length mismatch means the two lists no longer line up
+    positionally - give up rather than blame the wrong expression."""
+    if isinstance(branch, ast.SelectSetQuery):
+        return _select_branch_column_expr(branch.initial_select_query, index)
+    if branch.type is None or len(branch.select) != len(_select_type_columns(branch.type)):
+        return None
+    return branch.select[index] if index < len(branch.select) else None
+
+
 def _unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
+    branches: list[ast.SelectQuery | ast.SelectSetQuery],
     dialect: HogQLDialect,
     context: HogQLContext,
 ) -> dict[str, ast.Type]:
@@ -270,7 +284,16 @@ def _unify_select_set_columns(
                 continue
             branch_type = branch_columns[index][1]
             branch_types.append(branch_type.resolve_constant_type(context))
-        columns[column_name] = least_common_supertype(branch_types, dialect=dialect)
+        column_type = least_common_supertype(branch_types, dialect=dialect)
+        columns[column_name] = column_type
+        mismatch = describe_set_operation_type_mismatch(
+            column_name,
+            column_type,
+            branch_types,
+            [_select_branch_column_expr(branch, index) for branch in branches],
+        )
+        if mismatch is not None:
+            context.add_warning(mismatch.message, mismatch.start, mismatch.end)
     return columns
 
 
@@ -421,13 +444,14 @@ class Resolver(CloningVisitor):
         )
         self._lower_by_name_operators(result)
 
-        select_types = [
-            result.initial_select_query.type,
-            *(x.select_query.type for x in result.subsequent_select_queries),
+        branches: list[ast.SelectQuery | ast.SelectSetQuery] = [
+            result.initial_select_query,
+            *(x.select_query for x in result.subsequent_select_queries),
         ]
+        select_types = [branch.type for branch in branches]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context),  # type: ignore[arg-type]
+            columns=_unify_select_set_columns(select_types, branches, self.dialect, self.context),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes

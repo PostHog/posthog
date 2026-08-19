@@ -569,6 +569,55 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    @parameterized.expand(
+        [
+            (
+                "select 1 as token union all select 'abc' as token",
+                "Cannot find a common type for column `token` between set operation branches of type "
+                "Integer and String. Cast the column in every branch, e.g. `toString(token)`",
+            ),
+            (
+                "select now() as ts union all select 1 as ts",
+                "Cannot find a common type for column `ts` between set operation branches of type "
+                "DateTime and Integer. Cast the column in every branch, e.g. `toString(ts)`",
+            ),
+            # A container branch gets no cast example - stringifying an array would "work" but hides
+            # what is far more likely a mistake.
+            (
+                "select [1, 2] as items union all select 'abc' as items",
+                "Cannot find a common type for column `items` between set operation branches of type Array and String",
+            ),
+        ]
+    )
+    def test_set_operation_column_type_mismatch_warns_naming_the_column(self, query: str, expected: str):
+        node = parse_select(query)
+        resolve_types(node, self.context, dialect="clickhouse")
+
+        assert [warning.message for warning in self.context.warnings] == [expected]
+        # The SQL editor renders the warning as a marker over this span, so an unpositioned warning
+        # leaves the reader back where they started.
+        assert self.context.warnings[0].start is not None
+        assert self.context.warnings[0].end is not None
+
+    @parameterized.expand(
+        [
+            # An integer branch and a float branch have a common supertype, so a column mixing them
+            # is not a mismatch and must stay quiet however plausible a warning would look.
+            ("select 1 as n union all select 2.5 as n", "Float"),
+            ("select toDate('2020-01-01') as d union all select now() as d", "DateTime"),
+            ("select null as n union all select 1 as n", "Integer"),
+            ("select properties.foo as p from events union all select 1 as p", "Unknown"),
+        ]
+    )
+    def test_unifiable_set_operation_columns_do_not_warn(self, query: str, expected_type: str):
+        # resolve_types clones rather than mutating, so the resolved types are on the return value.
+        resolved = cast(ast.SelectSetQuery, resolve_types(parse_select(query), self.context, dialect="clickhouse"))
+
+        assert self.context.warnings == []
+        assert resolved.type is not None
+        column_type = cast(ast.ConstantType, next(iter(resolved.type.columns.values())))
+        assert column_type.print_type() == expected_type
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_call_type(self):
         node = self._select("select max(timestamp) from events")
