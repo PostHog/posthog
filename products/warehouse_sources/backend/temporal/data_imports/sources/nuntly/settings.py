@@ -1,4 +1,4 @@
-import dataclasses
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 MAX_PAGE_SIZE = 30
 
 
-@dataclasses.dataclass
+@frozen
 class NuntlyEndpointConfig:
     path: str
     table_name: str
