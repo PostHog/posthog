@@ -1,5 +1,11 @@
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
-import { Button, Text } from "@posthog/quill";
+import {
+  Button,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import {
   usePermissionDockHeight,
@@ -153,15 +159,24 @@ export function PermissionDock({
             <div className="h-1 w-8 rounded-full bg-(--gray-6) group-hover:bg-(--gray-8) group-focus-visible:bg-(--gray-8)" />
           </div>
         )}
-        <Button
-          type="button"
-          variant="default"
-          size="xs"
-          onClick={() => setIsHidden(!isHidden)}
-        >
-          {isHidden ? <CaretUp size={12} /> : <CaretDown size={12} />}
-          {isHidden ? "Show" : "Hide"}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="default"
+                size="icon-sm"
+                aria-label={isHidden ? "Show" : "Hide"}
+                onClick={() => setIsHidden(!isHidden)}
+              >
+                {isHidden ? <CaretUp size={12} /> : <CaretDown size={12} />}
+              </Button>
+            }
+          />
+          <TooltipContent>
+            {isHidden ? "Show the options again" : "Hide to read the thread"}
+          </TooltipContent>
+        </Tooltip>
       </div>
       <div className={isHidden ? "hidden" : "min-h-0 flex-1 overflow-y-auto"}>
         <ComposerWidth compact={compact}>{children}</ComposerWidth>
