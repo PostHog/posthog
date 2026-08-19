@@ -71,6 +71,10 @@ class SourceBatch(UUIDModel):
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
             models.Index(fields=["run_uuid", "batch_index"], name="sb_run_uuid_bi_idx"),
+            # Serves the job-scoped scans (supersede_other_runs on every fresh run's
+            # first batch, lock-takeover activity summary, orphan reconcile counts),
+            # which otherwise seq-scan every retained partition per call.
+            models.Index(fields=["job_id"], name="sb_job_id_idx"),
             models.Index(
                 fields=["team_id", "created_at", "batch_index"],
                 name="sb_claimable_idx",
