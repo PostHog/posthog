@@ -9,6 +9,7 @@ import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { llmAnalyticsSummarizationBatchCheckCreate, llmAnalyticsSummarizationCreate } from './generated/api'
 
 jest.mock('./generated/api', () => ({
+    ...jest.requireActual('./generated/api'),
     llmAnalyticsSummarizationBatchCheckCreate: jest.fn(),
     llmAnalyticsSummarizationCreate: jest.fn(),
 }))
