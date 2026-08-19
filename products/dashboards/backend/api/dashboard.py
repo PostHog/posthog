@@ -1178,7 +1178,7 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     tile_spacing = serializers.ChoiceField(
         choices=DASHBOARD_GRID_SPACING_GAPS,
         required=False,
-        help_text="Named tile spacing preset.",
+        help_text="Named tile density preset.",
     )
 
 
@@ -1205,7 +1205,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         choices=DASHBOARD_GRID_SPACING_GAPS,
         required=False,
         write_only=True,
-        help_text="Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.",
+        help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
@@ -1496,7 +1496,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
         if grid_spacing is not None and not dashboard_tile_spacing_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"grid_spacing": "Tile spacing isn't available."})
+            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1753,7 +1753,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if grid_spacing is not None and not dashboard_tile_spacing_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
-            raise serializers.ValidationError({"grid_spacing": "Tile spacing isn't available."})
+            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
         if grid_spacing is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
