@@ -3119,8 +3119,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        # Owners and creators bypass access controls, so the caller is a plain member and the
-        # restricted objects belong to nobody.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
 
@@ -3147,7 +3145,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return create_subscription(team=self.team, created_by=self.user, **kwargs)
 
     def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
-        # A delivery keeps each rendered insight's query_results, which is what must stay hidden.
         return SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -3162,8 +3159,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
 
     def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True, team=None) -> None:
-        # A rule with no member attached applies to the whole project. Access controls are cached,
-        # so a new rule only takes effect once that cache is cleared.
         AccessControl.objects.create(
             team=team or self.team,
             resource=resource,
@@ -3199,7 +3194,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return subscription
 
     def _sub_rendering_every_tile(self) -> Subscription:
-        # No selection means every live tile renders, which is what admin- and legacy-created rows look like.
         return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
 
     def _sub_selecting_only_the_open_tile(self) -> Subscription:
@@ -3231,7 +3225,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return self._subscription_for(insight=self.open_insight)
 
     def _sub_read_by_an_org_admin(self) -> Subscription:
-        # Admins bypass the save-time check, so without a read-side bypass their save would then 404.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save(update_fields=["level"])
         private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
@@ -3362,7 +3355,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, body
         assert body["attr"] == attr, body
         assert message in body["detail"], body
-        # send_test_now defaults to true on create, so a rejected write must not enqueue a delivery.
         self.mock_temporal_client.start_workflow.assert_not_called()
 
     def test_create_allows_an_open_insight(self):
@@ -3374,7 +3366,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand(
         [
-            # A PATCH that omits insight/dashboard must not skip the check either.
             ("patch", "patch", "", {"target_value": "attacker@example.com"}),
             ("test_delivery", "post", "/test-delivery", None),
         ]
@@ -3410,7 +3401,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert subscription.id not in [row["id"] for row in listed.json()["results"]]
 
     def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
-        # A join on the M2M would return the row once per insight and make detail routes 500.
         second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, second_insight))
         subscription.dashboard_export_insights.set([self.open_insight, second_insight])
@@ -3426,8 +3416,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         ]
     )
     def test_write_to_a_soft_deleted_restricted_target_may_only_turn_it_off(self, _name, body, expected):
-        # Otherwise a denied member could re-aim the row while its target is deleted, and restoring
-        # the target would resume delivery to whatever they set.
         subscription = self._subscription_for(insight=self.restricted_insight)
         self.restricted_insight.deleted = True
         self.restricted_insight.save(update_fields=["deleted"])
@@ -3438,9 +3426,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand([("an open insight", False), ("a restricted insight", True)])
     def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, _name, restricted):
-        # Nothing renders from it any more, but the owner still has to be able to switch it off, and
-        # PATCH is the only off switch. The restricted case is the one the read filter keeps visible
-        # on purpose, so rejecting its write would leave the row on and unreachable.
         target = self.restricted_insight if restricted else self.open_insight
         subscription = self._subscription_for(insight=target)
         target.deleted = True

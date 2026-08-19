@@ -120,9 +120,6 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     tiles=DashboardTile.objects,
 )
 
-# A delivery holds the results it rendered in content_snapshot, so a target that was soft-deleted
-# since then still has to restrict it. The subscription itself stays reachable, so its creator can
-# turn off a row that renders nothing.
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
@@ -475,12 +472,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        # Check the target the row will have after this write, so a PATCH that omits the field
-        # cannot skip the check.
         user_access_control = self.context["view"].user_access_control
-        # A soft-deleted target renders nothing, and the read filter keeps its subscription reachable
-        # so the creator can turn the row off. Only that write skips the check: any other edit could
-        # re-aim the row and start delivering again once an admin restores the target.
         turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
         for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
@@ -745,8 +737,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     {"dashboard_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]}
                 )
 
-            # Each selected insight is rendered and delivered on its own and can be restricted
-            # independently of its dashboard, so dashboard access alone is not enough.
             team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
             user_access_control = self.context["view"].user_access_control
             viewable_ids = set(
@@ -1043,7 +1033,6 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
     has_object_rules = any(scope.get("insight") or scope.get("dashboard") for scope in rules)
-    # Both maps hold object rows only, so a member denied a whole resource shows up in neither.
     denies_a_target_resource = not user_access_control.has_resource_access(
         "insight"
     ) or not user_access_control.has_resource_access("dashboard")
@@ -1053,8 +1042,6 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     team_dashboards = targets.dashboards.filter(team_id=team_id)
     blocked_insights = _blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
     blocked_dashboards = _blocked_target_ids(user_access_control, team_dashboards, "dashboard")
-    # Scoping the tiles by `dashboard__team_id` would skip the rewrite RootTeamQuerySet applies to a
-    # literal team_id, and an environment's id matches no dashboard, so the rule would match nothing.
     dashboards_with_blocked_tiles = targets.tiles.filter(
         dashboard__in=team_dashboards, insight_id__in=blocked_insights
     ).values("dashboard_id")
@@ -1064,8 +1051,6 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
-    # Negating here compiles the M2M lookups to NOT EXISTS; positive ones would join the
-    # through table and return one row per selected insight.
     return ~(
         targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
     )
