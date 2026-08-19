@@ -47,6 +47,7 @@ A head-changing delivery whose push left the PR's own diff byte-identical skips 
 It is content-based rather than commit-based: the PR's own unified diff at the approved head against the same at the current head.
 So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
 Comparing the diff text rather than per-file blob shas is deliberate, because the text carries file modes and renames, and a blob sha covers contents only.
+The one thing the text does not carry is binary content, which git renders as `Binary files ... differ` over an abbreviated blob id, so a diff mentioning one is refused rather than compared.
 
 There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
@@ -55,7 +56,7 @@ Both sides are read with `compare_diff`, from the base and head shas the run and
 That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
 Retention must never consult that endpoint.
 
-Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, an empty diff on either side, or any GitHub error, a diff too large for GitHub to render included.
+Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, an empty diff on either side, a diff describing a binary change, or any GitHub error, a diff too large for GitHub to render included.
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.

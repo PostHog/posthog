@@ -16,6 +16,10 @@ git records about a change, file modes and renames included, so flipping the exe
 file the PR already edits moves it. A blob sha covers contents only, and nothing in GitHub's file
 payload carries the mode.
 
+The one thing the text does not carry is binary content, which git renders as "Binary files ...
+differ" over an abbreviated blob id. Two different binaries whose ids share that short prefix would
+read as identical, so a diff mentioning one is refused rather than compared.
+
 Both sides come from `compare_diff`, which takes two commit shas. That is load-bearing too:
 `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push
 the approved content, let the comparison run, and push the unreviewed head back. Reading two
@@ -33,6 +37,8 @@ loop, so it makes no judgment calls at all.
 
 from __future__ import annotations
 
+import re
+
 # Heads a run's approval covers beyond the one it was posted at. The merge handler matches an
 # approving run on head_sha alone, so a retained PR would otherwise merge as unapproved.
 RETAINED_HEADS_KEY = "retained_head_shas"
@@ -45,13 +51,22 @@ MAX_RETAINED_HEADS = 50
 UNCHANGED_DIFF = "unchanged_diff"
 
 
+# git renders a binary change as this line over an abbreviated blob id, never as content. Two
+# different binaries whose ids share that prefix produce the same line, and grinding a padding
+# section until they do is within reach, so a diff carrying one cannot answer the question.
+_BINARY_MARKER_RE = re.compile(r"^Binary files\b.*differ$", re.MULTILINE)
+
+
 def approved_diff_unchanged(approved_diff: str, current_diff: str) -> bool:
     """Whether the PR's own diff is byte-identical to the one that was approved.
 
     False for everything ambiguous. An empty diff on either side counts as ambiguous rather than as
     "nothing changed": a PR with no changes at all is degenerate, and treating the two as equal would
-    retain an approval on the strength of two blanks.
+    retain an approval on the strength of two blanks. A diff describing a binary change is refused
+    for a sharper reason, see _BINARY_MARKER_RE.
     """
     if not approved_diff.strip() or not current_diff.strip():
+        return False
+    if _BINARY_MARKER_RE.search(approved_diff) or _BINARY_MARKER_RE.search(current_diff):
         return False
     return approved_diff == current_diff

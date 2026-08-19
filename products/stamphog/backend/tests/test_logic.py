@@ -545,6 +545,19 @@ class ApprovalRetentionTests(SimpleTestCase):
         # mode, which is why the comparison is over the diff text.
         assert approved_diff_unchanged(_DIFF, _DIFF_MODE_FLIPPED) is False
 
+    def test_binary_change_fails_closed(self) -> None:
+        # git renders a binary change over an abbreviated blob id and never as content, so two
+        # different binaries whose ids share that prefix produce the same line. Grinding a padding
+        # section until they do is within reach, so a diff carrying one cannot answer the question.
+        binary = (
+            "diff --git a/thing.wasm b/thing.wasm\n"
+            "index aaa1234..bbb5678 100644\n"
+            "Binary files a/thing.wasm and b/thing.wasm differ\n"
+        )
+
+        assert approved_diff_unchanged(binary, binary) is False
+        assert approved_diff_unchanged(_DIFF + binary, _DIFF + binary) is False
+
     @parameterized.expand([("both_empty", "", ""), ("approved_empty", "", _DIFF), ("current_empty", _DIFF, "")])
     def test_empty_diff_fails_closed(self, _name: str, approved: str, current: str) -> None:
         # Two blanks compare equal, and retaining an approval on the strength of that would treat an
