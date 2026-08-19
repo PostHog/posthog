@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 OPENCORPORATES_BASE_URL = "https://api.opencorporates.com/v0.4"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OpencorporatesResumeConfig:
     # Next 1-indexed page to fetch — OpenCorporates uses page-number pagination.
     next_page: int

@@ -19,7 +19,7 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpencorporatesEndpointConfig:
     name: str
     path: str
