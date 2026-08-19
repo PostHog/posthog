@@ -211,7 +211,7 @@ def test_signal_receivers_connect_at_setup_not_via_router() -> None:
 # a hand-curated "one representative per relocation" list proved both fiddly and incomplete (several
 # ready()-wired receivers were never pinned). A receiver missing from the live set is silent audit/cache
 # loss; an unexpected one is a new wiring to record deliberately. Regenerate the file with:
-#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match
+#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match
 # Known granularity limit: receivers created in a loop share one qualname (e.g. the org-cache
 # _connect_invalidation closures), so the set can't see one of their senders being dropped —
 # Django stores sender identity as id(), which is not stable enough to snapshot.
@@ -270,7 +270,7 @@ def test_setup_receivers_match_baseline() -> None:
         header = (
             "# First-party signal receivers connected after a bare django.setup(), as signal:module.qualname.\n"
             "# Maintained by test_setup_receivers_match_baseline — regenerate with:\n"
-            "#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match\n"
+            "#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match\n"
             "# A receiver disappearing from this set means it connects in NO process (silent audit/cache loss):\n"
             "# restore its AppConfig.ready() wiring instead of deleting the line.\n"
         )
@@ -291,7 +291,7 @@ def test_setup_receivers_match_baseline() -> None:
         f"These receivers connect at django.setup() but are not in setup_receivers_baseline.txt: {unexpected}. "
         "If the new wiring is deliberate (receiver in an import-light module, imported from the owning "
         "AppConfig.ready() — see docs/internal/django-startup-time.md), record it: "
-        "UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match"
+        "UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match"
     )
 
 
@@ -339,7 +339,7 @@ def test_mcp_tool_registry_loads_cold_without_import_cycle() -> None:
 # unbounded cycle growth in a long-lived process. This boots through manage.py and asserts both
 # ends of the window.
 def test_boot_gc_window_reenables_and_freezes() -> None:
-    manage_py = Path(__file__).parents[2] / "manage.py"
+    manage_py = Path(__file__).parents[3] / "manage.py"
     probe = (
         "import gc; "
         "assert gc.isenabled(), 'GC left disabled after boot'; "
