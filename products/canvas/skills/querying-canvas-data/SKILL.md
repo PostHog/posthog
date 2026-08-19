@@ -2,7 +2,7 @@
 name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
-  capture, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
+  capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), per-insight-type result shapes, date-range wiring, and event capture
   from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
   needs to send analytics events.
@@ -12,7 +12,9 @@ description: >
 
 The global `ph` object (injected by the host — never imported, never initialized) is the only way
 a canvas talks to PostHog. Credentials stay in the host; `fetch()`, posthog-js, and hand-rolled
-clients fail in the sandbox.
+clients cannot reach PostHog from the sandbox. The one sanctioned use of `fetch()` is a non-PostHog
+origin declared in `capabilities.network.origins`, and only in the published canvas — the
+edit-mode preview blocks all direct network access.
 
 ## Data hierarchy — back every metric with a saved insight
 
@@ -35,6 +37,14 @@ Whatever tier you use, **declare it in the project's `capabilities`** before pub
 `ph.loadInsight` short id in `capabilities.posthog.insights`, every `ph.capture` event name in
 `captureEvents`, and `inlineQueries: true` for any `ph.query` use. The host rejects undeclared
 calls at runtime, and validation fails on undeclared literals.
+
+For a status board, set `refresh` to the cache lifetime in seconds. Use a whole number from 30 to
+86400 (one day); values outside that range, or fractional ones, fail at runtime:
+
+```js
+await ph.loadInsight(shortId, { refresh: 30 })
+await ph.query(queryNode, {}, { refresh: 30 })
+```
 
 ## Result shapes — read them correctly or every value renders 0
 

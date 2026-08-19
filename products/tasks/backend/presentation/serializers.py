@@ -449,6 +449,7 @@ class TaskSerializer(DataclassSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "last_activity_at",
             "created_by",
             "ci_prompt",
             "channel",
@@ -1531,6 +1532,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    ordering = serializers.ChoiceField(
+        required=False,
+        choices=sorted(tasks_facade.TASK_LIST_ORDERINGS),
+        help_text=(
+            "Sort order. '-last_activity_at' is newest activity first, where activity means a thread "
+            "message or a run starting, streaming, or finishing. Defaults to '-created_at'."
+        ),
+    )
     all_team_tasks = serializers.BooleanField(
         required=False,
         default=False,
@@ -1862,6 +1871,17 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
+    target_scope = serializers.ChoiceField(
+        choices=["desktop_canvas"],
+        allow_null=True,
+        required=False,
+        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
+    )
+    target_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Identifier of the activity target. Present together with target_scope.",
+    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -1879,6 +1899,8 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
+            "target_scope",
+            "target_id",
             "is_unread",
         ]
 
@@ -1949,6 +1971,23 @@ class TaskArtifactSerializer(serializers.Serializer):
 
 class TaskArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated cloud compute cost attributed to this task in US dollars."
+    )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
 
 
 class TaskCommentsQuerySerializer(serializers.Serializer):
