@@ -496,7 +496,9 @@ class TestSignalReportRefundAPI(APIBaseTest):
         url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
 
         assert self.client.get(url).json()["period_billable_credits"] == 1500
-        assert self._refund(report).json()["billing_path"] == "excluded"
+        # The refund clears the cached summary on commit, so run the on_commit callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self._refund(report).json()["billing_path"] == "excluded"
         assert self.client.get(url).json()["period_billable_credits"] == 0
 
     @freeze_time(_NOW)
