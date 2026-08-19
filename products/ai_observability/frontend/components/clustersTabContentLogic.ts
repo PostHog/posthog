@@ -76,7 +76,6 @@ export const clustersTabContentLogic = kea<clustersTabContentLogicType>([
             [] as ClusterInfo[],
             {
                 loadClusters: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT

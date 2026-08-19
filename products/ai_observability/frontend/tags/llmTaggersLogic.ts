@@ -235,7 +235,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return (response.results || []).map((row: RawStatsRow) => ({
                             tagger_id: row[0],
@@ -275,7 +274,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return (response.results || []).map((row: RawTagCountRow) => ({
                             tagger_id: row[0],
@@ -387,11 +385,9 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
 
     listeners(({ actions, values }) => ({
         loadTaggers: async () => {
-            // nosemgrep: prefer-codegen-api
             const response = await api.get('api/environments/@current/taggers/')
             if (response.results.length === 0 && !values.hasSeededDefaults) {
                 for (const template of defaultTaggerTemplates) {
-                    // nosemgrep: prefer-codegen-api
                     await api.create('api/environments/@current/taggers/', {
                         name: template.name,
                         description: template.description,
@@ -400,7 +396,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                         conditions: [{ id: `cond-${Date.now()}`, rollout_percentage: 100, properties: [] }],
                     })
                 }
-                // nosemgrep: prefer-codegen-api
                 const seeded = await api.get('api/environments/@current/taggers/')
                 actions.loadTaggersSuccess(seeded.results)
             } else {
@@ -416,7 +411,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             if (!tagger) {
                 return
             }
-            // nosemgrep: prefer-codegen-api
             await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !tagger.enabled })
             await breakpoint(100)
             actions.loadTaggers()

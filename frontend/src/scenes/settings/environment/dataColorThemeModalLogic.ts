@@ -134,9 +134,7 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
 
                 try {
                     const updatedTheme = id
-                        // nosemgrep: prefer-codegen-api
                         ? await api.dataColorThemes.update(id, payload)
-                        // nosemgrep: prefer-codegen-api
                         : await api.dataColorThemes.create(payload)
 
                     lemonToast.success(updatedTheme ? 'Theme saved.' : 'Theme created.')

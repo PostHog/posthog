@@ -166,7 +166,6 @@ async function queryStoredGenerationSentiments(
         return new Map()
     }
 
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
@@ -287,7 +286,6 @@ async function fetchSentimentEvaluationCandidates(
         ? `AND properties.$ai_evaluation_id = ${escapeHogQLString(values.evaluationId)}`
         : ''
 
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
@@ -361,7 +359,6 @@ async function hydrateSentimentGenerations(
         return new Map()
     }
 
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT

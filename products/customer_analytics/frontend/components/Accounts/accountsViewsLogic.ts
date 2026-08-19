@@ -423,7 +423,6 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async (): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.list({ context_key: ACCOUNTS_COLUMN_CONFIG_KEY })
                     return response.results
                 },
@@ -436,12 +435,10 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 }): Promise<ColumnConfigurationApi[]> => {
                     const data =
                         Object.keys(updates).length === 0 ? serializeAccountsView(values.liveViewState) : updates
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.update({ id, data })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
                 deleteView: async ({ id }: { id: string }): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
                     await api.columnConfigurations.delete({ id })
                     return values.views.filter((view) => view.id !== id)
                 },
@@ -452,7 +449,6 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     id: string
                     properties: AccountsViewProperties
                 }): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.update({ id, data: { properties } })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
@@ -558,7 +554,6 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             defaults: { name: '', visibility: 'private' as ViewVisibility },
             errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
             submit: async ({ name, visibility }: { name: string; visibility: ViewVisibility }) => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.columnConfigurations.create({
                     data: {
                         ...serializeAccountsView(values.liveViewState),

@@ -44,7 +44,6 @@ export const LegacyOAuthReconnectBanner = (): JSX.Element | null => {
             action={{
                 children: 'Reconnect',
                 disableClientSideRouting: true,
-                // nosemgrep: prefer-codegen-api
                 to: api.integrations.authorizeUrl({ kind: affected.kind, next: window.location.pathname }),
                 disabledReason: restrictedReason,
             }}

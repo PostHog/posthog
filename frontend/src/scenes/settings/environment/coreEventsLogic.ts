@@ -109,7 +109,6 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                     return []
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/environments/${values.currentTeamId}/core_events/`)
                     const events = (response.results || []).map(toCoreEvent)
                     actions.setCoreEvents(events)
@@ -129,7 +128,6 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.create(`api/environments/${values.currentTeamId}/core_events/`, event)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event added')
@@ -142,7 +140,6 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.update(`api/environments/${values.currentTeamId}/core_events/${event.id}/`, event)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event updated')
@@ -155,7 +152,6 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.delete(`api/environments/${values.currentTeamId}/core_events/${eventId}/`)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event removed')

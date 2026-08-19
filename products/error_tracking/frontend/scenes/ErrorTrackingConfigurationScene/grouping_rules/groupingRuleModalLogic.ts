@@ -196,7 +196,6 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                         return null
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(query)) as Record<string, any>
 
                     return {
@@ -213,10 +212,8 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
-                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.createRule(ErrorTrackingRuleType.Grouping, rule)
                     } else {
-                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.updateRule(ErrorTrackingRuleType.Grouping, rule)
                     }
                     return true
@@ -228,7 +225,6 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
-                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.deleteRule(ErrorTrackingRuleType.Grouping, rule.id)
                     return true
                 },

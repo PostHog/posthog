@@ -78,7 +78,6 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                             },
                         ],
                     })
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(query)
                     return response.results[0] as SparklineDataResponse
                 },

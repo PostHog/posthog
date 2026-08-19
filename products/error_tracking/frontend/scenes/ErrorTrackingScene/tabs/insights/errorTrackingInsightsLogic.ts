@@ -236,7 +236,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             {
                 loadSummaryStats: async (_, breakpoint) => {
                     await breakpoint(10)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `

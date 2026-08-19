@@ -41,7 +41,6 @@ export async function loadClusterMetrics(
     // (generations, embeddings, spans) grouped by trace ID.
     const isGeneration = level === 'generation'
 
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         isGeneration
             ? hogql`

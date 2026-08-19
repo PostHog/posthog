@@ -256,7 +256,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                                 results[row.entryId] = null
                                 return
                             }
-                            // nosemgrep: prefer-codegen-api
                             const response = (await api.query({
                                 kind: NodeKind.EventsQuery,
                                 event: '$exception',
@@ -291,7 +290,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                                 // so the last owner gets the lowest key.
                                 order_key: rows.length - 1 - index,
                             }
-                            // nosemgrep: prefer-codegen-api
                             return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )

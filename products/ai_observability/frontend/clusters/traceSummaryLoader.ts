@@ -31,7 +31,6 @@ export async function loadTraceSummaries(
     const eventName = level === 'generation' ? '$ai_generation_summary' : '$ai_trace_summary'
     const idExpression = level === 'generation' ? 'properties.$ai_generation_id' : 'properties.$ai_trace_id'
 
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -91,7 +90,6 @@ async function loadEvaluationSummaries(
     // Cluster members can include eval events from Stage B's embedding lookback,
     // which extends a few days past the UI's run-day window. Widen by 7 days on
     // the leading edge so we catch all members while still pruning partitions.
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -168,7 +166,6 @@ export async function loadEvaluationItemAttributes(
     // Same rationale as loadEvaluationSummaries — widen by 7 days on the
     // leading edge to cover Stage B's embedding lookback while keeping
     // ClickHouse partition pruning intact.
-    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         hogql`
             SELECT

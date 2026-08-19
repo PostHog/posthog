@@ -58,7 +58,6 @@ export const taskHistoryLogic = kea<taskHistoryLogicType>([
             [] as Task[],
             {
                 loadHistory: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.tasks.list({
                         origin_product: OriginProduct.POSTHOG_AI,
                         created_by: values.user?.id,

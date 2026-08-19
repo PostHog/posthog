@@ -181,7 +181,6 @@ export const alertLogic = kea<alertLogicType>([
                     }
 
                     const { limit, offset } = values.checksHistoryParams
-                    // nosemgrep: prefer-codegen-api
                     return await api.alerts.get(props.alertId, { checksLimit: limit, checksOffset: offset })
                 },
             },

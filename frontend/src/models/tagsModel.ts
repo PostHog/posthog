@@ -36,7 +36,6 @@ export const tagsModel = kea<tagsModelType>([
         tags: {
             __default: [] as string[],
             loadTags: async () => {
-                // nosemgrep: prefer-codegen-api
                 return (await api.tags.list()) || []
             },
         },

@@ -157,7 +157,6 @@ export const logsExportLogic = kea<logsExportLogicType>([
             }
             posthog.capture('logs exported', { format: 'csv', source: 'server', totalLogsCount })
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.logs.exportQuery({
                     query,
                     columns: getExportColumns(values.attributeColumns),

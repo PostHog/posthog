@@ -314,7 +314,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                     if (!id) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
                         filter_groups: [buildLogsAlertFilterConfig(id)],

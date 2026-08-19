@@ -54,7 +54,6 @@ export function SpikeDetailsPopover({
         setZoomData(null)
         const run = async (): Promise<void> => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId,

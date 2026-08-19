@@ -167,7 +167,6 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetResponse: {
             loadSymbolSets: async (_, breakpoint) => {
                 await breakpoint(100)
-                // nosemgrep: prefer-codegen-api
                 const res = await api.errorTracking.symbolSets.list({
                     status: values.symbolSetStatusFilter,
                     limit: RESULTS_PER_PAGE,
@@ -180,7 +179,6 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         },
         deleteSymbolSetResponse: {
             deleteSymbolSet: async (id: string) => {
-                // nosemgrep: prefer-codegen-api
                 await api.errorTracking.symbolSets.delete(id)
                 lemonToast.success('Symbol set deleted')
                 actions.loadSymbolSets()
@@ -188,7 +186,6 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             },
             bulkDeleteSymbolSets: async () => {
                 const ids = values.selectedSymbolSetIds
-                // nosemgrep: prefer-codegen-api
                 await api.errorTracking.symbolSets.bulkDelete(ids)
                 lemonToast.success(`${ids.length} ${pluralize(ids.length, 'symbol set', 'symbol sets', false)} deleted`)
                 actions.loadSymbolSets()
@@ -200,7 +197,6 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
     listeners(({ actions }) => ({
         downloadSymbolSet: async ({ id }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.errorTracking.symbolSets.download(id)
                 window.open(response.url, '_blank')
             } catch (e) {

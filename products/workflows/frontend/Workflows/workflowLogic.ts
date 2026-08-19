@@ -2813,7 +2813,6 @@ export const workflowLogic = kea<workflowLogicType>([
                     if (!props.id || props.id === 'new') {
                         if (props.editTemplateId) {
                             // Editing a template - load it and add a temporary status field for the editor
-                            // nosemgrep: prefer-codegen-api
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
                             return {
                                 ...templateWorkflow,
@@ -2821,7 +2820,6 @@ export const workflowLogic = kea<workflowLogicType>([
                             } as HogFlow
                         }
                         if (props.templateId) {
-                            // nosemgrep: prefer-codegen-api
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
                             const newWorkflow = {
@@ -2841,14 +2839,12 @@ export const workflowLogic = kea<workflowLogicType>([
                         return { ...NEW_WORKFLOW }
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     return api.hogFlows.getHogFlow(props.id)
                 },
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                     if (!props.id || props.id === 'new') {
-                        // nosemgrep: prefer-codegen-api
                         const result = await api.hogFlows.createHogFlow(updates)
 
                         if (props.templateId) {
@@ -2899,7 +2895,6 @@ export const workflowLogic = kea<workflowLogicType>([
                         : values.originalWorkflow?.updated_at
 
                     try {
-                        // nosemgrep: prefer-codegen-api
                         return await api.hogFlows.updateHogFlow(props.id, {
                             ...payload,
                             ...(stagingDraft ? { stage_draft: true } : {}),
@@ -2941,7 +2936,6 @@ export const workflowLogic = kea<workflowLogicType>([
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplatesById: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const allTemplates = await api.hogFunctions.listTemplates({
                         types: ['destination', 'source_webhook'],
                     })
@@ -3531,7 +3525,6 @@ export const workflowLogic = kea<workflowLogicType>([
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
-                // nosemgrep: prefer-codegen-api
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
@@ -3553,7 +3546,6 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
@@ -3588,7 +3580,6 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('discard')
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.hogFlows.discardHogFlowDraft(props.id)
                 lemonToast.success('Staged changes discarded')
                 actions.loadWorkflow()
@@ -3604,7 +3595,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // check and deliberately overwrites the other channel's version, instead of looping on 409.
             if (props.id && props.id !== 'new') {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const latest = await api.hogFlows.getHogFlow(props.id)
                     // On an active workflow the next save races the draft slot, so its stamp is the baseline.
                     actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
@@ -3635,7 +3625,6 @@ export const workflowLogic = kea<workflowLogicType>([
             const triggerType = originalWorkflow.trigger?.type
             if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
                 } catch {
@@ -3669,13 +3658,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (hasScheduleChanges) {
                     try {
                         if (pendingSchedule === null && existingScheduleId) {
-                            // nosemgrep: prefer-codegen-api
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            // nosemgrep: prefer-codegen-api
                             await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
                         } else if (pendingSchedule !== null) {
-                            // nosemgrep: prefer-codegen-api
                             await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
                         }
 
@@ -3687,7 +3673,6 @@ export const workflowLogic = kea<workflowLogicType>([
                             })
                         }
 
-                        // nosemgrep: prefer-codegen-api
                         const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
                         actions.setSchedules(schedules)
                     } catch (e) {
@@ -3874,7 +3859,6 @@ export const workflowLogic = kea<workflowLogicType>([
             delete (newWorkflow as any).created_at
             delete (newWorkflow as any).updated_at
 
-            // nosemgrep: prefer-codegen-api
             const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
@@ -3922,7 +3906,6 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering batch workflow...')
 
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
                     variables,
                     filters,

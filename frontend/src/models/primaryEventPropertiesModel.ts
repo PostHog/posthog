@@ -86,7 +86,6 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                 if (names.length === 0) {
                     return values.primaryProperties
                 }
-                // nosemgrep: prefer-codegen-api
                 const response = await api.eventDefinitions.primaryProperties({ names })
                 const next = { ...values.primaryProperties }
                 for (const name of names) {
@@ -103,7 +102,6 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             }) => {
                 let definitionId: string
                 try {
-                    // nosemgrep: prefer-codegen-api
                     definitionId = (await api.eventDefinitions.byName({ name: eventName })).id
                 } catch (error) {
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'lookup' })
@@ -111,7 +109,6 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                     return values.primaryProperties
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const updated = await api.eventDefinitions.update({
                         eventDefinitionId: definitionId,
                         eventDefinitionData: { primary_property: propertyKey },

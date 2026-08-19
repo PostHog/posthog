@@ -203,7 +203,6 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
             [] as Survey[],
             {
                 loadAllSurveys: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.surveys.list()
                     return response.results
                 },
@@ -252,7 +251,6 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
                         })
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const survey = await api.surveys.create({
                         name: surveyName || BASE_SURVEY_NAME,
                         type: SurveyType.API,

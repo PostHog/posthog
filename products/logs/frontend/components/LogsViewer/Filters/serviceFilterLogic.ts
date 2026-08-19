@@ -99,7 +99,6 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
                         limit: 1000,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     }).url
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(url)
                     return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
                 },

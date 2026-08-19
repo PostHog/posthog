@@ -481,7 +481,6 @@ async function fetchLogEntriesWithRetry(
 ): Promise<unknown[] | { historyError: unknown }> {
     for (let attempt = 1; ; attempt++) {
         try {
-            // nosemgrep: prefer-codegen-api
             return await api.tasks.runs.getLogEntries(taskId, runId)
         } catch (error) {
             if (attempt >= MAX_HISTORY_FETCH_ATTEMPTS) {
@@ -500,7 +499,6 @@ async function fetchRunStatus(
 ): Promise<{ status: string | null; artifacts: Partial<RunArtifacts> } | { error: StreamErrorEnvelope }> {
     try {
         const run: { status?: string; state?: unknown; output?: unknown; branch?: string | null } =
-            // nosemgrep: prefer-codegen-api
             await api.tasks.runs.get(taskId, runId)
         return { status: run.status ?? null, artifacts: extractRunArtifacts(run) }
     } catch (error) {
@@ -2349,7 +2347,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (props.replayOnly) {
                 let replayRun: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
                 try {
-                    // nosemgrep: prefer-codegen-api
                     replayRun = await api.tasks.runs.get(taskId, runId)
                 } catch (error) {
                     actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
@@ -2407,7 +2404,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // in-progress (connect-first, then reconcile the seam).
             let run: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
             try {
-                // nosemgrep: prefer-codegen-api
                 run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
@@ -2604,7 +2600,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
 
                 let response: Response
                 try {
-                    // nosemgrep: prefer-codegen-api
                     response = await api.tasks.runs.openStream(taskId, runId, {
                         signal,
                         lastEventId,

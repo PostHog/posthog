@@ -549,7 +549,6 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     }
 
                     await breakpoint(100)
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.comments.getCount({
                         scope: ActivityScope.LLM_TRACE,
                         item_id: values.traceId,
@@ -599,7 +598,6 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                         properties: values.propertyFilters as AnyPropertyFilter[],
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(query)
 
                     breakpoint()

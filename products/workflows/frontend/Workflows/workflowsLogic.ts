@@ -271,11 +271,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
             { results: [], count: 0 } as WorkflowsResult,
             {
                 loadWorkflows: async () => {
-                    // nosemgrep: prefer-codegen-api
                     return await api.hogFlows.getHogFlows(values.paramsFromFilters)
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
-                    // nosemgrep: prefer-codegen-api
                     await api.hogFlows.updateHogFlow(workflow.id, {
                         status: workflow.status === 'active' ? 'draft' : 'active',
                     })
@@ -285,7 +283,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    // nosemgrep: prefer-codegen-api
                     await api.hogFlows.createHogFlow({
                         ...workflow,
                         status: 'draft',
@@ -311,7 +308,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             status: 'danger',
                             onClick: async () => {
                                 try {
-                                    // nosemgrep: prefer-codegen-api
                                     await api.hogFlows.updateHogFlow(workflow.id, {
                                         status: 'archived',
                                     })
@@ -334,7 +330,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 restoreWorkflow: async ({ workflow }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         await api.hogFlows.updateHogFlow(workflow.id, {
                             status: 'draft',
                         })
@@ -361,7 +356,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             status: 'danger',
                             onClick: async () => {
                                 try {
-                                    // nosemgrep: prefer-codegen-api
                                     await api.hogFlows.deleteHogFlow(workflow.id)
                                     lemonToast.success(`Workflow "${workflow.name}" deleted`)
                                     deleteFromTree('hog_flow/', workflow.id)
@@ -445,7 +439,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     status: 'danger',
                     onClick: async () => {
                         try {
-                            // nosemgrep: prefer-codegen-api
                             const result = await api.hogFlows.bulkDeleteHogFlows(ids)
                             lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
                             for (const id of ids) {

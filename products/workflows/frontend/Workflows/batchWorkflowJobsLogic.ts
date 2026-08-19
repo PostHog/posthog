@@ -93,7 +93,6 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                         return null
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     return api.hogFlows.getHogFlowBatchJobs(props.id)
                 },
             },

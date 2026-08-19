@@ -264,7 +264,6 @@ export const cohortsModel = kea<cohortsModelType>([
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
-                // nosemgrep: prefer-codegen-api
                 const response = await api.cohorts.listPaginated({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
                 })
@@ -285,7 +284,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 // the feature-flag intent warning reads it off `cohortsById` (see
                 // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
                 // what that check expects, so no `processCohort` normalization is needed here.
-                // nosemgrep: prefer-codegen-api
                 const response = await api.cohorts.listBasic({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
                 })
@@ -426,7 +424,6 @@ export const cohortsModel = kea<cohortsModelType>([
         deleteCohort: async ({ cohort }) => {
             invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
             await deleteWithUndo({
-                // nosemgrep: prefer-codegen-api
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
                 callback: (undo) => {

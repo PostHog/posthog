@@ -350,7 +350,6 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             {
                 loadAvailableCategories: async (): Promise<string[]> => {
                     // Fixed 30-day window so the scope selector lists every category regardless of the tab filter.
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCategoriesQuery,
                         dateRange: { date_from: '-30d' },
@@ -363,7 +362,6 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             [] as CategoryCount[],
             {
                 loadCategoryCounts: async (): Promise<CategoryCount[]> => {
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCategoryCountsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
@@ -378,7 +376,6 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 loadToolRows: async (_: void, breakpoint): Promise<ToolQualityRow[]> => {
                     await breakpoint(100)
                     // Fixed server-side order (total_calls DESC); column sorting happens client-side.
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolQualityRowsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
@@ -406,7 +403,6 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             {
                 loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     await breakpoint(100)
-                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolQualityDailyStatsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },

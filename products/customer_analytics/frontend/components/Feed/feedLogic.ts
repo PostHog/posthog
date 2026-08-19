@@ -163,7 +163,6 @@ export const feedLogic = kea<feedLogicType>([
             null as CountedPaginatedResponse<SignalReport> | null,
             {
                 loadReports: async (_, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.signalReports.list({
                         scout_prefix: CUSTOMER_ANALYTICS_SCOUT_PREFIX,
                         limit: REPORTS_LIMIT,
@@ -275,7 +274,6 @@ export const feedLogic = kea<feedLogicType>([
         },
         archiveReport: async ({ reportId, reason, note }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
                     dismissal_reason: reason,

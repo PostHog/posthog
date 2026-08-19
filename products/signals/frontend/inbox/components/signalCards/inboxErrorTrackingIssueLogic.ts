@@ -158,7 +158,6 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             {
                 loadIssue: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         return await api.errorTracking.getIssue(props.issueId, props.fingerprint)
                     } catch (error: any) {
                         // 308 means the issue was merged into another; surface the target for the fallback.
@@ -174,7 +173,6 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             null as InboxErrorTrackingIssueSummary | null,
             {
                 loadSummary: async () => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.issueId,
@@ -204,7 +202,6 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             {
                 loadSpikeEvents: async () => {
                     const { date_from, date_to } = defaultDateRange()
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.errorTracking.getSpikeEvents({
                         issueIds: [props.issueId],
                         dateFrom: date_from ?? undefined,

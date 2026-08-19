@@ -279,7 +279,6 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                  * ClickHouse queries. An explicit Rescan click is a request for
                  * current data and has to mean it, or the button looks broken. */
                 loadSetupPlan: async ({ refresh } = { refresh: false }) => {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/marketing_analytics/setup_plan${
                             refresh ? '?refresh=true' : ''
@@ -422,7 +421,6 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                 const failed: string[] = []
                 for (const target of targets) {
                     try {
-                        // nosemgrep: prefer-codegen-api
                         await api.externalDataSources.reload(target.source_id)
                     } catch {
                         failed.push(target.display_name)
@@ -523,7 +521,6 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             // adopt a concurrent apply's ids and mark those rows applied when it landed.
             const inFlight = options.suggestionIds ?? []
             try {
-                // nosemgrep: prefer-codegen-api
                 const response: ApplyResponse = await api.create(
                     `api/projects/${values.currentTeamId}/marketing_analytics/apply_setup_ops`,
                     { ops, source: options.source }

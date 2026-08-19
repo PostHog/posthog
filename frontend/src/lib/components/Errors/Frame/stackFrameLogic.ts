@@ -93,13 +93,11 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                     if (rawIds.length === 0) {
                         return values.stackFrameRecords
                     }
-                    // nosemgrep: prefer-codegen-api
                     const { results } = await api.errorTracking.stackFrames(rawIds)
 
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
-                    // nosemgrep: prefer-codegen-api
                     const { results } = await api.errorTracking.symbolSetStackFrames(symbolSetId)
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },

@@ -238,7 +238,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 const source = values.sessionsQuery.source as HogQLQuery
                 try {
                     // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(source, { refresh })
                     if (requestId !== loadSessionsRequestId) {
                         return
@@ -264,7 +263,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 const source = values.sessionsQuery.source as HogQLQuery
                 const offset = values.sessions.length
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.query({
                         ...source,
                         query: buildSessionsQuery(values.sessionsSort, offset),

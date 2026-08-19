@@ -35,7 +35,6 @@ async function fetchAlertsForInsights(insights: InsightModel[]): Promise<Map<num
 
     const alertPromises = insightsWithIds.map(async (insight) => {
         try {
-            // nosemgrep: prefer-codegen-api
             const response = await api.alerts.list(insight.id)
             return { insightId: insight.id, alerts: response.results }
         } catch (e) {
@@ -65,7 +64,6 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
 
     const hogFunctionPromises = alerts.map(async (alert) => {
         try {
-            // nosemgrep: prefer-codegen-api
             const response = await api.hogFunctions.list({
                 filter_groups: [buildAlertFilterConfig(alert.id)],
                 types: ['internal_destination'],

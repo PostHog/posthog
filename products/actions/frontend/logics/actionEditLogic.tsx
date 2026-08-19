@@ -273,11 +273,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 }
                 try {
                     if (updatedAction.id) {
-                        // nosemgrep: prefer-codegen-api
                         action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
                         const folder = updatedAction._create_in_folder ?? getLastNewFolder()
-                        // nosemgrep: prefer-codegen-api
                         action = await api.actions.create({
                             ...updatedAction,
                             steps: updatedSteps,
@@ -368,7 +366,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
                     return response
                 },

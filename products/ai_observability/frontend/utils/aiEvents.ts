@@ -22,7 +22,6 @@ const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
  */
 export async function hasRecentAIEvents(): Promise<boolean> {
     // Fast path: check EventDefinition (works for most existing users)
-    // nosemgrep: prefer-codegen-api
     const aiEventDefinitions = await api.eventDefinitions.list({
         event_type: EventDefinitionType.Event,
         search: '$ai_',
@@ -37,7 +36,6 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     }
 
     // Fallback: query ClickHouse directly for recent events (new users)
-    // nosemgrep: prefer-codegen-api
     const response = await api.query<HogQLQuery>(
         {
             kind: NodeKind.HogQLQuery,
