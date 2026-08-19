@@ -188,6 +188,7 @@ export const linkLogic = kea<linkLogicType>([
             loadLink: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await linksRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                         return response
                     } catch (error) {
@@ -203,6 +204,7 @@ export const linkLogic = kea<linkLogicType>([
                     throw new Error('Link destination, domain, and short code are required')
                 }
                 const result = await (props.id === 'new'
+                    // nosemgrep: prefer-codegen-api
                     ? linksCreate(String(ApiConfig.getCurrentProjectId()), {
                           redirect_url: updatedLink.redirect_url,
                           short_link_domain: updatedLink.short_link_domain,
@@ -210,6 +212,7 @@ export const linkLogic = kea<linkLogicType>([
                           description: updatedLink.description,
                           _create_in_folder: updatedLink._create_in_folder,
                       })
+                    // nosemgrep: prefer-codegen-api
                     : linksPartialUpdate(String(ApiConfig.getCurrentProjectId()), props.id, updatedLink))
                 if (props.id === 'new') {
                     router.actions.replace(urls.link(result.id))
@@ -271,6 +274,7 @@ export const linkLogic = kea<linkLogicType>([
         },
         deleteLink: async ({ linkId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await linksDestroy(String(ApiConfig.getCurrentProjectId()), linkId)
                 lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))

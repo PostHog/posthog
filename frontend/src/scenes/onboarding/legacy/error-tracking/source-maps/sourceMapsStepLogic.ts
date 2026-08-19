@@ -95,6 +95,7 @@ export const sourceMapsStepLogic = kea<sourceMapsStepLogicType>([
             null as ErrorTrackingSymbolSetApi | null,
             {
                 loadLastSymbolSet: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const res = await errorTrackingSymbolSetsList(String(ApiConfig.getCurrentProjectId()), {
                         status: 'valid',
                         offset: 0,

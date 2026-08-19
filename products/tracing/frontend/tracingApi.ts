@@ -15,6 +15,7 @@ import {
     tracingSpansTreeCreate,
 } from './generated/api'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 const requestOptions = (signal?: AbortSignal): RequestInit | undefined => (signal ? { signal } : undefined)

@@ -57,6 +57,7 @@ export const logsIngestionLogic = kea<logsIngestionLogicType>([
             __default: undefined as boolean | undefined,
             loadTeamHasLogs: async (): Promise<boolean> => {
                 return await retryWithBackoff(
+                    // nosemgrep: prefer-codegen-api
                     () => logsHasLogsRetrieve(String(ApiConfig.getCurrentProjectId())).then(({ hasLogs }) => hasLogs),
                     { maxAttempts: 3 }
                 )

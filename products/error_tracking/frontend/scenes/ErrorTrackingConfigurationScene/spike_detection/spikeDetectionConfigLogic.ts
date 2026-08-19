@@ -159,6 +159,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             null as ErrorTrackingSpikeDetectionConfig | null,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await errorTrackingSpikeDetectionConfigList(String(ApiConfig.getCurrentProjectId()))
                 },
             },
@@ -194,6 +195,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             submit: async (formValues) => {
                 try {
                     const updated = await errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         {
                             snooze_duration_minutes: formValues.snooze_duration_minutes,

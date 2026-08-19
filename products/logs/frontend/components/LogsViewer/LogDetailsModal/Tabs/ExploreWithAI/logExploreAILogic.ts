@@ -95,6 +95,7 @@ export const logExploreAILogic = kea<logExploreAILogicType>([
                 if (!values.dataProcessingAccepted) {
                     throw new Error('AI data processing must be approved before generating explanations')
                 }
+                // nosemgrep: prefer-codegen-api
                 return await logsExplainLogWithAICreate(String(ApiConfig.getCurrentProjectId()), {
                     uuid: props.logUuid,
                     timestamp: props.logTimestamp,

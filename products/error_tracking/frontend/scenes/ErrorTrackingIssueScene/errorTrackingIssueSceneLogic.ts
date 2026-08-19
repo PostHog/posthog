@@ -646,12 +646,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: {
             setIssue: ({ issue }) => issue,
             loadIssue: async () =>
+                // nosemgrep: prefer-codegen-api
                 (await errorTrackingIssuesRetrieve(String(ApiConfig.getCurrentProjectId()), props.id, {
                     fingerprint: props.fingerprint,
                 })) as unknown as ErrorTrackingRelationalIssue,
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await errorTrackingExternalReferencesCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         { integration_id: integrationId, issue: props.id, config: config }
                     )
@@ -756,6 +758,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [] as ErrorTrackingFingerprint[],
             {
                 loadIssueFingerprints: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await errorTrackingFingerprintsList(String(ApiConfig.getCurrentProjectId()), {
                         issue_id: props.id,
                     })
@@ -793,6 +796,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 loadSpikeEvents: async () => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
+                    // nosemgrep: prefer-codegen-api
                     const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
                         issue_ids: props.id,
                         date_from: dateFrom,

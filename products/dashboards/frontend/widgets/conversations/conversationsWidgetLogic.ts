@@ -55,6 +55,7 @@ export const conversationsWidgetLogic = kea<conversationsWidgetLogicType>([
             }
             actions.assignTicketLoading(ticketId)
             try {
+                // nosemgrep: prefer-codegen-api
                 await conversationsTicketsPartialUpdate(String(ApiConfig.getCurrentProjectId()), ticketId, {
                     assignee,
                 })

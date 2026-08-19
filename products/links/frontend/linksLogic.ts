@@ -42,6 +42,7 @@ export const linksLogic = kea<linksLogicType>([
             [] as LinkType[],
             {
                 loadLinks: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await linksList(String(ApiConfig.getCurrentProjectId()), { limit: 100 })
                     return response.results
                 },

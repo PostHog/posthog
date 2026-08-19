@@ -24,6 +24,7 @@ import {
 } from './generated/api'
 import type { ErrorTrackingRule, ErrorTrackingRuleType } from './scenes/ErrorTrackingConfigurationScene/rules/types'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export async function errorTrackingRulesList(

@@ -68,6 +68,7 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
                     }
                     await breakpoint(100)
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(dateRange)
+                    // nosemgrep: prefer-codegen-api
                     const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
                         issue_ids: issueIds.join(','),
                         date_from: dateFrom,

@@ -542,6 +542,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 const version = values.viewingVersion?.version
                 const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
                 return await endpointsMaterializationPreviewCreate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     endpoint.name,
                     { version: version, bucket_overrides: overrides }

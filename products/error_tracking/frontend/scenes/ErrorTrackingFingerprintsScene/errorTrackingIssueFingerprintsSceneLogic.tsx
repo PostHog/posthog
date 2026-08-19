@@ -239,12 +239,14 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         issue: {
             loadIssue: async () =>
                 (await errorTrackingIssuesRetrieve(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     props.id
                 )) as unknown as ErrorTrackingRelationalIssue,
         },
         issueFingerprints: {
             loadIssueFingerprints: async () => {
+                // nosemgrep: prefer-codegen-api
                 const response = await errorTrackingFingerprintsList(String(ApiConfig.getCurrentProjectId()), {
                     issue_id: props.id,
                 })

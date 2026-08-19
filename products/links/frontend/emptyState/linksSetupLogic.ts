@@ -57,6 +57,7 @@ export const linksSetupLogic = kea<linksSetupLogicType>([
             null as number | null,
             {
                 loadLinkCount: async (_: void, breakpoint): Promise<number> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await linksList(String(ApiConfig.getCurrentProjectId()), { limit: 1 })
                     breakpoint()
                     return response.count

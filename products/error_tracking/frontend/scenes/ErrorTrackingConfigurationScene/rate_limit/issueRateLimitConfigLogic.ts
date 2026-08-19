@@ -300,6 +300,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             {
                 loadConfig: async () => {
                     return (await errorTrackingSettingsRetrieveSettingsRetrieve(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId())
                     )) as unknown as ErrorTrackingSettings
                 },
@@ -460,6 +461,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                 try {
                     const payload = { per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }
                     await errorTrackingSettingsUpdateSettingsPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         payload
                     )

@@ -174,6 +174,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetResponse: {
             loadSymbolSets: async (_, breakpoint) => {
                 await breakpoint(100)
+                // nosemgrep: prefer-codegen-api
                 const res = await errorTrackingSymbolSetsList(String(ApiConfig.getCurrentProjectId()), {
                     status: values.symbolSetStatusFilter,
                     limit: RESULTS_PER_PAGE,
@@ -186,6 +187,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         },
         deleteSymbolSetResponse: {
             deleteSymbolSet: async (id: string) => {
+                // nosemgrep: prefer-codegen-api
                 await errorTrackingSymbolSetsDestroy(String(ApiConfig.getCurrentProjectId()), id)
                 lemonToast.success('Symbol set deleted')
                 actions.loadSymbolSets()
@@ -193,6 +195,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             },
             bulkDeleteSymbolSets: async () => {
                 const ids = values.selectedSymbolSetIds
+                // nosemgrep: prefer-codegen-api
                 await errorTrackingSymbolSetsBulkDeleteCreate(String(ApiConfig.getCurrentProjectId()), { ids })
                 lemonToast.success(`${ids.length} ${pluralize(ids.length, 'symbol set', 'symbol sets', false)} deleted`)
                 actions.loadSymbolSets()
@@ -205,6 +208,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         downloadSymbolSet: async ({ id }) => {
             try {
                 const response = await errorTrackingSymbolSetsDownloadRetrieve(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     id
                 )

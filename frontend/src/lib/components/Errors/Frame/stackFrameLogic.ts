@@ -96,6 +96,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                         return values.stackFrameRecords
                     }
                     const { results } = await errorTrackingStackFramesBatchGetCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         { raw_ids: rawIds }
                     )
@@ -107,6 +108,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
                     const { results } = await errorTrackingStackFramesBatchGetCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         { symbol_set: symbolSetId } as Parameters<typeof errorTrackingStackFramesBatchGetCreate>[1]
                     )

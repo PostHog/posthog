@@ -544,11 +544,13 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             }) => {
                 try {
                     const result = template_id
+                        // nosemgrep: prefer-codegen-api
                         ? await mcpServerInstallationsInstallTemplateCreate(String(ApiConfig.getCurrentProjectId()), {
                               template_id,
                               api_key: api_key || undefined,
                               scope,
                           })
+                        // nosemgrep: prefer-codegen-api
                         : await mcpServerInstallationsInstallCustomCreate(String(ApiConfig.getCurrentProjectId()), {
                               name,
                               url,
@@ -584,6 +586,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerTemplateApi[],
             {
                 loadServers: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await mcpServersList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as MCPServerTemplateApi[]
                 },
@@ -593,11 +596,13 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerInstallationApi[],
             {
                 loadInstallations: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await mcpServerInstallationsList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as MCPServerInstallationApi[]
                 },
                 updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
                     const updated = (await mcpServerInstallationsPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         id,
                         data
@@ -608,6 +613,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     )
                 },
                 uninstallServer: async (installationId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await mcpServerInstallationsDestroy(String(ApiConfig.getCurrentProjectId()), installationId)
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
@@ -617,23 +623,27 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 // must drop out of the requester's list entirely.
                 shareInstallation: async ({ id }: { id: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await mcpServerInstallationsShareCreate(String(ApiConfig.getCurrentProjectId()), id)
                         lemonToast.success('Server shared with the project')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to share server')
                         throw e
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await mcpServerInstallationsList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as MCPServerInstallationApi[]
                 },
                 unshareInstallation: async ({ id }: { id: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await mcpServerInstallationsUnshareCreate(String(ApiConfig.getCurrentProjectId()), id)
                         lemonToast.success('Server is now personal')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to unshare server')
                         throw e
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await mcpServerInstallationsList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as MCPServerInstallationApi[]
                 },
@@ -644,6 +654,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {
                 loadInstallationTools: async ({ installationId }) => {
                     const response = await mcpServerInstallationsToolsRetrieve(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         installationId
                     )
@@ -655,6 +666,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 refreshInstallationTools: async ({ installationId }) => {
                     try {
                         const response = await mcpServerInstallationsToolsRefreshCreate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             installationId
                         )
@@ -749,6 +761,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     listeners(({ actions, values }) => ({
         toggleServerEnabled: async ({ id, enabled }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await mcpServerInstallationsPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, {
                     is_enabled: enabled,
                 })
@@ -764,6 +777,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         installTemplate: async ({ templateId }) => {
             try {
                 const result = await mcpServerInstallationsInstallTemplateCreate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     { template_id: templateId }
                 )
@@ -781,6 +795,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             // Optimistic update already applied in the reducer. Reload from server on failure.
             try {
                 await mcpServerInstallationsToolsPartialUpdate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     installationId,
                     toolName,
@@ -813,6 +828,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 await Promise.all(
                     tools.map((tool) =>
                         mcpServerInstallationsToolsPartialUpdate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             installationId,
                             tool.tool_name,

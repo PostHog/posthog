@@ -507,6 +507,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         return null
                     }
                     const formConfig = values.alertForm.config
+                    // nosemgrep: prefer-codegen-api
                     return (await alertsSimulateCreate(String(ApiConfig.getCurrentProjectId()), {
                         insight: props.insightId,
                         detector_config: detectorConfig,
@@ -648,10 +649,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 try {
                     updatedAlert = isNewAlert
                         ? ((await alertsCreate(
+                              // nosemgrep: prefer-codegen-api
                               String(ApiConfig.getCurrentProjectId()),
                               payload as Parameters<typeof alertsCreate>[1]
                           )) as unknown as AlertType)
                         : ((await alertsPartialUpdate(
+                              // nosemgrep: prefer-codegen-api
                               String(ApiConfig.getCurrentProjectId()),
                               existingAlertId,
                               payload as Parameters<typeof alertsPartialUpdate>[2]
@@ -863,6 +866,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
+                // nosemgrep: prefer-codegen-api
                 await alertsDestroy(String(ApiConfig.getCurrentProjectId()), values.alertForm.id)
                 lemonToast.success('Alert deleted.')
                 const parent = getParentLogic()
@@ -877,6 +881,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
                 const updatedAlert = (await alertsPartialUpdate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     values.alertForm.id,
                     { snoozed_until: resolveSnoozeUntil(snoozeUntil) }
@@ -894,6 +899,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
                 const updatedAlert = (await alertsPartialUpdate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     values.alertForm.id,
                     { snoozed_until: null }

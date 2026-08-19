@@ -273,6 +273,7 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                         return []
                     }
                     const filters = (values.alert.filters ?? {}) as Record<string, unknown>
+                    // nosemgrep: prefer-codegen-api
                     return logsSparklineCreate(String(ApiConfig.getCurrentProjectId()), {
                         query: {
                             dateRange: { date_from: '-7d', date_to: null },

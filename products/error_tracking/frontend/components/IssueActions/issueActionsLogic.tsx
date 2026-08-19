@@ -196,6 +196,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         'mergeIssues',
                         async () => {
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
+                            // nosemgrep: prefer-codegen-api
                             await errorTrackingIssuesMergeCreate(String(ApiConfig.getCurrentProjectId()), firstId, {
                                 ids: otherIds,
                             })
@@ -207,6 +208,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
             splitIssue: async ({ id, fingerprints }) => {
                 await runMutation('splitIssues', async () => {
                     posthog.capture('error_tracking_issue_split', { issueId: id })
+                    // nosemgrep: prefer-codegen-api
                     const response = await errorTrackingIssuesSplitCreate(String(ApiConfig.getCurrentProjectId()), id, {
                         fingerprints: fingerprints,
                     })
@@ -218,6 +220,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'resolveIssues',
                     async () => {
                         posthog.capture('error_tracking_issue_bulk_resolve')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesBulkCreate(String(ApiConfig.getCurrentProjectId()), {
                             action: 'set_status',
                             ids: ids,
@@ -234,6 +237,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'suppressIssues',
                     async () => {
                         posthog.capture('error_tracking_issue_bulk_suppress')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesBulkCreate(String(ApiConfig.getCurrentProjectId()), {
                             action: 'set_status',
                             ids: ids,
@@ -248,6 +252,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'activateIssues',
                     async () => {
                         posthog.capture('error_tracking_issue_bulk_activate')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesBulkCreate(String(ApiConfig.getCurrentProjectId()), {
                             action: 'set_status',
                             ids: ids,
@@ -262,6 +267,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'assignIssues',
                     async () => {
                         posthog.capture('error_tracking_issue_bulk_assign')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesBulkCreate(String(ApiConfig.getCurrentProjectId()), {
                             action: 'assign',
                             ids: ids,
@@ -276,6 +282,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'updateIssueAssignee',
                     async () => {
                         posthog.capture('error_tracking_issue_update_assignee')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesAssignPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, {
                             assignee: assignee,
                         })
@@ -295,6 +302,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                             issue_id: id,
                             source: 'issue_actions',
                         })
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, { status })
                     },
                     async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { status })
@@ -305,6 +313,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'updateIssueName',
                     async () => {
                         posthog.capture('error_tracking_issue_update_name')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, { name })
                     },
                     async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { name })
@@ -315,6 +324,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     'updateIssueDescription',
                     async () => {
                         posthog.capture('error_tracking_issue_update_description')
+                        // nosemgrep: prefer-codegen-api
                         await errorTrackingIssuesPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, {
                             description,
                         })
@@ -335,6 +345,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         issueId: id,
                         cohortId: cohort.id,
                     })
+                    // nosemgrep: prefer-codegen-api
                     await errorTrackingIssuesCohortUpdate(String(ApiConfig.getCurrentProjectId()), id, {
                         cohortId: cohort.id,
                     })

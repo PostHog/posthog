@@ -682,6 +682,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const sentExpressions = sentCustomColumns ?? []
 
                     const response = await (({ signal, ...request }) =>
+                        // nosemgrep: prefer-codegen-api
                         logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
                         query: {
                             limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
@@ -735,6 +736,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
                     await breakpoint(300)
                     const response = await (({ signal, ...request }) =>
+                        // nosemgrep: prefer-codegen-api
                         logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
                         query: {
                             limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
@@ -771,6 +773,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.cancelInProgressSparkline(sparklineController)
 
                     const response = await (({ signal, ...request }) =>
+                        // nosemgrep: prefer-codegen-api
                         logsSparklineCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
                         query: {
                             orderBy: values.orderBy,
@@ -1158,6 +1161,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             try {
                 const start = Date.now()
                 const response = await (({ signal, ...request }) =>
+                    // nosemgrep: prefer-codegen-api
                     logsQueryCreate(String(ApiConfig.getCurrentProjectId()), request, { signal }))({
                     query: {
                         limit: DEFAULT_LOGS_PAGE_SIZE,
