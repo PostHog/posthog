@@ -17176,8 +17176,14 @@ export namespace Schemas {
      * Request body for landing agent commits posted back as a git bundle.
      */
     export interface CommitBundle {
-      /** A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+      /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
       bundle: string;
+      /**
+         * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
+         * @maxLength 64
+         * @nullable
+         */
+      branch?: string | null;
     }
 
     /**
