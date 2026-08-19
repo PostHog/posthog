@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { ComponentType, JSX, useEffect, useRef } from 'react'
+import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
 
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
@@ -53,7 +53,6 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
     const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
-    const sentinelRef = useRef<HTMLDivElement>(null)
 
     // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
     const viewedFiredRef = useRef(false)
@@ -111,8 +110,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         })
     }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
-    // Read fresh state at intersection time via refs so the observer is created once and not
-    // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
+    // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
+    // fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
     const hasMoreRef = useRef(hasMore)
     hasMoreRef.current = hasMore
     const loadingRef = useRef(reportsResponseLoading)
@@ -122,23 +121,32 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         ensureLoaded()
     }, [ensureLoaded])
 
-    useEffect(() => {
-        const el = sentinelRef.current
-        if (!el) {
-            return
-        }
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
-                    loadMore()
-                }
-            },
-            // Generous prefetch margin so the next page lands well before the user reaches the bottom.
-            { rootMargin: '1500px' }
-        )
-        observer.observe(el)
-        return () => observer.disconnect()
-    }, [loadMore])
+    // A callback ref, not an effect over `sentinelRef`: the sentinel only enters the DOM once the
+    // first page has landed and `hasMore` is true, which is after a mount-only effect has already
+    // run and found nothing to observe. Attaching as the node mounts is what keeps paging alive.
+    const observerRef = useRef<IntersectionObserver | null>(null)
+    const sentinelRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            observerRef.current?.disconnect()
+            observerRef.current = null
+            if (!el) {
+                return
+            }
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
+                        loadMore()
+                    }
+                },
+                // Generous prefetch margin so the next page lands well before the user reaches the bottom.
+                { rootMargin: '1500px' }
+            )
+            observer.observe(el)
+            observerRef.current = observer
+        },
+        [loadMore]
+    )
+    useEffect(() => () => observerRef.current?.disconnect(), [])
 
     // Skeleton while a tab we know is non-empty loads its first page.
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
