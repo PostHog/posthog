@@ -18,32 +18,6 @@ import type {
     WikiTreeApi,
 } from './api.schemas'
 
-export const getContextLayerCommitsCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/context_layer/commits/`
-}
-
-/**
- * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
- * @summary Land agent commits from a git bundle
- */
-export const contextLayerCommitsCreate = async (
-    organizationId: string,
-    commitBundleApi: CommitBundleApi,
-    options?: RequestInit
-): Promise<ContextLayerStatusApi> => {
-    const formData = new FormData()
-    formData.append(`bundle`, commitBundleApi.bundle)
-    if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
-        formData.append(`branch`, commitBundleApi.branch)
-    }
-
-    return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        body: formData,
-    })
-}
-
 export const getContextLayerEnableCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/context_layer/enable/`
 }
@@ -162,5 +136,38 @@ export const contextLayerTreeRetrieve = async (organizationId: string, options?:
     return apiMutator<WikiTreeApi>(getContextLayerTreeRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getContextLayerCommitsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/context_layer/commits/`
+}
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Land agent commits from a git bundle
+ */
+export const contextLayerCommitsCreate = async (
+    projectId: string,
+    commitBundleApi: CommitBundleApi,
+    options?: RequestInit
+): Promise<ContextLayerStatusApi> => {
+    const formData = new FormData()
+    formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
+        formData.append(`branch`, commitBundleApi.branch)
+    }
+
+    return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
