@@ -1,3 +1,6 @@
+# Deliberately no tests/__init__.py in this directory: matching every other source's
+# tests/ dir (bar shopify's, its lone exception) keeps this module import-rooted at
+# asaas/tests/ instead of colliding with another vendor's top-level "tests" package.
 from datetime import UTC, date, datetime
 from typing import cast
 
