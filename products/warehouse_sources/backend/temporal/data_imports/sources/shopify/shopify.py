@@ -10,6 +10,8 @@ from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -345,21 +347,27 @@ def normalize_store_id(raw: str) -> str:
     return store_id
 
 
-def _parse_oauth_error(response: requests.Response) -> tuple[str | None, str | None]:
+@frozen
+class _OAuthError:
+    code: str | None
+    description: str | None
+
+
+def _parse_oauth_error(response: requests.Response) -> _OAuthError:
     """Shopify's OAuth token endpoint returns `{"error": ..., "error_description": ...}` on a 4xx.
     An edge or proxy can return non-JSON (e.g. an HTML error page) instead, so parse defensively
-    and return `(None, None)` when the body has no usable error code."""
+    and leave the fields None when the body has no usable error code."""
     try:
         body = response.json()
     except ValueError:
-        return None, None
+        return _OAuthError(code=None, description=None)
     if not isinstance(body, dict):
-        return None, None
+        return _OAuthError(code=None, description=None)
     error = body.get("error")
     description = body.get("error_description")
-    return (
-        error if isinstance(error, str) else None,
-        description if isinstance(description, str) else None,
+    return _OAuthError(
+        code=error if isinstance(error, str) else None,
+        description=description if isinstance(description, str) else None,
     )
 
 
@@ -372,12 +380,12 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
-def _oauth_error_detail(error_code: str | None, error_description: str | None, status_code: int) -> str:
+def _oauth_error_detail(error: _OAuthError, status_code: int) -> str:
     """Shopify's raw error appended to the raised message so support can see what Shopify said."""
-    if error_code and error_description:
-        return f"Shopify {error_code}: {error_description}, HTTP {status_code}"
-    if error_code:
-        return f"Shopify {error_code}, HTTP {status_code}"
+    if error.code and error.description:
+        return f"Shopify {error.code}: {error.description}, HTTP {status_code}"
+    if error.code:
+        return f"Shopify {error.code}, HTTP {status_code}"
     return f"HTTP {status_code}"
 
 
@@ -422,16 +430,16 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         # so surface a non-retryable message. Read Shopify's own `error`/`error_description` so
         # the user gets the specific cause and support can see what Shopify rejected.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
-            error_code, error_description = _parse_oauth_error(access_res)
+            oauth_error = _parse_oauth_error(access_res)
             logger.warning(
                 "Shopify OAuth token request failed",
                 store_id=shopify_store_id,
                 status_code=access_res.status_code,
-                shopify_error=error_code,
-                shopify_error_description=error_description,
+                shopify_error=oauth_error.code,
+                shopify_error_description=oauth_error.description,
             )
-            message = _access_token_auth_error_message(error_code)
-            detail = _oauth_error_detail(error_code, error_description, access_res.status_code)
+            message = _access_token_auth_error_message(oauth_error.code)
+            detail = _oauth_error_detail(oauth_error, access_res.status_code)
             raise Exception(f"{message} ({detail})")
         # 429 (rate limit) and 5xx (e.g. a 502 Bad Gateway from Shopify's edge) are transient —
         # retry locally with backoff instead of failing the import, mirroring the GraphQL path.
