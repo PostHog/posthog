@@ -7,5 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+# "profiling" compiles jemalloc's heap profiler in but leaves it inactive; it only
+# runs when a deploy opts in via _RJEM_MALLOC_CONF (see common/continuous_profiling).
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator = { version = "0.6", features = ["profiling"] }

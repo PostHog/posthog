@@ -1,3 +1,4 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
@@ -357,6 +358,9 @@ pub struct Config {
     /// default labels. The lag-based KEDA autoscaler selects on this label.
     #[envconfig(from = "INGESTION_LANE")]
     pub ingestion_lane: Option<String>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
