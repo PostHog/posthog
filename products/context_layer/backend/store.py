@@ -9,6 +9,7 @@ upload the new bundle, CAS the head, release. Readers never take the lock.
 
 from __future__ import annotations
 
+import re
 import uuid
 import shutil
 import tempfile
@@ -43,6 +44,7 @@ BUNDLE_MAX_OBJECTS = 500_000
 # sum across commits rather than the size of any one of them. A prose wiki lands
 # far below this; a bundle that exceeds it has to be split.
 BUNDLE_MAX_CUMULATIVE_TREE_BYTES = 1_000_000_000
+DREAM_BRANCH_RE = re.compile(r"dream/\d{4}-\d{2}-\d{2}")
 LOCK_TTL_MS = 60_000
 LOCK_RENEW_INTERVAL_SECONDS = 20.0
 GIT_TIMEOUT_SECONDS = 60
@@ -550,6 +552,21 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
             raise LintFailedError([f"commit {sha[:12]}: {error}" for error in errors])
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
+def _fetch_incoming_bundle(workdir: Path, bundle_bytes: bytes, ref: str) -> str | None:
+    """Fetch `ref` from a posted bundle into the working clone; returns its sha,
+    or None when it already equals the current head."""
+    incoming = workdir.parent / "incoming.bundle"
+    incoming.write_bytes(bundle_bytes)
+    try:
+        _run_git(["bundle", "verify", "--quiet", str(incoming)], cwd=workdir)
+        _run_git(["fetch", "--quiet", str(incoming), ref], cwd=workdir)
+    except ContextLayerStoreError as error:
+        raise BundleConflictError(f"could not read the posted bundle: {error}") from error
+    fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
+    if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
+        return None
+    return fetched
+
 
 def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) -> str:
     """Land commits an agent made in its own clone, posted back as a bundle.
@@ -562,15 +579,8 @@ def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) ->
     """
 
     def prepare(workdir: Path) -> str | None:
-        incoming = workdir.parent / "incoming.bundle"
-        incoming.write_bytes(bundle_bytes)
-        try:
-            _run_git(["bundle", "verify", "--quiet", str(incoming)], cwd=workdir)
-            _run_git(["fetch", "--quiet", str(incoming), DEFAULT_BRANCH], cwd=workdir)
-        except ContextLayerStoreError as error:
-            raise BundleConflictError(f"could not read the posted bundle: {error}") from error
-        fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
-        if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
+        fetched = _fetch_incoming_bundle(workdir, bundle_bytes, DEFAULT_BRANCH)
+        if fetched is None:
             return None
         _assert_bundle_within_bounds(workdir, fetched)
         _run_git(["checkout", "--quiet", "-B", "incoming", fetched], cwd=workdir)
@@ -582,6 +592,32 @@ def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) ->
         _lint_incoming_commits(workdir, DEFAULT_BRANCH, rebased)
         _run_git(["checkout", "--quiet", DEFAULT_BRANCH], cwd=workdir)
         _run_git(["merge", "--ff-only", "--quiet", rebased], cwd=workdir)
+        return _run_git(["rev-parse", "HEAD"], cwd=workdir)
+
+    return _run_landing(organization_id, prepare=prepare)
+
+
+def land_dream_branch(organization_id: uuid.UUID | str, bundle_bytes: bytes, *, branch: str) -> str:
+    """Land a night's `dream/<YYYY-MM-DD>` branch as one two-parent merge commit
+    (`dream: <date>`), keeping the branch ref, so every night stays trackable
+    (`git log --merges`) and revertible (`git revert -m 1`) as a unit."""
+    if not DREAM_BRANCH_RE.fullmatch(branch):
+        raise BundleConflictError(f"{branch!r} is not a dream branch; expected dream/<YYYY-MM-DD>")
+
+    def prepare(workdir: Path) -> str | None:
+        fetched = _fetch_incoming_bundle(workdir, bundle_bytes, branch)
+        if fetched is None:
+            return None
+        _assert_bundle_within_bounds(workdir, fetched)
+        _lint_incoming_commits(workdir, DEFAULT_BRANCH, fetched)
+        _run_git(["branch", "--force", branch, fetched], cwd=workdir)
+        try:
+            _run_git(
+                ["merge", "--no-ff", "--quiet", "-m", f"dream: {branch.removeprefix('dream/')}", branch],
+                cwd=workdir,
+            )
+        except ContextLayerStoreError as error:
+            raise BundleConflictError(f"the dream branch conflicts with the current head: {error}") from error
         return _run_git(["rev-parse", "HEAD"], cwd=workdir)
 
     return _run_landing(organization_id, prepare=prepare)

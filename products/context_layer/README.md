@@ -26,3 +26,7 @@ scripts/lint         the structure linter (also run server-side at land)
 ```
 
 The root file is AGENTS.md because the layer must work for every model and harness; the CLAUDE.md symlink covers Claude-native tooling.
+
+## Dreaming
+
+A nightly Temporal coordinator (`context-layer-dream-coordinator`, 03:00 UTC) dispatches one cloud task per enabled organization. The run works unlocked on its own clone all night, on a dated `dream/<YYYY-MM-DD>` branch, and lands it through the commits endpoint as one two-parent merge commit (`dream: <date>`): `git log --merges` lists the dreams, and `git revert -m 1` undoes a whole night. The skills live in `products/context_layer/skills/` and source the org's actual activity: tasks run, PRs merged, events instrumented. A per-org failure streak pauses a lane after repeated dispatch failures (`ContextLayerConfig.dreaming_paused`).

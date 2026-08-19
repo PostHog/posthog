@@ -105,8 +105,12 @@ def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN00
     serializer = CommitBundleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     bundle_bytes = serializer.validated_data["bundle"].read()
+    branch = serializer.validated_data.get("branch")
     try:
-        head_sha = facade.land_commit_bundle(organization_id, bundle_bytes)
+        if branch:
+            head_sha = facade.land_dream_branch(organization_id, bundle_bytes, branch=branch)
+        else:
+            head_sha = facade.land_commit_bundle(organization_id, bundle_bytes)
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)

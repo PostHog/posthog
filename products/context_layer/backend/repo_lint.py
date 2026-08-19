@@ -108,22 +108,36 @@ PUBLISH_SCRIPT = """\
 #!/bin/sh
 # Land local wiki commits: pack them as a git bundle and post them to the
 # context layer API, which lints them and rebases them onto the current head.
+# A dream/<YYYY-MM-DD> branch lands as one merge commit instead.
 set -eu
 cd "$(dirname "$0")/.."
 if [ -z "${POSTHOG_API_URL:-}" ] || [ -z "${POSTHOG_PERSONAL_API_KEY:-}" ] || [ -z "${POSTHOG_CONTEXT_LAYER_COMMITS_PATH:-}" ]; then
     echo "publish: POSTHOG_API_URL, POSTHOG_PERSONAL_API_KEY, and POSTHOG_CONTEXT_LAYER_COMMITS_PATH must be set (they are inside PostHog sandboxes)" >&2
     exit 1
 fi
-if ! git bundle create /tmp/context-layer-publish.bundle origin/main..main 2>/dev/null; then
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if ! git bundle create /tmp/context-layer-publish.bundle "origin/main..$branch" 2>/dev/null; then
     echo "publish: nothing to publish; commit your edits first"
     exit 0
 fi
-curl -fsS -X POST \\
-    -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
-    -F "bundle=@/tmp/context-layer-publish.bundle" \\
-    "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+if [ "$branch" = "main" ]; then
+    curl -fsS -X POST \\
+        -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+        -F "bundle=@/tmp/context-layer-publish.bundle" \\
+        "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+else
+    curl -fsS -X POST \\
+        -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+        -F "bundle=@/tmp/context-layer-publish.bundle" \\
+        -F "branch=$branch" \\
+        "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+fi
 echo ""
-echo "publish: landed"
+# The server rebases (or merges) the commits onto its current head, so the
+# local refs are now behind the landed history. Re-publishing from here is
+# safe (the rebase drops commits that reproduce already-landed changes), but
+# the local log will not show the landed shas.
+echo "publish: landed (the response's head_sha is the new wiki head; this clone's refs are now behind it)"
 """
 
 

@@ -33,6 +33,7 @@ from products.context_layer.backend.pages import (
     write_page,
 )
 from products.context_layer.backend.store import (
+    DREAM_BRANCH_RE,
     BundleConflictError,
     CommitAuthor,
     ContextLayerStoreError,
@@ -43,6 +44,7 @@ from products.context_layer.backend.store import (
     get_bundle_export,
     get_config,
     land_commit_bundle,
+    land_dream_branch,
 )
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +59,7 @@ COMMITS_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 
 __all__ = [
     "COMMITS_PATH_ENV_VAR",
+    "DREAM_BRANCH_RE",
     "CONTEXT_LAYER_FEATURE_FLAG",
     "MOUNT_PATH_ENV_VAR",
     "PAGE_MAX_BYTES",
@@ -82,6 +85,7 @@ __all__ = [
     "get_tree",
     "is_context_layer_enabled",
     "land_commit_bundle",
+    "land_dream_branch",
     "organization_has_private_projects",
     "sandbox_environment_variables",
     "write_page",

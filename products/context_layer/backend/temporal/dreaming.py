@@ -1,0 +1,200 @@
+"""Nightly dreaming: one sandboxed run per enabled organization that
+synthesizes the org's activity onto a dated `dream/<date>` branch.
+
+The coordinator only dispatches: each dream runs as a normal cloud task in the
+tasks product, works unlocked on its own clone, and lands its branch through
+the commits endpoint (one merge commit per night). Modeled on the signals scout
+coordinator: skip-overlap per day, a per-org failure-streak circuit breaker,
+and a hard cap on dispatches per tick.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+import functools
+from pathlib import Path
+
+from django.utils import timezone
+
+import structlog
+import temporalio.common
+import temporalio.workflow
+from asgiref.sync import sync_to_async
+from temporalio import activity
+
+from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
+from posthog.temporal.common.base import PostHogWorkflow
+
+from products.context_layer.backend.facade import api as context_layer_facade
+from products.context_layer.backend.models import ContextLayerConfig
+
+logger = structlog.get_logger(__name__)
+
+DISPATCH_CAP_PER_TICK = 200
+# Dispatch failures, not run failures: a lane pauses when we cannot even start
+# its nightly run several nights in a row, and a human unpauses it.
+FAILURE_STREAK_PAUSE_THRESHOLD = 3
+SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
+
+
+@frozen
+class DreamCoordinatorInput:
+    pass
+
+
+@frozen
+class DreamCoordinatorOutput:
+    planned: int
+    dispatched: int
+    failed: int
+
+
+@frozen
+class DispatchDreamRunInput:
+    organization_id: str
+
+
+@frozen
+class DispatchDreamRunOutput:
+    dispatched: bool
+
+
+def _fetch_dream_candidates() -> list[str]:
+    today = timezone.now().date()
+    candidates: list[str] = []
+    for config in ContextLayerConfig.objects.filter(dreaming_paused=False).order_by("created_at"):
+        if config.last_dream_started_at is not None and config.last_dream_started_at.date() >= today:
+            continue
+        organization_id = str(config.organization_id)
+        if not context_layer_facade.is_context_layer_enabled(
+            organization_id=organization_id, distinct_id=organization_id
+        ):
+            continue
+        candidates.append(organization_id)
+        if len(candidates) >= DISPATCH_CAP_PER_TICK:
+            logger.warning("context_layer.dreaming.dispatch_cap_reached", cap=DISPATCH_CAP_PER_TICK)
+            break
+    return candidates
+
+
+@activity.defn
+async def fetch_dream_candidates() -> list[str]:
+    """Organizations due a dream tonight: wiki exists, lane not paused, no
+    dream started today, and the flag still on."""
+    return await sync_to_async(_fetch_dream_candidates, thread_sensitive=False)()
+
+
+def _prepare_dispatch(organization_id: str) -> tuple[ContextLayerConfig, int, int] | None:
+    config = ContextLayerConfig.objects.filter(organization_id=organization_id).first()
+    if config is None or config.dreaming_paused:
+        return None
+    home_team = Team.objects.filter(organization_id=organization_id).order_by("id").first()
+    user_id = config.created_by_id
+    if home_team is None or user_id is None:
+        logger.warning(
+            "context_layer.dreaming.no_dispatch_target",
+            organization_id=organization_id,
+            has_team=home_team is not None,
+        )
+        return None
+    return config, home_team.id, user_id
+
+
+def _record_dispatch_success(config: ContextLayerConfig) -> None:
+    ContextLayerConfig.objects.filter(pk=config.pk).update(last_dream_started_at=timezone.now(), dream_failure_streak=0)
+
+
+def _record_dispatch_failure(config: ContextLayerConfig) -> None:
+    streak = config.dream_failure_streak + 1
+    ContextLayerConfig.objects.filter(pk=config.pk).update(
+        dream_failure_streak=streak,
+        dreaming_paused=streak >= FAILURE_STREAK_PAUSE_THRESHOLD,
+    )
+    if streak >= FAILURE_STREAK_PAUSE_THRESHOLD:
+        logger.warning(
+            "context_layer.dreaming.lane_paused",
+            organization_id=str(config.organization_id),
+            streak=streak,
+        )
+
+
+@activity.defn
+async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOutput:
+    """Start one org's nightly dream as a normal cloud task. Never raises:
+    failures bump the org's streak and pause the lane at the threshold."""
+    from products.tasks.backend.facade.agents import (  # noqa: PLC0415 because the heavy sandbox stack should load only when a dream dispatches
+        CustomPromptSandboxContext,
+        create_task_and_trigger,
+    )
+
+    prepared = await sync_to_async(_prepare_dispatch, thread_sensitive=False)(input.organization_id)
+    if prepared is None:
+        return DispatchDreamRunOutput(dispatched=False)
+    config, team_id, user_id = prepared
+
+    try:
+        await create_task_and_trigger(
+            _build_dream_prompt(),
+            CustomPromptSandboxContext(team_id=team_id, user_id=user_id),
+            step_name="context-layer-dream",
+            internal=True,
+            workflow_id_prefix="context-layer-dream",
+        )
+    except Exception:
+        logger.exception("context_layer.dreaming.dispatch_failed", organization_id=input.organization_id)
+        await sync_to_async(_record_dispatch_failure, thread_sensitive=False)(config)
+        return DispatchDreamRunOutput(dispatched=False)
+
+    await sync_to_async(_record_dispatch_success, thread_sensitive=False)(config)
+    return DispatchDreamRunOutput(dispatched=True)
+
+
+@functools.cache
+def _build_dream_prompt() -> str:
+    """The dream run's prompt is the canonical skills, verbatim: synthesis
+    first, then the bounded consolidation pass on the same branch. Cached
+    because the checked-in files cannot change within a process's lifetime."""
+    dreaming = (SKILLS_DIR / "context-layer-dreaming" / "SKILL.md").read_text(encoding="utf-8")
+    consolidation = (SKILLS_DIR / "context-layer-consolidation" / "SKILL.md").read_text(encoding="utf-8")
+    return f"{_strip_frontmatter(dreaming)}\n\n{_strip_frontmatter(consolidation)}"
+
+
+def _strip_frontmatter(content: str) -> str:
+    if not content.startswith("---"):
+        return content
+    _, _, rest = content.partition("---\n")
+    _, _, body = rest.partition("---\n")
+    return body.lstrip("\n")
+
+
+@temporalio.workflow.defn(name="context-layer-dream-coordinator")
+class ContextLayerDreamCoordinatorWorkflow(PostHogWorkflow):
+    inputs_cls = DreamCoordinatorInput
+    inputs_optional = True
+
+    @temporalio.workflow.run
+    async def run(self, input: DreamCoordinatorInput) -> DreamCoordinatorOutput:
+        candidates = await temporalio.workflow.execute_activity(
+            fetch_dream_candidates,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+        # Dispatches run concurrently so the coordinator's lifetime stays far
+        # below the nightly tick; the worker's activity concurrency throttles.
+        results = await asyncio.gather(
+            *(
+                temporalio.workflow.execute_activity(
+                    dispatch_dream_run,
+                    DispatchDreamRunInput(organization_id=organization_id),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                )
+                for organization_id in candidates
+            )
+        )
+        dispatched = sum(1 for result in results if result.dispatched)
+        return DreamCoordinatorOutput(
+            planned=len(candidates), dispatched=dispatched, failed=len(candidates) - dispatched
+        )
