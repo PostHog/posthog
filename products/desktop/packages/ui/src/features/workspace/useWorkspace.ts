@@ -39,7 +39,10 @@ export function isCloudTask(task: Task, workspace: Workspace | null): boolean {
   if (workspace) {
     return workspace.mode === "cloud";
   }
-  return task.latest_run?.environment === "cloud";
+  return (
+    task.origin_product === "signal_report" ||
+    task.latest_run?.environment === "cloud"
+  );
 }
 
 export function useIsCloudTask(task: Task): boolean {

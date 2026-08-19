@@ -21,6 +21,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  isIgnoredSkillPath,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -3282,6 +3283,12 @@ export class AgentServer {
         normalizedEntryName.startsWith("/") ||
         normalizedEntryName.split("/").includes("..")
       ) {
+        continue;
+      }
+      // Bundles from clients that predate export-side filtering can still
+      // carry ignored entries; drop them so the sandbox skill matches what
+      // current clients would have uploaded.
+      if (isIgnoredSkillPath(normalizedEntryName)) {
         continue;
       }
 
