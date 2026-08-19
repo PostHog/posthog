@@ -9,10 +9,17 @@ from parameterized import parameterized
 
 from posthog.models import Organization, PropertyDefinition, Team
 
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import PersonPropertySyncSource
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncSource,
+    saved_query_binding,
+    schema_binding,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import person_property_sync as pps
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync"
+
+_SCHEMA = schema_binding("schema-1")
+_VIEW = saved_query_binding("view-1")
 
 
 class TestBuildBundles:
@@ -122,7 +129,7 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         # ghost is filtered out; only a and b are produced.
         produced_items = produce.call_args.args[3]
@@ -151,7 +158,7 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock()) as read,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         assert result.sources == 0
         read.assert_not_awaited()
@@ -228,7 +235,7 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._stamp_provenance"),
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_backfill(team_id=1, schema_id="schema-1", trigger="manual")
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
 
         # The table is read exactly once, though two sources map it.
         read_delta.assert_called_once()
@@ -241,18 +248,41 @@ class TestBackfillOrchestration:
         assert all(call.args[3] == pps.BACKFILL_RUN_TOKEN for call in write_snapshot.await_args_list)
         assert produce.call_count == 2
 
+    @parameterized.expand([("schema", _SCHEMA), ("saved_query", _VIEW)])
     @pytest.mark.asyncio
-    async def test_missing_schema_is_a_noop(self):
+    async def test_missing_warehouse_table_is_a_noop(self, _name, binding):
         sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
-            patch(f"{_MODULE}._get_schema", return_value=None),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value=None),
             patch(f"{_MODULE}._read_delta_bundles") as read_delta,
         ):
-            result = await pps.run_person_property_backfill(team_id=1, schema_id="schema-1", trigger="backfill")
+            result = await pps.run_person_property_backfill(team_id=1, binding=binding, trigger="backfill")
 
         assert result.sources == 0
         read_delta.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_view_binding_reads_the_model_table_uri(self):
+        # A view's rows live under its own model prefix. Reading the schema path instead would find no
+        # Delta log and report a silent 0-row backfill.
+        team = MagicMock(api_token="tok")
+        sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(
+                "products.data_modeling.backend.facade.api.get_materialized_table_uri",
+                return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
+            ) as model_uri,
+            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0)) as read_delta,
+        ):
+            team_cls.objects.get.return_value = team
+            await pps.run_person_property_backfill(team_id=1, binding=_VIEW, trigger="manual")
+
+        model_uri.assert_called_once_with(1, _VIEW.id)
+        assert read_delta.call_args.args[0] == "s3://bucket/team_1_model_abc/modeling/enriched_users"
 
 
 class _FakeS3:
@@ -310,11 +340,11 @@ class TestSnapshotCompaction:
     async def test_write_compacts_prior_files_and_preserves_union(self):
         fake = _FakeS3()
         with _fake_s3_patch(fake):
-            await pps._write_snapshot_hashes(1, "s", "src", "job-1", {"a": "h1", "b": "h1"})
-            await pps._write_snapshot_hashes(1, "s", "src", "job-2", {"b": "h2", "c": "h2"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "h1", "b": "h1"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-2", {"b": "h2", "c": "h2"})
 
-            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
-            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         # Two producing runs collapse to a single file whose union is newest-wins (b came from job-2).
         assert len(keys) == 1
@@ -325,11 +355,11 @@ class TestSnapshotCompaction:
         fake = _FakeS3()
         with _fake_s3_patch(fake):
             # Backfills share one filename; the second write must overwrite it, not delete it as "stale".
-            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h1"})
-            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h2", "b": "h2"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", pps.BACKFILL_RUN_TOKEN, {"a": "h1"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", pps.BACKFILL_RUN_TOKEN, {"a": "h2", "b": "h2"})
 
-            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
-            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         assert len(keys) == 1
         assert hashes == {"a": "h2", "b": "h2"}
@@ -392,7 +422,7 @@ class TestGroupTarget:
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         produce.assert_not_called()
         stamp.assert_not_called()
@@ -468,7 +498,7 @@ class TestStampProvenance:
             property_descriptions={"plan_tier": "The plan tier"},
         )
 
-        pps._stamp_provenance(team.id, "schema-1", source, ["plan_tier", "seat_count"])
+        pps._stamp_provenance(team.id, _SCHEMA, source, ["plan_tier", "seat_count"])
 
         described = PropertyDefinition.objects.get(team=team, name="plan_tier")
         plain = PropertyDefinition.objects.get(team=team, name="seat_count")
@@ -480,6 +510,21 @@ class TestStampProvenance:
         assert plain.warehouse_origin["custom_property_source_id"] == "s1"
         assert "description" not in plain.warehouse_origin
 
+    @parameterized.expand([("schema", _SCHEMA, "schema-1"), ("saved_query", _VIEW, None)])
+    def test_records_the_binding_and_keeps_schema_id_only_for_a_schema(self, _name, binding, expected_schema_id):
+        # `schema_id` is what rows stamped before views existed carry, so a schema binding must keep
+        # writing it; a view has no schema and must not claim one.
+        team = self._team()
+        PropertyDefinition.objects.create(team=team, name="plan_tier", type=PropertyDefinition.Type.PERSON)
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+
+        pps._stamp_provenance(team.id, binding, source, ["plan_tier"])
+
+        origin = PropertyDefinition.objects.get(team=team, name="plan_tier").warehouse_origin
+        assert origin is not None
+        assert (origin["binding_kind"], origin["binding_id"]) == (binding.kind, binding.id)
+        assert origin.get("schema_id") == expected_schema_id
+
     def test_group_target_stamps_only_matching_group_type(self):
         team = self._team()
         PropertyDefinition.objects.create(
@@ -490,7 +535,7 @@ class TestStampProvenance:
         )
         source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0)
 
-        pps._stamp_provenance(team.id, "schema-1", source, ["tier"])
+        pps._stamp_provenance(team.id, _SCHEMA, source, ["tier"])
 
         assert PropertyDefinition.objects.get(id=other.id).warehouse_origin is None
         stamped = PropertyDefinition.objects.get(team=team, name="tier", group_type_index=0)
