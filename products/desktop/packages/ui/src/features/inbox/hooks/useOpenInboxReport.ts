@@ -8,10 +8,10 @@ import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
+  navigateToChannelDashboard,
   navigateToInboxDismissedDetail,
   navigateToInboxPullRequestDetail,
   navigateToInboxReportDetail,
-  navigateToChannelDashboard,
 } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
@@ -85,12 +85,6 @@ export function useOpenInboxReport() {
         toast.error("Failed to open report");
       }
     },
-    [
-      client,
-      queryClient,
-      reportCanvasesEnabled,
-      reportSpaceId,
-      resetFilters,
-    ],
+    [client, queryClient, reportCanvasesEnabled, reportSpaceId, resetFilters],
   );
 }
