@@ -2,7 +2,12 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
@@ -31,7 +36,7 @@ class TestZeroSource:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/zero.png"
-        assert config.category.value == "CRM"
+        assert config.category == DataWarehouseSourceCategory.CRM
         assert len(config.fields) == 1
 
         api_key_field = config.fields[0]
