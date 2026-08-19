@@ -11,7 +11,7 @@ import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
     EVALUATION_PASSED_HOGQL,
-    EVALUATION_SUMMARY_MAX_RUNS,
+    EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
 import {
@@ -1187,7 +1187,7 @@ export async function queryEvaluationRuns(params: {
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
         ORDER BY timestamp DESC
-        LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
+        LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
 
     const response = await api.queryHogQL(
@@ -1206,7 +1206,7 @@ export interface EvaluationRunsStats {
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
-// EVALUATION_SUMMARY_MAX_RUNS, so summary stats can't be derived from that list without
+// EVALUATION_RUNS_QUERY_LIMIT, so summary stats can't be derived from that list without
 // undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
 // so both surfaces report the same totals.
 export async function queryEvaluationRunsStats(params: {
