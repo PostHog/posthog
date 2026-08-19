@@ -215,7 +215,10 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
-- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind the `tasks-glm-baseten-inference` flag. Do not enable the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
+- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-model` flag.
+  Deliberately not `tasks-glm-baseten-inference`: that one only moves GLM 5.2 traffic onto Baseten, so sharing it would grant 5.3 by proxy the moment 5.2 routing changed.
+  GLM 5.3 has no open weights released yet, so the flag is not created: the access gate fails closed, keeping the model blocked server-side and hidden in every picker.
+  Do not create the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
 
 Provider configuration:
@@ -224,7 +227,7 @@ Provider configuration:
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-The `tasks-glm-baseten-inference` feature flag routes matching users to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
+The `tasks-glm-baseten-inference` feature flag routes matching users' GLM 5.2 traffic to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
 
 Two knobs opt traffic into Modal (OR semantics, both default off):
 
