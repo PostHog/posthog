@@ -384,7 +384,7 @@ class Reviewer:
         # Shared by both routes; the full set is always on the separate
         # stamphog_review_completed event. Extras first so the base props win:
         # the hosted server stamps runtime/team context via STAMPHOG_EXTRA_PROPERTIES,
-        # absent in the Action.
+        # absent on a local run.
         attribution = {
             **analytics_extra_properties(),
             "stamphog_pr_number": pr.number,

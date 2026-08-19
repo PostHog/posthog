@@ -6,7 +6,6 @@ import pytest
 
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
-    DISMISS_TIME_LOCKFILES,
     build_ownership,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
@@ -503,16 +502,6 @@ def test_has_dependency_changes_recognizes_uncurated_manifests_and_lockfiles(pat
     # curated set — a future narrowing of the table should fail here rather
     # than silently stop flagging these as dependency changes.
     assert has_dependency_changes([path]) is True
-
-
-def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
-    # Dismiss-time trust must be an explicit per-ecosystem decision: go.sum
-    # (trusted_at_dismiss unset) stays out even though it is a deny-listed
-    # lockfile, while node's lockfiles — including npm-shrinkwrap.json — opt
-    # in. Catches a revert to deriving trust from the whole lockfile set.
-    assert "go.sum" not in DISMISS_TIME_LOCKFILES
-    assert "pnpm-lock.yaml" in DISMISS_TIME_LOCKFILES
-    assert "npm-shrinkwrap.json" in DISMISS_TIME_LOCKFILES
 
 
 # ── Ownership sources ────────────────────────────────────────────

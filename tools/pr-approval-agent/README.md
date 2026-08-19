@@ -10,9 +10,9 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 
 ## Usage
 
-Add the `stamphog` label to a non-draft PR.
-The GitHub Action runs the agent and posts an approval or comment.
-On approval the label stays so it's visible which PRs were stamphog'd.
+Reviews run in the hosted stamphog product ([`products/stamphog/`](../../products/stamphog/)): a GitHub App delivers the PR webhook, and the engine runs in an isolated sandbox through `review_local.py`.
+A repo either reviews every PR or waits for its trigger label, per its `review_mode`.
+On approval a trigger label stays so it's visible which PRs were stamphog'd.
 Only a substantive non-approval (`REFUSE`/`ESCALATE`) removes the label, so it
 can be re-applied once the feedback is addressed; every other outcome —
 including a crashed run that produced no verdict — keeps the label and retries
@@ -21,14 +21,12 @@ If the review agent can't reach its LLM backend (credentials, credit, or
 outage) it returns `ERROR` and **keeps** the label — a transient infra failure
 must not silently drop labels across every queued PR. The review retries on the
 next push, or re-apply the label once the backend recovers.
-`WAIT` also keeps the label: it means an allowlisted reviewer bot still had a
-review in flight (👀 reaction) after the polling budget — not a verdict on the
-PR, so the next push retries automatically. When the whole
-fleet of stamphog reviews suddenly returns `ERROR`, suspect the
-`STAMPHOG_ANTHROPIC_API_KEY` org secret first (stamphog uses its own dedicated
-Anthropic key, separate from the shared `ANTHROPIC_API_KEY`).
+`WAIT` also keeps the label. It means either that an allowlisted reviewer bot
+still had a review in flight (👀 reaction) after the polling budget, or that the
+`Migration risk` check had not reported yet — neither is a verdict on the PR, so
+the next push retries automatically.
 
-### Local testing
+### Local review
 
 ```bash
 # run from anywhere inside the posthog repo
@@ -44,6 +42,8 @@ uv run tools/pr-approval-agent/review_pr.py 46594 --output-json /tmp/review.json
 uv run tools/pr-approval-agent/review_pr.py 46594 -v
 ```
 
+`review_pr.py` is the manual entrypoint: it fetches everything over the network with `gh` and reviews a PR from your own checkout.
+The hosted runtime never uses it, running `review_local.py` against a pre-fetched context instead, with no GitHub token inside the sandbox.
 Requires `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
 Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 
@@ -234,7 +234,7 @@ PostHog's auth system or its billing.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `tools/pr-approval-agent/migration_risk.py` for how stamphog reads it.
 
-If the check hasn't completed yet when stamphog runs, stamphog refuses with a message asking the user to wait for the `Migration risk` check and re-apply the `stamphog` label. The label-strip on non-approved verdicts breaks the auto-rerun loop, so the next labeling action is the one that triggers a fresh review against the now-classified head commit.
+If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would hand the PR to ReviewHog and strip the trigger label over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
 
 ### Ownership
 
@@ -269,7 +269,7 @@ Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as 
 - Reviewer output (verdict, reasoning, risk, issues)
 - Final verdict
 
-The GitHub Action uploads this as a build artifact with 30-day retention.
+The hosted runtime persists it on the `ReviewRun` row, readable through the stamphog API.
 
 ## Architecture
 
@@ -277,7 +277,7 @@ The GitHub Action uploads this as a build artifact with 30-day retention.
 - `gates.py` — deterministic classification and deny-list logic
 - `github.py` — GitHub data fetching via `gh` CLI
 - `reviewer.py` — Claude Agent SDK reviewer (showstoppers prompt)
-- `.github/workflows/pr-approval-agent.yml` — GitHub Action (label trigger)
+- `review_local.py` — offline entrypoint the hosted sandbox runs, consuming a pre-fetched context
 
 ## Empirical basis
 

@@ -13,7 +13,7 @@ from temporalio.common import RetryPolicy
 
 STAMPHOG_TASK_QUEUE = "stamphog-task-queue"
 
-# Where the target repo is cloned inside the review sandbox. The Action's review
+# Where the target repo is cloned inside the review sandbox. The engine's review
 # engine is shipped into ENGINE_DIR (under the checkout, so its repo-root walk finds
 # the checkout and reads the injected trusted policy); the context JSON lands at
 # CONTEXT_PATH. Kept here so logic.reviewer.build_reviewer_invocation and
@@ -37,7 +37,7 @@ STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
 )
 STAMPHOG_BOT_EYES_MAX_AGE_SECONDS = 45 * 60
 STAMPHOG_BOT_REVIEW_POLL_SECONDS = 30
-STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the Action's wait budget
+STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the engine's wait budget
 
 # The GitHub label Stamphog adds to hand a refused/escalated PR to ReviewHog. ``review-hog.yml``
 # routes this label (when applied by stamphog[bot] — the one sanctioned bot exempted from its

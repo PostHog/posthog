@@ -9,26 +9,26 @@
 # ]
 # ///
 # ruff: noqa: T201
-"""Offline PR review entrypoint — the sandbox runs this instead of review_pr.py.
+"""Offline PR review entrypoint — the hosted sandbox runs this instead of review_pr.py.
 
-review_pr.py fetches everything over the network (`gh`, GraphQL, git) and posts
-the verdict. This script runs the SAME engine (gates, tier classification,
-git-blame familiarity, the LLM reviewer with the same prompt/version) against a
-LOCAL checkout, with NO GitHub access and NO token. All GitHub-sourced data the
+review_pr.py is the manual entrypoint: it fetches everything over the network
+(`gh`, GraphQL, git) and posts the verdict. This script runs the SAME engine
+(gates, tier classification, git-blame familiarity, the LLM reviewer with the
+same prompt/version) against a LOCAL checkout, with NO GitHub access and NO token. All GitHub-sourced data the
 engine needs is handed in via a `--context` JSON file that the server (which
 holds the token) assembles from the API; the only thing that flows back out is
 the JSON on the last stdout line — the same `to_dict()` contract review_pr.py
 emits with `--output-json`.
 
 Reuse: it drives review_pr.Pipeline's own steps (classify, gates, the LLM
-review, to_dict) so the engine logic stays byte-identical to the Action. Only
-the two steps that touch the network are replaced with injected data:
+review, to_dict) so both entrypoints share one implementation of the engine
+logic. Only the steps that touch the network are replaced with injected data:
 - _fetch (gh) → a PRData built from the context.
-- the two `gh` calls the Action makes inside gate/familiarity — the author-team
-  membership lookup (advisory ownership enrichment) and the author's merged-PR
-  set — are skipped / injected. Familiarity's blame math is mirrored here with
-  the injected PR set (see _familiarity_offline) because Pipeline._compute_familiarity
-  hardcodes the `gh` fetch and must not be modified (the Action stays additive-only).
+- the two `gh` calls review_pr.py makes inside gate/familiarity — the author-team
+  membership lookup and the author's merged-PR set — are injected through the
+  context instead. Familiarity's blame math is mirrored here with the injected PR
+  set (see _familiarity_offline) because Pipeline._compute_familiarity hardcodes
+  the `gh` fetch that only the networked entrypoint can make.
 
 Trusted policy (`.stamphog/policy.yml`, `.stamphog/review-guidance.md`) is read
 by the engine from the checkout at import time; the server overwrites those paths
@@ -108,19 +108,19 @@ def _convert_api_file(f: dict) -> dict:
 def _build_pr_data(context: dict) -> PRData:
     """Build the engine's PRData from the injected context.
 
-    File stats are recomputed locally with the exact function the Action uses
+    File stats are recomputed locally with the exact function review_pr.py uses
     (`git diff --numstat` over base...head) so PRData.files is identical to a
-    real run; the context's file list is only a fallback if the local diff is
+    networked run; the context's file list is only a fallback if the local diff is
     empty (e.g. a sha failed to fetch). Reviews, top-level discussion comments,
     and head-commit check runs are carried in the context (reviews/discussion
-    normalized with the same helpers the Action uses, check runs passed through
-    raw as the Action does) — so the prerequisite gate blocks on an active
+    normalized with the same helpers review_pr.py uses, check runs passed
+    through raw the same way) — so the prerequisite gate blocks on an active
     CHANGES_REQUESTED, the agent sees maintainer discussion, and the migration
     gate can see a passing "Migration risk" check. Inline review-thread comments
     (a GraphQL-only surface with thread-resolution state) are carried when the
     hosted context supplies "review_threads"; only UNRESOLVED threads flow into
     the prompt, since an unresolved inline "do not merge" is the blocker the
-    reviewer must see and resolved threads are noise. An absent key (the Action
+    reviewer must see and resolved threads are noise. An absent key (a local review_pr.py run
     runtime doesn't pass it) means an empty list — a clean no-op, never a crash.
     Reactions on those inline comments are not carried, so they default empty.
     """
@@ -151,7 +151,7 @@ def _build_pr_data(context: dict) -> PRData:
     ]
 
     # Trusted-bot reactions only: the offline path has no token for the org-membership check the
-    # Action's reactor predicate performs, and the in-flight wait consumes only allowlisted bot 👀
+    # networked reactor predicate performs, and the in-flight wait consumes only allowlisted bot 👀
     # anyway — human reactions are never waited on. REST content values lowercase-match the mapper.
     author_login = user.get("login") or ""
     pr_reactions = [
@@ -165,7 +165,7 @@ def _build_pr_data(context: dict) -> PRData:
     # list stays in the context. Each comment passes the same author-trust gate as reviews and
     # discussion — an untrusted external commenter must not plant a fake maintainer hold, and
     # stamphog's own prior comments must not feed back as third-party claims. Absent key -> empty, so
-    # the Action runtime (which doesn't pass it) is unaffected and the prompt renders no
+    # a local review_pr.py run (which doesn't pass it) is unaffected and the prompt renders no
     # inline-comments section, exactly as before.
     review_comments: list[dict] = []
     for thread in context.get("review_threads") or []:
@@ -179,9 +179,9 @@ def _build_pr_data(context: dict) -> PRData:
             # Real reply ids aren't carried in the lean shape; a truthy placeholder on the replies
             # only marks reply-ness — the prompt's "(reply)" label and _summarize_assurance's
             # "count threads (in_reply_to_id is None), not comments" semantic both key off it.
-            # Parity with the Action (github.py): only the TRUE thread root (index 0) may carry None.
+            # Parity with the networked path (github.py): only the TRUE thread root (index 0) may carry None.
             # When the root is filtered (untrusted author, or stamphog's own finding), every survivor
-            # is a reply, so the thread contributes 0 to unresolved_threads — exactly like the Action,
+            # is a reply, so the thread contributes 0 to unresolved_threads — exactly like the networked path,
             # whose surviving replies keep their real non-None replyTo ids.
             review_comments.append(
                 {
@@ -223,14 +223,14 @@ def _build_pr_data(context: dict) -> PRData:
 def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
     """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
 
-    The Action resolves membership with one `gh` call per owning team. The sandbox holds no token,
-    so the server supplies every team that the author belongs to, and this function does the
+    review_pr.py resolves membership with one `gh` call per owning team. The sandbox holds no
+    token, so the server supplies every team that the author belongs to, and this function does the
     intersection.
 
     `author_on_owning_team` matters beyond the summary text. The reviewer prompt reads that key with
     a default of True, so an unset key tells the reviewer that the author owns the code, whoever
     opened the PR. An unresolvable lookup arrives as an empty set and yields "not on any owning
-    team". The Action fails in the same direction, and that direction is the safe one for a bot that
+    team". review_pr.py fails in the same direction, and that direction is the safe one for a bot that
     approves.
     """
     cl = pipeline.classification
@@ -296,7 +296,7 @@ def _familiarity_offline(
     compute_familiarity fetches the author's merged-PR numbers with one `gh`
     call, which is impossible in the tokenless sandbox — the server fetches them
     and hands them in via the context instead. Everything else (blame overlap,
-    prior PRs, previously-modified files, banding) is the Action's own bounded
+    prior PRs, previously-modified files, banding) is the engine's own bounded
     git logic, called here unchanged.
     """
     now = time.time() if now is None else now
@@ -334,7 +334,7 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
 
     Same gating as Pipeline._maybe_compute_familiarity (T0 skips the LLM, T2 is a
     deny, so neither benefits). Absent injected PR numbers leaves the signal None,
-    exactly as a failed `gh` call would in the Action — a one-way ratchet.
+    exactly as a failed `gh` call would in review_pr.py — a one-way ratchet.
     """
     if pipeline.classification.get("tier") != "T1-agent":
         return
@@ -394,10 +394,10 @@ def run(context: dict) -> dict:
         0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")), head_checkout=True
     )
     pipeline.pr = _build_pr_data(context)
-    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token
-    # and runs here exactly as it runs in the Action. Without this call, the agent-authorship
-    # evidence and the stamphog_review_completed provenance properties are null for every hosted
-    # review.
+    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token,
+    # and it behaves here exactly as it does on a networked run. Without this call, the
+    # agent-authorship evidence and the stamphog_review_completed provenance properties are null for
+    # every hosted review.
     pipeline.provenance = pr_provenance(pipeline.pr.base_sha, pipeline.pr.head_sha, REPO_ROOT)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
@@ -430,11 +430,11 @@ def run(context: dict) -> dict:
             pipeline._capture_review_completed(gate_verdict, "PENDING-MIGRATION-CHECK")
             return pipeline.to_dict()
 
-        # Mirror the Action's in-flight reviewer-bot handling, minus the wait: there is no token in
+        # Mirror review_pr.py's in-flight reviewer-bot handling, minus the wait: there is no token in
         # the sandbox to poll with, and the SERVER already waited out the race (workflow bot-wait
         # loop) and refreshed this snapshot before provisioning. Bots still showing fresh 👀 here
         # mean the server's budget expired — WAIT, never approve over an unfinished review. Gate
-        # denials skip the check, same as the Action: a refusal can't approve over anything.
+        # denials skip the check, same as review_pr.py: a refusal can't approve over anything.
         if gate_verdict != "DENIED" and (in_flight := pipeline._in_flight_bot_reviewers()):
             bot_list = ", ".join(f"@{b}" for b in in_flight)
             pipeline.final_verdict = "WAIT"

@@ -173,15 +173,6 @@ tiers:
             max_lines: 300
             max_files: 15
             breadth: 'not-cross-cutting'
-dismiss:
-    trivial_extensions:
-        - '.md'
-        - '.mdx'
-    trivial_name_prefixes:
-        - 'readme'
-        - 'changelog'
-    test_regex: '(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\.py$|_test\.(py|go)$|\.test\.(ts|tsx|js|jsx)$|\.spec\.(ts|tsx|js|jsx)$|(?:^|/)conftest\.py$'
-    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$'
 overrides:
     'size_gate.max_files':
         ceiling: 50

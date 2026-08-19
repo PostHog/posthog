@@ -295,10 +295,10 @@ def test_multi_comment_thread_counts_as_one_unresolved_thread(monkeypatch) -> No
 
 
 def test_filtered_root_thread_counts_zero_unresolved_threads(monkeypatch) -> None:
-    # Parity with the Action: when the true thread root is filtered (untrusted author, or stamphog's
+    # Parity with the networked path: when the true thread root is filtered (untrusted author, or stamphog's
     # own inline finding), the survivors are replies — the thread contributes 0 to unresolved_threads,
-    # exactly as the Action's real replyTo ids make it. Treating the first survivor as a root would
-    # make hosted stricter than the Action on every maintainer reply to a stamphog finding.
+    # exactly as the networked path's real replyTo ids make it. Treating the first survivor as a root
+    # would make the sandbox stricter on every maintainer reply to a stamphog finding.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     context = _thread_context(
         [
@@ -326,7 +326,7 @@ def test_filtered_root_thread_counts_zero_unresolved_threads(monkeypatch) -> Non
 
 
 def test_absent_review_threads_key_is_a_clean_no_op(monkeypatch) -> None:
-    # The Action runtime doesn't pass review_threads yet, so a context without the key must default to
+    # A local review_pr.py run doesn't pass review_threads, so a context without the key must default to
     # no inline comments rather than crash — the engine parity contract.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     context = {

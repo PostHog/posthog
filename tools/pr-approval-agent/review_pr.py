@@ -939,8 +939,8 @@ class Pipeline:
             distinct_id=pr.author,
             event="stamphog_review_completed",
             # Extras first so the base props win on collision: the hosted server stamps its
-            # runtime/team context through this hook; absent in the Action, so Action events
-            # are unchanged (no prop = action runtime).
+            # runtime/team context through this hook; absent on a local run, whose events are
+            # unchanged (no prop = local runtime).
             properties={
                 **analytics_extra_properties(),
                 "ai_product": "stamphog",
