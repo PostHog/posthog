@@ -159,23 +159,43 @@ def chi2_sf(x: float, dof: int) -> float:
     return 1.0 - _gamma_p_series(s, scaled) if scaled < s + 1.0 else _gamma_q_cf(s, scaled)
 
 
-def chi2_gof(observed: dict[str, float], expected: dict[str, float]) -> tuple[float, int, float]:
-    """Goodness-of-fit of `observed` against `expected`. Returns (chi2, dof, p)."""
+@dataclass(frozen=True)
+class GoodnessOfFit:
+    """A chi-squared goodness-of-fit outcome: the statistic, its degrees of freedom, and the p."""
+
+    chi2: float
+    dof: int
+    p: float
+
+
+@dataclass(frozen=True)
+class ConfidenceInterval:
+    """A two-sided interval on a proportion, as fractions in [0, 1]."""
+
+    low: float
+    high: float
+
+
+def chi2_gof(observed: dict[str, float], expected: dict[str, float]) -> GoodnessOfFit:
+    """Goodness-of-fit of `observed` against `expected`."""
     chi2 = sum((observed.get(key, 0) - exp) ** 2 / exp for key, exp in expected.items() if exp > 0)
     dof = max(len([e for e in expected.values() if e > 0]) - 1, 1)
-    return chi2, dof, chi2_sf(chi2, dof)
+    return GoodnessOfFit(chi2=chi2, dof=dof, p=chi2_sf(chi2, dof))
 
 
-def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+def wilson_interval(k: int, n: int, z: float = 1.96) -> ConfidenceInterval:
     """Wilson score interval for k successes in n trials. Beats the normal approximation at the
     extremes, which is exactly where an agreement rate sits."""
     if n <= 0:
-        return 0.0, 1.0
+        return ConfidenceInterval(low=0.0, high=1.0)
     p = k / n
     denom = 1.0 + z * z / n
     center = p + z * z / (2 * n)
     margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
-    return max((center - margin) / denom, 0.0), min((center + margin) / denom, 1.0)
+    return ConfidenceInterval(
+        low=max((center - margin) / denom, 0.0),
+        high=min((center + margin) / denom, 1.0),
+    )
 
 
 @dataclass(frozen=True)
@@ -311,9 +331,9 @@ def judge(
     recorded = {g.variant: float(g.recorded) for g in gaps}
     predicted = {g.variant: float(g.predicted) for g in gaps}
 
-    _, _, p_recorded = chi2_gof(recorded, expected)
-    chi2_pred, _, p_predicted = chi2_gof(predicted, expected)
-    agree_lo, agree_hi = wilson_interval(agree, total)
+    recorded_fit = chi2_gof(recorded, expected)
+    predicted_fit = chi2_gof(predicted, expected)
+    agreement = wilson_interval(agree, total)
     chance = chance_agreement(variants)
 
     # The arm carrying the most gap is the one to decompose; its two shares sum to exactly 1.
@@ -325,12 +345,12 @@ def judge(
         f"lead arm:            {printable(lead.variant)} (recorded {lead.recorded} vs expected {lead.expected:.1f},"
         f" gap {lead.gap:+.1f})",
         f"  selection:         {lead.selection:+.1f} ({100.0 * selection_share:.0f}% of the gap)"
-        f"  chi2={chi2_pred:.2f} p={p_predicted:.3g}",
+        f"  chi2={predicted_fit.chi2:.2f} p={predicted_fit.p:.3g}",
         f"  reassignment:      {lead.reassignment:+.1f} ({100.0 * reassignment_share:.0f}% of the gap)"
-        f"  disagreement 95% CI [{100.0 * (1 - agree_hi):.2f}%, {100.0 * (1 - agree_lo):.2f}%]",
+        f"  disagreement 95% CI [{100.0 * (1 - agreement.high):.2f}%, {100.0 * (1 - agreement.low):.2f}%]",
     ]
 
-    if agree_lo <= chance:
+    if agreement.low <= chance:
         return Verdict(
             "INAPPLICABLE",
             detail
@@ -344,20 +364,20 @@ def judge(
             ],
         )
 
-    if p_recorded > SRM_ALPHA:
+    if recorded_fit.p > SRM_ALPHA:
         return Verdict(
             "NO SRM IN SAMPLE",
             detail
             + [
                 "",
                 f"=> the sample's own recorded split is consistent with the configured one"
-                f" (p={p_recorded:.3g}).",
+                f" (p={recorded_fit.p:.3g}).",
                 "   There is no gap here to localize. Either the sample is too small, the window is wrong,",
                 "   or the configured split you passed is not the one that was running.",
             ],
         )
 
-    if selection_share >= DOMINANT_SHARE and p_predicted < SRM_ALPHA:
+    if selection_share >= DOMINANT_SHARE and predicted_fit.p < SRM_ALPHA:
         return Verdict(
             "CAPTURE",
             detail
@@ -370,7 +390,7 @@ def judge(
             ],
         )
 
-    if reassignment_share >= DOMINANT_SHARE and agree_hi < 1.0:
+    if reassignment_share >= DOMINANT_SHARE and agreement.high < 1.0:
         return Verdict(
             "ASSIGNMENT",
             detail
@@ -509,12 +529,13 @@ def selftest() -> int:
 
     print("chi-squared vs the worked example in pulling-the-data.md (832 vs 1123):")
     for share, expected_p in _SRM_EXAMPLE:
-        _, _, got_p = chi2_gof({"a": 832, "b": 1123}, {"a": 1955 * share, "b": 1955 * (1 - share)})
+        got_p = chi2_gof({"a": 832, "b": 1123}, {"a": 1955 * share, "b": 1955 * (1 - share)}).p
         rel = abs(got_p - expected_p) / expected_p
         ok &= _check(rel < 0.01, f"split {share:g}", f"{got_p:.3g}", f"{expected_p:.3g}")
 
     print("Wilson interval (the 99% agreement that used to flip the verdict):")
-    lo, hi = wilson_interval(792, 800)
+    ci = wilson_interval(792, 800)
+    lo, hi = ci.low, ci.high
     bounds = (round(lo, 4), round(hi, 4))
     ok &= _check(abs(lo - 0.9804) < 1e-3 and abs(hi - 0.9949) < 1e-3, "792/800", bounds, (0.9804, 0.9949))
     ok &= _check(lo < 0.99 < hi, "  straddles the old cutoff", bounds, "0.99 inside")
@@ -587,7 +608,7 @@ def run(
 
     gaps = decompose(recorded_counts, predicted_counts, variants, total)
     expected = {g.variant: g.expected for g in gaps}
-    agree_lo, agree_hi = wilson_interval(agree, total)
+    agreement = wilson_interval(agree, total)
 
     # A recorded value outside the configured keys can never agree with the hash, so it reads as
     # total disagreement. Name it, or the verdict below sends the reader hunting for a wrong
@@ -604,7 +625,7 @@ def run(
         print(f"unknown variants:    {sum(unknown.values())} rows recorded a value not in --variants: {listed}")
     print(
         f"agreement:           {agree}/{total} ({100.0 * agree / total:.2f}%)"
-        f"  95% CI [{100.0 * agree_lo:.2f}%, {100.0 * agree_hi:.2f}%]"
+        f"  95% CI [{100.0 * agreement.low:.2f}%, {100.0 * agreement.high:.2f}%]"
     )
     print(f"configured split:    {fmt_split(expected, float(total))}")
     print(f"predicted split:     {fmt_split({k: float(v) for k, v in predicted_counts.items()}, float(total))}")
