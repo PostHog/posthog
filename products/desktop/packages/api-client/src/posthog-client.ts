@@ -362,7 +362,9 @@ export interface UserGitHubIntegration {
 export interface GitHubInstallRequest {
   id: string;
   github_login: string;
-  status: "pending" | "approved";
+  /** `unidentified` means the requester could not be resolved, so approval can
+   *  never be detected and the user has to restart the connect flow. */
+  status: "pending" | "approved" | "unidentified";
   installation_id?: string | null;
   requested_at: string;
   resolved_at?: string | null;
