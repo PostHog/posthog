@@ -72,9 +72,8 @@ QueryCacheS3Mode = Literal["off", "shadow", "on"]
 QUERY_CACHE_S3_FLAG = "query-cache-s3-writes"
 
 # On the default registry, not get_cache_metrics_context: Celery and Temporal workers already
-# serve scrape endpoints (posthog/celery.py, posthog/temporal/common/combined_metrics_server.py),
-# and the push gateway replaces the whole job on every push, which would collapse these
-# per-call counters and histograms to the single most recent observation.
+# serve scrape endpoints, and the push gateway replaces the whole job on every push, which
+# would collapse these per-call counters and histograms to the latest observation.
 S3_WRITE_COUNTER = Counter(
     name="posthog_query_cache_s3_write_total",
     documentation="Query cache blob uploads to S3, by write mode and outcome.",
@@ -87,10 +86,10 @@ S3_READ_COUNTER = Counter(
     labelnames=["outcome"],
 )
 
-# Only blobs of at least QUERY_CACHE_S3_MIN_COMPRESSED_BYTES reach S3, so a round trip rarely
-# beats 50ms, while multi-MB transfers need resolution out to tens of seconds. Durations carry
-# outcome labels because failures return fast (1s connect and 5s idle-socket timeouts, no
-# retries); folded into one series they would make latency look better during an S3 outage.
+# Buckets start at 50ms because only large blobs make the trip, and reach tens of seconds for
+# multi-MB transfers. Failures return fast (1s connect and 5s idle-socket timeouts, no
+# retries), so durations carry outcome labels; folded into one series an S3 outage would make
+# latency look better, not worse.
 _S3_DURATION_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float("inf")]
 
 S3_WRITE_DURATION = Histogram(
@@ -249,7 +248,7 @@ def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Option
     The miss sends the caller to recompute, and its store overwrites the entry, so dead
     entries heal by replacement rather than by deletion here.
     """
-    if value.startswith(S3_POINTER_MAGIC):
+    if is_s3_pointer(value):
         return _read_blob(value, team_id=team_id, cache_key=cache_key)
     if value.startswith(ZSTD_FRAME_MAGIC):
         try:
