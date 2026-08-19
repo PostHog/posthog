@@ -71,6 +71,26 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return queryset.filter(term_filter)
 
 
+def name_alias_search_extra(search_term: Optional[str], aliases: dict[str, str]) -> str:
+    """Build an ``OR name = ANY(...)`` clause so a search of a display label also matches its key.
+
+    ``aliases`` maps a stored ``name`` key to the display label a user sees (e.g. ``$copy_autocapture``
+    -> "Clipboard autocapture"). A search matches a key when every search word appears in its label,
+    mirroring the word-by-word ILIKE matching in ``term_search_filter_sql``. Keys come from the
+    taxonomy (trusted constants), so they are embedded directly; user input stays in the ILIKE terms.
+    Pass the result as ``term_search_filter_sql``'s ``search_extra``.
+    """
+    if not search_term:
+        return ""
+
+    search_words = search_term.lower().split()
+    entries = [f"'{key}'" for key, label in aliases.items() if all(word in label.lower() for word in search_words)]
+
+    if not entries:
+        return ""
+    return f"OR name = ANY(ARRAY[{', '.join(entries)}])"
+
+
 def term_search_filter_sql(
     search_fields: list[str],
     search_terms: Optional[str] = "",
