@@ -585,11 +585,7 @@ export function FeatureFlagReleaseConditions({
                     it.
                 </LemonBanner>
             )}
-            <FractionalRolloutWarning
-                filterGroups={filterGroups}
-                evaluationRuntime={evaluationRuntime}
-                className="mb-3"
-            />
+            <FractionalRolloutWarning filterGroups={filterGroups} className="mb-3" />
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2

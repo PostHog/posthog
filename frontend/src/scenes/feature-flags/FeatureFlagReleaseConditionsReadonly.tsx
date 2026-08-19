@@ -152,7 +152,7 @@ export function FeatureFlagReleaseConditionsReadonly({
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
-            <FractionalRolloutWarning filterGroups={filterGroups} evaluationRuntime={evaluationRuntime} />
+            <FractionalRolloutWarning filterGroups={filterGroups} />
 
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (

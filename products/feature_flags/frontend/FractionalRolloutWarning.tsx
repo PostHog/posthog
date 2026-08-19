@@ -1,7 +1,7 @@
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { FeatureFlagEvaluationRuntime, FeatureFlagGroupType } from '~/types'
+import { FeatureFlagGroupType } from '~/types'
 
 /** First SDK releases that deserialize a fractional rollout percentage. */
 const MIN_DOTNET_VERSION = '2.13.3'
@@ -18,21 +18,17 @@ export function fractionalRolloutPercentages(filterGroups: FeatureFlagGroupType[
         .filter((percentage): percentage is number => typeof percentage === 'number' && !Number.isInteger(percentage))
 }
 
-/** Warns that a fractional release-condition rollout breaks local evaluation on older SDKs. */
+/** Warns that a fractional release-condition rollout breaks local evaluation on older SDKs.
+ *
+ *  Not gated on the flag's evaluation runtime: the local evaluation payload carries client-only flags
+ *  too (SDKs filter by runtime only after parsing), so even a client-only flag breaks the parse. */
 export function FractionalRolloutWarning({
     filterGroups,
-    evaluationRuntime = FeatureFlagEvaluationRuntime.ALL,
     className,
 }: {
     filterGroups: FeatureFlagGroupType[] | undefined
-    evaluationRuntime?: FeatureFlagEvaluationRuntime
     className?: string
 }): JSX.Element | null {
-    // Local evaluation only runs in server-side SDKs, so a client-only flag can't hit this.
-    if (evaluationRuntime === FeatureFlagEvaluationRuntime.CLIENT) {
-        return null
-    }
-
     const percentages = fractionalRolloutPercentages(filterGroups)
     if (percentages.length === 0) {
         return null

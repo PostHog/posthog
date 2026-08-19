@@ -1121,7 +1121,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
-            <FractionalRolloutWarning filterGroups={filterGroups} evaluationRuntime={evaluationRuntime} />
+            <FractionalRolloutWarning filterGroups={filterGroups} />
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
