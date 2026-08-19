@@ -52,6 +52,12 @@ export const createSegments = (
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
 
+    // Does this window have any snapshot after the given timestamp, so it is still ongoing?
+    const windowHasSnapshotAfter = (windowId: number | undefined, timestamp: number): boolean => {
+        const windowSnapshots = windowId === undefined ? undefined : snapshotsByWindowId[windowId]
+        return !!windowSnapshots && windowSnapshots[windowSnapshots.length - 1].timestamp > timestamp
+    }
+
     snapshots.forEach((snapshot, index) => {
         const eventIsActive = isActiveEvent(snapshot)
         const previousSnapshot = snapshots[index - 1]
@@ -80,6 +86,23 @@ export const createSegments = (
         // 5. If there are no more snapshots for this windowId
         if (isPreviousSnapshotLastForWindow) {
             isNewSegment = true
+        }
+
+        // Don't hand the frame to a different window while the current one is still ongoing.
+        // Two tabs open at once interleave their snapshots by timestamp, so a naive switch on
+        // every windowId change swaps the rendered document back and forth — a viewer watching
+        // the app sees a background tab (for example the marketing site) flash into the frame.
+        // While the current window still has snapshots ahead, the other window's events belong
+        // to a gap in this window's playback, not a reason to swap. An explicit trackedWindow
+        // always wins, and a window that has genuinely ended still hands off.
+        if (
+            isNewSegment &&
+            activeSegment &&
+            snapshot.windowId !== activeSegment.windowId &&
+            snapshot.windowId !== trackedWindow &&
+            windowHasSnapshotAfter(activeSegment.windowId, snapshot.timestamp)
+        ) {
+            isNewSegment = false
         }
 
         // NOTE: We have to make sure that we set this _after_ we use it

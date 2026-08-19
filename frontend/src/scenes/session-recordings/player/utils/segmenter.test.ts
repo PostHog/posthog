@@ -81,6 +81,47 @@ describe('segmenter', () => {
         expect(segments).toMatchSnapshot()
     })
 
+    it('keeps rendering the ongoing window while another window interleaves', () => {
+        // Two tabs open at once interleave their snapshots by timestamp. Window 1 has coverage
+        // through the end, so window 2's events must not take over the frame — otherwise a viewer
+        // watching window 1 sees window 2 (e.g. a background marketing tab) flash into view.
+        const start = dayjs('2023-01-01T00:00:00.000Z')
+        const end = start.add(300, 'milliseconds')
+
+        const snapshots: RecordingSnapshot[] = [
+            { windowId: 1, timestamp: start.valueOf(), type: 2, data: {} } as any,
+            { windowId: 2, timestamp: start.valueOf() + 50, type: 2, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 100, type: 3, data: { source: 1 } } as any,
+            { windowId: 2, timestamp: start.valueOf() + 150, type: 3, data: { source: 1 } } as any,
+            { windowId: 1, timestamp: end.valueOf(), type: 3, data: { source: 1 } } as any,
+        ]
+
+        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
+        const segments = createSegments(snapshots, start, end, null, snapshotsByWindowId)
+
+        const renderedWindowIds = segments.filter((s) => s.kind === 'window').map((s) => s.windowId)
+        expect(renderedWindowIds.length).toBeGreaterThan(0)
+        expect(renderedWindowIds.every((windowId) => windowId === 1)).toBe(true)
+    })
+
+    it('hands the frame to a tracked window even while another window is ongoing', () => {
+        const start = dayjs('2023-01-01T00:00:00.000Z')
+        const end = start.add(300, 'milliseconds')
+
+        const snapshots: RecordingSnapshot[] = [
+            { windowId: 1, timestamp: start.valueOf(), type: 2, data: {} } as any,
+            { windowId: 2, timestamp: start.valueOf() + 50, type: 2, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 100, type: 3, data: { source: 1 } } as any,
+            { windowId: 2, timestamp: start.valueOf() + 150, type: 3, data: { source: 1 } } as any,
+            { windowId: 1, timestamp: end.valueOf(), type: 3, data: { source: 1 } } as any,
+        ]
+
+        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
+        const segments = createSegments(snapshots, start, end, 2, snapshotsByWindowId)
+
+        expect(segments.filter((s) => s.kind === 'window').map((s) => s.windowId)).toContain(2)
+    })
+
     it('ends a segment if it is the last window', () => {
         const start = dayjs('2023-01-01T00:00:00.000Z')
         const end = start.add(1000, 'milliseconds')

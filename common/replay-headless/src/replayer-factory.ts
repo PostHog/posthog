@@ -19,6 +19,7 @@ import {
 
 import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'
+import { eventsForRenderedWindow } from './render-window'
 import type { PlayerConfig, ViewportEvent } from './types'
 
 /** Extract the page URL from an rrweb Meta event, if present. */
@@ -105,7 +106,7 @@ export async function createReplayer(
     )
     const segments = mergeInactiveSegments(rawSegments)
     const firstTimestamp = snapshots[0].timestamp
-    const events: eventWithTime[] = [...snapshots]
+    const events: eventWithTime[] = eventsForRenderedWindow(snapshots, rawSegments)
 
     const replayer = new Replayer(events, {
         root: rootEl,

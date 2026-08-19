@@ -647,8 +647,11 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
         })
 
-        it('clamps to a recovery full snapshot even when a preceding gap owns its boundary timestamp', () => {
-            // Window 2's recovery FullSnapshot at +70s sits right after window-1 activity, so the micro-gap ending at its timestamp is attributed to window 1 and that inferred windowId must not veto the only usable recovery point.
+        it('keeps the ongoing window on screen instead of clamping to an interleaving window', () => {
+            // Window 1 stays renderable (a FullSnapshot at START and activity through +75s) while
+            // window 2 interleaves without an early FullSnapshot. The seek into window 2's region
+            // must keep window 1 on screen, not swap in or clamp to window 2 — a viewer watching
+            // window 1 should never see a background tab painted into the frame.
             seedRecording(
                 [fs(START), inc(START + 1000)],
                 [
@@ -666,7 +669,9 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.seekToTimestamp(START + 61500)
 
             expect(logic.values.playerError).toBeNull()
-            expect(logic.values.currentTimestamp).toBe(START + 70000)
+            expect(logic.values.currentTimestamp).toBe(START + 61500)
+            // the rendered window stays on window 1, never swapping to the interleaving window 2
+            expect(logic.values.currentSegment?.windowId).toBe(1)
         })
 
         it('keeps buffering instead of over-clamping while sources before the recovery point are unloaded', () => {
