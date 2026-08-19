@@ -277,5 +277,22 @@ describe('DefaultTooltip', () => {
             expect(closest).toHaveLength(1)
             expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
         })
+
+        it('keeps smooth scrolling for a small group of equal values', () => {
+            renderTooltip({}, TWO_SERIES, { hoveredSeriesKey: 'b' })
+            const row = document.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')
+            expect(row?.parentElement?.style.scrollBehavior).toBe('smooth')
+        })
+
+        it('skips smooth scrolling when more than a viewport of rows share the selected value', () => {
+            const equalSeries: TooltipContext['seriesData'] = Array.from({ length: 11 }, (_, index) => ({
+                series: { key: `${index}`, label: `${index}`, data: [] },
+                value: 0,
+                color: '#000',
+            }))
+            renderTooltip({}, equalSeries, { hoveredSeriesKey: '10' })
+            const row = document.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')
+            expect(row?.parentElement?.style.scrollBehavior).toBe('auto')
+        })
     })
 })

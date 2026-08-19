@@ -76,6 +76,8 @@ export function DefaultTooltip<Meta = unknown>({
     const closestKey =
         hoveredSeriesKey ??
         (hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null)
+    const closestValue = rows.find((s) => s.series.key === closestKey)?.value
+    const smoothScroll = closestValue == null || rows.filter((s) => s.value === closestValue).length <= 10
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
@@ -151,6 +153,7 @@ export function DefaultTooltip<Meta = unknown>({
                     maxHeight: ROWS_MAX_HEIGHT,
                     overflowY: 'auto',
                     scrollbarWidth: 'none',
+                    scrollBehavior: smoothScroll ? 'smooth' : 'auto',
                     maskImage,
                     WebkitMaskImage: maskImage,
                 }}
