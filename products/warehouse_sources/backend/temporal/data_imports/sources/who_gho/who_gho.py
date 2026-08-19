@@ -1,8 +1,9 @@
 import re
-import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import quote
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -31,7 +32,7 @@ BASE_URL = "https://ghoapi.azureedge.net/api"
 _CODE_SEPARATORS = re.compile(r"[,;\s]+")
 
 
-@dataclasses.dataclass
+@frozen
 class WhoGhoResumeConfig:
     # $skip to resume from within the current resource.
     offset: int = 0
