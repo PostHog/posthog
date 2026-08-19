@@ -43,6 +43,7 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
+const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
 /** Frames a programmatic scroll keeps re-issuing while rows around the target still measure. */
@@ -301,6 +302,9 @@ export function VirtualThreadScrollBody({
   onUserInteract,
   renderNav,
   resumeRef,
+  hasOlderHistory = false,
+  isLoadingOlderHistory = false,
+  onLoadOlderHistory,
 }: {
   items: ConversationItem[];
   flatRows: FlatThreadRow[];
@@ -317,6 +321,12 @@ export function VirtualThreadScrollBody({
   renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
+  /** True when older transcript history exists above the loaded window. */
+  hasOlderHistory?: boolean;
+  /** True while an older history page is loading. */
+  isLoadingOlderHistory?: boolean;
+  /** Invoked when the reader scrolls near the top of the loaded window. */
+  onLoadOlderHistory?: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
@@ -336,8 +346,19 @@ export function VirtualThreadScrollBody({
     scrollEndThreshold: THREAD_AT_END_THRESHOLD,
     paddingStart: PADDING_START,
     paddingEnd: footerHeight,
-    getItemKey: (index) => flatRows[index]?.key ?? index,
+    // Keyed by item id, not row key: user-turn row keys are ordinals that
+    // shift when older history prepends, and the end-anchored virtualizer
+    // relies on key identity to hold the viewport still across that prepend.
+    getItemKey: (index) => flatRows[index]?.item.id ?? index,
   });
+
+  // Re-armed by the props flipping back rather than by re-render, so one
+  // scroll gesture near the top loads exactly one older page.
+  const loadOlderArmedRef = useRef(false);
+  loadOlderArmedRef.current =
+    hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
+  const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
+  onLoadOlderHistoryRef.current = onLoadOlderHistory;
 
   const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
@@ -404,6 +425,13 @@ export function VirtualThreadScrollBody({
       const sample = sampleThreadScroll(el, lastScrollTopRef.current);
       lastScrollTopRef.current = el.scrollTop;
       followRef.current = nextThreadFollowState(followRef.current, sample);
+      if (
+        loadOlderArmedRef.current &&
+        el.scrollTop <= OLDER_HISTORY_LOAD_THRESHOLD_PX
+      ) {
+        loadOlderArmedRef.current = false;
+        onLoadOlderHistoryRef.current?.();
+      }
     }
     scheduleStickyRecompute();
   }, [scheduleStickyRecompute, followRef]);
@@ -429,6 +457,11 @@ export function VirtualThreadScrollBody({
           onJump={jumpToMessage}
           anchorId={stickyState.anchorId}
         />
+        {isLoadingOlderHistory && (
+          <div className="-translate-x-1/2 pointer-events-none absolute top-2 left-1/2 z-10 rounded-full border border-(--gray-5) bg-(--gray-2) px-3 py-1 text-(--gray-11) text-xs">
+            Loading earlier messages…
+          </div>
+        )}
         <ChatMessageScrollerViewport
           ref={viewportRef}
           onScroll={handleScroll}

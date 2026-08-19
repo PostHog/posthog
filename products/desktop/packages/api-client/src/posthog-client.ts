@@ -230,6 +230,13 @@ type SessionLogsPage =
   | { ok: true; entries: StoredLogEntry[]; headers: Headers }
   | { ok: false; status: number; statusText: string };
 
+export interface TaskRunSessionLogsPage {
+  entries: StoredLogEntry[];
+  hasMore: boolean;
+  /** Total entries matching the query, or null when the server omits the header. */
+  matchingCount: number | null;
+}
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -3734,6 +3741,39 @@ export class PostHogAPIClient {
     }
   }
 
+  async getTaskRunSessionLogsPage(
+    taskId: string,
+    runId: string,
+    options: { limit: number; offset?: number; after?: string },
+  ): Promise<TaskRunSessionLogsPage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/session_logs/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("limit", String(options.limit));
+    if (options.offset) {
+      url.searchParams.set("offset", String(options.offset));
+    }
+    if (options.after) {
+      url.searchParams.set("after", options.after);
+    }
+    const page = await this.fetchSessionLogsPage(
+      url,
+      path,
+      options.offset ?? 0,
+    );
+    if (!page.ok) {
+      throw new Error(
+        `Failed to fetch session logs page at offset ${options.offset ?? 0}: ${page.status} ${page.statusText}`,
+      );
+    }
+    const matchingHeader = Number(page.headers.get("X-Matching-Count"));
+    return {
+      entries: page.entries,
+      hasMore: page.headers.get("X-Has-More") === "true",
+      matchingCount: Number.isFinite(matchingHeader) ? matchingHeader : null,
+    };
+  }
+
   async getTaskRunSessionLogsResult(
     taskId: string,
     runId: string,
@@ -3743,46 +3783,28 @@ export class PostHogAPIClient {
     const entries: StoredLogEntry[] = [];
     let truncatedHeadCount = 0;
     try {
-      const teamId = await this.getTeamId();
-      const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/session_logs/`;
       let offset = 0;
       let isFirstPage = true;
       while (entries.length < maxEntries) {
-        const url = new URL(`${this.api.baseUrl}${path}`);
-        url.searchParams.set(
-          "limit",
-          String(
-            Math.min(SESSION_LOGS_MAX_PAGE_SIZE, maxEntries - entries.length),
+        const page = await this.getTaskRunSessionLogsPage(taskId, runId, {
+          limit: Math.min(
+            SESSION_LOGS_MAX_PAGE_SIZE,
+            maxEntries - entries.length,
           ),
-        );
-        if (offset > 0) {
-          url.searchParams.set("offset", String(offset));
-        }
-        if (options?.after) {
-          url.searchParams.set("after", options.after);
-        }
-        const page = await this.fetchSessionLogsPage(url, path, offset);
-
-        if (!page.ok) {
-          log.warn(
-            `Failed to fetch session logs page at offset ${offset}: ${page.status} ${page.statusText}`,
-          );
-          return { entries, complete: false, truncatedHeadCount };
-        }
-
+          offset,
+          after: options?.after,
+        });
         if (isFirstPage) {
           isFirstPage = false;
-          const matchingCount = Number(page.headers.get("X-Matching-Count"));
-          if (Number.isFinite(matchingCount) && matchingCount > maxEntries) {
+          if (page.matchingCount !== null && page.matchingCount > maxEntries) {
             // Restart from the tail so the newest maxEntries survive the cap.
-            truncatedHeadCount = matchingCount - maxEntries;
+            truncatedHeadCount = page.matchingCount - maxEntries;
             offset = truncatedHeadCount;
             continue;
           }
         }
         entries.push(...page.entries);
-        const hasMore = page.headers.get("X-Has-More") === "true";
-        if (!hasMore || page.entries.length === 0) {
+        if (!page.hasMore || page.entries.length === 0) {
           return { entries, complete: true, truncatedHeadCount };
         }
         offset += page.entries.length;

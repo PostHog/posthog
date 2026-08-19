@@ -99,6 +99,12 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
+  /** True when older transcript history exists above the loaded window. */
+  hasOlderHistory?: boolean;
+  /** True while an older history page is loading. */
+  isLoadingOlderHistory?: boolean;
+  /** Invoked when the thread scrolls near the top of the loaded window. */
+  onLoadOlderHistory?: () => void;
 }
 
 export function ConversationView({
