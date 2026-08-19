@@ -21,6 +21,7 @@ import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
@@ -269,6 +270,10 @@ class McpDispatcher {
         // `handleRequest` before dispatch; here `_meta` only picks the dialect.
         const protocolMeta = parseRequestProtocolMeta(params)
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
+
+        if (stateless && method === Method.Discover && isLegacyDialectOnlyClient(protocolMeta.clientName)) {
+            return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
+        }
 
         try {
             const result = await this.dispatchMethod(method, params, props, state, stateless)

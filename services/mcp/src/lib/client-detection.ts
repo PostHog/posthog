@@ -103,6 +103,12 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'ando-mcp-gateway',
 ] as const
 
+// Clients that wedge after a stateless `server/discover` but complete the legacy
+// handshake, so discover answers method-not-found to push them back to `initialize`.
+// Their mcp-remote bridge variants speak the stateless dialect fine and are exempt.
+export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as const
+const LEGACY_DIALECT_EXEMPT_CLIENT_NAME_FRAGMENTS = ['mcp-remote'] as const
+
 // Clients that keep the full per-tool roster ("tools" mode) instead of the
 // single-exec CLI default.
 // - Cursor self-reports `clientInfo.name` (`cursor-vscode`, `Cursor`); it sends
@@ -301,6 +307,13 @@ export class MCPClientProfile {
         )
     }
 
+    isLegacyDialectOnly(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS) &&
+            !matchesAnyFragment(this.clientName, LEGACY_DIALECT_EXEMPT_CLIENT_NAME_FRAGMENTS)
+        )
+    }
+
     isPostHogCodeConsumer(): boolean {
         return this.consumer === POSTHOG_CODE_CONSUMER
     }
@@ -366,6 +379,10 @@ export class MCPClientProfile {
 
 export function isCliModeEnabledClient(clientName: string | undefined): boolean {
     return new MCPClientProfile({ clientName }).isCliModeEnabled()
+}
+
+export function isLegacyDialectOnlyClient(clientName: string | undefined): boolean {
+    return new MCPClientProfile({ clientName }).isLegacyDialectOnly()
 }
 
 export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {

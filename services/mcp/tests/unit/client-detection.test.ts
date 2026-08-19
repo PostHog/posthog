@@ -12,6 +12,7 @@ import {
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
     isClaudeUiHostClient,
     isCliModeEnabledClient,
+    isLegacyDialectOnlyClient,
     isPostHogCodeConsumer,
     isToolsModeClient,
     resolveEffectiveClientName,
@@ -179,6 +180,26 @@ describe('isPostHogCodeConsumer', () => {
 
     it('returns false for undefined', () => {
         expect(isPostHogCodeConsumer(undefined)).toBe(false)
+    })
+})
+
+describe('isLegacyDialectOnlyClient', () => {
+    it.each([['antigravity-client'], ['antigravity'], ['Antigravity'], ['antigravity-client/1.2.3']])(
+        'returns true for %s',
+        (clientName) => {
+            expect(isLegacyDialectOnlyClient(clientName)).toBe(true)
+        }
+    )
+
+    it.each([
+        ['antigravity-client (via mcp-remote 0.1.37)'],
+        ['antigravity (via mcp-remote 0.1.37)'],
+        ['claude-code'],
+        ['cursor'],
+        [''],
+        [undefined],
+    ])('returns false for %s', (clientName) => {
+        expect(isLegacyDialectOnlyClient(clientName)).toBe(false)
     })
 })
 
