@@ -141,8 +141,8 @@ tools:
             parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing
             usage/spend read access: owners always, admins when owner-only billing is off, or members only when
             owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member
-            grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate
-            cost spikes, compare spend across periods, or attribute spend to specific products or teams.
+            grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to
+            investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.
         param_overrides:
             start_date:
                 description: >
