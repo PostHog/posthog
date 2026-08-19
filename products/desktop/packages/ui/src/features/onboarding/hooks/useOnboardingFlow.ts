@@ -67,7 +67,6 @@ export function useOnboardingFlow() {
       setSelectedCloudRepo(repo);
       setLastUsedCloudRepository(repo);
       if (repo) {
-        // A cloud repo replaces any local folder pick, and vice versa.
         setSelectedDirectory("");
         setDetectedRepo(null);
         track(ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED, {

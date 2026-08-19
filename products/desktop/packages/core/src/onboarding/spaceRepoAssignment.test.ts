@@ -57,8 +57,6 @@ describe("spaceRepoAssignment", () => {
     });
 
     it("skips an inherited #general even when its repository list is empty", () => {
-      // A teammate may have emptied it on purpose; empty is not the same
-      // signal as just created.
       expect(
         planSpaceRepoAssignments([personal, general], {
           personalCreated: true,

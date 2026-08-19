@@ -55,9 +55,7 @@ export function SelectRepoStep({
     refreshRepositories,
   } = useUserRepositoryIntegration();
 
-  // With GitHub connected the repo list is the primary path; the folder
-  // picker stays reachable through a quiet text link, not an equal-weight
-  // toggle. `null` = follow the default until the user switches explicitly.
+  // `null` follows the default source until the user switches explicitly.
   const [chosenSource, setChosenSource] = useState<RepoSource | null>(null);
   const showSourceSwitch = localWorkspaces && hasGithubIntegration === true;
   const repoSource: RepoSource = !localWorkspaces
