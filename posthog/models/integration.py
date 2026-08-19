@@ -42,7 +42,6 @@ from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
@@ -50,6 +49,8 @@ from posthog.cache_utils import cache_for
 from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.egress.slack.observability import record_slack_api_response
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -1538,6 +1539,16 @@ class OauthIntegration:
                 allow_redirects=False,
             )
 
+        if kind == "slack":
+            record_slack_api_response(
+                res,
+                source="oauth",
+                workspace_id=None,
+                app_id="posthog",
+                method="POST",
+                endpoint="oauth.v2.access",
+            )
+
         try:
             config: dict = res.json()
         except ValueError:
@@ -2162,14 +2173,25 @@ class SlackIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        return WebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+        )
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,
         # so a top-level import would put aiohttp on the django.setup() path
-        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+        from posthog.egress.slack.async_client import SlackAsyncWebClient  # noqa: PLC0415
 
-        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+        return SlackAsyncWebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+            session=session,
+        )
 
     def granted_scopes(self) -> frozenset[str]:
         """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
@@ -2953,7 +2975,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -2968,7 +2990,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
