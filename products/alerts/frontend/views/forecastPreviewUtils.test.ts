@@ -3,24 +3,32 @@ import { ForecastTargetDirection } from '~/queries/schema/schema-general'
 import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
-    // The returned index drives both the chart marker and the "predicted to cross" summary date —
-    // an off-by-one here desyncs the two. Covers upper/lower-only, no crossing, and boundary indices.
+    const series = (yhat: number[], lower: number[], upper: number[]) => ({ yhat, lower, upper })
+
+    // Mirrors TestFutureBreachSensitivity in the backend. best_case reads the edge that keeps the
+    // metric on the acceptable side: the LOWER edge against a ceiling, the UPPER edge against a floor.
     it.each([
-        ['upper-only crossing', [1, 2, 6, 3], { upper: 5 }, 2],
-        ['lower-only crossing', [4, 3, -1, 2], { lower: 0 }, 2],
-        ['both bounds set, crosses upper first', [1, 6, -5, 2], { lower: 0, upper: 5 }, 1],
-        ['both bounds set, crosses lower first', [1, -1, 6, 2], { lower: 0, upper: 5 }, 1],
-        ['no crossing', [1, 2, 3, 4], { lower: 0, upper: 5 }, null],
-        ['crossing at index 0', [6, 1, 2, 3], { upper: 5 }, 0],
-        ['crossing at the last index', [1, 2, 3, 6], { upper: 5 }, 3],
-        ['no bounds set', [1, 2, 3], {}, null],
-        ['empty forecast', [], { upper: 5 }, null],
-    ] as const)('%s', (_, forecastYhat, bounds, expected) => {
-        expect(findFirstCrossing([...forecastYhat], bounds)).toBe(expected)
+        ['forecast crosses a ceiling', false, { upper: 100 }, [95, 105], [70, 80], [120, 130], 1],
+        ['forecast clears a ceiling', false, { upper: 100 }, [95, 96], [70, 80], [120, 130], null],
+        [
+            'best case clears a ceiling the forecast crosses',
+            true,
+            { upper: 100 },
+            [95, 105],
+            [70, 80],
+            [120, 130],
+            null,
+        ],
+        ['best case crosses a ceiling', true, { upper: 100 }, [150, 160], [110, 120], [180, 190], 0],
+        ['forecast crosses a floor', false, { lower: 50 }, [60, 40], [30, 20], [80, 70], 1],
+        ['best case clears a floor the forecast crosses', true, { lower: 50 }, [60, 40], [30, 20], [80, 70], null],
+        ['best case crosses a floor', true, { lower: 50 }, [20, 10], [5, 2], [30, 40], 0],
+    ] as const)('%s', (_n, bestCase, bounds, yhat, lower, upper, expected) => {
+        expect(findFirstCrossing(series([...yhat], [...lower], [...upper]), bounds, bestCase)).toBe(expected)
     })
 
-    it('returns null bounds unchanged', () => {
-        expect(findFirstCrossing([1, 2, 3], null)).toBeNull()
+    it('is null without bounds', () => {
+        expect(findFirstCrossing(series([1], [0], [2]), null, false)).toBeNull()
     })
 })
 

@@ -1,16 +1,29 @@
 import { ForecastTargetDirection, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
-import { hasThresholdBounds, valueBreachesBounds } from 'products/alerts/frontend/logic/alertPreviewShared'
+import { hasThresholdBounds } from 'products/alerts/frontend/logic/alertPreviewShared'
 
-/** Index into `forecastYhat` of the first point that crosses a threshold bound, or null if none does.
- *  The breach predicate itself comes from alertPreviewShared, which is kept in step with the
- *  backend comparator, so the forecast preview cannot drift from what actually fires. */
-export function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresholdBounds | null): number | null {
-    if (!hasThresholdBounds(bounds)) {
+/** Index of the first predicted point that crosses a bound, mirroring _evaluate_future_breach_values
+ *  in products/alerts/backend/evaluation/forecast.py.
+ *
+ *  `best_case` reads the edge that keeps the metric on the acceptable side: the LOWER edge against a
+ *  ceiling and the UPPER edge against a floor, so it always fires later. Each bound is compared
+ *  against its own series, which is why the shared valueBreachesBounds helper does not fit here: it
+ *  checks both bounds against a single value. */
+export function findFirstCrossing(
+    series: { yhat: number[]; lower: number[]; upper: number[] },
+    bounds: InsightsThresholdBounds | null,
+    bestCase: boolean
+): number | null {
+    if (!hasThresholdBounds(bounds) || !bounds) {
         return null
     }
-    for (let i = 0; i < forecastYhat.length; i++) {
-        if (valueBreachesBounds(forecastYhat[i], bounds)) {
+    const againstUpper = bestCase ? series.lower : series.yhat
+    const againstLower = bestCase ? series.upper : series.yhat
+    for (let i = 0; i < series.yhat.length; i++) {
+        if (bounds.upper != null && againstUpper[i] > bounds.upper) {
+            return i
+        }
+        if (bounds.lower != null && againstLower[i] < bounds.lower) {
             return i
         }
     }

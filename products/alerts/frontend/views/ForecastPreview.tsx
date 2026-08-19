@@ -208,15 +208,16 @@ export function ForecastPreview({
     forecastConfig: ForecastConfig | null
 }): JSX.Element {
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
-    // The evaluator compares the optimistic edge under best_case, so a marker drawn from the point
-    // forecast would sit on a different day than the alert actually fires.
+    // The marker must read the same series the evaluator does, or it points at a day the alert
+    // will not fire on. The direction flips per bound, so findFirstCrossing owns the matrix.
     const bestCase = forecastConfig?.sensitivity === ForecastSensitivity.BEST_CASE
-    const crossingSeries = !bestCase
-        ? result.forecast_yhat
-        : thresholdBounds?.upper != null
-          ? result.forecast_upper
-          : result.forecast_lower
-    const crossingIndex = hasBounds ? findFirstCrossing(crossingSeries, thresholdBounds) : null
+    const crossingIndex = hasBounds
+        ? findFirstCrossing(
+              { yhat: result.forecast_yhat, lower: result.forecast_lower, upper: result.forecast_upper },
+              thresholdBounds,
+              bestCase
+          )
+        : null
     const deviation = result.latest_deviation
     const projection = result.target_projection
 

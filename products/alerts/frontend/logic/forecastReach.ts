@@ -47,7 +47,7 @@ export function minForecastPoints(interval: IntervalType | null | undefined, con
 /** How many insight buckets a simulation range covers. The range is a duration and the buckets are
  *  the insight's, so "-30d" is 30 points daily but about 4 weekly. */
 export function pointsInSimulationRange(range: string, interval: IntervalType | null | undefined): number {
-    const match = /^-(\d+)([mhdwM])$/.exec(range)
+    const match = /^-(\d+)([hdwm])$/.exec(range)
     if (!match) {
         return Number.POSITIVE_INFINITY
     }
@@ -56,12 +56,13 @@ export function pointsInSimulationRange(range: string, interval: IntervalType | 
     return Math.floor(rangeMinutes / INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day'])
 }
 
+// PostHog relative dates use `m` for months, not minutes, which is what the alert range options and
+// _date_range_override_for_detector both emit.
 const UNIT_MINUTES: Record<string, number> = {
-    m: 1,
     h: 60,
     d: 60 * 24,
     w: 60 * 24 * 7,
-    M: 60 * 24 * 30,
+    m: 60 * 24 * 30,
 }
 
 /** Simulation ranges that can actually produce a forecast, so the picker cannot offer one the

@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
@@ -42,6 +44,13 @@ export function ForecastSimulationSection({
     )
     const selectedRange = simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
     const range = rangeOptions.some((o) => o.value === selectedRange) ? selectedRange : rangeOptions[0].value
+    // The request reads simulationDateFrom, so a range that is only clamped for display would send a
+    // different window than the one on screen.
+    useEffect(() => {
+        if (range !== selectedRange) {
+            onSetSimulationDateFrom(range)
+        }
+    }, [range, selectedRange, onSetSimulationDateFrom])
     return (
         <div className="flex gap-2 items-center">
             <div className="flex items-center gap-1.5">
