@@ -79,6 +79,14 @@ class AlertExtractionError(Exception):
     """
 
 
+class InsufficientHistoryError(Exception):
+    """The alert is configured correctly, the insight is just too young to forecast yet.
+
+    Deliberately not an AlertExtractionError: that path disables the alert and emails subscribers
+    that it is misconfigured, which is wrong for a condition that fixes itself as data arrives.
+    """
+
+
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 
