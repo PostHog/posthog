@@ -119,7 +119,7 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
             label="PayPal",
             caption="""Import transactions, balances, disputes, invoices, subscription plans, and catalog products from your PayPal business account.
 
-Create a REST app in the [PayPal developer dashboard](https://developer.paypal.com/dashboard/applications) and paste its client ID and secret. Enable Transaction Search on the app so transaction history can sync. PayPal keeps three years of it.""",
+Create a REST app in the [PayPal developer dashboard](https://developer.paypal.com/dashboard/applications) and paste its client ID and secret. Enable Transaction Search on the app so transaction history can sync. PayPal keeps three years of it. Disputes reach back 180 days.""",
             docsUrl="https://posthog.com/docs/cdp/sources/paypal",
             iconPath="/static/services/paypal.png",
             keywords=["payments", "checkout"],

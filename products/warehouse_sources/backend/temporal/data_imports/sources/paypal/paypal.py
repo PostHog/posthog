@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.settings import (
+    DISPUTE_HISTORY_DAYS,
     PAYPAL_ENDPOINTS,
     PAYPAL_HOSTS,
     TRANSACTION_HISTORY_DAYS,
@@ -162,6 +163,19 @@ def _transaction_start(db_incremental_field_last_value: Any, now: datetime) -> d
         # Floored to midnight so a full-refresh run produces the same window boundaries as the
         # attempt it is resuming, which is what makes the saved `window_start` match.
         return earliest.replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(watermark, earliest)
+
+
+def _dispute_start(db_incremental_field_last_value: Any, now: datetime) -> Optional[datetime]:
+    """Instant to filter disputes from, or None for a full refresh.
+
+    PayPal rejects a `start_time` older than 180 days with a non-retryable 400, so an incremental
+    watermark is clamped forward to that floor. PayPal cannot serve disputes created before it.
+    """
+    watermark = _to_datetime(db_incremental_field_last_value)
+    if watermark is None:
+        return None
+    earliest = now - timedelta(days=DISPUTE_HISTORY_DAYS)
     return max(watermark, earliest)
 
 
@@ -353,7 +367,7 @@ def _page_token_rows(
     watermark: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     params: dict[str, Any] = {"page_size": config.page_size}
-    start_time = _to_datetime(watermark)
+    start_time = _dispute_start(watermark, _now())
     if start_time is not None:
         params["start_time"] = _format_dispute_datetime(start_time)
 

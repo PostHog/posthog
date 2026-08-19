@@ -24,6 +24,9 @@ PaginationMode = Literal["date_window", "page_number", "page_token", "single"]
 TRANSACTION_WINDOW_DAYS = 7
 # PayPal retains three years of searchable transaction history.
 TRANSACTION_HISTORY_DAYS = 3 * 365
+# The disputes list rejects a `start_time` older than 180 days with a non-retryable 400, so an
+# incremental watermark is clamped to this floor before it becomes the filter.
+DISPUTE_HISTORY_DAYS = 180
 # Transactions can take up to three hours to become searchable, so an incremental run must
 # re-read a trailing window instead of starting exactly at the previous watermark.
 TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 24 * 60 * 60

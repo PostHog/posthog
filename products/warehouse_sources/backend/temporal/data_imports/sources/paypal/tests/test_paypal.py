@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.pay
     PayPalRetryableError,
     _base_url,
     _date_windows,
+    _dispute_start,
     _flatten_transaction,
     _format_dispute_datetime,
     _format_reporting_datetime,
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.pay
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.settings import (
+    DISPUTE_HISTORY_DAYS,
     ENDPOINTS,
     PAYPAL_ENDPOINTS,
     TRANSACTION_HISTORY_DAYS,
@@ -186,6 +188,15 @@ class TestPayPalTransport:
 
     def test_transaction_start_clamps_a_watermark_older_than_retention(self) -> None:
         assert _transaction_start("2010-01-01T00:00:00Z", _NOW) == _NOW - timedelta(days=TRANSACTION_HISTORY_DAYS)
+
+    def test_dispute_start_is_none_for_a_full_refresh(self) -> None:
+        assert _dispute_start(None, _NOW) is None
+
+    def test_dispute_start_uses_the_watermark_when_within_180_days(self) -> None:
+        assert _dispute_start("2024-05-01T06:30:00Z", _NOW) == datetime(2024, 5, 1, 6, 30, tzinfo=UTC)
+
+    def test_dispute_start_clamps_a_watermark_older_than_180_days(self) -> None:
+        assert _dispute_start("2023-01-01T00:00:00Z", _NOW) == _NOW - timedelta(days=DISPUTE_HISTORY_DAYS)
 
     @pytest.mark.parametrize(
         "items, total_pages, page, page_size, expected",
