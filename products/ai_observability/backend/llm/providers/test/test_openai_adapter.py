@@ -225,3 +225,30 @@ class TestOpenAIAdapterErrorMapping:
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(StructuredOutputParseError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+
+class TestOpenAIStreamErrorSurfacing:
+    def test_model_404_yields_actionable_message_instead_of_raw_sdk_text(self):
+        # Streaming has no exception channel, so this chunk is the entire explanation the user
+        # gets in the playground. It used to be `str(e)`, which leaked the provider's raw JSON.
+        request = CompletionRequest(
+            model="gpt-4-turbo-2024-04-09",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+        http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        response = httpx.Response(status_code=404, request=http_request, json={"error": {"message": "does not exist"}})
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.NotFoundError(
+            "Error code: 404 - the model `gpt-4-turbo-2024-04-09` does not exist",
+            response=response,
+            body=None,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            chunks = list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["Model 'gpt-4-turbo-2024-04-09' is not available. Pick a different model and try again."]
+        assert "Error code: 404" not in errors[0]

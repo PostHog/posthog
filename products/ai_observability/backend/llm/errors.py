@@ -86,3 +86,35 @@ class ModelPermissionError(LLMError):
             f"API key doesn't have access to model '{model}'" if model else "API key doesn't have access to this model"
         )
         super().__init__(msg)
+
+
+def user_facing_error_message(error: Exception | None) -> str:
+    """Turn a provider failure into copy someone can act on.
+
+    Streaming has no exception channel, so whatever text goes onto the wire is the whole
+    explanation the user gets. Raw SDK output leaks provider internals without naming a next
+    step, so every branch here says what to do instead.
+    """
+    if isinstance(error, ModelNotFoundError):
+        return f"Model '{error.model}' is not available. Pick a different model and try again."
+    if isinstance(error, UnsupportedModelError):
+        return f"Model '{error.model}' is not supported. Pick a different model and try again."
+    if isinstance(error, ModelPermissionError):
+        if error.model:
+            return f"Your API key does not have access to '{error.model}'. Pick a different model, or use a key with access to it."
+        return (
+            "Your API key does not have access to this model. Pick a different model, or use a key with access to it."
+        )
+    if isinstance(error, AuthenticationError):
+        return "Your provider API key was rejected. Check the key in AI observability settings."
+    if isinstance(error, QuotaExceededError):
+        return "Your provider API key is out of quota. Check your billing with the provider, then try again."
+    if isinstance(error, RateLimitError):
+        return "The provider is rate limiting this key. Wait a moment, then try again."
+    if isinstance(error, ContextWindowExceededError):
+        return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, ProviderConnectionError):
+        return "Could not reach the model provider. Try again."
+    if isinstance(error, StructuredOutputParseError):
+        return "The model returned a response we could not read. Try again."
+    return "The request to the model provider failed. Try again."

@@ -378,8 +378,12 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             (m) => m.id === prompt.model
                         )
                         if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
+                            // Reachable without the model ever being picked here: opening a trace in
+                            // the playground, or loading a saved prompt, can carry a model the current
+                            // key set no longer offers. Name it so the user knows what to change.
+                            const message = `Model '${prompt.model}' is not one of your available models. Pick a different model and try again.`
+                            lemonToast.error(message)
+                            responseText = `**Error:** ${message}`
                             responseHasError = true
                             upsertLiveItem()
                             return

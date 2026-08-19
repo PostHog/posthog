@@ -89,11 +89,30 @@ class TestExplicitModelSpec:
             ExplicitModelSpec("openai", "gpt-5", str(uuid.uuid4())).resolve(team.id)
         assert _error_type(exc_info) == "key_not_found"
 
-    def test_byok_disabled_key_raises_key_invalid(self, team):
+    def test_byok_invalid_key_raises_key_invalid(self, team):
         key = _key(team, "openai", state=LLMProviderKey.State.INVALID)
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)
         assert _error_type(exc_info) == "key_invalid"
+
+    @pytest.mark.parametrize(
+        "state,expected_phrase",
+        [
+            (LLMProviderKey.State.UNKNOWN, "has not been validated yet"),
+            (LLMProviderKey.State.INVALID, "was rejected by the provider"),
+            (LLMProviderKey.State.ERROR, "last failed with a provider error"),
+        ],
+    )
+    def test_unusable_key_message_names_the_actual_state(self, team, state, expected_phrase):
+        # Every non-OK state used to report "This API key has been disabled", which told a user
+        # with a never-validated key or a rate-limited one to go looking for a setting that does
+        # not exist. The state decides which action the message asks for.
+        key = _key(team, "openai", state=state)
+        with pytest.raises(ApplicationError) as exc_info:
+            ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)
+
+        assert expected_phrase in exc_info.value.message
+        assert "disabled" not in exc_info.value.message
 
     def test_keyless_requires_provider_key(self, team):
         # No pinned key: resolution has no PostHog-funded fallback and must ask for a key.
@@ -174,7 +193,7 @@ class TestDefaultModelSpec:
             DefaultModelSpec().resolve(team.id)
         assert _error_type(exc_info) == "no_default_model"
 
-    def test_disabled_active_key_raises_key_invalid(self, team):
+    def test_invalid_active_key_raises_key_invalid(self, team):
         key = _key(team, "anthropic", state=LLMProviderKey.State.INVALID)
         EvaluationConfig.objects.create(team=team, active_provider_key=key)
 

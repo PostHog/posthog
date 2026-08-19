@@ -5,7 +5,7 @@ import httpx
 import anthropic
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.errors import ContextWindowExceededError
+from products.ai_observability.backend.llm.errors import ContextWindowExceededError, ModelNotFoundError
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -143,6 +143,13 @@ def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
     return anthropic.BadRequestError(message, response=response, body={"error": {"message": message}})
 
 
+def _make_not_found_error(model: str) -> anthropic.NotFoundError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    message = f"model: {model}"
+    response = httpx.Response(status_code=404, request=request, json={"error": {"message": message}})
+    return anthropic.NotFoundError(message, response=response, body={"error": {"message": message}})
+
+
 class TestAnthropicErrorMapping:
     @parameterized.expand(
         [
@@ -167,3 +174,51 @@ class TestAnthropicErrorMapping:
                     api_key="sk-ant-test",
                     analytics=AnalyticsContext(capture=False),
                 )
+
+    def test_model_404_maps_to_model_not_found(self):
+        # Anthropic answers a retired or misspelled model with a 404. Unmapped, it escaped as a
+        # raw SDK exception, so an evaluation burned its Temporal retries instead of telling the
+        # user to pick another model.
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_not_found_error("claude-3-sonnet-20240229")
+
+            with pytest.raises(ModelNotFoundError):
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-3-sonnet-20240229",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+
+class TestAnthropicStreamErrorSurfacing:
+    def test_model_404_yields_actionable_message_instead_of_discarding_the_reason(self):
+        # Streaming has no exception channel, so this chunk is the entire explanation the user
+        # gets in the playground. It used to be a flat "Anthropic API error", which threw the
+        # reason away.
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_not_found_error("claude-3-sonnet-20240229")
+
+            chunks = list(
+                AnthropicAdapter().stream(
+                    CompletionRequest(
+                        model="claude-3-sonnet-20240229",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+            )
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["Model 'claude-3-sonnet-20240229' is not available. Pick a different model and try again."]

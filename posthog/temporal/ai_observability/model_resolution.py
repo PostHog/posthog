@@ -131,10 +131,34 @@ def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     return _ensure_usable(key)
 
 
+# `State.OK` is the only usable state, but the other three fail for different reasons, and a key
+# that was never validated is not the same thing as one the provider rejected. Naming the real
+# state is what tells someone whether to validate, re-validate, or replace the key.
+_UNUSABLE_KEY_MESSAGES = {
+    LLMProviderKey.State.UNKNOWN: (
+        "This API key has not been validated yet. Validate it in AI observability settings, "
+        "then re-enable this evaluation."
+    ),
+    LLMProviderKey.State.INVALID: (
+        "This API key was rejected by the provider. Re-validate it, or replace it, then re-enable this evaluation."
+    ),
+    LLMProviderKey.State.ERROR: (
+        "This API key last failed with a provider error. Check its status in AI observability "
+        "settings, then re-validate it."
+    ),
+}
+
+
 def _ensure_usable(key: LLMProviderKey) -> LLMProviderKey:
     if key.state != LLMProviderKey.State.OK:
+        # Keyed on the stored string rather than the enum, so a state we don't recognize falls
+        # back to the generic message instead of raising on the lookup.
+        message = _UNUSABLE_KEY_MESSAGES.get(
+            key.state,
+            "This API key cannot be used. Re-validate it, or replace it, then re-enable this evaluation.",
+        )
         raise ApplicationError(
-            f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
+            message,
             {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
             non_retryable=True,
         )

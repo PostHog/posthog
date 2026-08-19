@@ -17,11 +17,15 @@ from pydantic import BaseModel
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
+    LLMError,
+    ModelNotFoundError,
+    ModelPermissionError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    user_facing_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -185,22 +189,42 @@ class AnthropicAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except anthropic.AuthenticationError as e:
-            raise AuthenticationError(str(e))
-        except anthropic.BadRequestError as e:
-            if _is_quota_or_billing_error(e):
-                raise QuotaExceededError(str(e)) from e
-            if is_context_window_error_message(str(e)):
-                raise ContextWindowExceededError(str(e)) from e
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
             raise
-        except anthropic.RateLimitError as e:
-            if _is_quota_or_billing_error(e):
-                raise QuotaExceededError(str(e)) from e
-            raise RateLimitError(str(e)) from e
-        except anthropic.APIConnectionError as e:
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, anthropic.AuthenticationError):
+            return AuthenticationError(str(error))
+        if isinstance(error, anthropic.NotFoundError):
+            # Anthropic answers a retired or misspelled model with a 404. Without this the
+            # workflow burns its retries on an unmapped exception instead of telling the user
+            # to pick another model.
+            return ModelNotFoundError(model)
+        if isinstance(error, anthropic.PermissionDeniedError):
+            return ModelPermissionError(model)
+        if isinstance(error, anthropic.BadRequestError):
+            if _is_quota_or_billing_error(error):
+                return QuotaExceededError(str(error))
+            if is_context_window_error_message(str(error)):
+                return ContextWindowExceededError(str(error))
+            return None
+        if isinstance(error, anthropic.RateLimitError):
+            if _is_quota_or_billing_error(error):
+                return QuotaExceededError(str(error))
+            return RateLimitError(str(error))
+        if isinstance(error, anthropic.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
-            raise ProviderConnectionError(str(e)) from e
+            return ProviderConnectionError(str(error))
+        return None
 
     def stream(
         self,
@@ -282,8 +306,12 @@ class AnthropicAdapter:
             else:
                 stream = client.messages.create(**common_kwargs)
         except Exception as e:
-            logger.exception(f"Anthropic API error: {e}")
-            yield StreamChunk(type="error", data={"error": "Anthropic API error"})
+            mapped = self._mapped_error(e, model_id)
+            if isinstance(mapped, ProviderConnectionError):
+                logger.warning(f"Anthropic connection error when streaming response: {e}")
+            else:
+                logger.exception(f"Anthropic API error: {e}")
+            yield StreamChunk(type="error", data={"error": user_facing_error_message(mapped)})
             return
 
         for chunk in stream:
