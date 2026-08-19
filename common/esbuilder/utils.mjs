@@ -27,6 +27,10 @@ const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
 
+// How long the runtime CSS loader waits for the stylesheet before it falls back and reports.
+// A stalled request fires no `error` event, so without this timeout the page stays unstyled forever.
+const cssLoadTimeoutMs = 10000
+
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
         if (err) {
@@ -124,29 +128,86 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
-    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
+    // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
     const cssFileFallback = `${entry}.css?t=${buildId}`
     const needsCssFallback = cssFile !== cssFileFallback
-    const cssLoader = `
-        const link = document.createElement("link");
+    const cssHref = `(window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)}`
+    const cssFallbackHref = `(window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)}`
+    // The runtime loader creates the stylesheet link, so a slow CSS fetch does not block the boot
+    // scripts. That trade-off drops the error and timeout handling a parser-inserted <link> gets for
+    // free, so we add it back here. A failed or stalled stylesheet triggers the fallback, the
+    // fallback has its own error handler, and each failure reports a $exception straight to the
+    // capture API. posthog-js is not loaded yet, so we send the beacon by hand the same way
+    // RootErrorBoundary reports boot failures.
+    const cssLoader = needsCssFallback
+        ? `
+        (function () {
+            var primaryHref = ${cssHref};
+            var settled = false;
+            function reportStylesheetFailure(reason, href) {
+                console.error('[PostHog] Stylesheet ' + reason + ': ' + href);
+                try {
+                    var apiKey = window.JS_POSTHOG_API_KEY;
+                    if (!apiKey) { return; }
+                    var host = window.JS_POSTHOG_HOST || window.location.origin;
+                    var distinctId;
+                    try {
+                        distinctId = JSON.parse(window.localStorage.getItem('ph_' + apiKey + '_posthog') || '{}').distinct_id;
+                    } catch (e) {}
+                    var payload = JSON.stringify({
+                        api_key: apiKey,
+                        event: '$exception',
+                        distinct_id: distinctId || ('stylesheet-failure-' + new Date().valueOf()),
+                        properties: {
+                            $process_person_profile: false,
+                            $current_url: window.location.href,
+                            $exception_level: 'error',
+                            $exception_list: [{
+                                type: 'StylesheetLoadError',
+                                value: 'App stylesheet ' + reason,
+                                mechanism: { handled: true, synthetic: true }
+                            }],
+                            stylesheet_href: href
+                        }
+                    });
+                    var url = host + '/e/';
+                    if (!(typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload))) {
+                        fetch(url, { method: 'POST', body: payload, keepalive: true }).catch(function () {});
+                    }
+                } catch (e) {}
+            }
+            function makeStylesheetLink(href) {
+                var el = document.createElement("link");
+                el.rel = "stylesheet";
+                el.crossOrigin = "anonymous";
+                el.href = href;
+                return el;
+            }
+            function loadFallback(reason) {
+                if (settled) { return; }
+                settled = true;
+                reportStylesheetFailure(reason, primaryHref);
+                var fallbackHref = ${cssFallbackHref};
+                var fallbackLink = makeStylesheetLink(fallbackHref);
+                fallbackLink.onerror = function () {
+                    reportStylesheetFailure('fallback failed', fallbackHref);
+                };
+                document.head.appendChild(fallbackLink);
+            }
+            var link = makeStylesheetLink(primaryHref);
+            var timeoutId = setTimeout(function () { loadFallback('stalled'); }, ${cssLoadTimeoutMs});
+            link.onload = function () { settled = true; clearTimeout(timeoutId); };
+            link.onerror = function () { clearTimeout(timeoutId); loadFallback('failed to load'); };
+            document.head.appendChild(link);
+        })();
+    `
+        : `
+        var link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
-        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
-        ${
-            needsCssFallback
-                ? `link.onerror = function() {
-            link.onerror = null;
-            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
-            var fallbackLink = document.createElement("link");
-            fallbackLink.rel = "stylesheet";
-            fallbackLink.crossOrigin = "anonymous";
-            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
-            document.head.appendChild(fallbackLink);
-        };`
-                : ''
-        }
-        document.head.appendChild(link)
+        link.href = ${cssHref};
+        document.head.appendChild(link);
     `
 
     fse.writeFileSync(
