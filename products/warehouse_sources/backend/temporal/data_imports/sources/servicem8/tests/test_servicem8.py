@@ -91,12 +91,13 @@ class TestServiceM8Paginator:
         assert paginator.has_next_page is True
 
     def test_initial_state_initializes_params_when_missing(self) -> None:
+        # ServiceM8Paginator must not assume the caller pre-populates `request.params`.
         paginator = ServiceM8Paginator()
         request = Request(method="GET", url="https://api.servicem8.com/api_1.0/job.json")
         request.params = None
         paginator.init_request(request)
 
-        assert request.params["cursor"] == "-1"
+        assert request.params == {"cursor": "-1"}
 
     def test_update_state_advances_cursor_from_header(self) -> None:
         paginator = ServiceM8Paginator()
