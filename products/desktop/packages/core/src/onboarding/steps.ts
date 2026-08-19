@@ -30,8 +30,11 @@ export function computeActiveSteps(options: {
   hasImportableConfig: boolean;
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
+  /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
+  projectCount: number | undefined;
 }): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
+    if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "invite-code" && options.hasCodeAccess === true) return false;
     if (step === "import-config" && !options.hasImportableConfig) return false;
     if (step === "install-cli" && options.hasGithubIntegration === true) {
