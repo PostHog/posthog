@@ -1,7 +1,5 @@
-from dataclasses import field
+from dataclasses import dataclass, field
 from typing import Optional
-
-from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -24,7 +22,10 @@ _COURSE_FANOUT = DependentEndpointConfig(
 )
 
 
-@frozen
+# Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class CanvasEndpointConfig:
     name: str
     path: str  # relative to /api/v1

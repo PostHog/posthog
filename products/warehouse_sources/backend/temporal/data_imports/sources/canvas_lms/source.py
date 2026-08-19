@@ -50,8 +50,9 @@ class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConf
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `canvas_domain` is where the stored access token is sent; retargeting it must re-require it.
-        return ["canvas_domain"]
+        # `canvas_domain` is where the stored access token is sent, and `account_id` determines
+        # which Canvas tenant it acts on -- retargeting either must re-require the token.
+        return ["canvas_domain", "account_id"]
 
     @property
     def get_source_config(self) -> SourceConfig:

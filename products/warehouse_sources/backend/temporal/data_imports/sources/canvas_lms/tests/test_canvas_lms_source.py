@@ -25,7 +25,7 @@ class TestCanvasLmsSource:
         assert self.source.source_type == ExternalDataSourceType.CANVASLMS
 
     def test_connection_host_fields(self):
-        assert self.source.connection_host_fields == ["canvas_domain"]
+        assert self.source.connection_host_fields == ["canvas_domain", "account_id"]
 
     def test_get_source_config(self):
         config = self.source.get_source_config
