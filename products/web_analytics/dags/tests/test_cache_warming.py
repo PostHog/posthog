@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -673,6 +674,10 @@ class TestWarmQueriesOp(BaseTest):
             ("churned_team_does_not_exist", Team.DoesNotExist, False, 0),
             ("live_team_other_model_does_not_exist", Team.DoesNotExist, True, 1),
             ("genuine_failure", RuntimeError, True, 1),
+            # A database blip makes every worker raise OperationalError at once.
+            # That is one shared transient event, not one broken shape per report,
+            # so it must not fire error tracking — even for a live team.
+            ("db_blip_not_reported", OperationalError, True, 0),
         ]
     )
     def test_churned_team_skipped_but_real_failure_reported(

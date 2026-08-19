@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -72,7 +72,7 @@ WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
     # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
-    # skipped_cold | skipped_already_warmed | failed | unsupported
+    # skipped_cold | skipped_already_warmed | failed | unsupported | db_unavailable
     ["outcome"],
 )
 
@@ -826,7 +826,10 @@ def warm_queries_shard_op(context: dagster.OpExecutionContext, shard: dict) -> N
 
 def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[dict]) -> None:
     team_ids = {q["team_id"] for q in queries}
-    teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
+    # select_related the organization: workers read team.organization while
+    # building the runner, and a lazy load there opens a Postgres connection per
+    # thread — one short database blip then fans out into a per-shape failure.
+    teams: dict[int, Team] = {t.pk: t for t in Team.objects.select_related("organization").filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
     if missing_teams:
         context.log.warning(f"{len(missing_teams)} teams not found, skipping their shapes")
@@ -981,6 +984,19 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             # team those are genuine failures that must still report.
             if isinstance(e, ObjectDoesNotExist) and not _team_still_exists(team.pk):
                 return "team_missing"
+            # A database blip closes every in-flight connection at once, so each
+            # worker raises OperationalError together. That is a shared transient
+            # event, not one broken shape per report — the next hourly pass
+            # recovers. Log it and count it, but do not fire error tracking, or a
+            # short database event fans out into hundreds of issues.
+            if isinstance(e, OperationalError):
+                logger.warning(
+                    "web_analytics_warming_shape_db_unavailable",
+                    team_id=team.pk,
+                    normalized_query_hash=query_info["normalized_query_hash"],
+                )
+                WARMING_QUERIES_COUNTER.labels(outcome="db_unavailable").inc()
+                return "db_unavailable"
             # Module logger, not context.log: Dagster's log manager isn't
             # guaranteed thread-safe, and workers fail concurrently.
             logger.exception(
