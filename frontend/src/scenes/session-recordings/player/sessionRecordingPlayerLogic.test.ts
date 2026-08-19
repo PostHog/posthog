@@ -271,16 +271,51 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
-        it('surfaces a retryable error when the initial load hangs without an explicit buffer', () => {
-            // The player opens in the default buffer state with no startBuffer dispatch. The watchdog
-            // is armed at mount, so a load that never produces data still reaches a terminal state.
-            // This runs before any mocked response resolves, so no snapshot data has arrived yet.
-            expect(logic.values.isBuffering).toBe(true)
-            expect(logic.values.playerError).toBeNull()
+        it('does not error while a snapshot request is still in flight', async () => {
+            // A source fetch that never resolves keeps snapshotsLoading true, standing in for a slow
+            // but healthy load. The watchdog must re-arm rather than show a false terminal card.
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => new Promise(() => {}),
+                },
+            })
+            const loadingLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'loading',
+                blobV2PollingDisabled: true,
+            })
+            loadingLogic.mount()
+            await expectLogic(loadingLogic).toDispatchActions([
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+            ])
+            expect(loadingLogic.values.isBuffering).toBe(true)
+            expect(loadingLogic.values.snapshotsLoading).toBe(true)
 
-            logic.actions.stuckBufferTimeoutReached()
+            loadingLogic.actions.stuckBufferTimeoutReached()
 
-            expect(logic.values.playerError).toBe('bufferTimeout')
+            expect(loadingLogic.values.playerError).toBeNull()
+            loadingLogic.unmount()
+        })
+
+        it('surfaces a retryable error when the snapshot source list resolves empty', async () => {
+            overrideSessionRecordingMocks({ snapshotSources: [] })
+            const emptyLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'empty',
+                blobV2PollingDisabled: true,
+            })
+            emptyLogic.mount()
+            // The watchdog is armed at mount; wait for the empty source list to settle so nothing is loading.
+            await expectLogic(emptyLogic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+            expect(emptyLogic.values.isBuffering).toBe(true)
+            expect(emptyLogic.values.snapshotsLoading).toBe(false)
+
+            emptyLogic.actions.stuckBufferTimeoutReached()
+
+            expect(emptyLogic.values.playerError).toBe('bufferTimeout')
+            emptyLogic.unmount()
         })
     })
 
@@ -842,6 +877,22 @@ describe('sessionRecordingPlayerLogic', () => {
             seedRecording(null, [inc(START + 61000), inc(START + 62000)])
             logic.actions.seekToTimestamp(START + 61500)
             expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+
+            logic.actions.stuckBufferTimeoutReached()
+
+            expect(logic.values.playerError).toBe('bufferTimeout')
+        })
+
+        it('re-arms the watchdog after a retry so a still-stuck load fails again', () => {
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.seekToTimestamp(START + 61500)
+            logic.actions.stuckBufferTimeoutReached()
+            expect(logic.values.playerError).toBe('bufferTimeout')
+
+            // Retry clears the error and restarts loading. If the load stays stuck, the watchdog must
+            // fire again rather than leave the viewer back on an endless spinner.
+            logic.actions.retryLoadingSnapshots()
             expect(logic.values.playerError).toBeNull()
 
             logic.actions.stuckBufferTimeoutReached()

@@ -2599,6 +2599,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         retryLoadingSnapshots: () => {
             actions.clearPlayerError()
             actions.retrySnapshotLoading()
+            // clearPlayerError is a reducer with no listener, so re-arm here or a retry that hangs
+            // again would fall back to the buffer state with the watchdog disposed and never re-fire.
+            actions.armStuckBufferWatchdog()
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
@@ -2693,9 +2696,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.isBuffering) {
                 return
             }
-            // Still-ingesting recordings buffer legitimately, and the ingestion grace path owns that terminal state.
-            // New snapshot data since we armed means the load is progressing, so give it another window.
+            // Re-arm rather than fail while the load can still make progress: a request is still in
+            // flight (a slow source or blob fetch), the recording is still ingesting (the grace path
+            // owns that terminal state), or new snapshot data arrived since we armed. Only a buffer
+            // that is genuinely stalled — no request, no ingestion, no progress — becomes terminal.
             if (
+                values.snapshotsLoading ||
                 values.isWaitingForIngestion ||
                 countLoadedSnapshots(values.sessionPlayerData) !== cache.stuckBufferLoadedCount
             ) {
