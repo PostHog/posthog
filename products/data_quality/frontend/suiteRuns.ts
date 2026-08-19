@@ -1,6 +1,6 @@
 import { pluralize } from 'lib/utils/strings'
 
-import type { DataQualitySuiteRunApi } from './generated/api.schemas'
+import type { DataQualityCheckRunApi, DataQualitySuiteRunApi } from './generated/api.schemas'
 
 const TERMINAL_SUITE_RUN_STATUSES = ['completed', 'failed', 'empty']
 const FAST_POLL_INTERVAL_MS = 3000
@@ -17,6 +17,11 @@ export function isTerminalSuiteRun(suiteRun: DataQualitySuiteRunApi | null): boo
 /** Tight while a run is likely to finish, then backed off so a long one costs little. */
 export function pollDelayMs(elapsedMs: number): number {
     return elapsedMs < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS
+}
+
+/** The newest run that still has its query. Retention clears the compiled query after 30 days. */
+export function latestFailingRowsQuery(runs: DataQualityCheckRunApi[]): string | null {
+    return runs.find((run) => run.compiled_query)?.compiled_query || null
 }
 
 export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {

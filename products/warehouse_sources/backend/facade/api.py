@@ -64,6 +64,7 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
     "list_tables_for_source",
@@ -299,6 +300,19 @@ def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:
     qs = _ExternalDataSchema.objects.select_related("source").filter(team_id=team_id, source_id=source_id)
     return [_to_schema(s) for s in qs]
+
+
+def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:
+    """Where each of these tables is administered. One query, and tables with no schema are absent."""
+    if not table_ids:
+        return {}
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id, table_id__in=list(table_ids), source_id__isnull=False
+    ).values_list("table_id", "source_id", "id")
+    return {
+        table_id: contracts.TableSourceLocation(source_id=source_id, schema_id=schema_id)
+        for table_id, source_id, schema_id in rows
+    }
 
 
 def get_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable:

@@ -18,6 +18,7 @@ import type {
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
     PaginatedDataQualityCheckListApi,
+    PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
     PatchedDataQualityCheckApi,
     WarehouseSavedQueriesCheckSuiteRunsListParams,
@@ -70,8 +71,8 @@ export const dataQualityChecksList = async (
     projectId: string,
     params?: DataQualityChecksListParams,
     options?: RequestInit
-): Promise<PaginatedDataQualityCheckListApi> => {
-    return apiMutator<PaginatedDataQualityCheckListApi>(getDataQualityChecksListUrl(projectId, params), {
+): Promise<PaginatedDataQualityOverviewCheckListApi> => {
+    return apiMutator<PaginatedDataQualityOverviewCheckListApi>(getDataQualityChecksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -343,7 +344,7 @@ export const getWarehouseSavedQueriesChecksUpdateUrl = (projectId: string, saved
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksUpdate = async (
     projectId: string,
@@ -365,7 +366,7 @@ export const getWarehouseSavedQueriesChecksPartialUpdateUrl = (projectId: string
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksPartialUpdate = async (
     projectId: string,
@@ -664,7 +665,7 @@ export const getWarehouseTablesChecksUpdateUrl = (projectId: string, tableId: st
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksUpdate = async (
     projectId: string,
@@ -686,7 +687,7 @@ export const getWarehouseTablesChecksPartialUpdateUrl = (projectId: string, tabl
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksPartialUpdate = async (
     projectId: string,

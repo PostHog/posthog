@@ -17,6 +17,7 @@ from django.db.models import QuerySet
 
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
@@ -25,7 +26,7 @@ from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import related_subject_ref
-from .errors import SubjectUnresolvableError
+from .errors import DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
@@ -45,6 +46,11 @@ _UPSERTABLE_FIELDS = (
     "reasoning",
     "owner",
 )
+
+# What the fingerprint hashes: change any of these and the check asserts something else.
+_ASSERTION_FIELDS = ("check_type", "column_name", "config")
+
+_EDITABLE_FIELDS = (*_UPSERTABLE_FIELDS, *_ASSERTION_FIELDS)
 
 
 def _subject_fk(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
@@ -94,12 +100,15 @@ def upsert_check(
     parsed = validate_check(team, subject_type, subject_uuid, check_type, column_name, config)
     subject = resolve_subject(team.id, subject_type, subject_uuid)
 
+    # Stored in the same canonical form the fingerprint hashes, so a created check and one edited
+    # into the same definition are indistinguishable afterwards.
+    canonical = parsed.model_dump(mode="json")
     fingerprint = compute_fingerprint(
         subject_type=subject_type,
         subject_uuid=str(subject_uuid),
         check_type=check_type,
         column_name=column_name,
-        config=parsed.model_dump(mode="json"),
+        config=canonical,
     )
     existing = _find_by_fingerprint(team.id, subject_type, subject_uuid, fingerprint)
     fields = {key: value for key, value in optional.items() if key in _UPSERTABLE_FIELDS and value is not None}
@@ -120,7 +129,7 @@ def upsert_check(
                     subject_status=SubjectStatus.ACTIVE,
                     check_type=check_type,
                     column_name=column_name,
-                    config=config,
+                    config=canonical,
                     fingerprint=fingerprint,
                     **_subject_fk(subject_type, subject_uuid),
                     **fields,
@@ -135,30 +144,127 @@ def upsert_check(
             if existing is None:
                 raise
 
-    return update_check(existing, **fields, deleted=False), False
+    return update_check(existing, **fields), False
 
 
 def _find_by_fingerprint(
     team_id: int, subject_type: str, subject_uuid: str, fingerprint: str
 ) -> DataQualityCheck | None:
+    """The *active* check carrying this fingerprint, if any.
+
+    Active-only so authoring a definition that was deleted earlier creates a new check with its own
+    id and history, rather than resurrecting a row the user believes is gone.
+    """
     return (
         DataQualityCheck.objects.for_team(team_id)
-        .filter(fingerprint=fingerprint, **_subject_fk(subject_type, subject_uuid))
+        .filter(fingerprint=fingerprint, deleted=False, **_subject_fk(subject_type, subject_uuid))
         .first()
     )
 
 
 def update_check(check: DataQualityCheck, **fields: Any) -> DataQualityCheck:
-    """Apply presentation changes. The assertion itself is immutable -- re-create instead."""
-    changed = []
-    for key, value in fields.items():
-        if key in _UPSERTABLE_FIELDS or key == "deleted":
-            setattr(check, key, value)
-            changed.append(key)
+    """Apply presentation changes only. Editing the assertion goes through ``edit_check``."""
+    changed = [key for key in fields if key in _UPSERTABLE_FIELDS]
+    for key in changed:
+        setattr(check, key, fields[key])
 
     if changed:
         check.save(update_fields=[*changed, "updated_at"])
     return check
+
+
+@frozen
+class _CandidateDefinition:
+    """What a requested edit would leave the check asserting, canonicalized."""
+
+    check_type: str
+    column_name: str
+    config: dict[str, Any]
+    fingerprint: str
+
+
+def edit_check(*, team: Team, check: DataQualityCheck, editor: User | None, **fields: Any) -> DataQualityCheck:
+    """Save a complete definition change, or none of it. The owning subject never moves.
+
+    Two edits to the same check serialize on the row lock, so the loser recomputes against what the
+    winner committed. Two *different* rows converging on one definition race past that lock, and the
+    active-fingerprint constraint is what settles them -- its ``IntegrityError`` comes back as the
+    same conflict the precheck raises.
+    """
+    requested = {key: value for key, value in fields.items() if key in _EDITABLE_FIELDS}
+    try:
+        with transaction.atomic():
+            locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
+            return _commit_edit(team, locked, editor, requested)
+    except IntegrityError:
+        candidate = _candidate_definition(team, check, requested)
+        if _find_by_fingerprint(team.id, check.subject_type, str(check.subject_uuid), candidate.fingerprint):
+            raise DuplicateDefinitionError()
+        raise
+
+
+def _commit_edit(
+    team: Team, check: DataQualityCheck, editor: User | None, requested: dict[str, Any]
+) -> DataQualityCheck:
+    candidate = _candidate_definition(team, check, requested)
+    _ensure_definition_available(check, candidate.fingerprint)
+    if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
+        raise NameConflictError()
+
+    changed = {key for key in requested if key in _UPSERTABLE_FIELDS}
+    for key in changed:
+        setattr(check, key, requested[key])
+
+    if candidate.fingerprint != check.fingerprint:
+        check.check_type = candidate.check_type
+        check.column_name = candidate.column_name
+        check.config = candidate.config
+        check.fingerprint = candidate.fingerprint
+        # An automated run of an edited definition authorizes as whoever last changed what it reads,
+        # not as whoever created it years ago.
+        check.definition_author = editor
+        changed |= {*_ASSERTION_FIELDS, "fingerprint", "definition_author"}
+
+    if changed:
+        check.save(update_fields=[*changed, "updated_at"])
+    return check
+
+
+def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[str, Any]) -> _CandidateDefinition:
+    check_type = requested.get("check_type", check.check_type)
+    column_name = requested.get("column_name", check.column_name)
+    parsed = validate_check(
+        team,
+        check.subject_type,
+        str(check.subject_uuid),
+        check_type,
+        column_name,
+        requested.get("config", check.config) or {},
+    )
+    config = parsed.model_dump(mode="json")
+    return _CandidateDefinition(
+        check_type=check_type,
+        column_name=column_name,
+        config=config,
+        fingerprint=compute_fingerprint(
+            subject_type=check.subject_type,
+            subject_uuid=str(check.subject_uuid),
+            check_type=check_type,
+            column_name=column_name,
+            config=config,
+        ),
+    )
+
+
+def _ensure_definition_available(check: DataQualityCheck, fingerprint: str) -> None:
+    clash = (
+        DataQualityCheck.objects.for_team(check.team_id)
+        .filter(fingerprint=fingerprint, deleted=False, **_subject_fk(check.subject_type, str(check.subject_uuid)))
+        .exclude(id=check.id)
+        .exists()
+    )
+    if clash:
+        raise DuplicateDefinitionError()
 
 
 def soft_delete_check(check: DataQualityCheck) -> None:
@@ -249,11 +355,15 @@ def start_check_suite(
     return suite_run
 
 
-def ensure_name_available(team_id: int, name: str, exclude_id: UUID | str | None = None) -> None:
+def _name_taken(team_id: int, name: str, exclude_id: UUID | str | None = None) -> bool:
     if not name:
-        return
+        return False
     clashes = DataQualityCheck.objects.for_team(team_id).filter(name=name)
     if exclude_id is not None:
         clashes = clashes.exclude(id=exclude_id)
-    if clashes.exists():
+    return clashes.exists()
+
+
+def ensure_name_available(team_id: int, name: str, exclude_id: UUID | str | None = None) -> None:
+    if _name_taken(team_id, name, exclude_id):
         raise CheckNameConflict(f"A check named '{name}' already exists in this project.")

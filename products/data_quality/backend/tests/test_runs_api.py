@@ -10,8 +10,14 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectType
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.node import Node
+from products.data_quality.backend.facade import api
+from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -159,6 +165,66 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert {row["subject_name"] for row in listed.json()["results"]} == {"customers"}
         assert {row["subject_uuid"] for row in health.json()} == {str(self.customers.id)}
+
+    def test_the_overview_leaves_out_orphans_but_keeps_their_history(self) -> None:
+        # An orphan has no subject page to link to, nothing to run, and no rollup to sit under, so
+        # showing it in the project list would be a dead row.
+        live = self._check(self.customers)
+        orphan = self._check(self.orders, subject_status=SubjectStatus.ORPHANED)
+
+        listed = self.client.get(self.checks_url)
+        health = self.client.get(f"{self.checks_url}health/")
+
+        assert {row["id"] for row in listed.json()["results"]} == {str(live.id)}
+        assert {row["subject_uuid"] for row in health.json()} == {str(self.customers.id)}
+        assert DataQualityCheck.objects.for_team(self.team.id).filter(id=orphan.id).exists()
+
+    def test_the_overview_says_where_each_subject_can_be_opened(self) -> None:
+        # The row links to the subject's own page, which lives on a DAG node for a view and on a
+        # source schema for a synced table -- neither of which the check row itself carries.
+        node = Node.objects.create(team=self.team, dag=DAG.get_or_create_default(self.team), saved_query=self.orders)
+        table, schema = self._synced_table("stripe_charges")
+        self._check(self.orders)
+        self._check(self.customers)
+        self._check(
+            self.orders, subject_type=SubjectType.TABLE, saved_query_id=None, table_id=table.id, subject_name=table.name
+        )
+
+        rows = {row["subject_name"]: row for row in self.client.get(self.checks_url).json()["results"]}
+
+        assert rows["orders"]["subject_node_id"] == str(node.id)
+        assert rows["orders"]["subject_source_id"] is None
+        assert rows["stripe_charges"]["subject_source_id"] == str(schema.source_id)
+        assert rows["stripe_charges"]["subject_schema_id"] == str(schema.id)
+        # A view on no DAG has no node page; the row renders its name as plain text.
+        assert rows["customers"]["subject_node_id"] is None
+
+    def test_resolving_where_subjects_live_does_not_grow_with_the_project(self) -> None:
+        # The overview lists every check in the project, so a query per row is a query per table in
+        # the warehouse.
+        views = [self._check(self._make_view(f"view_{index}")) for index in range(5)]
+        tables = [
+            self._check(
+                self.orders,
+                subject_type=SubjectType.TABLE,
+                saved_query_id=None,
+                table_id=self._synced_table(f"table_{index}")[0].id,
+            )
+            for index in range(5)
+        ]
+
+        with self.assertNumQueries(2):
+            located = api.subject_locations(self.team.id, [*views, *tables])
+
+        assert len(located) == 5
+
+    def _synced_table(self, name: str) -> tuple[DataWarehouseTable, ExternalDataSchema]:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=name, format=DataWarehouseTable.TableFormat.Parquet, url_pattern=""
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, table=table, name=name)
+        return table, schema
 
     def test_health_rolls_up_each_subject_without_a_query_per_subject(self) -> None:
         self._check(self.orders, last_status=CheckRunStatus.FAILED)

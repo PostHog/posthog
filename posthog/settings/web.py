@@ -686,6 +686,9 @@ SPECTACULAR_SETTINGS = {
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "PropertyGroupOperator": ["AND", "OR"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.

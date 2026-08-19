@@ -20,6 +20,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -29,7 +30,7 @@ from posthog.models import Team, User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectType
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
@@ -37,6 +38,7 @@ from .serializers import (
     DataQualityCheckRunSerializer,
     DataQualityCheckSerializer,
     DataQualityGateConfigSerializer,
+    DataQualityOverviewCheckSerializer,
     DataQualityRunRequestSerializer,
     DataQualitySuiteRunSerializer,
     SubjectHealthSerializer,
@@ -166,6 +168,18 @@ class _SubjectScopedViewSet(_QualityGatedViewSet):
             raise PermissionDenied("You don't have access to this table or view.")
 
 
+_EDIT_DESCRIPTION = (
+    "Edit this check in place, including what it asserts (check_type, column_name, config). The "
+    "table or view it audits is fixed, and the check keeps its id, run history, latest status, and "
+    "latest run time. A definition or name already held by another active check comes back as a "
+    "field error, with nothing written."
+)
+
+
+@extend_schema_view(
+    update=extend_schema(description=_EDIT_DESCRIPTION),
+    partial_update=extend_schema(description=_EDIT_DESCRIPTION),
+)
 class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """CRUD for one subject's checks, plus the actions that run them and report on them."""
 
@@ -228,6 +242,17 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
             self.get_serializer(check).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+    def perform_update(self, serializer: BaseSerializer) -> None:
+        # The candidate definition, not the stored one: an edit that points the check at a new
+        # relationships target or rewrites its custom SQL has to clear that subject too, before it
+        # is saved and the worker starts running it.
+        check = cast(DataQualityCheck, serializer.instance)
+        data = serializer.validated_data
+        self._require_referenced_subject_access(
+            data.get("check_type", check.check_type), data.get("config", check.config) or {}
+        )
+        serializer.save()
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)
@@ -397,11 +422,31 @@ class DataQualityCheckOverviewViewSet(
 
     QUERY_GATED_ACTIONS = frozenset({"list", "health"})
     scope_object = "warehouse_objects"
-    serializer_class = DataQualityCheckSerializer
+    serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
+    _subject_locations: dict[tuple[str, str], api.SubjectLocation] = {}
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
-        return queryset.filter(team_id=self.team_id, deleted=False).order_by("subject_name", "name")
+        # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to
+        # run, and no rollup to sit under. The run history they left behind stays queryable.
+        return (
+            queryset.filter(team_id=self.team_id, deleted=False)
+            .exclude(subject_status=SubjectStatus.ORPHANED)
+            .order_by("subject_name", "name")
+        )
+
+    def get_serializer_context(self) -> dict:
+        return {**super().get_serializer_context(), "subject_locations": self._subject_locations}
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        checks = list(queryset) if page is None else page
+        # Resolved once for the page, so linking to a subject costs two queries rather than one per
+        # check. Anything the batch cannot resolve stays absent and renders as plain text.
+        self._subject_locations = api.subject_locations(self.team_id, checks)
+        serializer = self.get_serializer(checks, many=True)
+        return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
 
     def filter_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
         # Hiding a denied subject's checks matters more here than on the nested surfaces: this one

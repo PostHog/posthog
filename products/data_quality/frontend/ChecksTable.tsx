@@ -4,16 +4,29 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 
 import { CheckRunsTable } from './CheckRunsTable'
-import { CHECK_STATUS_TAG_TYPES, SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
+import {
+    CHECK_STATUS_TAG_TYPES,
+    SEVERITY_TAG_TYPES,
+    checkDisplayName,
+    checkTypeLabel,
+    failingForLabel,
+} from './checksConstants'
+import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import type { DataQualityCheckApi } from './generated/api.schemas'
 
-export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
+interface ChecksTableProps extends DataQualityChecksLogicProps {
+    columns: string[]
+}
+
+export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
     const { sortedChecks, checksLoading, pendingCheckActions, checkRunsByCheckId } = useValues(logic)
-    const { openCheckModal, deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns } = useActions(logic)
+    const { deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns, openFailingRows } = useActions(logic)
+    const { openEditor } = useActions(dataQualityCheckEditorLogic)
 
     const confirmDelete = (check: DataQualityCheckApi): void => {
         LemonDialog.open({
@@ -98,14 +111,7 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                 {
                     title: 'Last status',
                     key: 'last_status',
-                    render: (_, check) =>
-                        check.last_status ? (
-                            <LemonTag type={CHECK_STATUS_TAG_TYPES[check.last_status] ?? 'default'}>
-                                {check.last_status}
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="muted">Not run yet</LemonTag>
-                        ),
+                    render: (_, check) => <CheckStatusCell check={check} />,
                 },
                 {
                     title: 'Last run',
@@ -125,7 +131,12 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                                         ? 'This check is already starting'
                                         : undefined,
                                 },
-                                { label: 'Edit', onClick: () => openCheckModal(check) },
+                                { label: 'Edit', onClick: () => openEditor(check, props, columns) },
+                                {
+                                    label: 'Open failing rows in SQL editor',
+                                    tooltip: "The query behind this check's latest run",
+                                    onClick: () => openFailingRows(check.id),
+                                },
                                 {
                                     label: 'Delete',
                                     status: 'danger',
@@ -147,6 +158,28 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                 },
             ]}
         />
+    )
+}
+
+/** The status, plus how long it has been broken -- a red tag alone never says "since when". */
+function CheckStatusCell({ check }: { check: DataQualityCheckApi }): JSX.Element {
+    const failingFor = failingForLabel(check)
+    if (!check.last_status) {
+        return <LemonTag type="muted">Not run yet</LemonTag>
+    }
+    return (
+        <div className="flex items-center gap-1.5">
+            <LemonTag type={CHECK_STATUS_TAG_TYPES[check.last_status] ?? 'default'}>{check.last_status}</LemonTag>
+            {failingFor && (
+                <Tooltip
+                    title={
+                        check.last_succeeded_at ? `Last passed ${dayjs(check.last_succeeded_at).fromNow()}` : undefined
+                    }
+                >
+                    <span className="text-secondary text-xs whitespace-nowrap">{failingFor}</span>
+                </Tooltip>
+            )}
+        </div>
     )
 }
 

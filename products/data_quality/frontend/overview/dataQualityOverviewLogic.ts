@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
-import { checksApi } from 'products/data_quality/frontend/checksApi'
+import { DataQualitySubjectRef, checksApi } from 'products/data_quality/frontend/checksApi'
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
@@ -12,14 +14,15 @@ import {
     dataQualityRunsRetrieve,
 } from 'products/data_quality/frontend/generated/api'
 import type {
-    DataQualityCheckApi,
     DataQualityCheckRunApi,
+    DataQualityOverviewCheckApi,
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
 import {
     POLL_TIMEOUT_MS,
     isTerminalSuiteRun,
+    latestFailingRowsQuery,
     pollDelayMs,
     suiteRunSummary,
 } from 'products/data_quality/frontend/suiteRuns'
@@ -35,18 +38,89 @@ export interface OverviewFilters {
 
 export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { search: '', status: 'all' }
 
+/** Checks and rollups from one refresh, committed together so rows and health always agree. */
+export interface OverviewSnapshot {
+    checks: DataQualityOverviewCheckApi[]
+    health: DataQualitySubjectHealthApi[]
+}
+
+/** What a run is reporting into: the page, or exactly one subject panel. */
+export type OverviewRunTarget = { kind: 'all' } | { kind: 'subject'; subjectKey: string }
+
 /** One table or view, with the checks on it and its rollup. What the overview renders a section per. */
 export interface SubjectGroup {
+    /** Composite: a table and a view can hold the same uuid, and do collide in practice. */
+    subjectKey: string
     subjectType: string
     subjectUuid: string
     subjectName: string
-    checks: DataQualityCheckApi[]
+    detailUrl: string | null
+    checks: DataQualityOverviewCheckApi[]
     health: string
     checksFailing: number
 }
 
 // Worst first: someone opening this is looking for what is broken, not for an alphabet.
 const HEALTH_ORDER: Record<string, number> = { failing: 0, erroring: 1, warn: 2, healthy: 3, unknown: 4 }
+
+const UNHEALTHY = ['failing', 'erroring', 'warn']
+
+export function subjectKeyOf(subjectType: string, subjectUuid: string | null | undefined): string {
+    return `${subjectType}:${subjectUuid ?? ''}`
+}
+
+function subjectRefOf(check: DataQualityOverviewCheckApi): DataQualitySubjectRef {
+    return { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' }
+}
+
+/** Where the subject's own page lives, or null when it has none and the name renders as text. */
+export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
+    if (check.subject_type === 'view') {
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id) : null
+    }
+    if (check.subject_source_id && check.subject_schema_id) {
+        return urls.dataWarehouseSourceSchema(check.subject_source_id, check.subject_schema_id)
+    }
+    // A table linked by hand rather than synced has no source schema to sit under; its own id is
+    // the route.
+    return check.subject_uuid ? urls.dataWarehouseSource(`self-managed-${check.subject_uuid}`) : null
+}
+
+export const ROW_ACTIONS_ID_PREFIX = 'data-quality-check-actions-'
+export const SUBJECT_DISCLOSURE_ID_PREFIX = 'data-quality-subject-disclosure-'
+export const BROWSE_ACTION_ID = 'data-quality-browse-subjects'
+
+export function rowActionsId(checkId: string): string {
+    return `${ROW_ACTIONS_ID_PREFIX}${checkId}`
+}
+
+export function subjectDisclosureId(subjectKey: string): string {
+    return `${SUBJECT_DISCLOSURE_ID_PREFIX}${subjectKey}`
+}
+
+/**
+ * Where focus goes once a deleted row takes its own trigger with it, best first.
+ *
+ * Computed against the groups as they were before the row went, since that is the order the user
+ * was looking at.
+ */
+export function focusCandidatesAfterDelete(groups: SubjectGroup[], subjectKey: string, checkId: string): string[] {
+    const groupIndex = groups.findIndex((group) => group.subjectKey === subjectKey)
+    const group = groups[groupIndex]
+    const checkIndex = group?.checks.findIndex((check) => check.id === checkId) ?? -1
+    const siblings = (group?.checks ?? []).filter((check) => check.id !== checkId)
+    const next = checkIndex >= 0 ? siblings[checkIndex] : undefined
+    const previous = checkIndex > 0 ? siblings[checkIndex - 1] : undefined
+
+    return [
+        ...(next ? [rowActionsId(next.id)] : []),
+        ...(previous ? [rowActionsId(previous.id)] : []),
+        ...(siblings.length ? [subjectDisclosureId(subjectKey)] : []),
+        ...(groups[groupIndex + 1] ? [subjectDisclosureId(groups[groupIndex + 1].subjectKey)] : []),
+        ...(groupIndex > 0 ? [subjectDisclosureId(groups[groupIndex - 1].subjectKey)] : []),
+        BROWSE_ACTION_ID,
+    ]
+}
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
@@ -59,78 +133,97 @@ function apiErrorDetail(error: unknown): string | null {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataQualityOverviewLogicValues {
     activeSuiteRun: DataQualitySuiteRunApi | null
+    allSubjectKeys: string[]
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
-    checks: DataQualityCheckApi[]
-    checksLoading: boolean
+    checks: DataQualityOverviewCheckApi[]
+    deletingCheckIds: Record<string, boolean>
+    expandedSubjectKeys: string[]
+    expansionInitialized: boolean
     failingCheckCount: number
     failingSubjectCount: number
-    filteredChecks: DataQualityCheckApi[]
+    filteredChecks: DataQualityOverviewCheckApi[]
     filters: OverviewFilters
-    healthBySubjectUuid: {
+    filtersActive: boolean
+    healthBySubjectKey: {
         [k: string]: DataQualitySubjectHealthApi
     }
     isRunning: boolean
+    lastActionCheckId: string | null
+    overview: OverviewSnapshot | null
+    overviewError: string | null
+    overviewLoading: boolean
     pollTimedOut: boolean
+    runError: string | null
+    runTarget: OverviewRunTarget | null
+    runningSubjectKey: string | null
     runsLoadingByCheckId: Record<string, boolean>
+    snapshotLoaded: boolean
     startingRun: boolean
     subjectGroups: SubjectGroup[]
     subjectHealth: DataQualitySubjectHealthApi[]
-    subjectHealthLoading: boolean
-    unhealthySubjectUuids: string[]
+    unhealthySubjectKeys: string[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataQualityOverviewLogicActions {
+    deleteCheck: (check: DataQualityOverviewCheckApi) => {
+        check: DataQualityOverviewCheckApi
+    }
     finishSuiteRun: (suiteRun: DataQualitySuiteRunApi) => {
         suiteRun: DataQualitySuiteRunApi
     }
-    loadCheckRuns: (check: DataQualityCheckApi) => {
-        check: DataQualityCheckApi
+    loadCheckRuns: (check: DataQualityOverviewCheckApi) => {
+        check: DataQualityOverviewCheckApi
     }
-    loadChecks: () => any
-    loadChecksFailure: (
+    loadOverview: () => any
+    loadOverviewFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadChecksSuccess: (
-        checks: DataQualityCheckApi[],
+    loadOverviewSuccess: (
+        overview: {
+            checks: DataQualityOverviewCheckApi[]
+            health: DataQualitySubjectHealthApi[]
+        },
         payload?: any
     ) => {
-        checks: DataQualityCheckApi[]
-        payload?: any
-    }
-    loadSubjectHealth: () => any
-    loadSubjectHealthFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSubjectHealthSuccess: (
-        subjectHealth: DataQualitySubjectHealthApi[],
-        payload?: any
-    ) => {
-        subjectHealth: DataQualitySubjectHealthApi[]
+        overview: {
+            checks: DataQualityOverviewCheckApi[]
+            health: DataQualitySubjectHealthApi[]
+        }
         payload?: any
     }
     pollActiveSuiteRun: () => {
         value: true
     }
-    refresh: () => {
-        value: true
+    removeCheck: (checkId: string) => {
+        checkId: string
     }
-    runChecks: (checkIds?: string[]) => {
+    runChecks: (
+        target: OverviewRunTarget,
+        checkIds?: string[]
+    ) => {
         checkIds: string[]
+        target: OverviewRunTarget
     }
     scheduleSuiteRunPoll: () => {
         value: true
     }
     setActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi | null) => {
         suiteRun: DataQualitySuiteRunApi | null
+    }
+    setCheckDeleting: (
+        checkId: string,
+        deleting: boolean
+    ) => {
+        checkId: string
+        deleting: boolean
+    }
+    openFailingRows: (check: DataQualityOverviewCheckApi) => {
+        check: DataQualityOverviewCheckApi
     }
     setCheckRuns: (
         checkId: string,
@@ -139,11 +232,20 @@ export interface dataQualityOverviewLogicActions {
         checkId: string
         runs: DataQualityCheckRunApi[]
     }
+    setExpandedSubjects: (subjectKeys: string[]) => {
+        subjectKeys: string[]
+    }
     setFilters: (filters: Partial<OverviewFilters>) => {
         filters: Partial<OverviewFilters>
     }
+    setLastActionCheck: (checkId: string | null) => {
+        checkId: string | null
+    }
     setPollTimedOut: () => {
         value: true
+    }
+    setRunError: (error: string | null) => {
+        error: string | null
     }
     setRunsLoading: (
         checkId: string,
@@ -155,25 +257,40 @@ export interface dataQualityOverviewLogicActions {
     setStartingRun: (starting: boolean) => {
         starting: boolean
     }
+    toggleSubjectExpanded: (subjectKey: string) => {
+        subjectKey: string
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        healthBySubjectUuid: (subjectHealth: DataQualitySubjectHealthApi[]) => {
+        checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
+        subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        healthBySubjectKey: (subjectHealth: DataQualitySubjectHealthApi[]) => {
             [k: string]: DataQualitySubjectHealthApi
         }
         isRunning: (activeSuiteRun: DataQualitySuiteRunApi | null, pollTimedOut: boolean) => boolean
-        filteredChecks: (checks: DataQualityCheckApi[], filters: OverviewFilters) => DataQualityCheckApi[]
-        failingCheckCount: (checks: DataQualityCheckApi[]) => number
+        runningSubjectKey: (
+            runTarget: OverviewRunTarget | null,
+            isRunning: boolean,
+            startingRun: boolean
+        ) => string | null
+        filtersActive: (filters: OverviewFilters) => boolean
+        filteredChecks: (
+            checks: DataQualityOverviewCheckApi[],
+            filters: OverviewFilters
+        ) => DataQualityOverviewCheckApi[]
+        failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
         failingSubjectCount: (subjectHealth: DataQualitySubjectHealthApi[]) => number
         subjectGroups: (
-            filteredChecks: DataQualityCheckApi[],
-            healthBySubjectUuid: {
+            filteredChecks: DataQualityOverviewCheckApi[],
+            healthBySubjectKey: {
                 [k: string]: DataQualitySubjectHealthApi
             }
         ) => SubjectGroup[]
-        unhealthySubjectUuids: (subjectGroups: SubjectGroup[]) => string[]
+        allSubjectKeys: (checks: DataQualityOverviewCheckApi[]) => string[]
+        unhealthySubjectKeys: (subjectGroups: SubjectGroup[]) => string[]
     }
 }
 
@@ -188,29 +305,38 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
     path(['products', 'data_quality', 'frontend', 'overview', 'dataQualityOverviewLogic']),
     actions({
         setFilters: (filters: Partial<OverviewFilters>) => ({ filters }),
-        loadCheckRuns: (check: DataQualityCheckApi) => ({ check }),
+        toggleSubjectExpanded: (subjectKey: string) => ({ subjectKey }),
+        setExpandedSubjects: (subjectKeys: string[]) => ({ subjectKeys }),
+        loadCheckRuns: (check: DataQualityOverviewCheckApi) => ({ check }),
+        openFailingRows: (check: DataQualityOverviewCheckApi) => ({ check }),
         setCheckRuns: (checkId: string, runs: DataQualityCheckRunApi[]) => ({ checkId, runs }),
         setRunsLoading: (checkId: string, loading: boolean) => ({ checkId, loading }),
-        runChecks: (checkIds: string[] = []) => ({ checkIds }),
+        runChecks: (target: OverviewRunTarget, checkIds: string[] = []) => ({ target, checkIds }),
         setStartingRun: (starting: boolean) => ({ starting }),
         setActiveSuiteRun: (suiteRun: DataQualitySuiteRunApi | null) => ({ suiteRun }),
         scheduleSuiteRunPoll: true,
         pollActiveSuiteRun: true,
         finishSuiteRun: (suiteRun: DataQualitySuiteRunApi) => ({ suiteRun }),
         setPollTimedOut: true,
-        refresh: true,
+        deleteCheck: (check: DataQualityOverviewCheckApi) => ({ check }),
+        setCheckDeleting: (checkId: string, deleting: boolean) => ({ checkId, deleting }),
+        removeCheck: (checkId: string) => ({ checkId }),
+        setLastActionCheck: (checkId: string | null) => ({ checkId }),
+        setRunError: (error: string | null) => ({ error }),
     }),
     loaders(() => ({
-        checks: [
-            [] as DataQualityCheckApi[],
+        overview: [
+            null as OverviewSnapshot | null,
             {
-                loadChecks: async () => (await dataQualityChecksList(projectId(), { limit: CHECKS_LIMIT })).results,
-            },
-        ],
-        subjectHealth: [
-            [] as DataQualitySubjectHealthApi[],
-            {
-                loadSubjectHealth: async () => await dataQualityChecksHealthList(projectId()),
+                // Fetched in parallel but committed as one value: rows and rollups that disagree
+                // read as a bug, so a half-refresh keeps the last snapshot the user already has.
+                loadOverview: async () => {
+                    const [checks, health] = await Promise.all([
+                        dataQualityChecksList(projectId(), { limit: CHECKS_LIMIT }),
+                        dataQualityChecksHealthList(projectId()),
+                    ])
+                    return { checks: checks.results, health }
+                },
             },
         ],
     })),
@@ -221,11 +347,57 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
+        overview: {
+            removeCheck: (state: OverviewSnapshot | null, { checkId }: { checkId: string }) =>
+                state ? { ...state, checks: state.checks.filter((check) => check.id !== checkId) } : state,
+        },
+        snapshotLoaded: [
+            false,
+            {
+                loadOverviewSuccess: () => true,
+            },
+        ],
+        overviewError: [
+            null as string | null,
+            {
+                loadOverview: () => null,
+                loadOverviewSuccess: () => null,
+                loadOverviewFailure: (_, { error }) => error || 'Failed to load',
+            },
+        ],
+        expandedSubjectKeys: [
+            [] as string[],
+            {
+                setExpandedSubjects: (_, { subjectKeys }) => subjectKeys,
+                toggleSubjectExpanded: (state, { subjectKey }) =>
+                    state.includes(subjectKey) ? state.filter((key) => key !== subjectKey) : [...state, subjectKey],
+            },
+        ],
+        expansionInitialized: [
+            false,
+            {
+                setExpandedSubjects: () => true,
+            },
+        ],
         startingRun: [
             false,
             {
                 runChecks: () => true,
                 setStartingRun: (_, { starting }) => starting,
+            },
+        ],
+        runTarget: [
+            null as OverviewRunTarget | null,
+            {
+                runChecks: (_, { target }) => target,
+            },
+        ],
+        runError: [
+            null as string | null,
+            {
+                runChecks: () => null,
+                setRunError: (_, { error }) => error,
+                setActiveSuiteRun: () => null,
             },
         ],
         activeSuiteRun: [
@@ -254,21 +426,46 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 setRunsLoading: (state, { checkId, loading }) => ({ ...state, [checkId]: loading }),
             },
         ],
+        deletingCheckIds: [
+            {} as Record<string, boolean>,
+            {
+                setCheckDeleting: (state, { checkId, deleting }) => ({ ...state, [checkId]: deleting }),
+            },
+        ],
+        lastActionCheckId: [
+            null as string | null,
+            {
+                setLastActionCheck: (_, { checkId }) => checkId,
+            },
+        ],
     }),
     selectors({
-        healthBySubjectUuid: [
+        checks: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.checks ?? []],
+        subjectHealth: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.health ?? []],
+        healthBySubjectKey: [
             (s) => [s.subjectHealth],
             (subjectHealth: DataQualitySubjectHealthApi[]) =>
-                Object.fromEntries(subjectHealth.map((entry) => [entry.subject_uuid, entry])),
+                Object.fromEntries(
+                    subjectHealth.map((entry) => [subjectKeyOf(entry.subject_type, entry.subject_uuid), entry])
+                ),
         ],
         isRunning: [
             (s) => [s.activeSuiteRun, s.pollTimedOut],
             (activeSuiteRun: DataQualitySuiteRunApi | null, pollTimedOut: boolean) =>
                 !!activeSuiteRun && !isTerminalSuiteRun(activeSuiteRun) && !pollTimedOut,
         ],
+        runningSubjectKey: [
+            (s) => [s.runTarget, s.isRunning, s.startingRun],
+            (runTarget: OverviewRunTarget | null, isRunning: boolean, startingRun: boolean) =>
+                (isRunning || startingRun) && runTarget?.kind === 'subject' ? runTarget.subjectKey : null,
+        ],
+        filtersActive: [
+            (s) => [s.filters],
+            (filters: OverviewFilters) => !!filters.search.trim() || filters.status !== 'all',
+        ],
         filteredChecks: [
             (s) => [s.checks, s.filters],
-            (checks: DataQualityCheckApi[], filters: OverviewFilters) => {
+            (checks: DataQualityOverviewCheckApi[], filters: OverviewFilters) => {
                 const search = filters.search.trim().toLowerCase()
                 return checks.filter((check) => {
                     if (filters.status === 'failing' && !['failed', 'errored'].includes(check.last_status ?? '')) {
@@ -288,7 +485,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
         ],
         failingCheckCount: [
             (s) => [s.checks],
-            (checks: DataQualityCheckApi[]) =>
+            (checks: DataQualityOverviewCheckApi[]) =>
                 checks.filter((check) => ['failed', 'errored'].includes(check.last_status ?? '')).length,
         ],
         failingSubjectCount: [
@@ -297,24 +494,26 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 subjectHealth.filter((entry) => ['failing', 'erroring'].includes(entry.health)).length,
         ],
         subjectGroups: [
-            (s) => [s.filteredChecks, s.healthBySubjectUuid],
+            (s) => [s.filteredChecks, s.healthBySubjectKey],
             (
-                filteredChecks: DataQualityCheckApi[],
-                healthBySubjectUuid: Record<string, DataQualitySubjectHealthApi>
+                filteredChecks: DataQualityOverviewCheckApi[],
+                healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
             ): SubjectGroup[] => {
                 const groups = new Map<string, SubjectGroup>()
                 for (const check of filteredChecks) {
-                    const subjectUuid = check.subject_uuid ?? ''
-                    const group = groups.get(subjectUuid) ?? {
+                    const subjectKey = subjectKeyOf(check.subject_type, check.subject_uuid)
+                    const group = groups.get(subjectKey) ?? {
+                        subjectKey,
                         subjectType: check.subject_type,
-                        subjectUuid,
+                        subjectUuid: check.subject_uuid ?? '',
                         subjectName: check.subject_name,
+                        detailUrl: subjectDetailUrl(check),
                         checks: [],
-                        health: healthBySubjectUuid[subjectUuid]?.health ?? 'unknown',
-                        checksFailing: healthBySubjectUuid[subjectUuid]?.checks_failing ?? 0,
+                        health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
+                        checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
                     }
                     group.checks.push(check)
-                    groups.set(subjectUuid, group)
+                    groups.set(subjectKey, group)
                 }
                 return [...groups.values()].sort(
                     (left, right) =>
@@ -323,19 +522,32 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 )
             },
         ],
+        allSubjectKeys: [
+            (s) => [s.checks],
+            (checks: DataQualityOverviewCheckApi[]) => [
+                ...new Set(checks.map((check) => subjectKeyOf(check.subject_type, check.subject_uuid))),
+            ],
+        ],
         // Someone opening this wants the broken ones open; healthy subjects stay collapsed.
-        unhealthySubjectUuids: [
+        unhealthySubjectKeys: [
             (s) => [s.subjectGroups],
             (subjectGroups: SubjectGroup[]) =>
-                subjectGroups
-                    .filter((group) => ['failing', 'erroring', 'warn'].includes(group.health))
-                    .map((group) => group.subjectUuid),
+                subjectGroups.filter((group) => UNHEALTHY.includes(group.health)).map((group) => group.subjectKey),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        refresh: () => {
-            actions.loadChecks()
-            actions.loadSubjectHealth()
+        loadOverviewSuccess: () => {
+            if (!values.expansionInitialized) {
+                actions.setExpandedSubjects(values.unhealthySubjectKeys)
+                return
+            }
+            // Pruned against every subject, not the filtered ones, so a filter never collapses a
+            // panel the user opened.
+            const present = new Set(values.allSubjectKeys)
+            const kept = values.expandedSubjectKeys.filter((key) => present.has(key))
+            if (kept.length !== values.expandedSubjectKeys.length) {
+                actions.setExpandedSubjects(kept)
+            }
         },
         loadCheckRuns: async ({ check }) => {
             if (values.runsLoadingByCheckId[check.id]) {
@@ -343,22 +555,64 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             }
             actions.setRunsLoading(check.id, true)
             try {
-                const ref = { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' }
-                actions.setCheckRuns(check.id, await checksApi.runs(ref, check.id))
+                actions.setCheckRuns(check.id, await checksApi.runs(subjectRefOf(check), check.id))
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
             } finally {
                 actions.setRunsLoading(check.id, false)
             }
         },
+        openFailingRows: async ({ check }) => {
+            // The rows that failed are only in the run's compiled query, and runs are loaded lazily,
+            // so fetch them here rather than putting a SQL string on every row of the project list.
+            let runs = values.checkRunsByCheckId[check.id]
+            if (!runs) {
+                try {
+                    runs = await checksApi.runs(subjectRefOf(check), check.id)
+                    actions.setCheckRuns(check.id, runs)
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
+                    return
+                }
+            }
+            const query = latestFailingRowsQuery(runs)
+            if (!query) {
+                lemonToast.info(
+                    runs.length
+                        ? 'The query for this check is no longer kept. Run the check to see its failing rows.'
+                        : "This check hasn't run yet. Run it to see its failing rows."
+                )
+                return
+            }
+            router.actions.push(urls.sqlEditor({ query }))
+        },
         runChecks: async ({ checkIds }) => {
             try {
                 // An empty selection is the "everything" case, which the endpoint reads as no filter.
                 actions.setActiveSuiteRun(await dataQualityRunsCreate(projectId(), { check_ids: checkIds }))
             } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not start the checks. Try again.')
+                actions.setRunError(apiErrorDetail(error) ?? "Couldn't run checks.")
             } finally {
                 actions.setStartingRun(false)
+            }
+        },
+        deleteCheck: async ({ check }) => {
+            if (values.deletingCheckIds[check.id]) {
+                return
+            }
+            actions.setCheckDeleting(check.id, true)
+            try {
+                await checksApi.destroy(
+                    { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' },
+                    check.id
+                )
+                actions.removeCheck(check.id)
+                actions.loadOverview()
+                lemonToast.success('Check deleted')
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) ?? 'Could not delete the check. Try again.')
+            } finally {
+                actions.setCheckDeleting(check.id, false)
             }
         },
         setActiveSuiteRun: ({ suiteRun }) => {
@@ -411,11 +665,11 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
         },
         finishSuiteRun: ({ suiteRun }) => {
             cache.disposables.dispose('suiteRunPoll')
-            actions.refresh()
+            actions.loadOverview()
             if (suiteRun.status === 'empty') {
                 lemonToast.info('No enabled checks to run')
             } else if (suiteRun.status === 'failed' && !suiteRun.checks_failed) {
-                lemonToast.error(suiteRun.error || 'The checks could not be run. Try again.')
+                actions.setRunError(suiteRun.error || "Couldn't run checks.")
             } else if (suiteRun.checks_failed || suiteRun.checks_errored) {
                 lemonToast.warning(suiteRunSummary(suiteRun))
             } else {
@@ -424,6 +678,6 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.refresh()
+        actions.loadOverview()
     }),
 ])

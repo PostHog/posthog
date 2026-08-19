@@ -1,3 +1,4 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import { CheckTypeEnumApi } from './generated/api.schemas'
@@ -52,6 +53,25 @@ export const SUBJECT_TYPE_TAGS: Record<string, { label: string; type: LemonTagTy
 export const SEVERITY_TAG_TYPES: Record<string, LemonTagType> = {
     error: 'danger',
     warn: 'warning',
+}
+
+const FAILING_STATUSES = ['failed', 'errored']
+
+/**
+ * How long a check has been broken, or null when it is not broken. The first question a red row
+ * raises. Kept short because it sits beside the status tag, which already says it failed.
+ */
+export function failingForLabel(
+    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at'>,
+    now: Dayjs = dayjs()
+): string | null {
+    if (!FAILING_STATUSES.includes(check.last_status ?? '')) {
+        return null
+    }
+    if (!check.last_succeeded_at) {
+        return 'never passed'
+    }
+    return `for ${dayjs(check.last_succeeded_at).from(now, true)}`
 }
 
 export function checkTypeLabel(checkType: string): string {

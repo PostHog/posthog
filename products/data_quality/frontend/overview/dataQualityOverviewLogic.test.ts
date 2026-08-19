@@ -1,3 +1,5 @@
+import { router } from 'kea-router'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -9,10 +11,21 @@ import {
     dataQualityChecksList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
+    warehouseSavedQueriesChecksDestroy,
+    warehouseSavedQueriesChecksRunsList,
 } from 'products/data_quality/frontend/generated/api'
-import type { DataQualityCheckApi, DataQualitySuiteRunApi } from 'products/data_quality/frontend/generated/api.schemas'
+import type {
+    DataQualityOverviewCheckApi,
+    DataQualitySuiteRunApi,
+} from 'products/data_quality/frontend/generated/api.schemas'
 
-import { dataQualityOverviewLogic } from './dataQualityOverviewLogic'
+import {
+    dataQualityOverviewLogic,
+    focusCandidatesAfterDelete,
+    rowActionsId,
+    subjectDetailUrl,
+    subjectDisclosureId,
+} from './dataQualityOverviewLogic'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -30,9 +43,18 @@ jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksHealthList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
+    warehouseSavedQueriesChecksDestroy: jest.fn(),
+    warehouseTablesChecksDestroy: jest.fn(),
+    warehouseSavedQueriesChecksRunsList: jest.fn(),
+    warehouseTablesChecksRunsList: jest.fn(),
 }))
 
-function buildCheck(id: string, subject: string, lastStatus: string | null): DataQualityCheckApi {
+function buildCheck(
+    id: string,
+    subject: string,
+    lastStatus: string | null,
+    overrides: Partial<DataQualityOverviewCheckApi> = {}
+): DataQualityOverviewCheckApi {
     return {
         id,
         name: `${subject}_check`,
@@ -45,7 +67,11 @@ function buildCheck(id: string, subject: string, lastStatus: string | null): Dat
         enabled: true,
         last_status: lastStatus ?? '',
         last_run_at: null,
-    } as DataQualityCheckApi
+        subject_node_id: null,
+        subject_source_id: null,
+        subject_schema_id: null,
+        ...overrides,
+    } as DataQualityOverviewCheckApi
 }
 
 function buildSuiteRun(overrides: Partial<DataQualitySuiteRunApi> = {}): DataQualitySuiteRunApi {
@@ -61,6 +87,11 @@ function buildSuiteRun(overrides: Partial<DataQualitySuiteRunApi> = {}): DataQua
         ...overrides,
     } as DataQualitySuiteRunApi
 }
+
+const HEALTH = [
+    { subject_type: 'view', subject_uuid: 'uuid-orders', health: 'failing', checks_total: 2, checks_failing: 1 },
+    { subject_type: 'view', subject_uuid: 'uuid-customers', health: 'healthy', checks_total: 1, checks_failing: 0 },
+]
 
 describe('dataQualityOverviewLogic', () => {
     let logic: ReturnType<typeof dataQualityOverviewLogic.build>
@@ -82,22 +113,7 @@ describe('dataQualityOverviewLogic', () => {
                 buildCheck('check-3', 'customers', null),
             ],
         })
-        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
-            {
-                subject_type: 'view',
-                subject_uuid: 'uuid-orders',
-                health: 'failing',
-                checks_total: 2,
-                checks_failing: 1,
-            },
-            {
-                subject_type: 'view',
-                subject_uuid: 'uuid-customers',
-                health: 'healthy',
-                checks_total: 1,
-                checks_failing: 0,
-            },
-        ])
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue(HEALTH)
     })
 
     afterEach(() => {
@@ -106,11 +122,38 @@ describe('dataQualityOverviewLogic', () => {
         logic?.unmount()
     })
 
-    it('keys subject health by uuid so two subjects can share a name', async () => {
+    it('keys subjects by type and uuid together, since the two kinds can collide', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: [
+                buildCheck('check-1', 'orders', 'failed'),
+                buildCheck('check-2', 'orders_table', 'passed', {
+                    subject_type: 'table',
+                    subject_uuid: 'uuid-orders',
+                }),
+            ],
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
+            {
+                subject_type: 'view',
+                subject_uuid: 'uuid-orders',
+                health: 'failing',
+                checks_total: 1,
+                checks_failing: 1,
+            },
+            {
+                subject_type: 'table',
+                subject_uuid: 'uuid-orders',
+                health: 'healthy',
+                checks_total: 1,
+                checks_failing: 0,
+            },
+        ])
         await mountLogic()
 
-        expect(logic.values.healthBySubjectUuid['uuid-orders'].checks_failing).toEqual(1)
-        expect(logic.values.failingSubjectCount).toEqual(1)
+        expect(logic.values.subjectGroups.map((group) => [group.subjectKey, group.health])).toEqual([
+            ['view:uuid-orders', 'failing'],
+            ['table:uuid-orders', 'healthy'],
+        ])
     })
 
     it('groups checks by subject, worst health first', async () => {
@@ -126,10 +169,10 @@ describe('dataQualityOverviewLogic', () => {
         ])
     })
 
-    it('opens only the subjects that need attention', async () => {
+    it('opens only the subjects that need attention, once', async () => {
         await mountLogic()
 
-        expect(logic.values.unhealthySubjectUuids).toEqual(['uuid-orders'])
+        expect(logic.values.expandedSubjectKeys).toEqual(['view:uuid-orders'])
     })
 
     it.each<[string, Record<string, unknown>, string[]]>([
@@ -144,6 +187,68 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.filteredChecks.map((check) => check.id)).toEqual(expectedIds)
     })
 
+    it('keeps subjects the user opened through filtering and refreshing', async () => {
+        await mountLogic()
+        logic.actions.toggleSubjectExpanded('view:uuid-customers')
+
+        logic.actions.setFilters({ search: 'orders' })
+        logic.actions.loadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.expandedSubjectKeys).toEqual(['view:uuid-orders', 'view:uuid-customers'])
+    })
+
+    it('drops expanded subjects that no longer exist', async () => {
+        await mountLogic()
+        logic.actions.toggleSubjectExpanded('view:uuid-customers')
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: [buildCheck('check-1', 'orders', 'failed')],
+        })
+
+        logic.actions.loadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.expandedSubjectKeys).toEqual(['view:uuid-orders'])
+    })
+
+    it.each<[string, boolean, boolean]>([
+        ['the checks call', true, false],
+        ['the health call', false, true],
+    ])('shows the retry state when %s fails on first load', async (_case, checksFails, healthFails) => {
+        if (checksFails) {
+            ;(dataQualityChecksList as jest.Mock).mockRejectedValue(new Error('down'))
+        }
+        if (healthFails) {
+            ;(dataQualityChecksHealthList as jest.Mock).mockRejectedValue(new Error('down'))
+        }
+        await mountLogic()
+
+        expect(logic.values.snapshotLoaded).toBe(false)
+        expect(logic.values.overviewError).toBeTruthy()
+        expect(logic.values.checks).toEqual([])
+    })
+
+    it.each<[string, boolean, boolean]>([
+        ['the checks call', true, false],
+        ['the health call', false, true],
+    ])('keeps the last consistent snapshot when %s fails on refresh', async (_case, checksFails, healthFails) => {
+        await mountLogic()
+        if (checksFails) {
+            ;(dataQualityChecksList as jest.Mock).mockRejectedValue(new Error('down'))
+        }
+        if (healthFails) {
+            ;(dataQualityChecksHealthList as jest.Mock).mockRejectedValue(new Error('down'))
+        }
+
+        logic.actions.loadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.snapshotLoaded).toBe(true)
+        expect(logic.values.overviewError).toBeTruthy()
+        expect(logic.values.checks).toHaveLength(3)
+        expect(logic.values.subjectHealth).toHaveLength(2)
+    })
+
     it('sends no ids when running everything', async () => {
         // An empty list is what the endpoint reads as "every enabled check", so it must not be
         // replaced by the currently filtered rows.
@@ -153,22 +258,84 @@ describe('dataQualityOverviewLogic', () => {
         await mountLogic()
         logic.actions.setFilters({ status: 'failing' })
 
-        logic.actions.runChecks()
+        logic.actions.runChecks({ kind: 'all' })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dataQualityRunsCreate).toHaveBeenCalledWith('1', { check_ids: [] })
     })
 
-    it('sends exactly one subject’s ids when running that subject', async () => {
-        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(
-            buildSuiteRun({ status: 'completed', checks_passed: 2 })
-        )
+    it('reports a subject run into that subject alone', async () => {
+        // The regression: one global spinner meant every run control span every panel.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
         await mountLogic()
 
-        logic.actions.runChecks(['check-1', 'check-2'])
+        logic.actions.runChecks({ kind: 'subject', subjectKey: 'view:uuid-orders' }, ['check-1', 'check-2'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dataQualityRunsCreate).toHaveBeenCalledWith('1', { check_ids: ['check-1', 'check-2'] })
+        expect(logic.values.runningSubjectKey).toEqual('view:uuid-orders')
+        expect(logic.values.runTarget).toEqual({ kind: 'subject', subjectKey: 'view:uuid-orders' })
+    })
+
+    it('runs one check without pulling in the rest of its subject', async () => {
+        // Fixing one broken check and re-running just that check is the loop this page exists for.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        await mountLogic()
+
+        logic.actions.runChecks({ kind: 'subject', subjectKey: 'view:uuid-orders' }, ['check-1'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityRunsCreate).toHaveBeenCalledWith('1', { check_ids: ['check-1'] })
+        expect(logic.values.runningSubjectKey).toEqual('view:uuid-orders')
+    })
+
+    it('offers a retry instead of a toast when a run cannot start', async () => {
+        ;(dataQualityRunsCreate as jest.Mock).mockRejectedValue(new Error('down'))
+        await mountLogic()
+
+        logic.actions.runChecks({ kind: 'all' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.runError).toEqual("Couldn't run checks.")
+        expect(logic.values.startingRun).toBe(false)
+        expect(logic.values.runningSubjectKey).toBeNull()
+    })
+
+    it('removes a deleted check and refreshes the snapshot', async () => {
+        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        await mountLogic()
+        const loadsBeforeDelete = (dataQualityChecksList as jest.Mock).mock.calls.length
+
+        logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledWith('1', 'uuid-orders', 'check-1')
+        expect((dataQualityChecksList as jest.Mock).mock.calls.length).toBeGreaterThan(loadsBeforeDelete)
+        expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
+    })
+
+    it('keeps the row and says so when a delete fails', async () => {
+        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
+        await mountLogic()
+
+        logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checks.map((check) => check.id)).toEqual(['check-1', 'check-2', 'check-3'])
+        expect(lemonToast.error).toHaveBeenCalled()
+        expect(logic.values.deletingCheckIds['check-1']).toBe(false)
+    })
+
+    it('deletes a check once when the confirmation is submitted twice', async () => {
+        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        await mountLogic()
+        const check = buildCheck('check-1', 'orders', 'failed')
+
+        logic.actions.deleteCheck(check)
+        logic.actions.deleteCheck(check)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledTimes(1)
     })
 
     it('reloads the rows once the polled run finishes', async () => {
@@ -180,7 +347,7 @@ describe('dataQualityOverviewLogic', () => {
         const loadsBeforeRun = (dataQualityChecksList as jest.Mock).mock.calls.length
 
         jest.useFakeTimers()
-        logic.actions.runChecks()
+        logic.actions.runChecks({ kind: 'all' })
         await drainListeners()
         expect(logic.values.isRunning).toBe(true)
 
@@ -198,7 +365,7 @@ describe('dataQualityOverviewLogic', () => {
         await mountLogic()
 
         jest.useFakeTimers()
-        logic.actions.runChecks()
+        logic.actions.runChecks({ kind: 'all' })
         await drainListeners()
 
         for (let poll = 0; poll < 80 && !logic.values.pollTimedOut; poll++) {
@@ -207,6 +374,75 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(logic.values.pollTimedOut).toBe(true)
         expect(logic.values.isRunning).toBe(false)
+    })
+
+    it.each<[string, Record<string, string>[], string | null]>([
+        // Retention clears the compiled query of older runs first, so "latest" is not always [0].
+        [
+            'the newest run that still has one',
+            [{ compiled_query: 'SELECT 2' }, { compiled_query: 'SELECT 1' }],
+            'SELECT 2',
+        ],
+        ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
+    ])('opens the failing rows of %s', async (_case, runs, expected) => {
+        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        await mountLogic()
+
+        logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toMatch(/\/sql$/)
+        expect(router.values.searchParams.open_query).toEqual(expected)
+    })
+
+    it.each<[string, Record<string, string>[]]>([
+        ['the check has never run', []],
+        ['every run has lost its query to retention', [{ compiled_query: '' }]],
+    ])('says why there is nothing to open when %s', async (_case, runs) => {
+        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        await mountLogic()
+
+        logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.info).toHaveBeenCalled()
+        expect(router.values.location.pathname).not.toMatch(/\/sql$/)
+    })
+
+    it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1'],
+        ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
+        [
+            'a synced table',
+            { subject_type: 'table', subject_source_id: 'source-1', subject_schema_id: 'schema-1' },
+            '/data-management/sources/source-1/schemas/schema-1',
+        ],
+        [
+            'a table linked by hand rather than synced',
+            { subject_type: 'table', subject_uuid: 'uuid-table', subject_source_id: null },
+            '/data-management/sources/self-managed-uuid-table/schemas',
+        ],
+    ])('links %s', (_case, overrides, expected) => {
+        expect(subjectDetailUrl(buildCheck('check-1', 'orders', null, overrides))).toEqual(expected)
+    })
+
+    it.each<[string, string, string]>([
+        ['the next check in the same subject', 'check-1', rowActionsId('check-2')],
+        ['the previous check when the last one goes', 'check-2', rowActionsId('check-1')],
+    ])('restores focus to %s', async (_case, deletedId, expectedFirst) => {
+        await mountLogic()
+
+        const candidates = focusCandidatesAfterDelete(logic.values.subjectGroups, 'view:uuid-orders', deletedId)
+
+        expect(candidates[0]).toEqual(expectedFirst)
+    })
+
+    it('falls back past the emptied subject to its neighbour, then the empty state', async () => {
+        await mountLogic()
+
+        const candidates = focusCandidatesAfterDelete(logic.values.subjectGroups, 'view:uuid-customers', 'check-3')
+
+        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), 'data-quality-browse-subjects'])
     })
 
     async function drainListeners(): Promise<void> {
