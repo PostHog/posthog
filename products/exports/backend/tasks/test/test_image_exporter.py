@@ -35,7 +35,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.facade.api import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 

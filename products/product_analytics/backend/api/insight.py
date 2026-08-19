@@ -156,7 +156,7 @@ from products.product_analytics.backend.api.insight_metadata import (
     generate_insight_metadata,
 )
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.logic import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -175,7 +175,7 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 )
 
 
-def _get_insight_type(insight: Insight) -> str:
+def get_insight_type(insight: Insight) -> str:
     """Return a normalized lowercase insight type string for analytics (used by the dashboard tile event)."""
     if insight.query:
         source = insight.query.get("source", insight.query)
@@ -819,7 +819,7 @@ class InsightSerializer(InsightBasicSerializer):
                 "dashboard tile added",
                 {
                     "tile_type": "insight",
-                    "insight_type": _get_insight_type(insight),
+                    "insight_type": get_insight_type(insight),
                     "dashboard_id": dashboard.id,
                 },
                 team=insight.team,
@@ -1021,7 +1021,7 @@ class InsightSerializer(InsightBasicSerializer):
                 "dashboard tile added",
                 {
                     "tile_type": "insight",
-                    "insight_type": _get_insight_type(instance),
+                    "insight_type": get_insight_type(instance),
                     "dashboard_id": dashboard.id,
                 },
                 team=instance.team,
@@ -1052,7 +1052,7 @@ class InsightSerializer(InsightBasicSerializer):
                     "dashboard tile removed",
                     {
                         "tile_type": "insight",
-                        "insight_type": _get_insight_type(instance),
+                        "insight_type": get_insight_type(instance),
                         "dashboard_id": tile.dashboard_id,
                     },
                     team=instance.team,
