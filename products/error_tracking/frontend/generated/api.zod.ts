@@ -992,8 +992,14 @@ export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /*
         .describe('The minimum number of exceptions required in a 5-minute window before a spike can be detected.'),
 })
 
+export const errorTrackingStackFramesBatchGetCreateBodyRawIdsMax = 500
+
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
-    raw_ids: zod.array(zod.string()).describe("Raw frame IDs in 'hash\/part' format to resolve in a single request."),
+    raw_ids: zod
+        .array(zod.string())
+        .max(errorTrackingStackFramesBatchGetCreateBodyRawIdsMax)
+        .optional()
+        .describe("Raw frame IDs in 'hash\/part' format to resolve in a single request."),
     symbol_set: zod
         .string()
         .nullish()

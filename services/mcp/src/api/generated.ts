@@ -30623,8 +30623,11 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingStackFrameBatchGetRequest {
-      /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
-      raw_ids: string[];
+      /**
+         * Raw frame IDs in 'hash/part' format to resolve in a single request.
+         * @maxItems 500
+         */
+      raw_ids?: string[];
       /**
          * Optional symbol set reference to scope the lookup to a single symbol set.
          * @nullable

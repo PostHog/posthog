@@ -32,6 +32,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.presentation.views.stack_frames import MAX_BATCH_RAW_IDS
 
 from ee.models.rbac.role import Role
 
@@ -701,11 +702,18 @@ class TestErrorTracking(APIBaseTest):
 
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
 
-        # it only fetches stack traces for the specified team
+        # with no filter it returns nothing, rather than every frame for the team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
-        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertEqual(response.json()["results"], [])
 
-        # fetching can be filtered by raw_ids
+        # an empty raw_ids list also returns nothing, rather than every frame for the team
+        data = {"raw_ids": []}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data, format="json"
+        )
+        self.assertEqual(response.json()["results"], [])
+
+        # fetching can be filtered by raw_ids, and is scoped to the team
         data = {"raw_ids": ["raw_id"]}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
@@ -727,6 +735,13 @@ class TestErrorTracking(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"], [])
+
+        # more raw_ids than the cap is rejected, rather than building an oversized query
+        data = {"raw_ids": [f"raw_id_{i}" for i in range(MAX_BATCH_RAW_IDS + 1)]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_assigning_issues(self):
         issue = self.create_issue()

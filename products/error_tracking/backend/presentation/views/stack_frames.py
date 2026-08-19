@@ -14,6 +14,10 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
+# Caps how many frame IDs one request resolves, so a large stack trace cannot build an
+# oversized query that saturates the Postgres connection pool. The frontend chunks to match.
+MAX_BATCH_RAW_IDS = 500
+
 
 class ErrorTrackingStackFrameSerializer(DataclassSerializer):
     class Meta:
@@ -23,6 +27,8 @@ class ErrorTrackingStackFrameSerializer(DataclassSerializer):
 class ErrorTrackingStackFrameBatchGetRequestSerializer(serializers.Serializer):
     raw_ids = serializers.ListField(
         child=serializers.CharField(),
+        required=False,
+        max_length=MAX_BATCH_RAW_IDS,
         help_text="Raw frame IDs in 'hash/part' format to resolve in a single request.",
     )
     symbol_set = serializers.CharField(
@@ -61,7 +67,9 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     )
     @action(methods=["POST"], detail=False)
     def batch_get(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-        symbol_set = request.data.get("symbol_set", None)
+        serializer = ErrorTrackingStackFrameBatchGetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_ids = serializer.validated_data.get("raw_ids")
+        symbol_set = serializer.validated_data.get("symbol_set")
         frames = error_tracking_api.batch_get_stack_frames(self.team.id, raw_ids, symbol_set)
         return Response({"results": self.get_serializer(frames, many=True).data})

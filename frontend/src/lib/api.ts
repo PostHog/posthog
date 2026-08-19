@@ -13,6 +13,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
+import { chunk } from 'lib/utils/arrays'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -4314,7 +4315,13 @@ const api = {
         async stackFrames(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
+            // Keep chunks under the backend cap so a large stack trace stays within one bounded query each.
+            const responses = await Promise.all(
+                chunk(raw_ids, 500).map((ids) =>
+                    new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: ids } })
+                )
+            )
+            return { results: responses.flatMap((response) => response.results) }
         },
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {

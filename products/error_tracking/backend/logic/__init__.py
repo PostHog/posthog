@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from typing import Any, TypeVar, cast
 from urllib.parse import quote
@@ -460,11 +461,21 @@ def batch_get_stack_frames(
     team_id: int, raw_ids: list[str] | None = None, symbol_set: str | None = None
 ) -> QuerySet[ErrorTrackingStackFrame]:
     qs = stack_frame_queryset(team_id)
-    if raw_ids:
-        id_query = Q()
+    # Without any filter this would return every frame for the team, so scope to nothing instead.
+    if raw_ids is None and symbol_set is None:
+        return qs.none()
+    if raw_ids is not None:
+        # Group by part so each part becomes one `raw_id IN (...)` clause. The query then holds one
+        # clause per distinct part (usually one), rather than one OR clause per requested frame.
+        hashes_by_part: dict[int, list[str]] = defaultdict(list)
         for raw_id in raw_ids:
             hash_id, part = split_stack_frame_raw_id(raw_id)
-            id_query |= Q(raw_id=hash_id, part=part)
+            hashes_by_part[part].append(hash_id)
+        if not hashes_by_part:
+            return qs.none()
+        id_query = Q()
+        for part, hashes in hashes_by_part.items():
+            id_query |= Q(part=part, raw_id__in=hashes)
         qs = qs.filter(id_query)
     if symbol_set:
         qs = qs.filter(symbol_set=symbol_set)
