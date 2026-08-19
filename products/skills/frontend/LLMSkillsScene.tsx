@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
-import { LemonDivider, LemonModal, LemonSwitch, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonModal, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -30,15 +30,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
-import {
-    DEFAULT_SKILLS_TAB_KEY,
-    SKILLS_GROUP_LIMIT,
-    SKILLS_PER_PAGE,
-    SkillGroupNode,
-    SkillGroupTree,
-    llmSkillsLogic,
-    skillTabUrl,
-} from './llmSkillsLogic'
+import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
+import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
@@ -47,6 +40,7 @@ export const scene: SceneExport = {
     component: LLMSkillsScene,
     logic: llmSkillsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: llmSkillsEmptyState,
 }
 
 // Mirrors `metadata.seeded_by` stamped by the Signals scout harness (kept local so the skills
@@ -441,7 +435,6 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabKey,
         activeCategory,
         activeTabDescription,
-        visibleCategoryTabs,
     } = useValues(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -492,17 +485,6 @@ export function LLMSkillsScene(): JSX.Element {
                 >
                     No skills yet — explore agent skills shared by the PostHog community and install them in one click.
                 </LemonBanner>
-            )}
-
-            {visibleCategoryTabs.length > 0 && (
-                <LemonTabs
-                    activeKey={activeTabKey}
-                    onChange={(key) => router.actions.push(skillTabUrl(key))}
-                    tabs={[
-                        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
-                        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label })),
-                    ]}
-                />
             )}
 
             <div className="space-y-4">
@@ -586,7 +568,7 @@ export function LLMSkillsScene(): JSX.Element {
 
     return (
         <SkillsSceneShell
-            activeTab="your"
+            activeTabKey={activeTabKey}
             description={activeTabDescription}
             actions={
                 <>

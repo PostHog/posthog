@@ -22,6 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -95,7 +96,7 @@ class GitHubCommitAttribution:
     name: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PullRequestRef:
     """A pull request's coordinates, parsed from its GitHub HTML URL."""
 

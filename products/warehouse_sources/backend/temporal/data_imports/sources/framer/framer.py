@@ -18,7 +18,7 @@ from typing import Any, Optional, Protocol
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from structlog.types import FilteringBoundLogger
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import ConnectionClosed, InvalidMessage, InvalidStatus
 from websockets.headers import build_authorization_basic
 from websockets.sync.client import connect as websocket_connect
 from websockets.uri import Proxy, get_proxy, parse_proxy, parse_uri
@@ -183,6 +183,13 @@ class FramerClient:
             if status in (401, 403):
                 raise FramerAPIError("Framer rejected the API key", code="UNAUTHORIZED") from e
             raise FramerAPIError(f"Connection rejected with HTTP {status}", code="INTERNAL", retryable=True) from e
+        except InvalidMessage as e:
+            # The server accepted the TCP/TLS connection but closed it before sending a
+            # parseable HTTP response (e.g. an EOF while reading the status line) — a
+            # headless-pool hiccup on Framer's side, not a credential or config problem.
+            raise FramerAPIError(
+                f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
+            ) from e
 
         deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
         while True:

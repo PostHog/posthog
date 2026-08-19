@@ -20,9 +20,14 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.models.insight import Insight
+
+TEST_DESTINATION_DELIVERY = AlertDelivery(
+    channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"
+)
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -497,6 +502,189 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(checks) == 3
         values = [c["calculated_value"] for c in checks]
         assert 4.0 not in values
+
+    @parameterized.expand(
+        [
+            (
+                "recorded_email_composed_as_accepted",
+                {"users": ["a@example.com"], "destinations": []},
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
+                    }
+                ],
+                True,
+            ),
+            (
+                "row_predating_receipts_is_null_but_still_notified",
+                {"users": ["a@example.com"]},
+                None,
+                True,
+            ),
+            (
+                "hog_function_only_delivery_keeps_truthful_yes",
+                {
+                    "users": [],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    }
+                ],
+                True,
+            ),
+            (
+                "combined_email_and_destination_row",
+                {
+                    "users": ["a@example.com"],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    },
+                ],
+                True,
+            ),
+            (
+                "non_slack_destinations_carry_an_id_suffix",
+                {
+                    "users": [],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Discord",
+                            "target_id": "hf-aaaa4f2a",
+                            "template": "discord",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                        {
+                            "channel": "hog_function",
+                            "target": "Webhook example.com",
+                            "target_id": "hf-bbbb9b17",
+                            "template": "webhook",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-cccc0000",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                    ],
+                },
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Discord",
+                        "target_id": "hf-aaaa4f2a",
+                        "template": "discord",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Discord · 4f2a",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Webhook example.com",
+                        "target_id": "hf-bbbb9b17",
+                        "template": "webhook",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Webhook example.com · 9b17",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-cccc0000",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    },
+                ],
+                True,
+            ),
+            (
+                "nothing_recorded_is_null",
+                {},
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_alert_check_deliveries_field(
+        self,
+        _name: str,
+        targets_notified: dict,
+        expected_deliveries: list[dict] | None,
+        expected_targets_notified: bool,
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "deliveries field test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        check = AlertCheck.objects.create(
+            alert_configuration_id=alert["id"],
+            targets_notified=targets_notified,
+            notification_sent_at=datetime(2026, 8, 11, 0, 0, tzinfo=UTC) if targets_notified else None,
+            state=AlertState.FIRING,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        serialized = next(c for c in response.json()["checks"] if c["id"] == str(check.id))
+        assert serialized["deliveries"] == expected_deliveries
+        assert serialized["targets_notified"] is expected_targets_notified
 
     def test_alert_limit(self) -> None:
         with mock.patch(
@@ -1501,7 +1689,7 @@ class TestAlertTestDelivery(APIBaseTest):
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
-        mock_trigger.return_value = True
+        mock_trigger.return_value = [TEST_DESTINATION_DELIVERY]
         self._create_destination()
         self._create_destination()
         self._create_destination(enabled=False)
@@ -1552,7 +1740,9 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_trigger.assert_not_called()
 
     @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=True)
+    @mock.patch(
+        "products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[TEST_DESTINATION_DELIVERY]
+    )
     def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
         AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
@@ -1568,7 +1758,7 @@ class TestAlertTestDelivery(APIBaseTest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=False)
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[])
     def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
         self._create_destination()
 

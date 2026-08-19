@@ -522,7 +522,7 @@ class DatasetItemVersionPagination(LimitOffsetPagination):
 
 class DatasetExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "dataset_export"
-    rate = "10/minute"
+    rate = "10/day"
 
 
 def _parse_dataset_export_id(export_id: str | None) -> int:

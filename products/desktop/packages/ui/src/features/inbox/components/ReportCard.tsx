@@ -244,7 +244,7 @@ export function ReportCardView(props: ReportCardViewProps) {
   ) : (
     <>
       <SuggestedReviewerAvatarStack
-        reportId={report.id}
+        report={report}
         artefacts={props.artefacts}
       />
       <UiButton

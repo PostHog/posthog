@@ -207,11 +207,16 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
+            TRACES_REDIS_HOST: redis7
+            TRACES_REDIS_PORT: 6379
+            TRACES_REDIS_TLS: 'false'
             # Every CDP process dual-writes to Valkey and refuses to start without a host.
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -303,6 +308,8 @@ services:
             service: ingestion-logs
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -314,6 +321,8 @@ services:
             service: ingestion-traces
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -475,28 +484,20 @@ services:
             - temporal
             - browserless
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        build:
-            context: ./posthog/rust
-        logging: *default-logging
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     capture:
         build:
             context: ./posthog/rust
         extends:
             file: docker-compose.base.yml
             service: capture
+        logging: *default-logging
+
+    capture-logs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
         logging: *default-logging
 
     replay-capture:
@@ -708,6 +709,9 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+
+networks:
+    otel_network:
 
 volumes:
     zookeeper-data:

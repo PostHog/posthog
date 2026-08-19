@@ -502,7 +502,7 @@ export function BrowserTabStrip() {
             pinned,
           };
         }
-        // A channel tab: a sub-section (Artifacts/Recents/…) or the channel home.
+        // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
         // The section drives the label; the channel name carries the space
         // context. Home has no section, so it labels by the channel name.
         if (channelId) {

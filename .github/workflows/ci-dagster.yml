@@ -63,6 +63,15 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
+            dagster_direct: ${{ steps.filter.outputs.dagster_direct || 'true' }}
+            # Trunk's merge queue opens its PR from trunk-merge/**. Scope this to
+            # same-repo heads because github.head_ref is author-controlled.
+            merge_queue: >-
+                ${{
+                    github.event_name == 'pull_request'
+                    && github.event.pull_request.head.repo.full_name == github.repository
+                    && startsWith(github.head_ref, 'trunk-merge/')
+                }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
@@ -91,6 +100,10 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
+                      # The full filter stays broad because Dagster imports shared backend
+                      # code. Master and merge-queue runs use this tier so those changes
+                      # remain merge-gated. Ordinary PRs use dagster_direct below, which
+                      # avoids rerunning the suite for shared-only changes on every push.
                       dagster:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
@@ -108,6 +121,7 @@ jobs:
                         - 'posthog/session/**'
                         - 'posthog/schema.py'
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
+                        - 'posthog/dataclasses.py'
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
                         - 'posthog/exceptions.py'
@@ -191,6 +205,10 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
                         - 'tools/hogli-commands/hogli_commands/hint_hook.py'
                         - 'tools/hogli-commands/hogli_commands/hints.py'
+                      dagster_direct:
+                        - 'posthog/dags/**'
+                        - 'products/*/dags/**'
+                        - .github/workflows/ci-dagster.yml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -283,7 +301,10 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
-        if: needs.changes.outputs.dagster == 'true'
+        if: >-
+            needs.changes.outputs.dagster_direct == 'true'
+            || (needs.changes.outputs.merge_queue == 'true'
+                && needs.changes.outputs.dagster == 'true')
         runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -393,34 +414,45 @@ jobs:
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
 
-            - name: Prime test_posthog and posthog from cached schema (PR)
-              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
-              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
-              # keepdb=True path layers any PR-added migrations on top.
-              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
+            - name: Prime test_posthog from cached schema
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — falling through to full migrate"
-                      python manage.py migrate
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-schema-fresh; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — falling through to full migrate"
-                      python manage.py migrate
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master pushes, PR cache misses)
+              # replays the full migration chain here, in a process that exits before
+              # tests: the executor's memory high-water stays resident in whichever
+              # process runs it, and pytest must not carry it through the test phase.
+              # pytest --reuse-db adopts the DB like the PR prime above; any failure
+              # falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
                       exit 0
                   fi
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
-                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
-
-            - name: Run Django migrations (master)
-              # Master pushes don't restore from cache (the artifact-producing run
-              # is in ci-backend, not here). Run a full migrate so migrate_clickhouse
-              # can read posthog_instancesetting from a populated posthog db.
-              if: ${{ github.event_name != 'pull_request' }}
-              run: python manage.py migrate
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
+                  fi
 
             - name: Run persons migrations
               run: |
@@ -430,6 +462,11 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
+              # Reads posthog_instancesetting through Django, so it needs a migrated
+              # Postgres db. test_posthog is the only one this job maintains, which is
+              # what ci-mcp.yml and ci-e2e-playwright.yml do with their own single db.
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: python manage.py migrate_clickhouse
 
             - name: Restore test durations from cache

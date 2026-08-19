@@ -1,9 +1,9 @@
 # Canvas (Website space) — patterns
 
 Conventions for the channel-scoped Website space: channels and canvases. A canvas
-is an agent-authored single-file React app rendered in a sandboxed iframe. Read
-this before changing breadcrumbs, canvas naming, or the canvas generation harness.
-The root `AGENTS.md` architecture rules still apply.
+is an agent-authored browser app rendered in a sandboxed iframe. Read this before
+changing breadcrumbs, canvas naming, or the canvas generation harness. The root
+`AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
@@ -56,8 +56,9 @@ The root `AGENTS.md` architecture rules still apply.
   thing saying nobody else can see this space, which is worth its name starting a
   glyph's width right of the others. The alpha's more deeply indented Channels
   tree and hash glyphs are unchanged.
-- **The private space reads as "personal", and only on screen.** The row is `me`
+- **The private space reads as "personal" without a hash, and only on screen.** The row is `me`
   on the backend; `channelDisplayName` (core) swaps it on the way to a reader.
+  `channelDisplayLabel` adds a hash to shared spaces but leaves personal bare.
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
@@ -132,6 +133,12 @@ The root `AGENTS.md` architecture rules still apply.
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
+  Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
+  So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.
+- **After the title they are controls, not an avatar stack.** The header is one line about one session, sitting beside a live copy-link button, so what it can act on it draws as quill icon buttons: the pin toggles (always shown, filled when pinned), and a badge carrying a `url` opens it.
+  Badges with nothing to go to — `Local`, a plain origin — stay marks with a tooltip, sized to the button box so the row doesn't step as badges come and go.
+  The PR badge is dropped here: `TaskActionsMenu` sits at the end of the same row and already draws the PR in its lifecycle colour with its actions behind it.
 - **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
   `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
   A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
@@ -177,9 +184,9 @@ The root `AGENTS.md` architecture rules still apply.
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
-- One `ChannelsFab` serves both panes: given a `channelId` it creates inside
-  that channel (task, canvas); from the list, where nothing else offers it, it
-  creates a space instead. Off the layout it keeps its original two-item menu.
+- One `ChannelsFab` serves both panes: given a `channelId` it creates a task in
+  that channel; from the list, where nothing else offers it, it creates a space
+  instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
@@ -212,9 +219,8 @@ The root `AGENTS.md` architecture rules still apply.
 ## Canvas naming
 
 - **A canvas's name is its own field on the record**, set at creation
-  (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
-  drive it). It is independent of any heading the agent renders inside the
-  React app.
+  (`Untitled canvas` by default; `useCreateAndOpenDashboard` drives it). It is
+  independent of any heading the agent renders inside the React app.
 
 ## Storage
 
@@ -226,6 +232,19 @@ The root `AGENTS.md` architecture rules still apply.
   output is the published build's artifact, served from the isolated artifact
   origin. See `@posthog/core/canvas/dashboardsService.ts` and
   `dashboardSchemas.ts` for the record/source/version shapes.
+- **Two components render a canvas, and `FreeformCanvasView` picks between
+  them.** A build's artifact renders in `BuiltCanvas`; a canvas with no
+  successful build yet falls back to the head project's single
+  `CANVAS_COMPONENT_PATH` file in the `FreeformCanvas` srcDoc sandbox (which
+  transpiles in-browser and resolves imports off esm.sh). Both go through the
+  same `canvasHostMessageRouter`, so protocol and guard changes belong there
+  rather than in either host.
+- **Capabilities gate viewers, not authors.** `assertCanvasCapability` runs only
+  in `BuiltCanvas`, against the manifest frozen into that build. The edit path is
+  deliberately full-access — the author is running their own code against their
+  own session — so the asymmetry is the design, not a gap to close. See the
+  two-tier security model in `docs/CANVAS-FREEFORM-REACT-PLAN.md` before changing
+  what either tier may reach.
 
 ## Channel sidebar preloading
 

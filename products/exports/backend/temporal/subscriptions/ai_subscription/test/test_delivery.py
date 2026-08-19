@@ -24,7 +24,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
-from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
+from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -196,7 +196,7 @@ def _mock_subscription() -> MagicMock:
     return sub
 
 
-def _build_message(markdown: str) -> SlackMessageData:
+def _build_message(markdown: str) -> SlackMessage:
     return _build_ai_slack_message(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
 
 
@@ -226,11 +226,11 @@ def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     return integration
 
 
-def _hint_texts(message: SlackMessageData) -> list[str]:
+def _hint_texts(message: SlackMessage) -> list[str]:
     return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
 
 
-def _ai_message(*, integration: MagicMock | None = None) -> SlackMessageData:
+def _ai_message(*, integration: MagicMock | None = None) -> SlackMessage:
     return _build_ai_slack_message(
         _mock_subscription(),
         "A short report.",

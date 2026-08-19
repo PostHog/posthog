@@ -31,7 +31,16 @@ pub struct HarnessClient {
 
 impl HarnessClient {
     pub async fn connect(url: &str) -> Result<Self> {
-        let inner = RouterClient::new(url, REQUEST_TIMEOUT).context("invalid router URL")?;
+        Self::connect_with_channels(url, 1).await
+    }
+
+    /// Connect over `channels` router connections, selected round-robin.
+    /// Load-driving scenarios pass more than one so an instance spreads
+    /// across router pods instead of pinning to whichever pod its single
+    /// connection landed on.
+    pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
+        let inner = RouterClient::with_channels(url, REQUEST_TIMEOUT, channels)
+            .context("invalid router URL")?;
         Ok(Self { inner })
     }
 

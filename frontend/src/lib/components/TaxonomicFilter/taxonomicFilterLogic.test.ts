@@ -1493,6 +1493,29 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('error tracking issue property selection', () => {
+        it('provides issue severity as a filter with value suggestions', () => {
+            const issueLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'errorTrackingIssuePropertySelection',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingIssues],
+                onChange: jest.fn(),
+            })
+            issueLogic.mount()
+
+            const group = issueLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.ErrorTrackingIssues
+            )
+            const option = group?.options?.find((candidate) => candidate.name === 'Issue severity') as
+                | { name: string; value: string }
+                | undefined
+
+            expect(group?.getValue?.(option)).toBe('severity')
+            expect(group?.valuesEndpoint?.('severity')).toContain('/error_tracking/issues/values?key=severity')
+
+            issueLogic.unmount()
+        })
+    })
+
     describe('event feature flag properties are a separate group from event properties', () => {
         let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
 

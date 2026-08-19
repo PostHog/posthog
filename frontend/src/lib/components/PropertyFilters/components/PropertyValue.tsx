@@ -68,6 +68,8 @@ export interface PropertyValueProps {
      * (e.g. internal events, which are never ingested into ClickHouse).
      */
     staticValues?: PropValue[] | null
+    /** Override the globally inferred type for a polymorphic property key. */
+    propertyTypeOverride?: PropertyType
 }
 
 export function PropertyValue({
@@ -91,6 +93,7 @@ export function PropertyValue({
     validationError = null,
     showInlineValidationErrors = false,
     staticValues = null,
+    propertyTypeOverride,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -103,15 +106,13 @@ export function PropertyValue({
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
     const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
-    const isDurationProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
+    const propertyType = propertyTypeOverride ?? describeProperty(propertyKey, propertyDefinitionType)
+    const isDurationProperty = propertyKey && propertyType === PropertyType.Duration
 
     // Assignee values come from membersLogic/rolesLogic, not from the property values API
-    const isAssigneeProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+    const isAssigneeProperty = propertyKey && propertyType === PropertyType.Assignee
 
-    const isNumericProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const isNumericProperty = propertyKey && propertyType === PropertyType.Numeric
     const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null

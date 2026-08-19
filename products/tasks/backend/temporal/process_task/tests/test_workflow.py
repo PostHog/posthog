@@ -60,6 +60,8 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -111,7 +113,6 @@ def _build_context(
     )
 
 
-@pytest.mark.django_db
 def test_activity_error_properties_includes_failed_activity_context():
     error = ActivityError(
         "Activity task timed out",
@@ -134,6 +135,23 @@ def test_activity_error_properties_includes_failed_activity_context():
         "cause_error_type": "TimeoutError",
         "cause_error_message": "start-to-close timeout",
     }
+
+
+def test_activity_error_properties_names_the_application_failure_class():
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="create_sandbox_for_repository",
+        activity_id="activity-1",
+        retry_state=RetryState.NON_RETRYABLE_FAILURE,
+    )
+    error.__cause__ = ApplicationError("Failed to create sandbox", type="SandboxProvisionError")
+
+    properties = ProcessTaskWorkflow._activity_error_properties(error)
+
+    assert properties["cause_error_type"] == "SandboxProvisionError"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -574,6 +592,54 @@ class TestProcessTaskFollowupDispatch:
         assert deliveries == [("finish in green", True), ("finish in green", False)]
         assert workflow._pending_followup is None
         assert workflow._pending_followups == []
+
+
+class TestFollowupDeliveryFailureBookkeeping:
+    def _workflow(self, monkeypatch, *, mode: str, patched: bool):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
+        emitted: list[EmitProgressInput] = []
+
+        async def fake_execute_activity(_activity, activity_input, **_kwargs):
+            if isinstance(activity_input, SendFollowupToSandboxInput):
+                raise RuntimeError("delivery failed")
+            if isinstance(activity_input, EmitProgressInput):
+                emitted.append(activity_input)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return workflow, emitted
+
+    async def test_failed_interactive_delivery_releases_the_message_for_retry(self, monkeypatch):
+        workflow, emitted = self._workflow(monkeypatch, mode="interactive", patched=True)
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 1
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+        assert [(e.step, e.status) for e in emitted] == [("followup_delivery", "failed")]
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 2
+
+    @pytest.mark.parametrize("mode,patched", [("interactive", False), ("background", True)])
+    async def test_failed_delivery_terminalizes_when_keep_alive_does_not_apply(self, monkeypatch, mode, patched):
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, patched=patched)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "followup_delivery_failed"
+        assert emitted == []
 
 
 @pytest.mark.django_db
@@ -2206,7 +2272,7 @@ class TestProcessTaskWorkflowUnit:
 
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
         if expect_resume_snapshot_call:
-            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123", reason="teardown", allow_pruning=True)
         else:
             create_resume_snapshot_mock.assert_not_awaited()
 
@@ -2290,6 +2356,16 @@ class TestContinueAsNew:
         wf._context = ctx
         return wf
 
+    async def test_agent_state_tracks_end_of_turn(self) -> None:
+        workflow_instance = ProcessTaskWorkflow()
+
+        await workflow_instance.agent_state_changed(True)
+        assert workflow_instance._agent_active is True
+        assert workflow_instance._end_of_turn_received is False
+
+        await workflow_instance.agent_state_changed(False)
+        assert (workflow_instance._agent_active, workflow_instance._end_of_turn_received) == (False, True)
+
     def test_build_and_restore_round_trips_loop_state(self, monkeypatch) -> None:
         chain_start = datetime(2026, 7, 16, 9, 0, tzinfo=UTC)
         monkeypatch.setattr(
@@ -2301,9 +2377,13 @@ class TestContinueAsNew:
         wf._ci_repetitions = 2
         wf._pr_fingerprint = "fp-1"
         wf._pr_progress_emitted = True
+        wf._ci_resume_snapshot_created = True
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._agent_active = False
+        wf._end_of_turn_received = True
+        wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2322,10 +2402,14 @@ class TestContinueAsNew:
         assert restored._ci_repetitions == 2
         assert restored._pr_fingerprint == "fp-1"
         assert restored._pr_progress_emitted is True
+        assert restored._ci_resume_snapshot_created is True
         assert restored._first_user_message_received is True
         assert restored._is_agent_design_enabled is True
         # The datetime survives the ISO round-trip.
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        assert restored._agent_active is False
+        assert restored._end_of_turn_received is True
+        assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
@@ -2333,6 +2417,7 @@ class TestContinueAsNew:
         second_hop = restored._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-2")
         assert second_hop.resumed_sandbox is not None
         assert second_hop.resumed_sandbox.chain_started_at == chain_start.isoformat()
+        assert second_hop.resumed_sandbox.ci_resume_snapshot_created is True
 
     @parameterized.expand(
         [

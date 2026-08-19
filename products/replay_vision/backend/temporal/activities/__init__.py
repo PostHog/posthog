@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.activities.backfill import (
     reap_backfill_schedules_activity,
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight_applies_activity,
@@ -71,6 +72,7 @@ __all__ = [
     "reap_backfill_schedules_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
+    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",

@@ -250,7 +250,7 @@ class TestOnboarding:
             el for b in blocks if b["type"] == "actions" for el in b["elements"] if el.get("type") == "checkboxes"
         )
         # only the two built-in toggle sources, no Linear / GitHub issues
-        assert {o["value"] for o in checkboxes["options"]} == {"error_tracking", "session_replay"}
+        assert {o["value"] for o in checkboxes["options"]} == {"error_tracking"}
         block = next(b for b in blocks if b.get("block_id", "").startswith(onboarding.INBOX_SOURCES_BLOCK_PREFIX))
         assert block["block_id"] == f"{onboarding.INBOX_SOURCES_BLOCK_PREFIX}:{self.integration.id}"
         assert "Choose what I watch" in self._all_text(blocks)
@@ -299,84 +299,18 @@ class TestOnboarding:
         self._client(mock_webclient_class)
         _resolve.return_value = self.user.id
 
-        assert onboarding.apply_sources_selection(self.integration, "U1", ["error_tracking"]) == []
+        onboarding.apply_sources_selection(self.integration, "U1", ["error_tracking"])
         assert has_enabled_source(self.team.id) is True
 
         # unticking everything turns them back off (set-semantics)
         onboarding.apply_sources_selection(self.integration, "U1", [])
         assert has_enabled_source(self.team.id) is False
 
-    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=None)
-    @patch("posthog.models.integration.WebClient")
-    def test_apply_sources_blocks_session_replay_without_ai_approval(self, mock_webclient_class, _resolve):
-        from products.signals.backend.facade.api import has_enabled_source
-
-        self._client(mock_webclient_class)
-        _resolve.return_value = self.user.id
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-
-        blocked = onboarding.apply_sources_selection(self.integration, "U1", ["session_replay"])
-
-        assert blocked == ["Session replay analysis (legacy)"]  # surfaced so the handler can nudge the user
-        assert has_enabled_source(self.team.id) is False
-
-    @patch("products.slack_app.backend.services.inbox_interactivity._post_ephemeral_via_response_url")
-    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=None)
-    @patch("posthog.models.integration.WebClient")
-    def test_sources_handler_nudges_when_session_replay_blocked(self, mock_webclient_class, _resolve, mock_ephemeral):
-        from products.slack_app.backend.services import inbox_interactivity
-
-        self._client(mock_webclient_class)
-        _resolve.return_value = self.user.id
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        payload = {
-            "team": {"id": "T12345"},
-            "user": {"id": "U1"},
-            "response_url": "https://hook",
-            "actions": [
-                {
-                    "action_id": onboarding.INBOX_SOURCES_CHECKBOXES_ACTION,
-                    "block_id": f"{onboarding.INBOX_SOURCES_BLOCK_PREFIX}:{self.integration.id}",
-                    "selected_options": [{"value": "session_replay"}],
-                }
-            ],
-        }
-
-        inbox_interactivity.handle_inbox_sources(payload)
-
-        mock_ephemeral.assert_called_once()
-        assert "Approve AI data processing" in mock_ephemeral.call_args.args[1]
-
-    def test_set_sources_error_tracking_no_approval_needed(self):
+    def test_set_sources_enables_error_tracking(self):
         from products.signals.backend.facade.api import has_enabled_source, set_sources
 
         assert has_enabled_source(self.team.id) is False
-        assert set_sources(self.team.id, None, ["error_tracking"]) == []
-        assert has_enabled_source(self.team.id) is True
-
-    def test_set_sources_session_replay_blocked_without_ai_approval(self):
-        from products.signals.backend.facade.api import has_enabled_source, set_sources
-
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-
-        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis (legacy)"]
-        assert has_enabled_source(self.team.id) is False
-
-    def test_set_sources_keeps_enabled_source_when_ai_later_revoked(self):
-        from products.signals.backend.facade.api import has_enabled_source, set_sources
-
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        assert set_sources(self.team.id, None, ["session_replay"]) == []
-        assert has_enabled_source(self.team.id) is True
-
-        # AI revoked: re-submitting the still-ticked selection must leave it enabled, not disable it.
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis (legacy)"]
+        set_sources(self.team.id, None, ["error_tracking"])
         assert has_enabled_source(self.team.id) is True
 
     @patch("posthog.models.integration.WebClient")

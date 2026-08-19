@@ -100,6 +100,15 @@ def test_str_to_optional_list(value, expected):
     assert config.str_to_optional_list(value) == expected
 
 
+@pytest.mark.parametrize("value", [{"owner": "repo"}, {}, 5])
+def test_str_to_optional_list_rejects_unsupported_types(value):
+    """A non-str/list value (e.g. a dict submitted for a multi-select field) must raise a
+    `TypeError` that `_convert_value` can surface as a validation error, not an `AttributeError`
+    from calling `.strip()` on it."""
+    with pytest.raises(TypeError):
+        config.str_to_optional_list(value)
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [

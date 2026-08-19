@@ -44,7 +44,7 @@ import {
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -699,7 +699,7 @@ export function FeatureFlagReleaseConditions({
                                 description:
                                     'Stable assignment for everyone in an organization, company, or other custom group type.',
                                 disabledReason: hasEarlyAccessFeatures
-                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                    ? EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON
                                     : groupTypes.size === 0
                                       ? 'No group types defined. Set up group analytics first.'
                                       : undefined,

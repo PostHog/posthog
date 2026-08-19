@@ -6,7 +6,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
@@ -167,7 +170,9 @@ describe('reviewHogSettingsLogic', () => {
         ])
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
-        await expectLogic(logic, () => logic.actions.submitTriggerReview(RunModeEnumApi.ResolveOnly))
+        await expectLogic(logic, () =>
+            logic.actions.submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+        )
             .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
             .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
             .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })

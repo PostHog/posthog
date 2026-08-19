@@ -783,6 +783,29 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
             self.assertEqual(task.channel.created_by_id, self.user.id)
 
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Same rule as create_and_run_task above: someone else's "#me" is private,
+            # so filing into it must be refused, not just team-filtered.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    def test_create_channel_task_respects_channel_visibility(self, _name, make_channel_id, expect_filed):
+        channel_id = make_channel_id(self)
+
+        if expect_filed:
+            task_id = facade.create_channel_task(
+                self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+            )
+            self.assertEqual(Task.objects.get(id=task_id).channel_id, channel_id)
+        else:
+            with self.assertRaises(ValueError):
+                facade.create_channel_task(
+                    self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+                )
+
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
         first = facade.ensure_personal_channel_id(self.team.id, self.user.id)

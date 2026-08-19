@@ -72,7 +72,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -111,7 +111,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
             inline_key="k",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "one-off"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=False,
             sampling_rate=0.0,
         )
@@ -276,9 +276,9 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
 
     def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
-        # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
+        # The "Turn on featured digest" button derives a fixed name from the scanner. If another action
         # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
-        taken = f"Daily digest: {self.scanner.name}"
+        taken = f"Featured digest: {self.scanner.name}"
         VisionAction.all_teams.create(
             team=self.team,
             scanner=self.scanner,

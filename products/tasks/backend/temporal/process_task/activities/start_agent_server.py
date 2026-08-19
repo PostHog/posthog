@@ -15,7 +15,12 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import (
+    OAuthTokenError,
+    RequiredMcpUnavailableError,
+    SandboxExecutionError,
+    SandboxMissingRepositoryError,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
@@ -23,6 +28,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     record_agent_server_session_init_ms,
     record_boot_total_ms,
+    record_network_enforcement,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -190,8 +196,23 @@ class _LaunchParams:
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
-    # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
-    return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+    if ctx.agentsh_domain_allowlist is not None:
+        return list(ctx.agentsh_domain_allowlist)
+    return ctx.allowed_domains
+
+
+def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
+    if ctx.allowed_domains is None:
+        return "unrestricted"
+    if ctx.use_modal_network_allowlist:
+        return "modal_requested_sandbox_created_agentsh_ready"
+    return "agentsh_ready"
+
+
+def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
+    runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+    observation = _network_enforcement_observation(ctx)
+    record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
 def _include_personal_mcp_for_task(task: Task) -> bool:
@@ -203,6 +224,32 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
+
+
+def _ensure_required_posthog_mcp_available(
+    ctx: TaskProcessingContext, sandbox: SandboxBase, mcp_configs: list[McpServerConfig]
+) -> None:
+    if ctx.interaction_origin != "signal_report_canvas":
+        return
+
+    posthog_config = next((config for config in mcp_configs if config.name == "posthog"), None)
+    if posthog_config is None:
+        raise RequiredMcpUnavailableError(
+            "Report canvas generation requires PostHog MCP, but no server is configured. Set SANDBOX_MCP_URL.",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+        )
+
+    result = sandbox.execute(
+        "curl --silent --show-error --output /dev/null --connect-timeout 5 --max-time 10 "
+        f"{shlex.quote(posthog_config.url)}",
+        timeout_seconds=15,
+    )
+    if result.exit_code != 0:
+        detail = (result.stderr or result.stdout).strip()[-500:]
+        raise RequiredMcpUnavailableError(
+            "Report canvas generation could not reach PostHog MCP. Start the MCP server and retry.",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id, "detail": detail},
+        )
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
@@ -265,6 +312,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
+        credential_owner_id=task.mcp_credential_owner_id,
+        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
@@ -295,12 +344,12 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         )
 
     agentsh_domains = _agentsh_domains_for(ctx)
-    if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
+    if ctx.use_modal_network_allowlist and ctx.allowed_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
         emit_agent_log(
             ctx.run_id,
             "debug",
-            f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            f"Enforcing network allowlist for '{environment_name}' via Modal and agentsh",
         )
     elif agentsh_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
@@ -341,6 +390,7 @@ def _invoke_start_agent_server(
     wait_for_health: bool,
 ) -> None:
     try:
+        _ensure_required_posthog_mcp_available(ctx, sandbox, params.mcp_configs)
         sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -382,6 +432,12 @@ def _invoke_start_agent_server(
             TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
         except Exception:
             logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
+    except RequiredMcpUnavailableError:
+        # Fatal and self-explanatory (non_retryable, capture=False): let it through with its
+        # classification intact instead of rewrapping it as a retryable SandboxExecutionError, which
+        # would burn all three attempts and lose the tailored guidance. Mirrors the OAuthTokenError
+        # passthrough in _prepare_launch.
+        raise
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -472,6 +528,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
+
+        _record_network_enforcement_observation(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
@@ -571,6 +629,8 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
+
+        _record_network_enforcement_observation(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")

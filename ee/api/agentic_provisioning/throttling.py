@@ -34,11 +34,14 @@ from django.core.cache import cache
 from django.http import HttpRequest
 
 import structlog
+from django_redis.exceptions import ConnectionInterrupted
+from redis.exceptions import RedisError
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.oauth import cimd
+from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.rate_limit import IPThrottle
 
@@ -67,15 +70,32 @@ from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError
 logger = structlog.get_logger(__name__)
 
 
+@frozen
+class RateWindowUsage:
+    count: int
+    limit: int
+
+
 def _fixed_window_count(cache_key: str, window_seconds: int) -> int:
     try:
         cache.add(cache_key, 0, timeout=window_seconds)
         return cache.incr(cache_key)
-    except (ValueError, ConnectionError, TimeoutError) as e:
+    except ValueError as e:
+        # incr raises ValueError when the key expired between add and incr.
         logger.warning("provisioning_rate_limit_cache_error", cache_key=cache_key, error=str(e))
-        # cache.add preserves any counter a concurrent request already initialized,
-        # so a transient cache error doesn't reset the window for a caller at the limit.
-        cache.add(cache_key, 1, timeout=window_seconds)
+        try:
+            # cache.add preserves any counter a concurrent request already initialized,
+            # so a transient cache error doesn't reset the window for a caller at the limit.
+            cache.add(cache_key, 1, timeout=window_seconds)
+        except (RedisError, ConnectionInterrupted):
+            pass
+        return 1
+    except (RedisError, ConnectionInterrupted) as e:
+        # Redis is unreachable (its errors subclass RedisError/Exception, not the
+        # builtin ConnectionError/TimeoutError). Fail open without touching the
+        # cache again: a second cache call would raise the same way and turn every
+        # provisioning request into a 500 for as long as Redis is down.
+        logger.warning("provisioning_rate_limit_cache_error", cache_key=cache_key, error=str(e))
         return 1
 
 
@@ -83,10 +103,10 @@ def _window_retry_after(window_seconds: int) -> int:
     return window_seconds - (int(time.time()) % window_seconds)
 
 
-def _count_partner_request(partner: OAuthApplication, endpoint: str) -> tuple[int, int] | None:
+def _count_partner_request(partner: OAuthApplication, endpoint: str) -> RateWindowUsage | None:
     """Count one request against the partner's per-endpoint fixed window.
 
-    Returns ``(count, limit)``, or None when rate limiting is disabled for the
+    Returns the window's usage, or None when rate limiting is disabled for the
     endpoint (model override of 0). The model's override field takes precedence
     over the conservative default; the window is keyed on partner id +
     window-of-epoch.
@@ -102,7 +122,7 @@ def _count_partner_request(partner: OAuthApplication, endpoint: str) -> tuple[in
 
     window_index = int(time.time()) // PARTNER_RATE_LIMIT_WINDOW_SECONDS
     cache_key = f"{PARTNER_RATE_LIMIT_PREFIX}{endpoint}:{partner.id}:{window_index}"
-    return _fixed_window_count(cache_key, PARTNER_RATE_LIMIT_WINDOW_SECONDS), limit
+    return RateWindowUsage(count=_fixed_window_count(cache_key, PARTNER_RATE_LIMIT_WINDOW_SECONDS), limit=limit)
 
 
 def _capture_partner_rate_limited(partner: OAuthApplication, endpoint: str, limit: int, count: int) -> None:
@@ -124,13 +144,12 @@ def enforce_partner_rate_limit(
 
     Raises a ``rate_limited`` :class:`ProvisioningError` when the limit is exceeded.
     """
-    counted = _count_partner_request(partner, endpoint)
-    if counted is None:
+    usage = _count_partner_request(partner, endpoint)
+    if usage is None:
         return
-    count, limit = counted
 
-    if count > limit:
-        _capture_partner_rate_limited(partner, endpoint, limit, count)
+    if usage.count > usage.limit:
+        _capture_partner_rate_limited(partner, endpoint, usage.limit, usage.count)
         raise ProvisioningError(
             "rate_limited",
             message or f"Rate limit exceeded for this partner ({endpoint}). Try again later.",
@@ -159,12 +178,11 @@ class PartnerRateThrottle(BaseThrottle):
         partner = self.get_partner(request)
         if partner is None:
             return True
-        counted = _count_partner_request(partner, self.endpoint)
-        if counted is None:
+        usage = _count_partner_request(partner, self.endpoint)
+        if usage is None:
             return True
-        count, limit = counted
-        if count > limit:
-            _capture_partner_rate_limited(partner, self.endpoint, limit, count)
+        if usage.count > usage.limit:
+            _capture_partner_rate_limited(partner, self.endpoint, usage.limit, usage.count)
             return False
         return True
 

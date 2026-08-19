@@ -49,6 +49,16 @@ function renderRail(servers: McpGatewayServer[]) {
 }
 
 describe("GatewayRail", () => {
+  // The audit log is member-visible (the backend scopes its rows); the other
+  // manage views stay admin-only.
+  it("offers a member the audit log but not the admin views", () => {
+    renderRail([]);
+
+    expect(screen.getByText("Audit log")).toBeInTheDocument();
+    expect(screen.queryByText("Team & agents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Team settings")).not.toBeInTheDocument();
+  });
+
   it("lists a server the caller has connected", () => {
     renderRail([
       server({

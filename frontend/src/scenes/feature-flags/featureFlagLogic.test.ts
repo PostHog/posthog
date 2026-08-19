@@ -64,6 +64,7 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
     validateFeatureFlagVariantKey,
+    validateVariantRolloutSum,
 } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -915,6 +916,58 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagValue('name', originalName)
             }).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('keeps an in-progress release-condition edit dirty when a background setFeatureFlag reconciles', async () => {
+            // Regression: a mid-edit setFeatureFlag (inline tag save, active/archive sync, or the
+            // on-mount cache reconcile) used to re-baseline originalFeatureFlag to the already-edited
+            // working copy, flipping the guard to clean so navigation silently discarded the edit.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: [
+                        ...logic.values.featureFlag.filters.groups,
+                        { properties: [], rollout_percentage: 100, variant: null },
+                    ],
+                })
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            // Reconcile with the current working copy, as a tag save / active sync does mid-edit.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(logic.values.featureFlag)
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+        })
+
+        // These land while the page is interactive: the background refresh has its own loader key
+        // so it never shows the skeleton, and the toggles are one click away. Each persists only a
+        // couple of server-owned fields, so taking the whole server flag would drop an in-progress
+        // edit and re-baseline over it, leaving the guard clean and the edit gone without a prompt.
+        it.each([
+            ['refreshFeatureFlagSuccess', () => logic.actions.refreshFeatureFlagSuccess({ ...MOCK_FEATURE_FLAG })],
+            [
+                'updateFeatureFlagActiveSuccess',
+                () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
+            ],
+            [
+                'updateFeatureFlagArchivedSuccess',
+                () => logic.actions.updateFeatureFlagArchivedSuccess({ ...MOCK_FEATURE_FLAG, archived: true }),
+            ],
+        ])('keeps an in-progress release-condition edit after %s reconciles', async (_label, reconcile) => {
+            const editedGroups = [
+                ...logic.values.featureFlag.filters.groups,
+                { properties: [], rollout_percentage: 100, variant: null },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: editedGroups,
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, reconcile).toFinishAllListeners()
+
+            expect(logic.values.featureFlag.filters.groups).toHaveLength(editedGroups.length)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
         it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
@@ -2680,6 +2733,112 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
     ])('rejects variant key with $desc', ({ key, error }) => {
         expect(validateFeatureFlagVariantKey(key)).toContain(error)
+    })
+})
+
+describe('validateVariantRolloutSum', () => {
+    // Float artifacts must not reach the user, and a rejected total must never read as 100.
+    it.each([
+        { percentages: [0.01, 64.04, 35], expected: '99.05' },
+        { percentages: [30.1, 30.1, 30.1], expected: '90.3' },
+        { percentages: [50, 49.99], expected: '99.99' },
+    ])('reports $expected without floating point noise', ({ percentages, expected }) => {
+        const variants = percentages.map((rollout_percentage, index) => ({
+            key: `variant-${index}`,
+            name: '',
+            rollout_percentage,
+        }))
+
+        expect(validateVariantRolloutSum(variants)).toBe(
+            `Percentage rollouts for variants must sum to 100 (currently ${expected}).`
+        )
+    })
+})
+
+describe('variant rollout sum validation', () => {
+    let logic: ReturnType<typeof featureFlagLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // Removing a variant leaves the rest short, and the API rejects that write.
+    it.each([
+        { desc: 'sums to 100', percentages: [50, 50], hasErrors: false },
+        { desc: 'falls short after a variant is removed', percentages: [50], hasErrors: true },
+        { desc: 'exceeds 100', percentages: [60, 60], hasErrors: true },
+        // Adds up to 100.00000000000001; the API tolerates the same drift.
+        { desc: 'sums to 100 with floating point drift', percentages: [0.01, 64.04, 35.95], hasErrors: false },
+        { desc: 'falls short by the smallest step the form allows', percentages: [50, 49.99], hasErrors: true },
+    ])('$desc: hasErrors=$hasErrors', ({ percentages, hasErrors }) => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: percentages.map((rollout_percentage, index) => ({
+                        key: `variant-${index}`,
+                        name: '',
+                        rollout_percentage,
+                    })),
+                },
+                payloads: {},
+            },
+        })
+
+        expect(logic.values.featureFlagHasErrors).toBe(hasErrors)
+    })
+
+    // Valid keys are load-bearing: a bad key already opens the panel via the older key check, so
+    // only a sum-only failure proves the rollout error reaches submitFeatureFlagFailure.
+    it('opens the collapsed variant panels so the blocked save shows a reason', async () => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: [
+                        { key: 'control', name: '', rollout_percentage: 50 },
+                        { key: 'test', name: '', rollout_percentage: 20 },
+                    ],
+                },
+                payloads: {},
+            },
+        })
+        logic.actions.setOpenVariants([])
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        expect(logic.values.openVariants).toEqual(expect.arrayContaining(['variant-0', 'variant-1']))
+    })
+
+    it('does not block a boolean flag, which carries no variants', () => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: { groups: [], multivariate: null, payloads: {} },
+        })
+
+        expect(logic.values.featureFlagHasErrors).toBe(false)
     })
 })
 
