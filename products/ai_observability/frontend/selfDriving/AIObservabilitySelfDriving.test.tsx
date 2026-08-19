@@ -13,6 +13,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import * as alertsApi from 'products/alerts/frontend/generated/api'
 
@@ -88,6 +89,13 @@ describe('AIObservabilitySelfDriving', () => {
                 },
             },
         })
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.LlmSkill]: AccessControlLevel.Editor,
+            },
+        } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
@@ -253,6 +261,11 @@ describe('AIObservabilitySelfDriving', () => {
         )
 
         expect(screen.getAllByText('Use template')).toHaveLength(3)
+
+        // Counting the labels alone passes even when every button is disabled, which is what
+        // happens if the scene stops granting scout-creation access. Prove one actually opens.
+        await userEvent.click(screen.getByTestId('create-costly-users-scout'))
+        expect(await screen.findByText('Create a scout')).toBeInTheDocument()
 
         const tooltipTrigger = screen.getByText('What is this?')
         await userEvent.hover(tooltipTrigger)

@@ -1,5 +1,7 @@
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
@@ -64,6 +66,17 @@ describe('aiObservabilitySelfDrivingLogic', () => {
         mountAt(hash)
 
         expect(logic.values.openScoutTemplateKey).toBe(expected)
+    })
+
+    it('tells the reader when a link names a template that does not exist', () => {
+        // The fragment is stripped before the lookup, so without this the reader is left with a
+        // page that silently ignored their link.
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as any)
+
+        mountAt({ template: 'not-a-template' })
+
+        expect(toastError).toHaveBeenCalledTimes(1)
+        toastError.mockRestore()
     })
 
     it('strips the template fragment so a refresh does not reopen the modal', () => {

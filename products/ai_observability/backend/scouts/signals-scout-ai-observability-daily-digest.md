@@ -3,9 +3,8 @@ name: signals-scout-ai-observability-daily-digest
 description: >
   Creates a concise, low-noise daily digest from the AI observability dashboard, errors, costly
   users, and online evaluations.
-allowed_tools:
-  - emit_report
-  - edit_report
+scout-tags:
+  - ai-observability
 ---
 
 # AI observability daily digest

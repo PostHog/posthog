@@ -3,9 +3,8 @@ name: signals-scout-ai-observability-error-patterns
 description: >
   Finds new or growing AI failure modes, including silent quality failures, and validates each
   pattern against real traces.
-allowed_tools:
-  - emit_report
-  - edit_report
+scout-tags:
+  - ai-observability
 ---
 
 # AI observability error patterns

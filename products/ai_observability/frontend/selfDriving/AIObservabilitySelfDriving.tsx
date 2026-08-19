@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import React, { type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { IconCalendar, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
 import {
@@ -22,15 +22,17 @@ import type { LemonCollapsePanel } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, type InsightShortId } from '~/types'
+import type { InsightShortId } from '~/types'
 
 import type { AlertApi } from 'products/alerts/frontend/generated/api.schemas'
+import {
+    ScoutCreateModalHost,
+    useScoutCreateDisabledReason,
+} from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateModalHost'
 import { ScoutRowCard } from 'products/signals/frontend/inbox/components/config/scouts/ScoutRowCard'
-import { captureScoutAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
@@ -160,12 +162,6 @@ const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> =
     'error-patterns': <IconWarning />,
 }
 
-const LazyScoutCreateModal = React.lazy(async () => {
-    const { ScoutCreateModal } =
-        await import('products/signals/frontend/inbox/components/config/scouts/ScoutCreateModal')
-    return { default: ScoutCreateModal }
-})
-
 /**
  * The one create modal for this tab, so a card click and a `#template=` link land in the same
  * place. Hosted beside the cards rather than inside one, since the URL can open it for any of them.
@@ -175,36 +171,18 @@ function ScoutTemplateModal(): JSX.Element | null {
     const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
 
-    const template = findAIObservabilityScoutTemplate(openScoutTemplateKey)
-    if (!template) {
-        return null
-    }
-
     return (
-        <React.Suspense fallback={null}>
-            <LazyScoutCreateModal
-                isOpen
-                initialValues={template.initialValues}
-                onClose={() => setOpenScoutTemplateKey(null)}
-                onCreated={(scout) => {
-                    captureScoutAction({
-                        actionType: 'create_scout',
-                        surface: 'fleet_list',
-                        skillName: scout.config.skill_name,
-                    })
-                    loadScoutConfigs()
-                }}
-            />
-        </React.Suspense>
+        <ScoutCreateModalHost
+            initialValues={findAIObservabilityScoutTemplate(openScoutTemplateKey)?.initialValues ?? null}
+            onClose={() => setOpenScoutTemplateKey(null)}
+            onCreated={() => loadScoutConfigs()}
+        />
     )
 }
 
 function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplate }): JSX.Element {
     const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
-    const creationDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.LlmSkill,
-        AccessControlLevel.Editor
-    )
+    const creationDisabledReason = useScoutCreateDisabledReason()
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">

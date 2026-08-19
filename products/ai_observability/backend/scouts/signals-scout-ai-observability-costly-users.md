@@ -3,9 +3,8 @@ name: signals-scout-ai-observability-costly-users
 description: >
   Finds extraordinary user-level AI spend or usage, validates the cause in traces, and reports only
   patterns with a controllable next action.
-allowed_tools:
-  - emit_report
-  - edit_report
+scout-tags:
+  - ai-observability
 ---
 
 # AI observability costly or unusual users

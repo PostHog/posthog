@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selec
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -194,6 +196,10 @@ export const aiObservabilitySelfDrivingLogic = kea<aiObservabilitySelfDrivingLog
             const matched = findAIObservabilityScoutTemplate(template)
             if (matched) {
                 actions.setOpenScoutTemplateKey(matched.key)
+            } else {
+                // The fragment is already stripped, so staying silent would leave the reader with
+                // nothing to look at and nothing to report. `inboxSceneLogic` toasts here too.
+                lemonToast.error("That link points to a scout template that doesn't exist. Pick one below.")
             }
         },
     })),
