@@ -179,6 +179,8 @@ RUN chmod +x /opt/posthog/bin/git
 # non-interactive `bash -c`; the agent's interactive shell needs this shim).
 COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
