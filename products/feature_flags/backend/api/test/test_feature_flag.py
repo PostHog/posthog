@@ -5470,8 +5470,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         [
             # Scalar id for a cohort that isn't there -> Cohort.DoesNotExist.
             ("scalar", 5151, "Cohort with id 5151 does not exist"),
-            # A list value can't map to a pk. Django raises TypeError while it prepares
-            # the lookup, which must return the same 400, not an opaque 500.
+            # A list value can't map to a pk and would raise deep in the ORM as a 500.
             ("list", [493183], "Cohort with id [493183] does not exist"),
         ]
     )
@@ -5491,6 +5490,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             }.items(),
             cohort_request.json().items(),
         )
+
+    def test_creating_feature_flag_rejects_fractional_cohort_id(self):
+        # Django coerces a float to an integer pk (id.5 -> id), so a fractional value
+        # would silently target an existing cohort. It must be rejected instead.
+        cohort = Cohort.objects.create(team=self.team, name="frac cohort", created_by=self.user)
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.pk + 0.5}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response.json()["code"], "cohort_does_not_exist")
 
     def test_validation_payloads(self):
         self._create_flag_with_properties(

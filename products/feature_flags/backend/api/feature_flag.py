@@ -1745,18 +1745,26 @@ class FeatureFlagSerializer(
 
             if located.prop.get("type") == "cohort":
                 cohort_id: Any = located.prop.get("value")
-                # Only the lookup is guarded. A malformed value (a list, a non-numeric
-                # string) can't map to a cohort pk, so Django raises TypeError/ValueError
-                # while it prepares the lookup — catch those alongside DoesNotExist and
-                # return the same validation error instead of an opaque 500. The
-                # validation below stays outside the guard so a genuine parsing failure on
-                # an existing cohort still surfaces, rather than masquerading as a missing
-                # cohort.
+                # The value comes off the request as free-form JSON. Pin it to an integer
+                # id (or a numeric string, which older flags may store) before the lookup.
+                # Django would otherwise coerce a bool or float into a real row id (True
+                # and 1.9 both become pk 1), silently targeting the wrong cohort, and a
+                # list would raise deep in the ORM as an opaque 500. A rejected shape gets
+                # the same validation error a missing cohort does. The lookup below can
+                # then only raise DoesNotExist, so validation of an existing cohort stays
+                # outside the guard and its genuine failures still surface.
+                is_numeric = isinstance(cohort_id, int) and not isinstance(cohort_id, bool)
+                is_numeric_string = isinstance(cohort_id, str) and cohort_id.lstrip("-").isdigit()
+                if not (is_numeric or is_numeric_string):
+                    raise serializers.ValidationError(
+                        detail=f"Cohort with id {cohort_id} does not exist",
+                        code="cohort_does_not_exist",
+                    )
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
-                        pk=cohort_id, team__project_id=self.context["project_id"]
+                        pk=int(cohort_id), team__project_id=self.context["project_id"]
                     )
-                except (Cohort.DoesNotExist, TypeError, ValueError):
+                except Cohort.DoesNotExist:
                     raise serializers.ValidationError(
                         detail=f"Cohort with id {cohort_id} does not exist",
                         code="cohort_does_not_exist",
