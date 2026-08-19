@@ -1342,10 +1342,17 @@ class HogFunctionViewSet(
                 if locked is not None and before_content is not None and revisions_enabled:
                     self._record_revision(serializer.instance, locked, before_content)
 
+        # A soft delete rides in on the same PATCH as any other edit. Name the activity for what the
+        # payload actually did to `deleted`, so the feed reads "deleted"/"restored" rather than a
+        # generic "updated" that support cannot tell apart from a config change.
+        activity = "draft_updated" if route_to_draft else None
+        if before_update is not None and serializer.instance.deleted != before_update.deleted:
+            activity = "deleted" if serializer.instance.deleted else "restored"
+
         log_activity_from_viewset(
             self,
             serializer.instance,
-            activity="draft_updated" if route_to_draft else None,
+            activity=activity,
             name=serializer.instance.name,
             previous=before_update,
             detail_type=humanize_hog_function_type(serializer.instance.type),

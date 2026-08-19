@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -287,6 +288,11 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                             name: hogFunction.name,
                         },
                         callback: (undo) => {
+                            posthog.capture(undo ? 'hog function restored' : 'hog function deleted', {
+                                id: hogFunction.id,
+                                type: hogFunction.type,
+                                template_id: hogFunction.template_id ?? hogFunction.template?.id,
+                            })
                             if (undo) {
                                 actions.loadHogFunctions()
                                 refreshTreeItem('hog_function/', hogFunction.id)

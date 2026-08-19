@@ -2099,6 +2099,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: hogFunction.name,
                 },
                 callback(undo) {
+                    posthog.capture(undo ? 'hog function restored' : 'hog function deleted', {
+                        id: hogFunction.id,
+                        type: hogFunction.type,
+                        template_id: hogFunction.template_id ?? hogFunction.template?.id,
+                    })
                     if (undo) {
                         router.actions.replace(urls.hogFunction(hogFunction.id))
                         refreshTreeItem('hog_function/', hogFunction.id)

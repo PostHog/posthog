@@ -582,7 +582,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         expected_activities = [
             {
-                "activity": "updated",
+                "activity": "deleted",
                 "created_at": ANY,
                 "detail": {
                     "name": "Fetch URL",
@@ -653,6 +653,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self.client.get(f"/api/projects/{self.team.id}/hog_functions/{id}").status_code == status.HTTP_200_OK
+
+        # The soft delete and the restore each get their own named activity, not a generic "updated".
+        activities = [item["activity"] for item in self._get_function_activity(id)]
+        assert activities == ["restored", "deleted", "created"]
 
     def test_inputs_required(self, *args):
         payload = {
