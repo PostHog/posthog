@@ -99,13 +99,16 @@ comparison undercounts repeats rather than inventing them.)
 ## Every question and its answer, keyed off the survey JSON (preferred)
 
 Take the ids from `questions[].id` and name the columns. Never guess which UUID is which
-question — backtick the property because of the dashes.
+question — backtick the property because of the dashes. Coalesce each UUID key with its legacy
+index key — bare `$survey_response` for the first question, `$survey_response_<N>` for the N-th
+(0-based) — because older responses store the answer under the index key alone and otherwise read
+blank, the same fallback the results table applies.
 
 ```sql
 SELECT timestamp,
   coalesce(person.properties.$email, person.properties.email) AS email,
-  properties.`$survey_response_<Q1_UUID>` AS q1,
-  properties.`$survey_response_<Q2_UUID>` AS q2,
+  coalesce(nullIf(properties.`$survey_response_<Q1_UUID>`, ''), nullIf(properties.$survey_response, '')) AS q1,
+  coalesce(nullIf(properties.`$survey_response_<Q2_UUID>`, ''), nullIf(properties.$survey_response_1, '')) AS q2,
   properties.$survey_completed AS completed,
   properties.$survey_submission_id AS submission_id
 FROM events
@@ -139,12 +142,14 @@ ORDER BY timestamp DESC LIMIT 60
 
 Cross-tab the branching question's answer against whether the downstream questions got values. If
 the split lines up exactly with the branching rules, the data is fine and the complaint is
-explained.
+explained. Coalesce each UUID key with its legacy index key here too — `<..._LEGACY_KEY>` is bare
+`$survey_response` for the first question, `$survey_response_<N>` for the N-th (0-based) — otherwise
+a legacy-keyed answer counts as unanswered and inflates the incomplete ratio.
 
 ```sql
-SELECT properties.`$survey_response_<BRANCHING_Q_UUID>` AS branch_answer,
+SELECT coalesce(nullIf(properties.`$survey_response_<BRANCHING_Q_UUID>`, ''), nullIf(properties.<BRANCHING_Q_LEGACY_KEY>, '')) AS branch_answer,
   count() AS submissions,
-  countIf(coalesce(toString(properties.`$survey_response_<DOWNSTREAM_Q_UUID>`), '') != '') AS answered_downstream
+  countIf(coalesce(nullIf(toString(properties.`$survey_response_<DOWNSTREAM_Q_UUID>`), ''), nullIf(toString(properties.<DOWNSTREAM_Q_LEGACY_KEY>), '')) != '') AS answered_downstream
 FROM events
 WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
   AND coalesce(toString(properties.$survey_completed), 'true') != 'false'
