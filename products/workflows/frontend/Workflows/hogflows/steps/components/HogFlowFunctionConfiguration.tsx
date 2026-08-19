@@ -168,7 +168,9 @@ export function HogFlowFunctionConfiguration({
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
-            // Workflow inputs autosave on every change, so an OAuth redirect needs no extra save.
+            // A no-op: workflow inputs feed the form's own auto-save rather than the destination
+            // persist-and-restore. That auto-save is debounced and skips new/unsaved drafts, so an
+            // OAuth redirect on a new workflow can still lose recent input.
             persistForUnload={() => {}}
         />
     )
