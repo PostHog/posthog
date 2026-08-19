@@ -162,7 +162,7 @@ export function CohortTaxonomicField({
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
     const supportsActions = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
-    useMountedLogic(supportsActions ? actionsModel : actionsModel({ skipLoad: true }))
+    useMountedLogic(supportsActions ? actionsModel() : actionsModel({ skipLoad: true }))
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
