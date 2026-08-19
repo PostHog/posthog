@@ -9,10 +9,10 @@ logger = structlog.get_logger(__name__)
 
 class Command(BaseCommand):
     help = (
-        "Clear the xmin cursor on schemas whose backfill ran against a wrapped cluster. "
-        "Those backfills filtered on an [0, ceiling) window of raw 32-bit xids, which skips every "
-        "tuple written in an earlier epoch, so the table is missing rows that no later incremental "
-        "run can bring back. Clearing the cursor makes the next sync re-read the whole table and "
+        "Clear the xmin cursor on schemas whose backfill may have run against a wrapped cluster. "
+        "Those backfills filtered on an [0, ceiling) window of raw 32-bit xids, which skips tuples "
+        "written in an earlier epoch, so the table can be missing rows that no later incremental "
+        "run brings back. Clearing the cursor makes the next sync re-read the whole table and "
         "upsert by primary key."
     )
 
@@ -54,7 +54,8 @@ class Command(BaseCommand):
             candidates = list(schemas.filter(id__in=schema_ids))
         else:
             # Epoch 0 clusters never wrapped, so their [0, ceiling) window covered the whole xid
-            # space and the backfill read everything.
+            # space and the backfill read everything. Past a wraparound the window is a candidate
+            # rather than proof, since a large remainder can still have caught every tuple.
             candidates = [schema for schema in schemas if (schema.xmin_num_wraparound or 0) > 0]
 
         if not candidates:
@@ -64,9 +65,13 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {len(candidates)} xmin schema(s) whose backfill may have skipped rows:\n")
 
         for schema in candidates:
+            # Share of the 32-bit xid space the backfill window covered. The lower it is, the more
+            # of the table the backfill could have skipped.
+            window_covered = (schema.xmin_last_value or 0) / 0x100000000
             self.stdout.write(
                 f"  schema={schema.id} team={schema.team_id} source={schema.source_id} "
-                f"name={schema.name} epoch={schema.xmin_num_wraparound} cursor={schema.xmin_ceiling}"
+                f"name={schema.name} epoch={schema.xmin_num_wraparound} cursor={schema.xmin_ceiling} "
+                f"window_covered={window_covered:.1%}"
             )
 
         if not live_run:

@@ -59,7 +59,10 @@ Bounding a backfill by `xmin < ceiling` is wrong on a cluster that has wrapped: 
 32 bits are a small remainder of the current epoch, and every tuple written in an earlier epoch
 sits above it, so the read silently returns almost nothing. Use
 `reset_wrapped_xmin_cursors` (management command) to find schemas whose cursor was captured past a
-wraparound and clear it, which makes the next sync re-read the whole table.
+wraparound and clear it, which makes the next sync re-read the whole table. A cursor captured past
+a wraparound is a candidate rather than proof: the command reports how much of the xid space each
+backfill window covered, and a window that covered most of the space may have read the whole table
+anyway.
 
 ### Feature flag
 
