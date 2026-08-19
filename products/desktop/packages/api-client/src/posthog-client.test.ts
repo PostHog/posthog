@@ -63,6 +63,31 @@ describe("PostHogAPIClient", () => {
   });
 
   it.each([
+    ["pinned", { pinned: true }, "pinned", "true"],
+    ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
+    ["mentions", { mentions: 19 }, "mentions", "19"],
+  ])("sends the %s task-list filter", async (_name, options, param, value) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage(options);
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.get(param)).toBe(value);
+  });
+
+  it.each([
     "user_message",
     "permission_response",
     "set_config_option",
@@ -1395,6 +1420,60 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("clearTaskRunConversation", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's clean error message", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [409] {"error":"Run is still active; send /clear to its agent instead"}',
+          ),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow(
+        "Run is still active; send /clear to its agent instead",
+      );
+    });
+
+    it("falls back to a status-coded message on an older backend's generic 404", async () => {
+      // A pre-#76943 backend has no clear_conversation route, so DRF's router
+      // returns its generic {"detail":"Not found."} rather than a message
+      // this endpoint controls. Surfacing that verbatim would read as "Not
+      // found." with no indication a clear was attempted or what to do next.
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Failed request: [404] {"detail":"Not found."}'),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow("Couldn’t clear the conversation. (HTTP 404)");
     });
   });
 
