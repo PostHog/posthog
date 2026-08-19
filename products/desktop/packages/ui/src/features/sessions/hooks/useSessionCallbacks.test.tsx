@@ -193,16 +193,18 @@ describe("useSessionCallbacks.handleSendPrompt", () => {
     expect(toastError).toHaveBeenCalledWith("fetch failed");
   });
 
-  it("uses the post-send compaction state for the steering notice", async () => {
+  it("forwards the steer intent from the messaging mode", async () => {
     messagingMode.value = "steer";
-    sessionService.sendPrompt.mockImplementation(async () => {
-      sessionState.isCompacting = true;
-    });
+    sessionService.sendPrompt.mockResolvedValue({ stopReason: "steered" });
 
     const { result } = renderCallbacks(sessionState as unknown as AgentSession);
     await result.current.handleSendPrompt("change direction");
 
-    expect(toastInfo).not.toHaveBeenCalled();
+    expect(sessionService.sendPrompt).toHaveBeenCalledWith(
+      TASK,
+      "change direction",
+      { steer: true },
+    );
   });
 });
 

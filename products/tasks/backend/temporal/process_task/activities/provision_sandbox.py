@@ -8,6 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -17,6 +18,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_FILESYSTEM,
+    TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
@@ -24,6 +26,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
+    RepositoryCloneError,
     SandboxNetworkPolicyError,
     TaskNotFoundError,
 )
@@ -65,7 +68,11 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
-from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.observability import (
+    emit_agent_log,
+    log_activity_execution,
+    log_with_activity_context,
+)
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
     set_git_remote_token,
@@ -257,6 +264,30 @@ def _apply_modal_network_policy(
         return
     config.outbound_domain_allowlist = list(ctx.modal_domain_allowlist)
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
+
+
+def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
+    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        return False
+
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
+                distinct_id=ctx.distinct_id,
+                groups={"organization": ctx.organization_id},
+                group_properties={"organization": {"id": ctx.organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as error:
+        log_with_activity_context(
+            "blobless_signals_clone_flag_check_failed",
+            run_id=ctx.run_id,
+            error=str(error),
+        )
+        return False
 
 
 def _resolve_sandbox_github_token(
@@ -866,6 +897,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
 
         state = ctx.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        blobless_clone = _is_blobless_signals_clone_enabled(ctx)
 
         with StepTimer(
             "repository_clone",
@@ -878,6 +910,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 github_token=input.github_token,
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
+                blobless=blobless_clone,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -891,10 +924,23 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     github_token=input.github_token,
                     shallow=input.shallow_clone,
                     branch=None,
+                    blobless=blobless_clone,
                 )
 
-        if clone_result.exit_code != 0:
-            raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
+            if clone_result.exit_code != 0:
+                error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
+                raise RepositoryCloneError(
+                    f"Git clone failed with exit code {clone_result.exit_code}",
+                    {
+                        "repository": input.repository,
+                        "sandbox_id": input.sandbox_id,
+                        "exit_code": clone_result.exit_code,
+                        "stderr": clone_result.stderr[:500],
+                        "stdout": clone_result.stdout[:500],
+                        "error": clone_result.error,
+                    },
+                    cause=RuntimeError(error_output[:200]),
+                )
 
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
