@@ -20,8 +20,24 @@ export interface credentialReviewLogicActions {
     loadKeys: () => {
         value: true
     } // personalAPIKeysLogic
-    submitReauthenticationSuccess: (reauthentication: any) => any // timeSensitiveAuthenticationLogic
-    beginPasskey2FASuccess: (passkey2FA: null, payload?: any) => any // timeSensitiveAuthenticationLogic
+    beginPasskey2FASuccess: (
+        passkey2FA: null,
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
+    ) => {
+        passkey2FA: null
+        payload?: {
+            value: true
+        }
+    } // timeSensitiveAuthenticationLogic
+    submitReauthenticationSuccess: (
+        reauthentication: import('lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic').ReauthenticationForm
+    ) => {
+        reauthentication: import('lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic').ReauthenticationForm
+    } // timeSensitiveAuthenticationLogic
     markComplete: () => {
         value: true
     }
