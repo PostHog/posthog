@@ -10,6 +10,8 @@ function buildRedirectUrl(integrationTarget: string): string {
 
 export type CyclotronJobInputIntegrationProps = IntegrationConfigureProps & {
     schema: CyclotronJobInputSchemaType
+    // Connecting an integration navigates the whole page to OAuth, which destroys form state. The
+    // host saves it here so the round trip can restore it.
     persistForUnload?: () => void
 }
 

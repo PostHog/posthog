@@ -39,6 +39,7 @@ export function HogFunctionInputs(): JSX.Element {
         reportAIHogFunctionInputsAccepted,
         reportAIHogFunctionInputsRejected,
         reportAIHogFunctionInputsPromptOpen,
+        persistForUnload,
     } = useActions(hogFunctionConfigurationLogic)
 
     useAttachedContext([
@@ -91,6 +92,7 @@ export function HogFunctionInputs(): JSX.Element {
                     }}
                     showSource={showSource}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    persistForUnload={persistForUnload}
                 />
                 {oldInputs && newInputs && (
                     <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">

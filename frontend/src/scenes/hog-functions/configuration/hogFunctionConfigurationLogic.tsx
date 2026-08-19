@@ -2066,10 +2066,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     inputs[key] = inputs[key] ?? value
                 })
 
+                // Some templates ship blank filters (`{ events: [] }`). Treat those as absent so a
+                // reset keeps the user's own event filters instead of wiping them.
+                const templateHasFilters =
+                    (config.filters?.events?.length ?? 0) > 0 || (config.filters?.actions?.length ?? 0) > 0
+
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: templateHasFilters ? config.filters : values.configuration.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

@@ -168,6 +168,8 @@ export function HogFlowFunctionConfiguration({
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+            // Workflow inputs autosave on every change, so an OAuth redirect needs no extra save.
+            persistForUnload={() => {}}
         />
     )
 

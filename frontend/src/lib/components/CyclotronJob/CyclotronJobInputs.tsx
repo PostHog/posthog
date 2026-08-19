@@ -126,6 +126,9 @@ export type CyclotronJobInputsProps = {
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    // Called before an integration input navigates the page to OAuth, so the host can save form
+    // state and restore it after the round trip. Required so this wiring cannot be dropped.
+    persistForUnload: () => void
 }
 
 export function CyclotronJobInputs({
@@ -140,6 +143,7 @@ export function CyclotronJobInputs({
     emailSaveIndicator,
     showSource,
     sampleGlobalsWithInputs,
+    persistForUnload,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -180,6 +184,7 @@ export function CyclotronJobInputs({
                                     emailFieldErrors={emailFieldErrors}
                                     emailLiveChanges={emailLiveChanges}
                                     emailSaveIndicator={emailSaveIndicator}
+                                    persistForUnload={persistForUnload}
                                 />
                             )
                         })}
@@ -562,6 +567,7 @@ type CyclotronJobInputProps = {
     emailFieldErrors?: EmailFieldErrors
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
+    persistForUnload: () => void
 }
 
 function NonFailureStatusCodesField({
@@ -616,6 +622,7 @@ function CyclotronJobInputRenderer({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    persistForUnload,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -700,6 +707,7 @@ function CyclotronJobInputRenderer({
 
                         onValueChange(newValue)
                     }}
+                    persistForUnload={persistForUnload}
                 />
             )
         case 'integration_multi':
@@ -765,6 +773,7 @@ type CyclotronJobInputSchemaControlsProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    persistForUnload: () => void
 }
 
 function CyclotronJobInputSchemaControls({
@@ -774,6 +783,7 @@ function CyclotronJobInputSchemaControls({
     configuration,
     parentConfiguration,
     sampleGlobalsWithInputs,
+    persistForUnload,
 }: CyclotronJobInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<CyclotronJobInputSchemaType> | null): void => {
         if (data?.key?.length === 0) {
@@ -895,6 +905,7 @@ function CyclotronJobInputSchemaControls({
                     configuration={configuration}
                     parentConfiguration={parentConfiguration}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    persistForUnload={persistForUnload}
                 />
             </LemonField.Pure>
         </div>
@@ -919,6 +930,7 @@ function CyclotronJobInputWithSchema({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    persistForUnload,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1070,6 +1082,7 @@ function CyclotronJobInputWithSchema({
                                 emailFieldErrors={emailFieldErrors}
                                 emailLiveChanges={emailLiveChanges}
                                 emailSaveIndicator={emailSaveIndicator}
+                                persistForUnload={persistForUnload}
                             />
                         )}
                         {warning && !value?.secret ? (
@@ -1089,6 +1102,7 @@ function CyclotronJobInputWithSchema({
                         configuration={configuration}
                         parentConfiguration={parentConfiguration}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                        persistForUnload={persistForUnload}
                     />
                 </div>
             )}

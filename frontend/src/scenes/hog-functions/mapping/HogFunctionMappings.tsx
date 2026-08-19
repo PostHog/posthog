@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { memo, useEffect, useState } from 'react'
 
@@ -92,6 +92,7 @@ export function HogFunctionMapping({
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { persistForUnload } = useActions(hogFunctionConfigurationLogic)
     const hideEventFilter = mapping.use_all_events_by_default === true
 
     return (
@@ -151,6 +152,7 @@ export function HogFunctionMapping({
                         }}
                         showSource={showSource}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                        persistForUnload={persistForUnload}
                     />
                 </Group>
                 {showSource ? (

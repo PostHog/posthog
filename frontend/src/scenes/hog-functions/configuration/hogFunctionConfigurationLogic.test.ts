@@ -237,6 +237,32 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('resetToTemplate', () => {
+        const userFilters = { events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }] }
+        const templateFilters = { events: [{ id: 'purchase', name: 'purchase', type: 'events', order: 0 }] }
+
+        it.each([
+            ['keeps the user filters when the template ships blank filters', { events: [] }, userFilters],
+            ['keeps the user filters when the template has no filters', null, userFilters],
+            ['applies the template filters when they are not blank', templateFilters, templateFilters],
+        ])('%s', async (_name, templateFiltersValue, expectedFilters) => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(
+                Promise.resolve({ ...HOG_TEMPLATE, filters: templateFiltersValue as any })
+            )
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+
+            logic.actions.setConfigurationValue('filters', userFilters)
+            await expectLogic(logic, () => {
+                logic.actions.resetToTemplate()
+            }).toFinishAllListeners()
+
+            expect(logic.values.configuration.filters).toEqual(expectedFilters)
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
