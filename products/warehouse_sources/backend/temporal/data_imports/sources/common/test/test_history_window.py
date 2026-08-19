@@ -2,7 +2,9 @@ import datetime as dt
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest import mock
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -40,16 +42,49 @@ class TestHistoryStartForSchema(BaseTest):
 
         assert history_start_for_schema(schema, now=NOW) == recorded
 
+    def _completed_job(self, schema: ExternalDataSchema) -> None:
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=1,
+            workflow_id="wf",
+        )
+
     def test_a_schema_already_syncing_records_nothing(self):
         # The lookback is only truthful for a schema with nothing yet. One already holding data
         # covers a range nobody recorded, so it reads as unbounded rather than as a guess.
         table = DataWarehouseTable.objects.create(team=self.team, name="campaign_stats", format="Delta")
         schema = self._schema(table=table)
+        self._completed_job(schema)
 
         assert history_start_for_schema(schema, now=NOW) is None
 
         schema.refresh_from_db()
         assert schema.history_start is None
+
+    def test_a_schema_whose_table_was_deleted_records_nothing(self):
+        # `delete_table` nulls the table link on a schema that has synced for years, so the table
+        # link cannot stand in for "never synced". Recording a lookback here writes down a narrower
+        # range than the schema covered, which every later re-import would then honour.
+        schema = self._schema()
+        self._completed_job(schema)
+
+        assert history_start_for_schema(schema, now=NOW) is None
+
+        schema.refresh_from_db()
+        assert schema.history_start is None
+
+    def test_recording_skips_the_activity_log(self):
+        # Pipeline bookkeeping, on a path where the extra read the audit trail needs fails the
+        # import when the pooler has dropped the connection mid-sync.
+        schema = self._schema()
+
+        with mock.patch.object(ExternalDataSchema, "save", autospec=True) as saved:
+            history_start_for_schema(schema, now=NOW)
+
+        assert saved.call_args.kwargs["skip_activity_log"] is True
 
     def test_a_source_without_a_window_records_nothing(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe", job_inputs={})

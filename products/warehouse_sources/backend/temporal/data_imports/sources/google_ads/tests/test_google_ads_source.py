@@ -1496,29 +1496,6 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_first_sync_drains_in_windows_from_a_bounded_backfill_start(self):
-        # A first sync has no cursor. Running it as the open-ended `1970 .. 2100` scan meant one run
-        # had to extract the whole account history before anything landed durably; it never
-        # finished, so the cursor never advanced and the next run repeated the same scan — report
-        # tables that had never synced could never start. It must window like any other run,
-        # beginning a bounded backfill behind today.
-        with freeze_time("2026-07-17"):
-            _response, queries = self._run_source(
-                self._stats_table(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                history_start="2024-07-17",
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-            )
-
-        assert queries[0] == (
-            "SELECT campaign.id,segments.date FROM campaign_stats "
-            "WHERE segments.date >= '2024-07-17' AND segments.date < '2024-07-24' "
-            "ORDER BY segments.date ASC"
-        )
-        assert all("2100-01-01" not in q for q in queries)
-
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # A run that spends its whole budget re-reading the lookback overlap leaves the cursor where
         # it started, so the next run repeats it and a schema behind by more than its lookback never
@@ -1610,6 +1587,8 @@ class TestGoogleAdsQueryConstruction:
 
         assert f"WHERE segments.date >= '{expected_start}'" in queries[0]
         assert all("LIMIT 1" not in q for q in queries), "a recorded range needs no request to locate it"
+        # Windowed, not the open-ended `.. 2100` scan a first sync used to run.
+        assert all("2100-01-01" not in q for q in queries)
 
     @pytest.mark.parametrize("earliest_date,expected_start", [("2020-02-08", "2020-02-08"), (None, "2026-07-17")])
     def test_no_recorded_range_asks_the_account_where_its_rows_begin(
