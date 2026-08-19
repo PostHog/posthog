@@ -80,8 +80,8 @@ class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, and each team gets a public "general" channel, Slack-style.
-    Both are created by the provision_defaults action, not by listing; the general channel
-    can't be renamed or deleted."""
+    Listing creates neither; provisioning does. The general channel can't be renamed or
+    deleted."""
 
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"

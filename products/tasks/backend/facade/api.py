@@ -6248,7 +6248,7 @@ def _team_channels(team_id: int) -> QuerySet[Channel]:
 
 def _ensure_system_channel(
     team_id: int,
-    user_id: int,
+    user_id: int | None,
     *,
     role: str,
     owner_lookup: dict[str, Any],
@@ -6297,7 +6297,7 @@ def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
     return _ensure_personal_channel(team_id, user_id)[0].id
 
 
-def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
+def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
@@ -6310,6 +6310,14 @@ def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
         },
         create_defaults={"created_by_id": user_id},
     )
+
+
+def _is_general_channel(channel: Channel) -> bool:
+    """Mirrors the client check in ``channelName.ts``: a row created before the role
+    existed, or by a name-based path, is still the team's general space."""
+    if channel.system_role is not None:
+        return channel.system_role == Channel.SystemRole.GENERAL
+    return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
@@ -6375,27 +6383,33 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
 
 def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
+    The general name resolves the team's general space, which cannot then be renamed away.
     Emits a ``channel_created`` feed message the first time a channel is created, and (unless
     ``star`` is false) stars the channel for whoever created it. Resolving a channel that
     already exists leaves the requester's star alone — only creation stars."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
-    created = False
-    try:
-        channel, created = Channel.objects.select_related("created_by").get_or_create(
-            team_id=team_id,
-            name=normalized,
-            channel_type=Channel.ChannelType.PUBLIC,
-            deleted=False,
-            defaults={"created_by_id": user_id},
-        )
-    except IntegrityError:
-        channel = Channel.objects.select_related("created_by").get(
-            team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
-        )
-    if created:
-        _emit_channel_created(channel, user_id)
+    if normalized == Channel.GENERAL_CHANNEL_NAME:
+        # Resolving by name here would produce a second, unstamped general space, so
+        # every path that can create one goes through the role-aware helper.
+        channel, created = _ensure_general_channel(team_id, user_id)
+    else:
+        created = False
+        try:
+            channel, created = Channel.objects.select_related("created_by").get_or_create(
+                team_id=team_id,
+                name=normalized,
+                channel_type=Channel.ChannelType.PUBLIC,
+                deleted=False,
+                defaults={"created_by_id": user_id},
+            )
+        except IntegrityError:
+            channel = Channel.objects.select_related("created_by").get(
+                team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
+            )
+        if created:
+            _emit_channel_created(channel, user_id)
     if user_id is None:
         starred = False
     elif not created:
@@ -6425,7 +6439,7 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
-    if channel.system_role == Channel.SystemRole.GENERAL and name is not None:
+    if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
     if name is not None:
@@ -6454,7 +6468,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
         return "personal" if channel.created_by_id == user_id else "not_found"
-    if channel.system_role == Channel.SystemRole.GENERAL:
+    if _is_general_channel(channel):
         return "general"
     if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
         return "not_empty"
