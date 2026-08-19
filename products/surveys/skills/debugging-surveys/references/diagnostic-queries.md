@@ -182,8 +182,14 @@ SELECT timestamp, distinct_id,
 FROM events
 WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
   AND timestamp >= now() - INTERVAL 180 DAY
-ORDER BY timestamp DESC LIMIT 60
+ORDER BY timestamp DESC
+LIMIT 1 BY coalesce(nullIf(properties.$survey_submission_id, ''), toString(uuid))
+LIMIT 60
 ```
 
 Beats arguing about whether a submission was intentional. Every `survey sent` / `dismissed` /
-`abandoned` event carries `sessionRecordingUrl`.
+`abandoned` event carries `sessionRecordingUrl`. The `LIMIT 1 BY` collapses partial mode's
+per-question `survey sent` rows to the latest one per submission — matching how the results table
+dedupes — so you get one link per response, not one per intermediate save. The `coalesce` falls
+back to the event UUID for pre-1.240.0 events, which have no `$survey_submission_id`, so those are
+kept as distinct rows rather than folded together.
