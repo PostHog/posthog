@@ -217,7 +217,6 @@ services:
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''

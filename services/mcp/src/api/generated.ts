@@ -30972,13 +30972,6 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
-    export interface EvaluationPattern {
-      title: string;
-      description: string;
-      frequency: string;
-      example_generation_ids: string[];
-    }
-
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -31280,74 +31273,6 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
-    }
-
-    /**
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na
-     */
-    export type FilterEnum = typeof FilterEnum[keyof typeof FilterEnum];
-
-
-    export const FilterEnum = {
-      All: 'all',
-      Pass: 'pass',
-      Fail: 'fail',
-      Na: 'na',
-    } as const;
-
-    /**
-     * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
-     */
-    export interface EvaluationSummaryRequest {
-      /** UUID of the evaluation config to summarize */
-      evaluation_id: string;
-      /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-       *
-       * * `all` - all
-       * * `pass` - pass
-       * * `fail` - fail
-       * * `na` - na */
-      filter?: FilterEnum;
-      /**
-         * Optional: specific generation IDs to include in summary (max 250)
-         * @maxItems 250
-         */
-      generation_ids?: string[];
-      /** If true, bypass cache and generate a fresh summary */
-      force_refresh?: boolean;
-    }
-
-    export interface EvaluationSummaryStatistics {
-      total_analyzed: number;
-      pass_count: number;
-      fail_count: number;
-      na_count: number;
-    }
-
-    export interface EvaluationSummaryResponse {
-      overall_assessment: string;
-      pass_patterns: EvaluationPattern[];
-      fail_patterns: EvaluationPattern[];
-      na_patterns: EvaluationPattern[];
-      recommendations: string[];
-      statistics: EvaluationSummaryStatistics;
-    }
-
-    export interface EvaluationSummaryThrottleResponse {
-      /** Error category */
-      type: string;
-      /** Machine-readable error code */
-      code: string;
-      /** Why the request was throttled */
-      detail: string;
-      /**
-         * Related request field, when applicable
-         * @nullable
-         */
-      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -49552,7 +49477,6 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -49576,7 +49500,6 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
-      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -54044,44 +53967,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Tagger[];
-    }
-
-    /**
-     * Detail/create/update/run response for a task automation.
-     */
-    export interface TaskAutomationDTO {
-      id: string;
-      name: string;
-      prompt: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      cron_expression: string;
-      timezone: string;
-      /** @nullable */
-      template_id: string | null;
-      enabled: boolean;
-      /** @nullable */
-      last_run_at: string | null;
-      /** @nullable */
-      last_run_status: string | null;
-      last_task_id: string;
-      /** @nullable */
-      last_task_run_id: string | null;
-      /** @nullable */
-      last_error: string | null;
-      created_at: string;
-      updated_at: string;
-    }
-
-    export interface PaginatedTaskAutomationDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskAutomationDTO[];
     }
 
     /**
@@ -62923,47 +62808,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface PatchedTaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name?: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt?: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository?: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression?: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
-    }
-
     export interface PatchedTaskRunSetOutputRequest {
       /** Output data from the run. Validated against the task's json_schema if one is set. */
       output?: unknown;
@@ -63039,7 +62883,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -78576,47 +78419,6 @@ export namespace Schemas {
       artifacts: TaskArtifact[];
     }
 
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface TaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
-    }
-
     export interface TaskCommentAnchor {
       /** Anchor kind. */
       kind?: string;
@@ -78770,7 +78572,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -79934,7 +79735,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -89777,14 +89577,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
-
     export type LlmAnalyticsModelsRetrieveParams = {
     /**
      * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
@@ -92416,17 +92208,6 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
-    };
-
-    export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type TaskChannelsListParams = {

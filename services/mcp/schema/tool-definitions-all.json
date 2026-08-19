@@ -6134,21 +6134,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-evaluation-summary-create": {
-        "description": "Generate an AI-powered summary of boolean AI observability evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Summarize evaluation results",
-        "title": "Summarize evaluation results",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true
-    },
     "llma-evaluation-test-hog": {
         "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
         "category": "AI observability",
