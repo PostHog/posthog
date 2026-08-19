@@ -219,6 +219,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at?: string | null;
+      /**
+         * When Track Rules ignored the account. Null means the account is tracked.
+         * @nullable
+         */
+      readonly ignored_at: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -902,6 +907,8 @@ export namespace Schemas {
       assignedToUserIds?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
+      /** Include ignored accounts. Ignored accounts are hidden by default. */
+      includeIgnored?: boolean | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
       /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -928,6 +935,7 @@ export namespace Schemas {
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
       ChurnedAt: 'churned_at',
+      IgnoredAt: 'ignored_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1170,6 +1178,8 @@ export namespace Schemas {
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
+      /** Include ignored accounts. Ignored accounts are hidden by default. */
+      includeIgnored?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -33831,6 +33841,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at: string | null;
+      /**
+         * When Track Rules ignored the account, or null if it is tracked.
+         * @nullable
+         */
+      ignored_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -56057,6 +56072,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at?: string | null;
+      /**
+         * When Track Rules ignored the account. Null means the account is tracked.
+         * @nullable
+         */
+      readonly ignored_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -83639,6 +83659,10 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean;
+    /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number;
@@ -84252,6 +84276,10 @@ export namespace Schemas {
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean;
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean;
     /**
      * Number of results to return per page.
      */
