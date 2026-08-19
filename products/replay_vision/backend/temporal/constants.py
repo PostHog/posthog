@@ -1,6 +1,8 @@
 import datetime as dt
 from uuid import UUID
 
+from temporalio.common import Priority
+
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
@@ -12,10 +14,10 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
-# Task priority for user-initiated applies (1 = highest of 5, default 3): Temporal inherits it into the
+# Task priority for user-initiated starts (1 = highest of 5, default 3): Temporal inherits it into the
 # rasterize-recording child and its rasterization-queue activity, so on-demand runs jump the sweep and
 # backfill backlog on every queue they touch.
-ON_DEMAND_PRIORITY_KEY = 1
+ON_DEMAND_PRIORITY = Priority(priority_key=1)
 
 # A pending/running row is created inside its workflow, and the workflow cannot outlive its execution timeout
 # (which spans Temporal-level retries), so any such row older than the timeout plus a margin for clock skew
@@ -141,19 +143,17 @@ ON_DEMAND_RESERVED_SCANNER_SLOTS = 25
 ON_DEMAND_RESERVED_TEAM_SLOTS = 50
 
 
-def in_flight_headroom(scanner_in_flight: int, team_in_flight: int, *, reserve_for_on_demand: bool = True) -> int:
-    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
+    """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
+    per-team caps, minus the slots reserved for on-demand admission.
 
     The sweep workflow throttles on this and the count activity records the throttled
     metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
-    inside deterministic workflow code. `reserve_for_on_demand=False` is only for replaying
-    sweep histories recorded before the reserve existed.
+    inside deterministic workflow code.
     """
-    scanner_cap = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - (ON_DEMAND_RESERVED_SCANNER_SLOTS if reserve_for_on_demand else 0)
-    team_cap = MAX_IN_FLIGHT_APPLIES_PER_TEAM - (ON_DEMAND_RESERVED_TEAM_SLOTS if reserve_for_on_demand else 0)
     return min(
-        scanner_cap - scanner_in_flight,
-        team_cap - team_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - team_in_flight,
     )
 
 

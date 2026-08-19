@@ -39,6 +39,8 @@ from products.replay_vision.backend.temporal.constants import (
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
@@ -143,7 +145,10 @@ class SweepScannerWorkflow(PostHogWorkflow):
         if wf.patched("replay-vision-on-demand-reserved-headroom"):
             headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         else:
-            headroom = in_flight_headroom(scanner_in_flight, team_in_flight, reserve_for_on_demand=False)
+            headroom = min(
+                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+            )
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(

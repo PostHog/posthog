@@ -9,7 +9,7 @@ from django.conf import settings
 import structlog
 from asgiref.sync import async_to_sync
 from rest_framework.exceptions import Throttled
-from temporalio.common import Priority, SearchAttributePair, TypedSearchAttributes
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions import QuotaLimitExceeded
@@ -38,7 +38,7 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
-    ON_DEMAND_PRIORITY_KEY,
+    ON_DEMAND_PRIORITY,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -199,7 +199,7 @@ def start_apply_scanner_workflow(
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
             # Every caller of this trigger is user-initiated (observe, bulk, inline, retry), so all runs qualify.
-            priority=Priority(priority_key=ON_DEMAND_PRIORITY_KEY),
+            priority=ON_DEMAND_PRIORITY,
             # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
             search_attributes=TypedSearchAttributes(
                 search_attributes=[
@@ -262,7 +262,7 @@ def start_process_vision_action_workflow(
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,
             execution_timeout=PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
-            priority=Priority(priority_key=ON_DEMAND_PRIORITY_KEY),
+            priority=ON_DEMAND_PRIORITY,
         )
     except WorkflowAlreadyStartedError as exc:
         if exc.workflow_id != workflow_id:
