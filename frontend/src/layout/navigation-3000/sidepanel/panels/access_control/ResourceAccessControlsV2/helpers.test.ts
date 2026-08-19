@@ -1,7 +1,6 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
 import { getAccessSummaryTags, inheritedReasonOf } from './helpers'
-import { inheritedAccess } from './testUtils'
 import { AccessControlRoleEntry } from './types'
 
 const makeEffectiveEntry = (
@@ -27,7 +26,14 @@ describe('helpers', () => {
             ['object', 'default', 'project_default'],
             ['system_default', null, 'project_default'],
         ] as const)('%s / %s reads as %s', (source, subject, expected) => {
-            expect(inheritedReasonOf(inheritedAccess(AccessControlLevel.Editor, source, subject))).toBe(expected)
+            const inherited: EffectiveAccessControlEntry['inherited_access'] = {
+                access_level: AccessControlLevel.Editor,
+                source,
+                source_subject: subject,
+                source_resource: 'dashboard' as APIScopeObject,
+                source_resource_id: null,
+            }
+            expect(inheritedReasonOf(inherited)).toBe(expected)
         })
 
         it('has no reason when nothing is inherited', () => {
