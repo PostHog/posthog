@@ -5972,8 +5972,6 @@ export interface EffectiveAccessControlEntry {
      * it — resolved by the same walker that enforces access. Null only when nothing sits above
      * the object's own default (a project's default). */
     inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }

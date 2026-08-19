@@ -301,8 +301,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         resource_access_levels = {
             r: {
                 "access_level": saved_resource_levels.get(r),
-                # What applies when no rule exists anywhere, so the UI can spell out the fallback
-                "system_default_access_level": default_access_level(r),
                 "minimum": minimum_access_level(r),
                 "maximum": highest_access_level(r),
             }
