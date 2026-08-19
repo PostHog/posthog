@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -9,13 +10,15 @@ import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogi
 
 export function DuplicateDashboardModal(): JSX.Element {
     const { hideDuplicateDashboardModal, duplicateAndGoToDashboard } = useActions(duplicateDashboardLogic)
-    const { isDuplicateDashboardSubmitting, duplicateDashboardModalVisible } = useValues(duplicateDashboardLogic)
+    const { isDuplicateDashboardSubmitting, duplicateDashboardModalVisible, duplicateError } =
+        useValues(duplicateDashboardLogic)
 
     return (
         <LemonModal
             title="Duplicate dashboard"
             onClose={hideDuplicateDashboardModal}
             isOpen={duplicateDashboardModalVisible}
+            closable={!isDuplicateDashboardSubmitting}
             footer={
                 <>
                     <LemonButton
@@ -56,6 +59,7 @@ export function DuplicateDashboardModal(): JSX.Element {
                 enableFormOnSubmit
                 className="deprecated-space-y-2"
             >
+                {duplicateError && <LemonBanner type="error">{duplicateError}</LemonBanner>}
                 <LemonField
                     name="duplicateTiles"
                     help="Choose whether to duplicate this dashboard's insights and text or attach them to the new dashboard."
