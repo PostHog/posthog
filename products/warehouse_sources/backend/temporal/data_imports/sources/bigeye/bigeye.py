@@ -4,7 +4,10 @@ from typing import Any, Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import BIGEYE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import (
+    BIGEYE_ENDPOINTS,
+    REQUEST_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -122,6 +125,7 @@ def bigeye_source(
                 "name": "Authorization",
                 "location": "header",
             },
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {},
         "resources": [get_resource(endpoint, workspace_id)],

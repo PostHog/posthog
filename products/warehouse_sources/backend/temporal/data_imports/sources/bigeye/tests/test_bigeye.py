@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.big
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import BIGEYE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import (
+    BIGEYE_ENDPOINTS,
+    REQUEST_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -186,6 +189,18 @@ class TestSinglePageEndpoints:
 
         assert rows[0]["id"] == 9
         assert rows[0]["name"] == "Nightly"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_bounds_every_request_with_a_timeout(self, MockSession: mock.MagicMock) -> None:
+        # Without this a stalled connect or hung read on a customer-controlled host would pin an
+        # import worker indefinitely.
+        session = MockSession.return_value
+        manager = _make_manager()
+        _wire(session, [_response({"workspaces": [{"id": 1, "name": "Default"}]})])
+
+        _rows(_build("Workspaces", manager))
+
+        assert session.send.call_args.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
 
 
 class TestCursorPagination:
