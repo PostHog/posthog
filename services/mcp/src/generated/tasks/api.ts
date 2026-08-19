@@ -735,7 +735,7 @@ export const LoopsRunsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists. Listing does not provision; call provision_defaults to create the default channels.
+ * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
  * @summary List channels
  */
 export const TaskChannelsListParams = /* @__PURE__ */ zod.object({
