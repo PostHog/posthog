@@ -2806,7 +2806,6 @@ jobs:
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install unzip cmake curl uuid pkg-config
                   # Short budget: the `||` mirror is the real fallback for a host that is down.
                   fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
                   "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
