@@ -52,6 +52,8 @@ export function BatchExportConfiguration(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
+    const subHourIntervalDisabledReason =
+        'Exports more frequent than hourly are available on request. Contact support to enable them for your team.'
 
     const showTimezoneAndOffsetSelector = configuration.interval === 'day' || configuration.interval === 'week'
     const timezoneOptions =
@@ -109,12 +111,16 @@ export function BatchExportConfiguration(): JSX.Element {
                                         {
                                             value: 'every 5 minutes',
                                             label: 'Every 5 minutes',
-                                            hidden: !highFrequencyBatchExports,
+                                            disabledReason: highFrequencyBatchExports
+                                                ? undefined
+                                                : subHourIntervalDisabledReason,
                                         },
                                         {
                                             value: 'every 15 minutes',
                                             label: 'Every 15 minutes',
-                                            hidden: !highFrequencyBatchExports,
+                                            disabledReason: highFrequencyBatchExports
+                                                ? undefined
+                                                : subHourIntervalDisabledReason,
                                         },
                                     ]}
                                 />

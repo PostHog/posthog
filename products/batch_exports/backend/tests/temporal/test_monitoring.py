@@ -19,6 +19,7 @@ from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
     EventCount,
+    _get_expected_intervals,
     _log_warning_for_missing_batch_export_runs,
     _log_warning_for_missing_events,
     datetime_to_str,
@@ -333,6 +334,35 @@ async def test_monitoring_workflow_when_missing_events(
 
         # check that the warning was logged
         mock_log_warning.assert_called_once_with(batch_export.id, expected_missing_events)
+
+
+@pytest.mark.parametrize(
+    "step,expected",
+    [
+        (
+            dt.timedelta(minutes=5),
+            [
+                (dt.datetime(2024, 1, 1, 10, 0, tzinfo=dt.UTC), dt.datetime(2024, 1, 1, 10, 5, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 1, 1, 10, 5, tzinfo=dt.UTC), dt.datetime(2024, 1, 1, 10, 10, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 1, 1, 10, 10, tzinfo=dt.UTC), dt.datetime(2024, 1, 1, 10, 15, tzinfo=dt.UTC)),
+            ],
+        ),
+        (
+            dt.timedelta(minutes=15),
+            [
+                (dt.datetime(2024, 1, 1, 10, 0, tzinfo=dt.UTC), dt.datetime(2024, 1, 1, 10, 15, tzinfo=dt.UTC)),
+            ],
+        ),
+    ],
+)
+def test_get_expected_intervals_uses_step(step, expected):
+    """A 15 minute export must produce 15 minute buckets, not 5 minute ones, or every run reads as missing."""
+    intervals = _get_expected_intervals(
+        dt.datetime(2024, 1, 1, 10, 0, tzinfo=dt.UTC),
+        dt.datetime(2024, 1, 1, 10, 15, tzinfo=dt.UTC),
+        step,
+    )
+    assert intervals == expected
 
 
 def test_log_warning_for_missing_batch_export_runs():

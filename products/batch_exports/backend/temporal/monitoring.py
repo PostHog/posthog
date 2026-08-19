@@ -18,6 +18,12 @@ from products.batch_exports.backend.temporal.sql.events import EVENT_COUNT_BY_IN
 
 LOGGER = get_logger(__name__)
 
+# Intervals for which the monitoring workflow can reconcile event counts, mapped to their run duration.
+SUPPORTED_MONITORING_INTERVALS = {
+    "every 5 minutes": dt.timedelta(minutes=5),
+    "every 15 minutes": dt.timedelta(minutes=15),
+}
+
 
 def datetime_to_str(dt_obj: dt.datetime) -> str:
     """Convert datetime to consistent string format"""
@@ -79,9 +85,9 @@ async def get_batch_export(batch_export_id: UUID) -> BatchExportDetails:
         raise NoValidBatchExportsFoundError("Batch export is paused")
     if batch_export.model != "events":
         raise NoValidBatchExportsFoundError("Batch export model is not 'events'")
-    if batch_export.interval_time_delta != dt.timedelta(minutes=5):
+    if batch_export.interval not in SUPPORTED_MONITORING_INTERVALS:
         raise NoValidBatchExportsFoundError(
-            "Only batch exports with interval of 5 minutes are supported for monitoring at this time."
+            "Only batch exports with a 5 or 15 minute interval are supported for monitoring at this time."
         )
     config = batch_export.destination.config
     return BatchExportDetails(
@@ -117,11 +123,9 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
     query = EVENT_COUNT_BY_INTERVAL
 
     interval = inputs.interval
-    # we check interval is "every 5 minutes" above but double check here
-    if not interval.startswith("every 5 minutes"):
-        raise NoValidBatchExportsFoundError(
-            "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
-        )
+    # we check the interval is supported above but double check here
+    if interval not in SUPPORTED_MONITORING_INTERVALS:
+        raise NoValidBatchExportsFoundError("Only 5 or 15 minute intervals are supported for monitoring at this time.")
     _, value, unit = interval.split(" ")
     interval = f"{value} {unit}"
 
@@ -184,15 +188,11 @@ class FetchExportedEventCountsInputs:
 
 @activity.defn
 async def fetch_exported_event_counts(inputs: FetchExportedEventCountsInputs) -> list[EventCount]:
-    """Fetch the number of exported events (as recorded in our database) for a given batch export over a given interval.
-
-    We assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time.
-    """
+    """Fetch the number of exported events (as recorded in our database) for a given batch export over a given interval."""
     async with Heartbeater():
-        # for simplicity, we assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time
-        if inputs.interval != "every 5 minutes":
+        if inputs.interval not in SUPPORTED_MONITORING_INTERVALS:
             raise NoValidBatchExportsFoundError(
-                "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
+                "Only 5 or 15 minute intervals are supported for monitoring at this time."
             )
 
         interval_start = str_to_datetime(inputs.overall_interval_start)
@@ -224,6 +224,7 @@ class ReconcileEventCountsInputs:
     overall_interval_end: str
     clickhouse_event_counts: list[EventCount]
     exported_event_counts: list[EventCount]
+    interval: str = "every 5 minutes"
 
 
 @activity.defn
@@ -242,7 +243,8 @@ async def reconcile_event_counts(inputs: ReconcileEventCountsInputs) -> None:
     interval_start = str_to_datetime(inputs.overall_interval_start)
     interval_end = str_to_datetime(inputs.overall_interval_end)
 
-    expected_intervals = _get_expected_intervals(interval_start, interval_end)
+    step = SUPPORTED_MONITORING_INTERVALS.get(inputs.interval, dt.timedelta(minutes=5))
+    expected_intervals = _get_expected_intervals(interval_start, interval_end, step)
 
     missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
     missing_events: list[EventCount] = []
@@ -296,7 +298,7 @@ async def reconcile_event_counts(inputs: ReconcileEventCountsInputs) -> None:
 
 
 def _get_expected_intervals(
-    interval_start: dt.datetime, interval_end: dt.datetime
+    interval_start: dt.datetime, interval_end: dt.datetime, step: dt.timedelta
 ) -> list[tuple[dt.datetime, dt.datetime]]:
     """
     Get the expected intervals (we can't rely on the intervals from the event count results as some could be missing,
@@ -305,8 +307,8 @@ def _get_expected_intervals(
     expected_intervals = []
     current_interval_start = interval_start
     while current_interval_start < interval_end:
-        expected_intervals.append((current_interval_start, current_interval_start + dt.timedelta(minutes=5)))
-        current_interval_start += dt.timedelta(minutes=5)
+        expected_intervals.append((current_interval_start, current_interval_start + step))
+        current_interval_start += step
     return expected_intervals
 
 
@@ -416,6 +418,7 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
                 overall_interval_end=interval_end_str,
                 clickhouse_event_counts=clickhouse_event_counts,
                 exported_event_counts=exported_event_counts,
+                interval=batch_export_details.interval,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
