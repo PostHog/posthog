@@ -295,7 +295,7 @@ export function StartupProgram(): JSX.Element {
                             <ul className="space-y-2">
                                 <li className="flex items-center text-sm">
                                     <IconArrowRight className="text-muted shrink-0 mr-2" />
-                                    Your company was founded less than 2 years ago
+                                    Your company was founded within the last 2 years
                                 </li>
                                 <li className="flex items-center text-sm">
                                     <IconArrowRight className="text-muted shrink-0 mr-2" />
@@ -483,7 +483,7 @@ export function StartupProgram(): JSX.Element {
                                                 <LemonField
                                                     name="incorporation_date"
                                                     label="The date that your company was incorporated"
-                                                    help="Your company must have been founded less than 2 years ago to be eligible."
+                                                    help="Your company must have been founded within the last 2 years to be eligible."
                                                 >
                                                     <LemonCalendarSelectInput
                                                         clearable={false}

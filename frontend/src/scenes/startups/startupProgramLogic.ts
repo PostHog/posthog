@@ -52,7 +52,7 @@ function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): stri
         return 'Incorporation date cannot be in the future'
     }
     if (date.isBefore(dayjs().subtract(2, 'year'), 'day')) {
-        return 'Your company must have been founded less than 2 years ago to be eligible'
+        return 'Your company must have been founded within the last 2 years to be eligible'
     }
     return undefined
 }
