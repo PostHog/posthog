@@ -17,6 +17,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from parameterized import parameterized
 from requests.exceptions import ConnectionError, Timeout
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
@@ -36,6 +37,8 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
 from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
+    CPU_BILLING_SAMPLER_PATH,
+    CPU_BILLING_STATE_PATH,
     DEFAULT_MODAL_REGION,
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
@@ -1069,6 +1072,68 @@ class TestModalSandboxResourceUsage:
         assert sandbox.read_cpu_usage_usec() == 12_345_678
 
         sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
+
+    def test_reads_cgroup_v1_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [FileNotFoundError, "12345678000\n"]
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+    def test_returns_none_when_cpu_usage_is_unavailable(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = FileNotFoundError
+
+        assert sandbox.read_cpu_usage_usec() is None
+
+    def test_reads_current_billed_cpu_usage(self, monkeypatch):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage", vm_runtime=True, burstable_resources=True)
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [
+            "2000000 1000000 1000000000",
+            "usage_usec 2500000\n",
+        ]
+        monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)
+
+        assert sandbox.read_billed_cpu_usage_usec() == 3_500_000
+
+    @parameterized.expand(
+        [(True, "0.5"), (False, "4.0")],
+    )
+    def test_starts_cpu_billing_sampler(self, burstable_resources: bool, expected_request: str):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(
+            name="usage", cpu_cores=4, vm_runtime=True, burstable_resources=burstable_resources
+        )
+        with patch.object(
+            sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0)
+        ) as execute:
+            assert sandbox.start_cpu_billing_sampler() is True
+        command = execute.call_args.args[0]
+        assert CPU_BILLING_STATE_PATH in command
+        assert CPU_BILLING_SAMPLER_PATH in command
+        assert expected_request in command
+
+    def test_reads_current_billed_cpu_usage_with_fixed_cpu_floor(self, monkeypatch):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage", cpu_cores=4, burstable_resources=False)
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [
+            "2000000 1000000 1000000000",
+            "usage_usec 1500000\n",
+        ]
+        monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)
+
+        assert sandbox.read_billed_cpu_usage_usec() == 10_000_000
 
 
 class TestModalSandboxAgentServerStartupHelpers:
