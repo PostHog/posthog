@@ -14,10 +14,18 @@ SAFETY MODEL
 
 Everything rests on one property, verified against the flag and cohort read paths:
 
-    A person row owning no posthog_persondistinctid row is unreachable. The product
+    A person row owning no LIVE posthog_persondistinctid row is unreachable. The product
     resolves a person only via distinct_id -> posthog_persondistinctid -> person_id
-    (rust/feature-flags/src/flags/flag_matching_utils.rs:839 for hash key overrides,
-    :284 for static cohorts), so nothing keyed to that person_id can be read either.
+    (rust/feature-flags/src/flags/flag_matching_utils.rs:845 for hash key overrides,
+    :288 for static cohorts), so nothing keyed to that person_id can be read either.
+    Both of those reads start from a distinct id, and the override read requires
+    pdi.is_deleted = false, so a tombstoned mapping does not make a person reachable.
+
+Two gates enforce it from opposite directions, because proving the victims are safe is
+not the same as proving the survivor is right:
+
+    GATE_REACHABLE_SQL           no row we delete may be reachable
+    GATE_SURVIVOR_REACHABLE_SQL  if any row in the group is reachable, one we keep must be
 
 So a row owning zero distinct IDs can be deleted without changing any product
 behaviour, and the feature-flag overrides that cascade away with it were already
@@ -102,8 +110,16 @@ WITH dups AS (
 ),
 members AS (
     SELECT p.team_id, p.uuid, p.id, p.version, p.is_identified, p.created_at, p.is_deleted,
+           -- Two counts, because two different questions. n_did is what the foreign key
+           -- sees, so it decides whether a row can be deleted at all: the FK is NO ACTION
+           -- and counts tombstoned mappings too, so staging a row with any mapping would
+           -- fail the delete. n_did_live is what the product sees -- the flag path requires
+           -- pdi.is_deleted = false -- so it decides which row is worth keeping.
            (SELECT count(*) FROM posthog_persondistinctid pdi
              WHERE pdi.team_id = p.team_id AND pdi.person_id = p.id) AS n_did,
+           (SELECT count(*) FROM posthog_persondistinctid pdi
+             WHERE pdi.team_id = p.team_id AND pdi.person_id = p.id
+               AND NOT pdi.is_deleted) AS n_did_live,
            (SELECT count(*) FROM posthog_cohortpeople cp
              WHERE cp.person_id = p.id) AS n_cohort,
            (SELECT count(*) FROM posthog_featureflaghashkeyoverride ff
@@ -121,8 +137,8 @@ ranked AS (
     SELECT *,
            row_number() OVER (
                PARTITION BY team_id, uuid
-               ORDER BY is_deleted ASC, (n_did > 0) DESC, refs DESC, is_identified DESC,
-                        version DESC NULLS LAST, created_at ASC, id ASC
+               ORDER BY is_deleted ASC, (n_did_live > 0) DESC, (n_did > 0) DESC, refs DESC,
+                        is_identified DESC, version DESC NULLS LAST, created_at ASC, id ASC
            ) AS rn
     FROM scored
 ),
@@ -132,6 +148,11 @@ per_group AS (
     SELECT uuid,
            count(*) AS members,
            count(*) FILTER (WHERE n_did > 0) AS live_owners,
+           count(*) FILTER (WHERE n_did_live > 0) AS reachable_owners,
+           count(*) FILTER (WHERE is_deleted) AS tombstoned,
+           count(*) FILTER (WHERE n_recon > 0) AS recon_held,
+           sum(n_ff)::bigint AS flag_overrides,
+           sum(n_cohort)::bigint AS cohort_rows,
            count(*) FILTER (
                WHERE rn > 1 AND n_did = 0 AND n_recon = 0 AND NOT is_deleted
            ) AS stageable
@@ -200,6 +221,29 @@ FROM per_group
 """
 )
 
+# Everything needed to resolve a group this command refuses, without re-deriving it: which
+# rows are in the group, which of them the product can still reach, what hangs off them, and
+# why it was refused. The merge work needs the reachable pair and the override count; the
+# reconciliation and tombstone cases need to be told apart from it.
+BLOCKED_DETAIL_SQL = (
+    _MEMBERS_CTE
+    + """
+SELECT g.uuid,
+       CASE WHEN g.reachable_owners > 1 THEN 'multiple_reachable_rows'
+            WHEN g.recon_held > 0       THEN 'held_by_reconciliation_backup'
+            WHEN g.tombstoned > 0       THEN 'tombstoned_member'
+            ELSE 'other' END AS reason,
+       g.members, g.reachable_owners, g.live_owners, g.tombstoned, g.recon_held,
+       g.flag_overrides, g.cohort_rows,
+       (SELECT array_agg(r.id ORDER BY r.rn) FROM ranked r WHERE r.uuid = g.uuid) AS member_ids,
+       (SELECT array_agg(r.id ORDER BY r.rn) FROM ranked r
+         WHERE r.uuid = g.uuid AND r.n_did_live > 0) AS reachable_ids
+FROM per_group g
+WHERE g.live_owners > 1 OR g.members - g.stageable > 1
+ORDER BY g.uuid
+"""
+)
+
 TAKE_BATCH_SQL = f"""
 INSERT INTO {VICTIMS_TABLE}_batch (team_id, id, uuid)
 SELECT team_id, id, uuid FROM {VICTIMS_TABLE} ORDER BY uuid, id LIMIT %(batch)s
@@ -247,6 +291,29 @@ WHERE EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
    OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
                WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
+"""
+
+# The mirror of the reachable gate. That one proves no victim is reachable; this proves the
+# row we keep is the right one. Staging should already guarantee it -- a victim needs n_did = 0
+# -- so this is an assertion, and a non-zero result means the model is wrong rather than that a
+# writer raced us. Scoped to the batch's keys, so it costs a handful of index probes rather
+# than another pass over the team.
+GATE_SURVIVOR_REACHABLE_SQL = f"""
+SELECT count(*) FROM (SELECT DISTINCT team_id, uuid FROM {VICTIMS_TABLE}_batch) g
+WHERE EXISTS (
+        SELECT 1 FROM posthog_person p
+        WHERE p.team_id = g.team_id AND p.uuid = g.uuid
+          AND EXISTS (SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND NOT d.is_deleted)
+      )
+  AND NOT EXISTS (
+        SELECT 1 FROM posthog_person p
+        WHERE p.team_id = g.team_id AND p.uuid = g.uuid
+          AND NOT EXISTS (SELECT 1 FROM {VICTIMS_TABLE}_batch b
+                           WHERE b.team_id = p.team_id AND b.id = p.id)
+          AND EXISTS (SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND NOT d.is_deleted)
+      )
 """
 
 GATE_NO_SURVIVOR_SQL = f"""
@@ -459,7 +526,7 @@ class Command(BaseCommand):
                     )
                     logger.info("persons_dedup.reading_from_replica", team_id=team, replay_lag_seconds=lag_seconds)
                 if mode == "classify":
-                    self._classify(conn, team)
+                    self._classify(conn, team, Path(options["outdir"]))
                 else:
                     self._verify(conn, team)
                 return
@@ -472,7 +539,52 @@ class Command(BaseCommand):
             stage_sql = STAGE_UNREFERENCED_SQL if mode == "delete-unreferenced" else STAGE_UNREACHABLE_SQL
             self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode)
 
-    def _classify(self, conn: psycopg.Connection, team: int) -> None:
+    BLOCKED_COLUMNS = (
+        "uuid",
+        "reason",
+        "members",
+        "reachable_owners",
+        "live_owners",
+        "tombstoned",
+        "recon_held",
+        "flag_overrides",
+        "cohort_rows",
+        "member_ids",
+        "reachable_ids",
+    )
+
+    def _dump_blocked(self, conn: psycopg.Connection, team: int, outdir: Path) -> dict[str, int]:
+        """Write one record per group this command refuses, and return the reason tally.
+
+        The counts alone cannot be acted on: resolving a group needs to know which rows it
+        holds, which of them are still reachable, and what hangs off them. Written next to
+        the delete backups so a run leaves everything the follow-up work needs.
+        """
+        with conn.cursor() as cur:
+            cur.execute("BEGIN")
+            cur.execute("SET LOCAL statement_timeout = 0")
+            cur.execute(BLOCKED_DETAIL_SQL, {"team": team})
+            rows = cur.fetchall()
+            cur.execute("COMMIT")
+        if not rows:
+            return {}
+
+        outdir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        path = outdir / f"blocked_team_{team}_{stamp}.jsonl"
+        tally: dict[str, int] = {}
+        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
+            for row in rows:
+                record = dict(zip(self.BLOCKED_COLUMNS, row))
+                tally[str(record["reason"])] = tally.get(str(record["reason"]), 0) + 1
+                fh.write(json.dumps({"team_id": team, **record}, default=str) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        logger.info("persons_dedup.blocked_detail_written", team_id=team, groups=len(rows), path=str(path))
+        return tally
+
+    def _classify(self, conn: psycopg.Connection, team: int, outdir: Path) -> None:
         # SET LOCAL is transaction-scoped, so this scan keeps its unlimited timeout even
         # on a connection where the session-level SET was silently dropped by a pooler
         # (observed on the US census: reader queries canceled at the server's 30-minute
@@ -510,6 +622,12 @@ class Command(BaseCommand):
             logger.warning("persons_dedup.reconciliation_backup_references", team_id=team, recon=recon)
         if tombstoned:
             logger.warning("persons_dedup.tombstoned_members_skipped", team_id=team, members=tombstoned)
+        if blocked:
+            # A count is not actionable. Write the per-group detail and report the split by
+            # reason, so the groups this command refuses can be resolved without re-deriving
+            # which rows they hold or why each was refused.
+            tally = self._dump_blocked(conn, team, outdir)
+            logger.warning("persons_dedup.blocked_by_reason", team_id=team, groups=blocked, **tally)
 
     def _verify(self, conn: psycopg.Connection, team: int) -> None:
         with conn.cursor() as cur:
@@ -617,10 +735,12 @@ class Command(BaseCommand):
 
             reachable = _scalar(conn, GATE_REACHABLE_SQL)
             no_survivor = _scalar(conn, GATE_NO_SURVIVOR_SQL)
-            if reachable or no_survivor:
+            wrong_survivor = _scalar(conn, GATE_SURVIVOR_REACHABLE_SQL)
+            if reachable or no_survivor or wrong_survivor:
                 raise CommandError(
                     f"gate failed for team {team}: {reachable} victim(s) are reachable, "
-                    f"{no_survivor} group(s) would be emptied. Nothing deleted."
+                    f"{no_survivor} group(s) would be emptied, {wrong_survivor} group(s) would "
+                    f"lose their only reachable row. Nothing deleted."
                 )
 
             if not apply_changes:
@@ -651,8 +771,20 @@ class Command(BaseCommand):
                 gate_row = cur.fetchone()
                 cur.execute(GATE_NO_SURVIVOR_SQL)
                 survivor_row = cur.fetchone()
+                cur.execute(GATE_SURVIVOR_REACHABLE_SQL)
+                wrong_survivor_row = cur.fetchone()
                 now_reachable = int(gate_row[0]) if gate_row else 0
                 now_emptied = int(survivor_row[0]) if survivor_row else 0
+                now_wrong_survivor = int(wrong_survivor_row[0]) if wrong_survivor_row else 0
+                # Not prunable, and never a race: staging cannot produce this, so reaching it
+                # means the survivor rule and the reachability rule disagree. Stop the team.
+                if now_wrong_survivor:
+                    cur.execute("ROLLBACK")
+                    raise CommandError(
+                        f"team {team}: {now_wrong_survivor} group(s) would lose their only "
+                        f"reachable row. This is not a concurrent-writer race; the survivor "
+                        f"rule is wrong for this data. {deleted} row(s) already deleted."
+                    )
                 if locked != in_batch or now_reachable or now_emptied:
                     cur.execute("ROLLBACK")
                     logger.warning(

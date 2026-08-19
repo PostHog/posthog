@@ -143,11 +143,12 @@ def _concurrent_write_before_delete(monkeypatch, action):
     yield lambda: state["fired"]
 
 
-def _add_distinct_id(conn: psycopg.Connection, person_id: int, distinct_id: str) -> None:
+def _add_distinct_id(conn: psycopg.Connection, person_id: int, distinct_id: str, *, is_deleted: bool = False) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version) VALUES (%s, %s, %s, 0)",
-            (TEAM, person_id, distinct_id),
+            "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version, is_deleted) "
+            "VALUES (%s, %s, %s, 0, %s)",
+            (TEAM, person_id, distinct_id, is_deleted),
         )
 
 
@@ -605,6 +606,61 @@ class TestPersonsDedupRepair:
         )
         assert survivors == 1, "the live row must outrank a higher-version identified tombstone"
         assert _persons(persons_conn) == 2, "and the tombstone itself is never staged"
+
+
+class TestPersonsDedupSurvivorSelection:
+    def test_a_row_reachable_only_through_a_tombstoned_mapping_loses_to_a_live_one(self, persons_conn, tmp_path):
+        # The flag path requires pdi.is_deleted = false, so a tombstoned mapping does not make
+        # a person reachable. Ranking on the raw mapping count would tie these two and let the
+        # tiebreak keep the row the product cannot see.
+        uuid = _uuid(80)
+        tombstoned_owner = _add_person(persons_conn, uuid, is_identified=True, version=99)
+        _add_distinct_id(persons_conn, tombstoned_owner, "did-80-dead", is_deleted=True)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-80-live")
+
+        _run("classify", tmp_path)
+
+        survivor = _count(
+            persons_conn,
+            "SELECT id FROM posthog_person p WHERE p.team_id = %s AND p.uuid = %s "
+            "AND EXISTS (SELECT 1 FROM posthog_persondistinctid d "
+            "WHERE d.person_id = p.id AND NOT d.is_deleted)",
+            (TEAM, uuid),
+        )
+        assert survivor == live
+        # Neither is deletable: both own a mapping, so the foreign key would block either way.
+        _run("repair", tmp_path, apply=True)
+        assert _persons(persons_conn) == 2
+
+    def test_classify_writes_actionable_detail_for_groups_it_refuses(self, persons_conn, tmp_path):
+        # A count of blocked groups cannot be acted on. Resolving one needs to know which rows
+        # it holds, which are still reachable, and what hangs off them.
+        uuid = _uuid(81)
+        a = _add_person(persons_conn, uuid)
+        b = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, a, "did-81a")
+        _add_distinct_id(persons_conn, b, "did-81b")
+        _add_flag_override(persons_conn, b, "flag-81")
+
+        _run("classify", tmp_path)
+
+        dumps = list(tmp_path.glob("blocked_team_*.jsonl"))
+        assert dumps, "a refused group must leave a record behind"
+        records = [json.loads(line) for line in dumps[0].read_text().splitlines()]
+        assert len(records) == 1
+        record = records[0]
+        assert record["reason"] == "multiple_reachable_rows"
+        assert record["reachable_owners"] == 2
+        assert record["flag_overrides"] == 1
+        assert sorted(record["reachable_ids"]) == sorted([a, b]), "both live rows must be named"
+
+    def test_classify_writes_nothing_when_every_group_is_resolvable(self, persons_conn, tmp_path):
+        _add_orphan_pair(persons_conn, _uuid(82), "did-82")
+
+        _run("classify", tmp_path)
+
+        assert list(tmp_path.glob("blocked_team_*.jsonl")) == []
 
 
 class TestPersonsDedupVerify:
