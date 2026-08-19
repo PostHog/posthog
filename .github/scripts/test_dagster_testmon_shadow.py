@@ -30,8 +30,17 @@ def test_selection_status(exit_code: ExitCode, selected_tests: list[str], expect
     assert dagster_testmon_shadow.selection_status(exit_code, selected_tests) == expected
 
 
-def test_build_pytest_arguments_keeps_testmon_selection_enabled() -> None:
-    arguments = dagster_testmon_shadow.build_pytest_arguments(["posthog/dags/tests/test_job.py::test_job"])
+def test_build_pytest_arguments_keeps_testmon_selection_enabled(tmp_path: Path) -> None:
+    changed_test = tmp_path / "posthog/dags/tests/test_changed.py"
+    changed_test.parent.mkdir(parents=True)
+    changed_test.touch()
+    arguments = dagster_testmon_shadow.build_pytest_arguments(
+        test_names=[
+            f"{changed_test}::test_existing",
+            "posthog/dags/tests/test_job.py::test_job",
+        ],
+        changed_test_files=[changed_test],
+    )
 
     assert arguments == [
         "posthog/dags/tests/test_job.py::test_job",
@@ -48,6 +57,8 @@ def test_build_pytest_arguments_keeps_testmon_selection_enabled() -> None:
 def test_missing_testmon_data_is_unavailable(tmp_path: Path) -> None:
     result = dagster_testmon_shadow.collect_selection(
         datafile=tmp_path / ".testmondata",
+        changed_test_files=[],
+        include_changed_test_files=True,
         group=1,
         concurrency=3,
     )
@@ -121,3 +132,53 @@ def test_shadow_selection_uses_executed_code_blocks(
     result = json.loads(output.read_text())
     assert result["status"] == expected_status
     assert result["selected_test_count"] == expected_count
+
+
+def test_shadow_selection_includes_a_new_test(tmp_path: Path) -> None:
+    source_path = tmp_path / "app.py"
+    source_path.write_text("def covered():\n    return 1\n")
+    test_path = tmp_path / "posthog/dags/tests/test_app.py"
+    test_path.parent.mkdir(parents=True)
+    test_path.write_text("from app import covered\n\ndef test_existing():\n    assert covered() == 1\n")
+    datafile = tmp_path / ".testmondata"
+    output = tmp_path / "selection.json"
+    env = {**os.environ, "TESTMON_DATAFILE": str(datafile)}
+    env.pop("DJANGO_SETTINGS_MODULE", None)
+    env.pop("DEBUG", None)
+    env.pop("TEST", None)
+
+    subprocess.run(
+        [sys.executable, "-m", "pytest", "--testmon-noselect", "-q", str(test_path)],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    test_path.write_text(test_path.read_text() + "\ndef test_new():\n    assert covered() == 1\n")
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--group",
+            "1",
+            "--concurrency",
+            "1",
+            "--datafile",
+            str(datafile),
+            "--output",
+            str(output),
+            "--changed-files-json",
+            json.dumps([str(test_path)]),
+            "--include-changed-test-files",
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = json.loads(output.read_text())
+    assert any(test_name.endswith("test_app.py::test_new") for test_name in result["selected_tests"]), result

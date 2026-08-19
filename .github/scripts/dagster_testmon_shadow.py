@@ -5,6 +5,7 @@ import sys
 import json
 import sqlite3
 import argparse
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,9 +26,32 @@ def baseline_tests(datafile: Path) -> list[str]:
         return [test_name for (test_name,) in rows]
 
 
-def build_pytest_arguments(test_names: list[str]) -> list[str]:
+def is_dagster_test_file(path: Path) -> bool:
+    parts = path.as_posix().split("/")
+    in_posthog_dags = any(parts[index : index + 2] == ["posthog", "dags"] for index in range(len(parts) - 1))
+    in_product_dags = any(parts[index] == "products" and parts[index + 2] == "dags" for index in range(len(parts) - 2))
+    return (
+        path.suffix == ".py"
+        and (path.name.startswith("test_") or "tests" in parts)
+        and (in_posthog_dags or in_product_dags)
+    )
+
+
+def parse_changed_test_files(files_json: str) -> list[Path]:
+    try:
+        paths = json.loads(files_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+        return []
+    return sorted(Path(path) for path in paths if is_dagster_test_file(Path(path)))
+
+
+def build_pytest_arguments(test_names: list[str], changed_test_files: list[Path]) -> list[str]:
+    changed_paths = {path.as_posix() for path in changed_test_files}
+    baseline_tests = [test_name for test_name in test_names if test_name.split("::", 1)[0] not in changed_paths]
     return [
-        *test_names,
+        *baseline_tests,
         "--collect-only",
         "--testmon",
         "--testmon-forceselect",
@@ -56,7 +80,13 @@ def unavailable_selection(group: int, concurrency: int) -> dict[str, object]:
     }
 
 
-def collect_selection(datafile: Path, group: int, concurrency: int) -> dict[str, object]:
+def collect_selection(
+    datafile: Path,
+    changed_test_files: list[Path],
+    include_changed_test_files: bool,
+    group: int,
+    concurrency: int,
+) -> dict[str, object]:
     if not datafile.exists():
         return unavailable_selection(group, concurrency)
 
@@ -69,8 +99,24 @@ def collect_selection(datafile: Path, group: int, concurrency: int) -> dict[str,
 
     collector = SelectionCollector()
     os.environ["TESTMON_DATAFILE"] = str(datafile)
-    exit_code = pytest.main(build_pytest_arguments(test_names), plugins=[collector])
-    selected_tests = sorted(collector.selected_tests)
+    exit_code = pytest.main(build_pytest_arguments(test_names, changed_test_files), plugins=[collector])
+
+    existing_changed_tests = [str(path) for path in changed_test_files if include_changed_test_files and path.exists()]
+    changed_test_exit_code = ExitCode.OK
+    changed_tests: list[str] = []
+    if existing_changed_tests:
+        changed_test_result = subprocess.run(
+            [sys.executable, "-m", "pytest", *existing_changed_tests, "--collect-only", "-p", "no:testmon", "-q"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        changed_test_exit_code = ExitCode(changed_test_result.returncode)
+        changed_tests = [line for line in changed_test_result.stdout.splitlines() if "::" in line]
+
+    selected_tests = sorted(set(collector.selected_tests) | set(changed_tests))
+    if changed_test_exit_code not in {ExitCode.OK, ExitCode.NO_TESTS_COLLECTED}:
+        exit_code = changed_test_exit_code
     return {
         "baseline_test_count": len(test_names),
         "concurrency": concurrency,
@@ -102,10 +148,14 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, required=True)
     parser.add_argument("--datafile", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--changed-files-json", default="[]")
+    parser.add_argument("--include-changed-test-files", action="store_true")
     args = parser.parse_args()
 
     result = collect_selection(
         datafile=args.datafile,
+        changed_test_files=parse_changed_test_files(args.changed_files_json),
+        include_changed_test_files=args.include_changed_test_files,
         group=args.group,
         concurrency=args.concurrency,
     )

@@ -64,6 +64,7 @@ jobs:
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             dagster_direct: ${{ steps.filter.outputs.dagster_direct || 'true' }}
+            dagster_direct_files: ${{ steps.filter.outputs.dagster_direct_files || '[]' }}
             # Trunk's merge queue opens its PR from trunk-merge/**. Scope this to
             # same-repo heads because github.head_ref is author-controlled.
             merge_queue: >-
@@ -99,6 +100,7 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: json
                   filters: |
                       # The full filter stays broad because Dagster imports shared backend
                       # code. Master and merge-queue runs use this tier so those changes
@@ -499,12 +501,21 @@ jobs:
             - name: Measure affected Dagster tests
               if: ${{ github.event_name == 'pull_request' && hashFiles('.github/scripts/dagster_testmon_shadow.py') != '' }}
               continue-on-error: true
+              env:
+                  DAGSTER_DIRECT_FILES: ${{ needs.changes.outputs.dagster_direct_files }}
+                  INCLUDE_CHANGED_TEST_FILES: ${{ matrix.group == 1 }}
               run: |
+                  CHANGED_TEST_ARGS=()
+                  if [[ "$INCLUDE_CHANGED_TEST_FILES" == "true" ]]; then
+                      CHANGED_TEST_ARGS=(--include-changed-test-files)
+                  fi
                   python .github/scripts/dagster_testmon_shadow.py \
                       --group ${{ matrix.group }} \
                       --concurrency ${{ matrix.concurrency }} \
                       --datafile "$TESTMON_DATAFILE" \
-                      --output dagster-testmon-selection-${{ matrix.group }}.json
+                      --output dagster-testmon-selection-${{ matrix.group }}.json \
+                      --changed-files-json "$DAGSTER_DIRECT_FILES" \
+                      "${CHANGED_TEST_ARGS[@]}"
 
             - name: Run Dagster tests
               env:
