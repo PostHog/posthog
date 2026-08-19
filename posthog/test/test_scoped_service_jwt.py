@@ -114,8 +114,8 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         self.factory = RequestFactory()
         self.authentication = TeamScopedAuthentication()
 
-    def _request(self, token: str | None, url_team_id: int | str | None = None) -> Request:
-        path = f"/api/projects/{url_team_id}/query/" if url_team_id is not None else "/internal/endpoint"
+    def _request(self, token: str | None, url_team_id: int | str | None = None, endpoint: str = "query") -> Request:
+        path = f"/api/projects/{url_team_id}/{endpoint}/" if url_team_id is not None else "/internal/endpoint"
         if token is not None:
             django_request = self.factory.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
         else:
@@ -139,10 +139,19 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         assert user.current_team_id == self.team.id
         assert user.current_organization_id == self.team.organization_id
 
-    def test_token_for_another_team_cannot_reach_the_url_team(self):
+    @parameterized.expand(
+        [
+            # /query/ resolves to parent_lookup_team_id; /feature_flags/ resolves to
+            # parent_lookup_project_id. A lookup missing from either family lets a token
+            # minted for one team authenticate on that route for another team.
+            ("team_id_route", "query"),
+            ("project_id_route", "feature_flags"),
+        ]
+    )
+    def test_token_for_another_team_cannot_reach_the_url_team(self, _name, endpoint):
         token = TEST_PURPOSE.mint({"team_id": self.team.id + 1})
         with pytest.raises(AuthenticationFailed):
-            self.authentication.authenticate(self._request(token, url_team_id=self.team.id))
+            self.authentication.authenticate(self._request(token, url_team_id=self.team.id, endpoint=endpoint))
 
     @parameterized.expand(
         [
