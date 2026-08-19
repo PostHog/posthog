@@ -26,7 +26,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError, TableAccessDeniedError
 
 
 def lookup_field_by_name(
@@ -354,8 +354,12 @@ def _recursively_resolve_column(
         # subquery/CTE (e.g. a JOIN constraint synthesized after pruning still names it). Both
         # resolution paths then call Table.get_field, which raises QueryError. Degrade to the
         # constant type, then to an unknown field, so rebuilding the CTE table does not die.
+        # TableAccessDeniedError is a QueryError but must still propagate — a denied table's join
+        # is kept precisely so field resolution raises it, so swallowing it would bypass access control.
         try:
             db_field = column.resolve_database_field(context)
+        except TableAccessDeniedError:
+            raise
         except QueryError:
             db_field = None
         if db_field:
@@ -364,6 +368,8 @@ def _recursively_resolve_column(
             try:
                 const_type = column.resolve_constant_type(context)
                 fields[name] = _constant_type_to_database_field(name, const_type)
+            except TableAccessDeniedError:
+                raise
             except QueryError:
                 fields[name] = UnknownDatabaseField(name=name)
     elif isinstance(column, ast.ExpressionFieldType):

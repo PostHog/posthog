@@ -31,7 +31,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -760,6 +760,20 @@ class TestResolver(BaseTest):
         table = resolver_utils._build_cte_database_table(select_query_type, self.context)
 
         assert isinstance(table.get_field("timestamp"), UnknownDatabaseField)
+
+    def test_build_cte_table_propagates_access_denied(self):
+        # A denied table's join is kept so field resolution raises TableAccessDeniedError. That is a
+        # QueryError subclass, so the pruned-column fallback must re-raise it, not degrade it to an
+        # unknown field, or the CTE rebuild would bypass access control.
+        class DeniedTable(Table):
+            def get_field(self, name: str | int) -> Any:
+                raise TableAccessDeniedError("secret")
+
+        denied_column = ast.FieldType(name="x", table_type=ast.TableType(table=DeniedTable(fields={})))
+        select_query_type = ast.SelectQueryType(columns={"x": denied_column}, tables={})
+
+        with self.assertRaises(TableAccessDeniedError):
+            resolver_utils._build_cte_database_table(select_query_type, self.context)
 
     def test_same_named_ctes_in_different_scopes_do_not_collide(self):
         # Same name, different scopes: keyed by type identity not name, so they must not collide.
