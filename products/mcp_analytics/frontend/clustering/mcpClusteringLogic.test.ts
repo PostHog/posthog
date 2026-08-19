@@ -177,6 +177,25 @@ describe('mcpClusteringLogic', () => {
         expect(logic.values.filteredClusters.map((c) => c.id)).toEqual([FAILING_ID])
     })
 
+    // The counts also have to track the tool search, or a card reports a snapshot-wide
+    // number while its filter — which applies the search too — returns fewer rows.
+    it.each([
+        ['concentrated' as ClusterFilter, 'concentrated' as RouteShape],
+        ['spread' as ClusterFilter, 'spread' as RouteShape],
+        ['mixed' as ClusterFilter, 'mixed' as RouteShape],
+    ])('the %s scorecard count tracks the tool search its filter also applies', (filter, shape) => {
+        logic.actions.setToolSearch('b')
+
+        // Only clusters 1, 3 and 4 carry a `b` tool, so the searched set holds one of each shape.
+        expect(logic.values.routeShapeCounts.total).toBe(3)
+
+        const counted = logic.values.routeShapeCounts[shape]
+        logic.actions.setClusterFilter(filter)
+
+        expect(logic.values.filteredClusters).toHaveLength(counted)
+        expect(logic.values.filteredClusters.every((c) => routeShape(c) === shape)).toBe(true)
+    })
+
     // Filtering used to leave the detail pane showing a cluster that is no longer in the
     // list, so the pane contradicted the selection it was supposed to reflect.
     it('moves the selection into the filtered set when the filter excludes it', () => {

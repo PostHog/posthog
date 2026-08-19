@@ -202,6 +202,7 @@ export interface mcpClusteringLogicValues {
     isComputing: boolean
     routeShapeCounts: RouteShapeCounts
     scatterPoints: ScatterPoint[]
+    searchedClusters: MCPIntentClusterApi[]
     selectedCluster: MCPIntentClusterApi | null
     selectedClusterId: number | null
     selectedTool: MCPToolPivotApi | null
@@ -297,9 +298,9 @@ export interface mcpClusteringLogicMeta {
         toolOverlaps: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPToolOverlapApi[]
         hasToolPivot: (tools: readonly MCPToolPivotApi[]) => boolean
         sortedClusters: (clusters: readonly MCPIntentClusterApi[], sortKey: ClusterSortKey) => MCPIntentClusterApi[]
+        searchedClusters: (sortedClusters: MCPIntentClusterApi[], toolSearch: string) => MCPIntentClusterApi[]
         filteredClusters: (
-            sortedClusters: MCPIntentClusterApi[],
-            toolSearch: string,
+            searchedClusters: MCPIntentClusterApi[],
             clusterFilter: ClusterFilter
         ) => MCPIntentClusterApi[]
         sortedTools: (
@@ -316,7 +317,7 @@ export interface mcpClusteringLogicMeta {
             clusters: readonly MCPIntentClusterApi[],
             selectedClusterId: number | null
         ) => MCPIntentClusterApi | null
-        routeShapeCounts: (clusters: readonly MCPIntentClusterApi[]) => RouteShapeCounts
+        routeShapeCounts: (searchedClusters: MCPIntentClusterApi[]) => RouteShapeCounts
         isComputing: (snapshot: MCPIntentClusterSnapshotApi) => boolean
         hasSnapshot: (snapshot: MCPIntentClusterSnapshotApi) => boolean
     }
@@ -448,18 +449,25 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 }
             },
         ],
-        filteredClusters: [
-            (s) => [s.sortedClusters, s.toolSearch, s.clusterFilter],
-            (
-                sortedClusters: MCPIntentClusterApi[],
-                toolSearch: string,
-                clusterFilter: ClusterFilter
-            ): MCPIntentClusterApi[] => {
+        // The tool search narrows the population both the scorecards count and the
+        // list filter read. Splitting it out keeps the two in lockstep: the scorecards
+        // count shapes within the searched set, and each card's filter draws from it.
+        searchedClusters: [
+            (s) => [s.sortedClusters, s.toolSearch],
+            (sortedClusters: MCPIntentClusterApi[], toolSearch: string): MCPIntentClusterApi[] => {
                 const query = toolSearch.trim().toLowerCase()
-                return sortedClusters.filter((cluster) => {
-                    if (query && !cluster.tool_distribution.some((e) => e.tool.toLowerCase().includes(query))) {
-                        return false
-                    }
+                if (!query) {
+                    return sortedClusters
+                }
+                return sortedClusters.filter((cluster) =>
+                    cluster.tool_distribution.some((e) => e.tool.toLowerCase().includes(query))
+                )
+            },
+        ],
+        filteredClusters: [
+            (s) => [s.searchedClusters, s.clusterFilter],
+            (searchedClusters: MCPIntentClusterApi[], clusterFilter: ClusterFilter): MCPIntentClusterApi[] => {
+                return searchedClusters.filter((cluster) => {
                     if (clusterFilter === 'failing') {
                         return cluster.error_count > 0
                     }
@@ -542,18 +550,19 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             },
         ],
         // Backs the scorecards. Each count comes from the same `routeShape` the
-        // matching filter uses, so clicking a card yields exactly the number it shows.
+        // matching filter uses, over the same searched set the list draws from, so
+        // clicking a card yields exactly the number it shows — tool search active or not.
         routeShapeCounts: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): RouteShapeCounts => {
+            (s) => [s.searchedClusters],
+            (searchedClusters: MCPIntentClusterApi[]): RouteShapeCounts => {
                 const counts: RouteShapeCounts = {
                     concentrated: 0,
                     mixed: 0,
                     spread: 0,
                     failing: 0,
-                    total: clusters.length,
+                    total: searchedClusters.length,
                 }
-                for (const cluster of clusters) {
+                for (const cluster of searchedClusters) {
                     counts[routeShape(cluster)] += 1
                     if (cluster.error_count > 0) {
                         counts.failing += 1
