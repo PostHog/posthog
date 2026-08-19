@@ -144,11 +144,16 @@ def _raise_for_error(response: Response, payload: Any) -> None:
         raise UsBeaApiError(f"BEA API error: status={response.status_code}")
 
 
-def _read_capped_body(response: Response, max_bytes: int = _MAX_RESPONSE_BYTES) -> bytes:
+def _read_capped_body(response: Response, max_bytes: Optional[int] = None) -> bytes:
     """Read a streamed response body into memory, aborting past `max_bytes`.
 
     Called on a response opened with `stream=True` so nothing is buffered until here.
+
+    `max_bytes` defaults to the module-level `_MAX_RESPONSE_BYTES`, looked up at call time
+    (not bound as a default argument value) so tests can patch it.
     """
+    if max_bytes is None:
+        max_bytes = _MAX_RESPONSE_BYTES
     chunks: list[bytes] = []
     total = 0
     for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
