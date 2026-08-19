@@ -950,7 +950,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Link account to feature request
         description: >
             Link another accessible account to a Customer analytics feature request. Pass the request `id`, its current
@@ -967,12 +967,13 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Add feature request evidence
         description: >
             Add evidence to an active account link on a Customer analytics feature request. Pass the request `id`, its
             current `expected_version`, the `account_link_id`, a free-form `evidence_source`, and at least one of
-            `summary`, `customer_quote`, or `source_url`. The response contains the updated request and its next version.
+            `summary`, `customer_quote`, or `source_url`. The response contains the updated request and its next
+            version.
         feature_flag: customer-analytics-feature-requests
     feature-requests-archive-create:
         operation: feature_requests_archive_create
@@ -983,12 +984,12 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Archive feature request
         description: >
-            Archive a Customer analytics feature request without deleting its account links, evidence, product areas,
-            or history. Pass the request `id` and its current `expected_version`. Archived requests cannot be edited
-            until restored.
+            Archive a Customer analytics feature request without deleting its account links, evidence, product areas, or
+            history. Pass the request `id` and its current `expected_version`. Archived requests cannot be edited until
+            restored.
         feature_flag: customer-analytics-feature-requests
     feature-requests-create:
         operation: feature_requests_create
@@ -999,7 +1000,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Create feature request
         description: >
             Create a Customer analytics feature request linked to one accessible account and one or more active product
@@ -1032,14 +1033,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: feature-requests/{id}
         list: true
-        enrich_url: 'feature-requests/{id}'
         title: List feature requests
         description: >
             List Customer analytics feature requests linked to accounts the caller can access. Filter by search text,
-            lifecycle status, priority, product area, account, or archive state. Active requests are returned by default.
-            Each request includes its active visible account links, account-specific evidence, product areas, and version.
-            For bulk reads and aggregations, query `system.feature_requests` and its related system tables.
+            lifecycle status, priority, product area, account, or archive state. Active requests are returned by
+            default. Each request includes its active visible account links, account-specific evidence, product areas,
+            and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.
         feature_flag: customer-analytics-feature-requests
     feature-requests-partial-update:
         operation: feature_requests_partial_update
@@ -1050,13 +1051,13 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Update feature request
         description: >
             Update a Customer analytics feature request by id. Pass its current `expected_version` and any subset of
-            `title`, `description`, `account_ids`, `product_area_ids`, `request_status`, and `request_priority`. Pass null
-            as `request_priority` to remove the priority. Removing an account unlinks it but preserves its evidence for a
-            later relink. The response contains the next version.
+            `title`, `description`, `account_ids`, `product_area_ids`, `request_status`, and `request_priority`. Pass
+            null as `request_priority` to remove the priority. Removing an account unlinks it but preserves its evidence
+            for a later relink. The response contains the next version.
         param_overrides:
             expected_version:
                 required: true
@@ -1070,7 +1071,7 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Delete feature request evidence
         description: >
             Permanently delete one evidence item from a Customer analytics feature request. Pass the request `id`, its
@@ -1086,7 +1087,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Restore feature request
         description: >
             Restore an archived Customer analytics feature request so editors can change it again. Pass the request `id`
@@ -1101,7 +1102,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Get feature request
         description: >
             Fetch one Customer analytics feature request by id. The response includes its lifecycle status, priority,
@@ -1120,9 +1121,9 @@ tools:
         list: true
         title: List feature request status history
         description: >
-            List status changes for one Customer analytics feature request, newest first. Each entry includes the previous
-            status, resulting status, actor, source, and change time. Query `system.feature_request_history` when status
-            changes need to be combined with other request changes.
+            List status changes for one Customer analytics feature request, newest first. Each entry includes the
+            previous status, resulting status, actor, source, and change time. Query `system.feature_request_history`
+            when status changes need to be combined with other request changes.
         feature_flag: customer-analytics-feature-requests
     feature-requests-update:
         operation: feature_requests_update
@@ -1136,7 +1137,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: 'feature-requests/{id}'
+        enrich_url: feature-requests/{id}
         title: Update feature request evidence
         description: >
             Replace the editable fields of one feature request evidence item. Pass the request `id`, its current
