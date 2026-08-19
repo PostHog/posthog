@@ -1,4 +1,5 @@
 import { XIcon } from "@phosphor-icons/react";
+import { suggestFeedName } from "@posthog/core/tasks/feedQuery";
 import { Button, cn, Spinner } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
@@ -19,11 +20,15 @@ const MAX_FEED_NAME_LENGTH = 80;
 const PREVIEW_DEBOUNCE_MS = 400;
 
 /**
- * Create or edit a custom feed: a name plus the query its cards come from.
- * The query editor autocompletes filter tokens and previews the match count
- * live, so a bad query is visible before it is saved. Pass `feed` to edit;
- * without one the modal creates and hands the new feed to `onCreated` so the
- * caller can open it right away.
+ * Create or edit a custom feed: the query its cards come from, plus a name.
+ *
+ * The query leads — it is what a feed is — with the suggestion panel inline
+ * under it and the live match count beside the label, so a bad query is
+ * visible before it is saved. The name follows and writes itself from the
+ * query ("created-by:@me pr:any" suggests "My tasks with a PR") until it is
+ * edited by hand, so naming a feed costs nothing. Pass `feed` to edit; without
+ * one the modal creates and hands the new feed to `onCreated` so the caller
+ * can open it right away.
  */
 export function TaskFeedModal({
   open,
@@ -41,6 +46,9 @@ export function TaskFeedModal({
   const updateFeed = useTaskFeedsStore((s) => s.updateFeed);
   const [name, setName] = useState(feed?.name ?? "");
   const [query, setQuery] = useState(feed?.query ?? "");
+  // Until the name is touched it follows the query; an existing feed's name
+  // was already chosen, so editing never rewrites it.
+  const [nameEdited, setNameEdited] = useState(!!feed);
 
   // Seed the fields each time the modal opens, so a reopened create modal
   // starts clean and an edit always shows the feed's current values.
@@ -48,7 +56,13 @@ export function TaskFeedModal({
     if (!open) return;
     setName(feed?.name ?? "");
     setQuery(feed?.query ?? "");
+    setNameEdited(!!feed);
   }, [open, feed]);
+
+  const setQueryAndSuggestName = (next: string) => {
+    setQuery(next);
+    if (!nameEdited) setName(suggestFeedName(next));
+  };
 
   const trimmedName = name.trim();
   const trimmedQuery = query.trim();
@@ -92,13 +106,20 @@ export function TaskFeedModal({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="560px">
+      <Dialog.Content maxWidth="520px">
         <Flex align="start" justify="between" gap="3">
-          <Dialog.Title>
-            <Text className="font-bold text-lg">
-              {feed ? "Edit feed" : "New feed"}
-            </Text>
-          </Dialog.Title>
+          <Flex direction="column" gap="1">
+            <Dialog.Title mb="0">
+              <Text className="font-semibold text-base">
+                {feed ? "Edit feed" : "New feed"}
+              </Text>
+            </Dialog.Title>
+            <Dialog.Description>
+              <Text className="text-(--gray-9) text-sm">
+                A feed is a saved search that keeps up with matching tasks.
+              </Text>
+            </Dialog.Description>
+          </Flex>
           <Dialog.Close>
             <IconButton
               variant="ghost"
@@ -112,65 +133,17 @@ export function TaskFeedModal({
         </Flex>
 
         <Flex direction="column" gap="2" mt="4">
-          <Text
-            as="label"
-            htmlFor="task-feed-name"
-            className="font-medium text-sm"
-          >
-            Name
-          </Text>
-          <TextField.Root
-            id="task-feed-name"
-            autoFocus
-            size="3"
-            value={name}
-            placeholder="e.g. Billing work"
-            maxLength={MAX_FEED_NAME_LENGTH}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
-        </Flex>
-
-        <Flex direction="column" gap="2" mt="4">
-          <Text
-            as="label"
-            htmlFor="task-feed-query"
-            className="font-medium text-sm"
-          >
-            Query
-          </Text>
-          <FeedQueryInput
-            id="task-feed-query"
-            value={query}
-            onChange={setQuery}
-            onSubmit={submit}
-            placeholder="e.g. billing created-by:@me -status:failed"
-          />
-          {/* Fixed-height meta row: guidance or the first problem on the
-              left, the live match count on the right. Space is reserved
-              either way, so typing never moves the field. */}
-          <div className="flex h-5 items-center justify-between gap-3 text-xs">
-            <span
-              className={cn(
-                "min-w-0 truncate",
-                issue
-                  ? issue.kind === "unsupported"
-                    ? "text-(--amber-11)"
-                    : "text-(--red-11)"
-                  : "text-(--gray-9)",
-              )}
-              title={issue?.message}
+          {/* The label row carries the live match count: pinned up here it
+              never moves, and it reads as the query's own answer. */}
+          <Flex align="center" justify="between" gap="3">
+            <Text
+              as="label"
+              htmlFor="task-feed-query"
+              className="font-medium text-sm"
             >
-              {issue
-                ? issue.message
-                : "Free text searches tasks. Same filter twice is either, -filter excludes."}
-            </span>
-            <span className="flex shrink-0 items-center gap-1.5 text-(--gray-9) tabular-nums">
+              Query
+            </Text>
+            <span className="flex shrink-0 items-center gap-1.5 text-(--gray-9) text-xs tabular-nums">
               {counting ? (
                 <Spinner className="size-3" />
               ) : (
@@ -180,10 +153,62 @@ export function TaskFeedModal({
                   : `${preview.tasks.length} tasks match`)
               )}
             </span>
+          </Flex>
+          <FeedQueryInput
+            id="task-feed-query"
+            autoFocus
+            value={query}
+            onChange={setQueryAndSuggestName}
+            onSubmit={submit}
+            placeholder="e.g. billing created-by:@me -status:failed"
+          />
+          {/* Fixed-height row: the first problem with the query, or nothing.
+              Space is reserved either way, so typing never moves the fields. */}
+          <div
+            className={cn(
+              "h-5 min-w-0 truncate text-xs",
+              issue?.kind === "unsupported"
+                ? "text-(--amber-11)"
+                : "text-(--red-11)",
+            )}
+            title={issue?.message}
+          >
+            {issue?.message}
           </div>
         </Flex>
 
+        <Flex direction="column" gap="2">
+          <Text
+            as="label"
+            htmlFor="task-feed-name"
+            className="font-medium text-sm"
+          >
+            Name
+          </Text>
+          <TextField.Root
+            id="task-feed-name"
+            size="2"
+            value={name}
+            placeholder="Named after the query as you type"
+            maxLength={MAX_FEED_NAME_LENGTH}
+            onChange={(e) => {
+              setName(e.target.value);
+              // Clearing the name hands it back to the query's suggestion.
+              setNameEdited(e.target.value.trim() !== "");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+        </Flex>
+
         <Flex gap="3" mt="5" justify="end">
+          <Dialog.Close>
+            <Button variant="outline">Cancel</Button>
+          </Dialog.Close>
           <Button variant="primary" disabled={!canSubmit} onClick={submit}>
             {feed ? "Save" : "Create feed"}
           </Button>

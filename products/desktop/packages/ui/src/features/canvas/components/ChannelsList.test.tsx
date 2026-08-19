@@ -626,7 +626,7 @@ describe("ChannelsList", () => {
       const user = userEvent.setup();
       renderList();
 
-      await user.click(screen.getByText("New feed"));
+      await user.click(screen.getByText("New feed…"));
       await user.type(screen.getByLabelText("Name"), "my prs");
       await user.type(screen.getByLabelText("Query"), "pull request");
       await user.click(screen.getByRole("button", { name: "Create feed" }));

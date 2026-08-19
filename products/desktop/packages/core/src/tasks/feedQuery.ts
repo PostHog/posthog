@@ -337,7 +337,13 @@ export interface FeedQueryTask {
 }
 
 export interface FeedQueryPlan {
-  server: FeedQueryServerParams;
+  /**
+   * The tasks-list requests to run and union. Usually one; an OR group
+   * (`created-by:a created-by:b`) fans out into one request per value, so
+   * each side is fetched with its own indexed filter rather than hoping both
+   * authors appear in one unfiltered recent page.
+   */
+  requests: FeedQueryServerParams[];
   /** Covers what the server params can't: negation, OR groups, PR presence. */
   matches: (task: FeedQueryTask) => boolean;
   /** Parser issues plus resolution issues (no teammate/space by that name). */
@@ -346,6 +352,89 @@ export interface FeedQueryPlan {
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
+}
+
+const MAX_SUGGESTED_NAME_LENGTH = 80;
+
+/** Friendlier words for the run-status enum, for suggested feed names. */
+const STATUS_WORDS: Partial<Record<string, string>> = {
+  in_progress: "running",
+  completed: "done",
+  not_started: "not started",
+};
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * A readable name for a feed, derived from its query — what the create modal
+ * pre-fills so naming a feed costs nothing. `created-by:@me pr:any` suggests
+ * "My tasks with a PR"; `billing status:failed` suggests "Failed billing
+ * tasks". Best-effort phrasing: it only has to be a decent default, the field
+ * stays editable.
+ */
+export function suggestFeedName(query: string): string {
+  const parsed = parseFeedQuery(query);
+  const positives = (key: FeedQueryKey) =>
+    parsed.tokens.filter((t) => t.key === key && !t.negated);
+
+  const authors = positives("created-by").map((t) => normalize(t.value));
+  const uniqueAuthors = [...new Set(authors)];
+  let possessive = "";
+  if (
+    uniqueAuthors.length === 1 &&
+    (uniqueAuthors[0] === "@me" || uniqueAuthors[0] === "me")
+  ) {
+    possessive = "my";
+  } else if (uniqueAuthors.length > 0) {
+    const names = uniqueAuthors.map((a) =>
+      a === "@me" || a === "me" ? "my" : capitalize(a),
+    );
+    possessive = `${names.join(" & ")}'s`;
+  }
+
+  const statusValues = [
+    ...positives("status").map((t) => {
+      const value = normalize(t.value);
+      return STATUS_ALIASES[value] ?? value;
+    }),
+    ...positives("is")
+      .map((t) => IS_STATUS_SUGAR[normalize(t.value)])
+      .filter((v): v is TaskRunStatus => !!v),
+  ];
+  const statusWords = [...new Set(statusValues)].map(
+    (value) => STATUS_WORDS[value] ?? value,
+  );
+
+  const archived = positives("is").some(
+    (t) => normalize(t.value) === "archived",
+  );
+  const repos = positives("repo").map((t) => t.value);
+  const spaces = positives("space").map((t) => t.value.replace(/^#/, ""));
+  const prValue = positives("pr")
+    .map((t) => normalize(t.value))
+    .find((v) => v === "any" || v === "none");
+
+  const head = [
+    possessive,
+    archived ? "archived" : "",
+    statusWords.join(" or "),
+    parsed.text,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const places = [...spaces, ...repos];
+  const tail = [
+    places.length > 0 ? `in ${places.join(" or ")}` : "",
+    prValue === "any" ? "with a PR" : prValue === "none" ? "without a PR" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const name = [head, "tasks", tail].filter(Boolean).join(" ").trim();
+  if (name === "tasks") return "";
+  return capitalize(name).slice(0, MAX_SUGGESTED_NAME_LENGTH);
 }
 
 function memberMatches(member: FeedQueryMember, value: string): boolean {
@@ -382,18 +471,29 @@ const MATCH_ALL = () => true;
 const MATCH_NONE = () => false;
 
 /**
- * Compile a parsed query into one tasks-list request plus a client predicate.
+ * How many list requests one query may fan out into. An OR group that would
+ * push past this stays client-side only — its predicate still filters, but
+ * over the base request's page rather than per-value requests.
+ */
+const MAX_PLAN_REQUESTS = 8;
+
+/**
+ * Compile a parsed query into tasks-list requests plus a client predicate.
  *
- * A key with exactly one positive value and no negations rides the server
- * request (indexed, cheap). Everything else — OR groups, negations, PR
- * presence — filters the fetched page client-side, which is honest at today's
- * page size (one request, ≤500 tasks).
+ * A key with exactly one positive value and no negations rides the base
+ * request (indexed, cheap). A key repeated (OR) fans out into one request per
+ * value — filtering the OR client-side over a single unfiltered page silently
+ * dropped every match older than that page. Negations and PR presence still
+ * filter the fetched pages client-side, which is honest at today's page size.
  */
 export function planFeedQuery(
   parsed: ParsedFeedQuery,
   context: FeedQueryPlanContext,
 ): FeedQueryPlan {
   const server: FeedQueryServerParams = {};
+  // Each entry is one OR group's per-value request params; the cartesian
+  // product with the base params becomes the request list.
+  const fanouts: Partial<FeedQueryServerParams>[][] = [];
   const predicates: ((task: FeedQueryTask) => boolean)[] = [];
   const issues: FeedQueryIssue[] = [...parsed.issues];
 
@@ -445,21 +545,28 @@ export function planFeedQuery(
       }
       return matched;
     };
-    const resolvedPositives = createdBy.positives.map(resolve);
-    const wanted = new Set(
-      resolvedPositives.flat().map((member) => member.uuid),
+    // Unique members across all positive tokens: two spellings of one person
+    // are one filter, not two requests.
+    const wantedMembers = new Map(
+      createdBy.positives
+        .flatMap(resolve)
+        .map((member) => [member.uuid, member]),
     );
+    const wanted = new Set(wantedMembers.keys());
     const excluded = new Set(
       createdBy.negatives.flatMap(resolve).map((member) => member.uuid),
     );
-    if (
-      createdBy.positives.length === 1 &&
-      createdBy.negatives.length === 0 &&
-      wanted.size === 1
-    ) {
-      server.createdBy = resolvedPositives[0][0].id;
+    if (createdBy.negatives.length === 0 && wanted.size === 1) {
+      server.createdBy = [...wantedMembers.values()][0].id;
     } else {
       if (createdBy.positives.length > 0) {
+        if (createdBy.negatives.length === 0 && wanted.size > 1) {
+          fanouts.push(
+            [...wantedMembers.values()].map((member) => ({
+              createdBy: member.id,
+            })),
+          );
+        }
         predicates.push(
           wanted.size === 0
             ? MATCH_NONE
@@ -494,14 +601,13 @@ export function planFeedQuery(
     const excluded = new Set(
       space.negatives.map(resolve).flatMap((s) => (s ? [s.id] : [])),
     );
-    if (
-      space.positives.length === 1 &&
-      space.negatives.length === 0 &&
-      wanted.size === 1
-    ) {
+    if (space.negatives.length === 0 && wanted.size === 1) {
       server.channel = [...wanted][0];
     } else {
       if (space.positives.length > 0) {
+        if (space.negatives.length === 0 && wanted.size > 1) {
+          fanouts.push([...wanted].map((channel) => ({ channel })));
+        }
         predicates.push(
           wanted.size === 0
             ? MATCH_NONE
@@ -519,11 +625,14 @@ export function planFeedQuery(
     const matchesRepo = (task: FeedQueryTask, value: string) =>
       !!task.repository &&
       normalize(task.repository).includes(normalize(value));
-    if (repo.positives.length === 1 && repo.negatives.length === 0) {
-      server.repository = repo.positives[0].value;
+    const values = [...new Set(repo.positives.map((t) => normalize(t.value)))];
+    if (repo.negatives.length === 0 && values.length === 1) {
+      server.repository = values[0];
     } else {
-      if (repo.positives.length > 0) {
-        const values = repo.positives.map((t) => t.value);
+      if (values.length > 0) {
+        if (repo.negatives.length === 0 && values.length > 1) {
+          fanouts.push(values.map((repository) => ({ repository })));
+        }
         predicates.push((task) =>
           values.some((value) => matchesRepo(task, value)),
         );
@@ -536,19 +645,24 @@ export function planFeedQuery(
 
   const status = groups.get("status");
   if (status) {
-    if (status.positives.length === 1 && status.negatives.length === 0) {
-      server.status = status.positives[0].value as TaskRunStatus;
+    const values = new Set(status.positives.map((t) => t.value));
+    if (status.negatives.length === 0 && values.size === 1) {
+      server.status = [...values][0] as TaskRunStatus;
     } else {
-      if (status.positives.length > 0) {
-        const values = new Set(status.positives.map((t) => t.value));
+      if (values.size > 0) {
+        if (status.negatives.length === 0 && values.size > 1) {
+          fanouts.push(
+            [...values].map((value) => ({ status: value as TaskRunStatus })),
+          );
+        }
         predicates.push(
           (task) => !!task.latest_run && values.has(task.latest_run.status),
         );
       }
       if (status.negatives.length > 0) {
-        const values = new Set(status.negatives.map((t) => t.value));
+        const negated = new Set(status.negatives.map((t) => t.value));
         predicates.push(
-          (task) => !task.latest_run || !values.has(task.latest_run.status),
+          (task) => !task.latest_run || !negated.has(task.latest_run.status),
         );
       }
     }
@@ -556,21 +670,27 @@ export function planFeedQuery(
 
   const origin = groups.get("origin");
   if (origin) {
-    if (origin.positives.length === 1 && origin.negatives.length === 0) {
-      server.originProduct = origin.positives[0].value;
+    const values = new Set(origin.positives.map((t) => normalize(t.value)));
+    if (origin.negatives.length === 0 && values.size === 1) {
+      server.originProduct = [...values][0];
     } else {
-      if (origin.positives.length > 0) {
-        const values = new Set(origin.positives.map((t) => normalize(t.value)));
+      if (values.size > 0) {
+        if (origin.negatives.length === 0 && values.size > 1) {
+          fanouts.push([...values].map((value) => ({ originProduct: value })));
+        }
         predicates.push(
           (task) =>
             !!task.origin_product && values.has(normalize(task.origin_product)),
         );
       }
       if (origin.negatives.length > 0) {
-        const values = new Set(origin.negatives.map((t) => normalize(t.value)));
+        const negated = new Set(
+          origin.negatives.map((t) => normalize(t.value)),
+        );
         predicates.push(
           (task) =>
-            !task.origin_product || !values.has(normalize(task.origin_product)),
+            !task.origin_product ||
+            !negated.has(normalize(task.origin_product)),
         );
       }
     }
@@ -603,5 +723,16 @@ export function planFeedQuery(
       ? MATCH_ALL
       : (task: FeedQueryTask) => predicates.every((p) => p(task));
 
-  return { server, matches, issues };
+  // The cartesian product of the base request with each OR group's values.
+  // A group whose fan-out would blow the cap keeps its predicate and skips
+  // the fan-out — correct, just back to filtering the base request's page.
+  let requests: FeedQueryServerParams[] = [server];
+  for (const fanout of fanouts) {
+    if (requests.length * fanout.length > MAX_PLAN_REQUESTS) continue;
+    requests = requests.flatMap((request) =>
+      fanout.map((params) => ({ ...request, ...params })),
+    );
+  }
+
+  return { requests, matches, issues };
 }

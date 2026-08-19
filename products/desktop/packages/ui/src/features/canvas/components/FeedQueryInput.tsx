@@ -238,8 +238,14 @@ function renderSegment(segment: FeedQuerySegment): ReactNode {
  * The feed query editor. The input's own text is transparent; an exactly
  * aligned mirror underneath draws it with inline syntax coloring, so the query
  * is highlighted as it is typed — no separate preview row, nothing below the
- * field appearing and disappearing. A dropdown suggests keys, then values per
- * key (teammates, spaces, repos, statuses), applied with ⏎ or Tab.
+ * field appearing and disappearing.
+ *
+ * Suggestions live in a fixed-height panel rendered in flow below the field
+ * rather than a floating dropdown: inside a dialog a dropdown gets clipped by
+ * the dialog's edge, and a panel that is always there means the layout never
+ * jumps as suggestions come and go. While editing a token it offers that key's
+ * values (teammates, spaces, repos, statuses), applied with ⏎ or Tab; at rest
+ * it lists the available filters, and clicking one appends it to the query.
  */
 export function FeedQueryInput({
   id,
@@ -247,6 +253,7 @@ export function FeedQueryInput({
   onChange,
   onSubmit,
   placeholder,
+  autoFocus,
   "aria-label": ariaLabel,
 }: {
   id?: string;
@@ -255,6 +262,7 @@ export function FeedQueryInput({
   /** Called on Enter while no suggestion is highlighted. */
   onSubmit?: () => void;
   placeholder?: string;
+  autoFocus?: boolean;
   "aria-label"?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -423,7 +431,9 @@ export function FeedQueryInput({
   }, [activeKey, activeValue, bare, members, channels, repositories]);
 
   const suggestions = group.items;
-  const visible = open && suggestions.length > 0;
+  // Whether the keyboard drives the list. When it doesn't, the panel idles on
+  // the full filter catalog instead of going away, so nothing below it moves.
+  const active = open && suggestions.length > 0;
   const highlightedIndex = Math.min(highlighted, suggestions.length - 1);
 
   const apply = (suggestion: Suggestion) => {
@@ -444,8 +454,21 @@ export function FeedQueryInput({
     setOpen(isKey);
   };
 
+  // Appends a filter key from the idle panel: the caret may be stale (the
+  // panel is clickable while the input isn't focused), so this lands at the
+  // end rather than replacing whatever chunk the old caret was in.
+  const appendKey = (suggestion: Suggestion) => {
+    const trimmed = value.replace(/\s+$/, "");
+    const next = (trimmed === "" ? "" : `${trimmed} `) + suggestion.insert;
+    onChange(next);
+    setCaret(next.length);
+    pendingCaret.current = next.length;
+    setHighlighted(0);
+    setOpen(true);
+  };
+
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (visible) {
+    if (active) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setHighlighted((h) => (h + 1) % suggestions.length);
@@ -481,8 +504,13 @@ export function FeedQueryInput({
     if (position != null) setCaret(position);
   };
 
+  // What the panel shows: the live suggestions while the keyboard drives
+  // them, the full filter catalog otherwise — never nothing.
+  const panelItems = active ? suggestions : KEY_SUGGESTIONS;
+  const panelHeading = active ? group.heading : "Filters";
+
   return (
-    <div className="relative">
+    <div>
       {/* The field: mirror below, transparent-text input above. Both carry
           identical typography and padding, so the native caret and selection
           sit exactly on the colored text. */}
@@ -510,6 +538,8 @@ export function FeedQueryInput({
           value={value}
           placeholder={placeholder}
           autoComplete="off"
+          // biome-ignore lint/a11y/noAutofocus: the modal opens to type a query
+          autoFocus={autoFocus}
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
@@ -533,50 +563,61 @@ export function FeedQueryInput({
           onBlur={() => setTimeout(() => setOpen(false), 120)}
         />
       </div>
-      {visible && (
-        <div className="absolute top-full right-0 left-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-(--gray-a6) bg-(--color-panel-solid) shadow-lg">
-          <div className="px-3 pt-2 pb-1 font-medium text-(--gray-9) text-[11px] uppercase tracking-wider">
-            {group.heading}
-          </div>
-          <div
-            role="listbox"
-            aria-label="Query suggestions"
-            className="max-h-52 overflow-y-auto px-1 pb-1"
-          >
-            {suggestions.map((suggestion, index) => (
-              <button
-                key={`${activeKey ?? "key"}:${suggestion.label}`}
-                type="button"
-                role="option"
-                aria-selected={index === highlightedIndex}
-                className={cn(
-                  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]",
-                  index === highlightedIndex
-                    ? "bg-fill-hover text-foreground"
-                    : "text-(--gray-11)",
-                )}
-                // Before blur, so picking a row doesn't close the list first.
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlighted(index)}
-                onClick={() => apply(suggestion)}
-              >
-                {suggestion.icon}
-                <MatchedLabel label={suggestion.label} typed={typed} />
-                {suggestion.hint && (
-                  <span className="min-w-0 flex-1 truncate text-right text-(--gray-9) text-xs">
-                    {suggestion.hint}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 border-(--gray-a5) border-t px-3 py-1.5 text-(--gray-9) text-xs">
-            <Kbd>↑↓</Kbd> navigate
-            <Kbd>⏎</Kbd> select
-            <Kbd>esc</Kbd> dismiss
-          </div>
+      <div className="mt-2 flex h-56 flex-col overflow-hidden rounded-md border border-(--gray-a5) bg-(--color-surface)">
+        <div className="px-3 pt-2 pb-1 font-medium text-(--gray-9) text-[11px] uppercase tracking-wider">
+          {panelHeading}
         </div>
-      )}
+        <div
+          role="listbox"
+          aria-label="Query suggestions"
+          className="min-h-0 flex-1 overflow-y-auto px-1 pb-1"
+        >
+          {panelItems.map((suggestion, index) => (
+            <button
+              key={`${active ? (activeKey ?? "key") : "idle"}:${suggestion.label}`}
+              type="button"
+              role="option"
+              aria-selected={active && index === highlightedIndex}
+              className={cn(
+                "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]",
+                active && index === highlightedIndex
+                  ? "bg-fill-hover text-foreground"
+                  : "text-(--gray-11) hover:bg-fill-hover",
+              )}
+              // Before blur, so picking a row doesn't close the list first.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={active ? () => setHighlighted(index) : undefined}
+              onClick={() =>
+                active ? apply(suggestion) : appendKey(suggestion)
+              }
+            >
+              {suggestion.icon}
+              <MatchedLabel
+                label={suggestion.label}
+                typed={active ? typed : ""}
+              />
+              {suggestion.hint && (
+                <span className="min-w-0 flex-1 truncate text-right text-(--gray-9) text-xs">
+                  {suggestion.hint}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 border-(--gray-a5) border-t px-3 py-1.5 text-(--gray-9) text-xs">
+          {active ? (
+            <>
+              <Kbd>↑↓</Kbd> navigate
+              <Kbd>⏎</Kbd> select
+            </>
+          ) : (
+            <span className="truncate">
+              Free text searches tasks. Repeat a filter for either, -filter
+              excludes.
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

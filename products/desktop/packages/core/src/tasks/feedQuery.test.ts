@@ -5,6 +5,7 @@ import {
   lexFeedQuery,
   parseFeedQuery,
   planFeedQuery,
+  suggestFeedName,
 } from "./feedQuery";
 
 const shy = {
@@ -158,36 +159,44 @@ describe("feedQuery", () => {
   });
 
   describe("planFeedQuery", () => {
-    it("compiles single positive filters into server params", () => {
+    it("compiles single positive filters into one server request", () => {
       const plan = planFeedQuery(
         parseFeedQuery(
           "billing created-by:shy space:mobile repo:webapp status:failed origin:slack is:archived",
         ),
         context,
       );
-      expect(plan.server).toEqual({
-        search: "billing",
-        createdBy: 1,
-        channel: "space-mobile",
-        repository: "webapp",
-        status: "failed",
-        originProduct: "slack",
-        archived: true,
-      });
+      expect(plan.requests).toEqual([
+        {
+          search: "billing",
+          createdBy: 1,
+          channel: "space-mobile",
+          repository: "webapp",
+          status: "failed",
+          originProduct: "slack",
+          archived: true,
+        },
+      ]);
       expect(plan.matches(task())).toBe(true);
     });
 
     it("resolves created-by:@me through the viewer", () => {
       const plan = planFeedQuery(parseFeedQuery("created-by:@me"), context);
-      expect(plan.server.createdBy).toBe(shy.id);
+      expect(plan.requests).toEqual([{ createdBy: shy.id }]);
     });
 
-    it("turns a repeated key into an OR predicate instead of a server param", () => {
+    // The regression this guards: with the OR filtered client-side over one
+    // unfiltered page, both authors' tasks vanished the moment they aged out
+    // of the most recent page — two working filters combined into zero rows.
+    it("fans a repeated key out into one server request per value", () => {
       const plan = planFeedQuery(
         parseFeedQuery("created-by:shy created-by:moshe"),
         context,
       );
-      expect(plan.server.createdBy).toBeUndefined();
+      expect(plan.requests).toEqual([
+        { createdBy: shy.id },
+        { createdBy: moshe.id },
+      ]);
       expect(plan.matches(task({ created_by: { uuid: "uuid-shy" } }))).toBe(
         true,
       );
@@ -199,12 +208,31 @@ describe("feedQuery", () => {
       );
     });
 
+    it("carries shared filters into every fanned-out request", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("created-by:shy created-by:moshe status:failed"),
+        context,
+      );
+      expect(plan.requests).toEqual([
+        { createdBy: shy.id, status: "failed" },
+        { createdBy: moshe.id, status: "failed" },
+      ]);
+    });
+
+    it("folds duplicate spellings of one person into one request", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("created-by:shy author:shy@example.com"),
+        context,
+      );
+      expect(plan.requests).toEqual([{ createdBy: shy.id }]);
+    });
+
     it("keeps negations out of server params and filters them client-side", () => {
       const plan = planFeedQuery(
         parseFeedQuery("-created-by:moshe -status:failed"),
         context,
       );
-      expect(plan.server).toEqual({});
+      expect(plan.requests).toEqual([{}]);
       expect(plan.matches(task())).toBe(true);
       expect(plan.matches(task({ created_by: { uuid: "uuid-moshe" } }))).toBe(
         false,
@@ -219,7 +247,10 @@ describe("feedQuery", () => {
         parseFeedQuery("is:running status:failed"),
         context,
       );
-      expect(plan.server.status).toBeUndefined();
+      expect(plan.requests).toEqual([
+        { status: "in_progress" },
+        { status: "failed" },
+      ]);
       expect(
         plan.matches(
           task({ latest_run: { status: "in_progress", output: null } }),
@@ -269,8 +300,23 @@ describe("feedQuery", () => {
 
     it("reports an unknown space name", () => {
       const plan = planFeedQuery(parseFeedQuery("space:missing"), context);
-      expect(plan.server.channel).toBeUndefined();
+      expect(plan.requests).toEqual([{}]);
       expect(plan.issues.some((i) => i.message.includes("missing"))).toBe(true);
+    });
+  });
+
+  describe("suggestFeedName", () => {
+    it.each([
+      ["created-by:@me pr:any", "My tasks with a PR"],
+      ["created-by:shy created-by:adam", "Shy & Adam's tasks"],
+      ["billing status:failed", "Failed billing tasks"],
+      ["is:archived space:mobile", "Archived tasks in mobile"],
+      ["repo:webapp pr:none", "Tasks in webapp without a PR"],
+      ["is:running is:failed", "Running or failed tasks"],
+      ["billing", "Billing tasks"],
+      ["", ""],
+    ])("suggests a name for %j", (query, expected) => {
+      expect(suggestFeedName(query)).toBe(expected);
     });
   });
 });

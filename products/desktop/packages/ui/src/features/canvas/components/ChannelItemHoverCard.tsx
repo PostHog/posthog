@@ -6,6 +6,10 @@ import {
   type ChannelItemPreviewPayload,
 } from "@posthog/ui/features/canvas/components/ChannelItemPreview";
 import {
+  FeedPreview,
+  type FeedPreviewPayload,
+} from "@posthog/ui/features/canvas/components/FeedPreview";
+import {
   SpacePreview,
   type SpacePreviewPayload,
 } from "@posthog/ui/features/canvas/components/SpacePreview";
@@ -45,7 +49,8 @@ const KEYBOARD_OPEN_DELAY_MS = 350;
  */
 export type ChannelPreviewPayload =
   | ({ kind: "item" } & ChannelItemPreviewPayload)
-  | ({ kind: "space" } & SpacePreviewPayload);
+  | ({ kind: "space" } & SpacePreviewPayload)
+  | ({ kind: "feed" } & FeedPreviewPayload);
 
 /**
  * The shared card, and who currently owns it.
@@ -156,6 +161,8 @@ export function ChannelItemPreviewCardProvider({
                 >
                   {payload.kind === "space" ? (
                     <SpacePreview payload={payload} onAction={close} />
+                  ) : payload.kind === "feed" ? (
+                    <FeedPreview payload={payload} onAction={close} />
                   ) : (
                     <ChannelItemPreview
                       // Keyed on the row, so crossing to another one unmounts
@@ -248,6 +255,48 @@ export function ChannelItemHoverCard({
 
   // No provider, no card. A row still has its right-click menu, and every fact
   // the card names is on the row itself.
+  if (!card) return row;
+
+  return (
+    <PreviewCard.Trigger
+      handle={card.handle}
+      payload={payload}
+      id={triggerId}
+      delay={OPEN_DELAY_MS}
+      closeDelay={CLOSE_DELAY_MS}
+      render={row}
+    />
+  );
+}
+
+/**
+ * A feed row that shows the shared preview card while it is pointed at, with
+ * the feed's own card in it. The same handle as every other sidebar row, so
+ * crossing between a feed and its neighbours moves one card rather than
+ * closing and reopening popups, and the keyboard's highlight opens it too.
+ */
+export function FeedHoverCard({
+  feed,
+  highlighted = false,
+  children,
+}: {
+  feed: FeedPreviewPayload;
+  /** The keyboard is on this row, which opens the card as hovering does. */
+  highlighted?: boolean;
+  children: ReactNode;
+}) {
+  const card = useContext(ChannelItemPreviewHandleContext);
+  // Stable for the reason a session row's is: a new identity writes the
+  // payload to the card's store again. The caller memoizes what it passes.
+  const payload = useMemo(() => ({ kind: "feed" as const, ...feed }), [feed]);
+  const triggerId = useId();
+  useKeyboardPreview(card, triggerId, highlighted);
+  const row = (
+    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+      {children}
+    </div>
+  );
+
   if (!card) return row;
 
   return (

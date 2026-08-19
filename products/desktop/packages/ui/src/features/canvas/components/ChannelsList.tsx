@@ -5,7 +5,6 @@ import {
   CaretRightIcon,
   DotsThreeIcon,
   LinkIcon,
-  MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
   StarIcon,
@@ -50,10 +49,12 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   ChannelItemHoverCard,
+  FeedHoverCard,
   SpaceHoverCard,
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import type { FeedPreviewPayload } from "@posthog/ui/features/canvas/components/FeedPreview";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
@@ -1483,9 +1484,11 @@ const NEW_FEED_ROW_VALUE = "feed:new";
 const sectionValue = (sectionId: string) => `section:${sectionId}`;
 
 /**
- * One custom feed in the sidebar: dressed like a space row, but opening it
- * shows the feed in the main window right away — a feed is a saved view over
- * tasks, not a space to slide the sidebar into, so the list stays put.
+ * One custom feed in the sidebar: a plain named row — no glyph, a feed is a
+ * saved view rather than a place — that opens the feed in the main window
+ * right away and leaves the list where it is. Resting on it (or settling the
+ * keyboard on it) opens the sidebar's shared hover card with the feed's
+ * query, match count, and actions.
  */
 const TaskFeedRow = memo(function TaskFeedRow({
   feed,
@@ -1501,6 +1504,11 @@ const TaskFeedRow = memo(function TaskFeedRow({
   const isActive = pathname === `/website/feeds/${feed.id}`;
   const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
   const [menuOpen, setMenuOpen] = useState(false);
+  // A boolean rather than the value itself, so a keypress re-renders only the
+  // two rows whose answer changed.
+  const isHighlighted = useSpaceTreeStore(
+    (s) => s.highlightedValue === feedRowValue(feed.id),
+  );
 
   const openFeed = () => {
     track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
@@ -1515,73 +1523,77 @@ const TaskFeedRow = memo(function TaskFeedRow({
     });
   };
 
-  const actions: ChannelActionItem[] = [
-    {
-      key: "edit",
-      label: "Edit feed",
-      icon: <PencilSimpleIcon size={14} />,
-      onSelect: () => onEdit(feed),
-    },
-    {
-      key: "delete",
-      label: "Delete feed",
-      icon: <TrashIcon size={14} />,
-      variant: "destructive",
-      separatorBefore: true,
-      // No confirm: the feed is a locally saved query, and recreating one is
-      // typing its text again — nothing shared or irreversible is lost.
-      onSelect: () => {
-        removeFeed(feed.id);
-        track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
-          action_type: "delete",
-          surface: "sidebar",
-          feed_id: feed.id,
-        });
-        toast.success("Feed deleted");
+  // Memoized because it travels to the shared preview card as the trigger's
+  // payload, which is written to the card's store whenever its identity
+  // changes.
+  const actions: ChannelActionItem[] = useMemo(
+    () => [
+      {
+        key: "edit",
+        label: "Edit feed",
+        icon: <PencilSimpleIcon size={14} />,
+        onSelect: () => onEdit(feed),
       },
-    },
-  ];
+      {
+        key: "delete",
+        label: "Delete feed",
+        icon: <TrashIcon size={14} />,
+        variant: "destructive",
+        separatorBefore: true,
+        // No confirm: the feed is a locally saved query, and recreating one is
+        // typing its text again — nothing shared or irreversible is lost.
+        onSelect: () => {
+          removeFeed(feed.id);
+          track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
+            action_type: "delete",
+            surface: "sidebar",
+            feed_id: feed.id,
+          });
+          toast.success("Feed deleted");
+        },
+      },
+    ],
+    [feed, onEdit, removeFeed],
+  );
+
+  const preview: FeedPreviewPayload = useMemo(
+    () => ({ feed, actions }),
+    [feed, actions],
+  );
 
   return (
     <Box className="group/chan relative">
-      <ContextMenu>
-        <ContextMenuTrigger
-          render={
-            <SpaceRowSurface
-              asOption={asOption}
-              optionValue={feedRowValue(feed.id)}
-              data-selected={isActive || undefined}
-              onClick={openFeed}
-              className={asOption ? "pl-2" : undefined}
-            >
-              {/* Sits in the disclosure's slot so feed names line up with the
-                  space names above — and says what a feed is: a query. */}
-              <MagnifyingGlassIcon
-                size={14}
-                className={cn(
-                  "shrink-0",
-                  isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground/60 group-hover/button:text-foreground",
-                )}
-              />
-              <span
-                className={cn(
-                  "min-w-0 truncate font-medium text-[13px]",
-                  "group-hover/chan:mr-7",
-                  menuOpen && "mr-7",
-                  isActive ? "text-foreground" : ROW_LABEL_TONE,
-                )}
+      {/* Not on the feed you are already in: opening it leaves the highlight
+          where it was, so the card would sit over the feed it just opened. */}
+      <FeedHoverCard feed={preview} highlighted={isHighlighted && !isActive}>
+        <ContextMenu>
+          <ContextMenuTrigger
+            render={
+              <SpaceRowSurface
+                asOption={asOption}
+                optionValue={feedRowValue(feed.id)}
+                data-selected={isActive || undefined}
+                onClick={openFeed}
+                className={asOption ? "pl-2" : undefined}
               >
-                {feed.name}
-              </span>
-            </SpaceRowSurface>
-          }
-        />
-        <ContextMenuContent>
-          <ChannelActionItems actions={actions} kind="context" />
-        </ContextMenuContent>
-      </ContextMenu>
+                <span
+                  className={cn(
+                    "min-w-0 truncate font-medium text-[13px]",
+                    "group-hover/chan:mr-7",
+                    menuOpen && "mr-7",
+                    isActive ? "text-foreground" : ROW_LABEL_TONE,
+                  )}
+                >
+                  {feed.name}
+                </span>
+              </SpaceRowSurface>
+            }
+          />
+          <ContextMenuContent>
+            <ChannelActionItems actions={actions} kind="context" />
+          </ContextMenuContent>
+        </ContextMenu>
+      </FeedHoverCard>
       <div className="absolute top-1 right-1">
         <ChannelMenu
           channelName={feed.name}
@@ -1594,7 +1606,9 @@ const TaskFeedRow = memo(function TaskFeedRow({
   );
 });
 
-/** The feeds section's trailing "New feed" row — the one create entry point. */
+/** The feeds section's trailing "New feed" row — the one create entry point.
+ * Quieter than the feeds above it: it leads out of the list rather than being
+ * another thing in it, and comes up to full contrast under the pointer. */
 function NewTaskFeedRow({
   asOption,
   onCreate,
@@ -1609,17 +1623,13 @@ function NewTaskFeedRow({
       onClick={onCreate}
       className={asOption ? "pl-2" : undefined}
     >
-      <PlusIcon
-        size={14}
-        className="shrink-0 text-muted-foreground/60 group-hover/button:text-foreground"
-      />
       <span
         className={cn(
-          "min-w-0 truncate font-medium text-[13px]",
-          ROW_LABEL_TONE,
+          "min-w-0 truncate text-[13px] text-muted-foreground/70",
+          "group-hover/button:text-foreground group-data-highlighted/button:text-foreground",
         )}
       >
-        New feed
+        New feed…
       </span>
     </SpaceRowSurface>
   );

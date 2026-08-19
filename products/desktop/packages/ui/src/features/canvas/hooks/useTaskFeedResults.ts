@@ -62,9 +62,11 @@ export function useFeedQueryPlan(query: string | undefined): {
 }
 
 /**
- * The tasks a custom feed's query matches right now. The single-value filters
- * ride the server request; OR groups, negations, and PR presence filter the
- * fetched page client-side. The feed stores a query, never task ids, so a
+ * The tasks a custom feed's query matches right now. Single-value filters
+ * ride one server request; an OR group fans out into one request per value
+ * and the pages are unioned, so `created-by:a created-by:b` finds both
+ * authors' tasks however old they are. Negations and PR presence filter the
+ * fetched pages client-side. The feed stores a query, never task ids, so a
  * task that stops matching simply stops appearing.
  */
 export function useTaskFeedResults(query: string | undefined): {
@@ -76,22 +78,34 @@ export function useTaskFeedResults(query: string | undefined): {
   const normalized = query?.trim() ?? "";
   const { plan, isLoading: planLoading } = useFeedQueryPlan(normalized);
 
-  const server = plan?.server;
+  const requests = plan?.requests ?? [];
   const result = useAuthenticatedQuery<Task[]>(
     // Keyed on the query string alone: the compiled params derive from it plus
     // slow-moving context (members, spaces), and each refetch reads the latest
     // closure, so a late context change corrects itself on the next poll.
     taskFeedResultsQueryKey(normalized),
-    (client) =>
-      client.getTasks({
-        search: server?.search,
-        createdBy: server?.createdBy,
-        channel: server?.channel,
-        repository: server?.repository,
-        status: server?.status,
-        originProduct: server?.originProduct,
-        archived: server?.archived,
-      }) as unknown as Promise<Task[]>,
+    async (client) => {
+      const pages = await Promise.all(
+        requests.map(
+          (request) =>
+            client.getTasks({
+              search: request.search,
+              createdBy: request.createdBy,
+              channel: request.channel,
+              repository: request.repository,
+              status: request.status,
+              originProduct: request.originProduct,
+              archived: request.archived,
+            }) as unknown as Promise<Task[]>,
+        ),
+      );
+      // Union, deduped (fanned repo filters can overlap), newest first so the
+      // merged pages read like the single page each request returned.
+      const byId = new Map(pages.flat().map((task) => [task.id, task]));
+      return [...byId.values()].sort((a, b) =>
+        b.created_at.localeCompare(a.created_at),
+      );
+    },
     {
       enabled: normalized !== "" && !!plan,
       gcTime: SPACE_QUERY_GC_TIME_MS,
