@@ -4702,6 +4702,7 @@ def create_task(
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        enforce_report_task_cap,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -4911,11 +4912,24 @@ def create_task(
     # Gated regardless of the relationship label: the label is client-selected and manually
     # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
-    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
-        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
+    signal_report_id = (
+        str(getattr(report_ref, "id", report_ref))
+        if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if signal_report_id:
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
+        if signal_report_id:
+            # Locks the report row until commit, so concurrent creates (and auto-start, which
+            # takes the same lock) serialize instead of both passing the count check.
+            enforce_report_task_cap(
+                team_id=team_id,
+                report_id=signal_report_id,
+                relationship=signal_report_task_relationship,
+            )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship

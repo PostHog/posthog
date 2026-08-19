@@ -46,6 +46,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
+from products.tasks.backend.temporal.oauth import is_interactive_signals_task
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -124,6 +125,10 @@ class TaskProcessingContext:
     # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
     continue_as_new_enabled: bool = False
     continue_as_new_history_threshold: int = 0
+    # Wall-clock cap for interactive signals-origin runs, resolved activity-side. The None
+    # default is what pre-existing run histories decode, so replays schedule no new timer
+    # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
+    interactive_max_run_duration_seconds: int | None = None
 
     @property
     def mode(self) -> str:
@@ -239,10 +244,14 @@ class TaskProcessingContext:
 
         Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
         wedged-but-heartbeating agent that would otherwise run forever. User-driven
-        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
-        get the cap as a safety net unless the setting disables it deployment-wide.
+        sessions can legitimately run for hours, so they are uncapped — except interactive
+        signals-origin runs, whose inference is unbilled and which therefore get their own
+        (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
+        the cap as a safety net unless the setting disables it deployment-wide.
         """
         if self.mode == "interactive" or self._is_user_origin():
+            if self.interactive_max_run_duration_seconds:
+                return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
         return resolve_max_run_duration()
 
@@ -1030,6 +1039,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"rtk_enabled: {rtk_enabled} for this task run",
     )
+    # The same test that mints the token's interactive-run marker: user-started signals runs get
+    # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
+    # exemption would leave them bounded only by the inactivity timer.
+    interactive_max_run_duration_seconds = None
+    if (
+        (state or {}).get("mode") == "interactive"
+        and is_interactive_signals_task(task)
+        and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
+    ):
+        interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
+
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1092,4 +1112,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             run_id=run_id,
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
+        interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
     )

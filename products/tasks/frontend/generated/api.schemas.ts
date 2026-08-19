@@ -1640,14 +1640,12 @@ export interface TaskCreateApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1783,14 +1781,12 @@ export interface TaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1911,14 +1907,12 @@ export interface PatchedTaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
