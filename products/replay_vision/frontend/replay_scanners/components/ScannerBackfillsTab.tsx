@@ -64,13 +64,15 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         backfills,
         backfillsLoading,
         estimate,
+        estimateError,
         estimateLoading,
         creatingBackfill,
         transitioningIds,
         windowDateFrom,
         windowDateTo,
     } = useValues(logic)
-    const { requestEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } = useActions(logic)
+    const { requestEstimate, retryEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } =
+        useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     const activeBackfill = backfills.find(isBackfillActive)
@@ -95,13 +97,24 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         requestEstimate(resolveWindowBound(dateFrom, dayjs().subtract(30, 'day')), resolveWindowBound(dateTo, dayjs()))
     }
 
-    const startDisabledReason = activeBackfill
-        ? 'This scanner already has an active backfill'
-        : !estimate
-          ? 'Pick a time range to see the cost first'
-          : estimate.total_sessions === 0
-            ? 'No eligible sessions in this time range'
-            : undefined
+    const startDisabledReason = ((): string | undefined => {
+        if (activeBackfill) {
+            return 'This scanner already has an active backfill'
+        }
+        if (estimateLoading) {
+            return 'Counting recordings…'
+        }
+        if (estimateError) {
+            return 'Couldn’t work out the cost. Retry the estimate below'
+        }
+        if (!estimate) {
+            return 'Pick a time range to see the cost first'
+        }
+        if (estimate.total_sessions === 0) {
+            return 'No eligible sessions in this time range'
+        }
+        return undefined
+    })()
 
     const columns: LemonTableColumns<ReplayScannerBackfillApi> = [
         {
@@ -282,7 +295,12 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                         Start backfill
                     </LemonButton>
                 </div>
-                <BackfillCostEstimate estimate={estimate} loading={estimateLoading} />
+                <BackfillCostEstimate
+                    estimate={estimate}
+                    loading={estimateLoading}
+                    error={estimateError}
+                    onRetry={retryEstimate}
+                />
             </div>
 
             <LemonTable

@@ -7,9 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
@@ -18,6 +21,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.replay_vision.backend.api.backfills import (
+    ENUMERATION_MAX_ATTEMPTS,
     MAX_BACKFILL_WINDOW_DAYS,
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
@@ -635,6 +639,51 @@ class TestBackfillsApi(APIBaseTest):
         assert body["total_sessions"] == 40
         assert body["total_credits"] == 40 * body["credits_per_observation"]
         assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
+
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity),
+            ("concurrency", ConcurrencyLimitExceeded),
+        ]
+    )
+    @patch("products.replay_vision.backend.api.backfills.time.sleep")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_estimate_retries_a_saturated_query_pool_then_succeeds(
+        self, _name: str, error_cls: type[Exception], mock_query: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # The interactive estimate shares the dedicated pool with background scanning and loses the
+        # race under load: a first fast-failing capacity error is transient, so one retry returns the count.
+        mock_query.return_value.count.side_effect = [error_cls(), 12]
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["total_sessions"] == 12
+        assert mock_query.return_value.count.call_count == 2
+
+    @patch("products.replay_vision.backend.api.backfills.time.sleep")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_estimate_maps_a_persistently_busy_pool_to_an_actionable_503(
+        self, mock_query: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        mock_query.return_value.count.side_effect = ClickHouseAtCapacity()
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        # A raw 503/504 leaked straight to the cost card before; now it maps to an actionable message
+        # after one retry, and stops at ENUMERATION_MAX_ATTEMPTS enumerations.
+        assert response.status_code == 503, response.json()
+        assert "busy" in response.json()["detail"]
+        assert mock_query.return_value.count.call_count == ENUMERATION_MAX_ATTEMPTS
+
+    @patch("products.replay_vision.backend.api.backfills.time.sleep")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_estimate_maps_a_timeout_without_re_running_the_query(
+        self, mock_query: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        mock_query.return_value.count.side_effect = ClickHouseQueryTimeOut()
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        # A query that hit the execution ceiling won't finish on a re-run, so it maps to the message
+        # after a single enumeration instead of paying the full budget twice.
+        assert response.status_code == 503, response.json()
+        assert "busy" in response.json()["detail"]
+        assert mock_query.return_value.count.call_count == 1
 
     @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_window_stops_at_the_settle_horizon_the_sweep_waits_for(self, mock_query: MagicMock) -> None:

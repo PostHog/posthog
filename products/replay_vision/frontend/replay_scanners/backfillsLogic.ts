@@ -20,6 +20,9 @@ export interface BackfillsLogicProps {
 // Keeps progress counts fresh while a backfill is dispatching, without hammering the API when idle.
 const ACTIVE_POLL_INTERVAL_MS = 10_000
 
+// Debounce before an estimate request fires, so a stream of date-filter changes collapses to one call.
+const ESTIMATE_DEBOUNCE_MS = 500
+
 export function isBackfillActive(backfill: ReplayScannerBackfillApi): boolean {
     return backfill.status === 'running' || backfill.status === 'paused_quota'
 }
@@ -30,7 +33,9 @@ export interface backfillsLogicValues {
     backfillsLoading: boolean
     creatingBackfill: boolean
     estimate: BackfillEstimateResponseApi | null
+    estimateError: string | null
     estimateLoading: boolean
+    lastRequestedWindow: { windowStart: string; windowEnd: string } | null
     transitioningIds: string[]
     windowDateFrom: string | null
     windowDateTo: string | null
@@ -67,11 +72,14 @@ export interface backfillsLogicActions {
         windowEnd: string
         windowStart: string
     }
-    requestEstimateFailure: () => {
-        value: true
+    requestEstimateFailure: (message: string) => {
+        message: string
     }
     requestEstimateSuccess: (estimate: BackfillEstimateResponseApi) => {
         estimate: BackfillEstimateResponseApi
+    }
+    retryEstimate: () => {
+        value: true
     }
     resumeBackfill: (id: string) => {
         id: string
@@ -111,7 +119,8 @@ export const backfillsLogic = kea<backfillsLogicType>([
         loadBackfillsFailure: true,
         requestEstimate: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
         requestEstimateSuccess: (estimate: BackfillEstimateResponseApi) => ({ estimate }),
-        requestEstimateFailure: true,
+        requestEstimateFailure: (message: string) => ({ message }),
+        retryEstimate: true,
         createBackfill: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
         createBackfillDone: true,
         cancelBackfill: (id: string) => ({ id }),
@@ -138,9 +147,25 @@ export const backfillsLogic = kea<backfillsLogicType>([
         estimate: [
             null as BackfillEstimateResponseApi | null,
             {
-                requestEstimate: () => null,
+                // Kept on a fresh request and on failure so a transient blip shows the last cost with a
+                // spinner or a retry, rather than blanking the card and forcing a new date pick.
                 requestEstimateSuccess: (_, { estimate }) => estimate,
                 createBackfillDone: () => null,
+            },
+        ],
+        estimateError: [
+            null as string | null,
+            {
+                requestEstimate: () => null,
+                requestEstimateSuccess: () => null,
+                requestEstimateFailure: (_, { message }) => message,
+                createBackfillDone: () => null,
+            },
+        ],
+        lastRequestedWindow: [
+            null as { windowStart: string; windowEnd: string } | null,
+            {
+                requestEstimate: (_, { windowStart, windowEnd }) => ({ windowStart, windowEnd }),
             },
         ],
         estimateLoading: [
@@ -218,7 +243,9 @@ export const backfillsLogic = kea<backfillsLogicType>([
                 if (!teamId) {
                     return
                 }
-                await breakpoint(250)
+                // The endpoint is throttled at 20 requests per minute, so debounce hard enough that
+                // dragging the date filter doesn't stack a 429 on top of a busy query pool.
+                await breakpoint(ESTIMATE_DEBOUNCE_MS)
                 try {
                     const estimate = await visionScannersBackfillsEstimateCreate(String(teamId), props.scannerId, {
                         window_start: windowStart,
@@ -228,8 +255,15 @@ export const backfillsLogic = kea<backfillsLogicType>([
                     actions.requestEstimateSuccess(estimate)
                 } catch (error: any) {
                     breakpoint()
-                    actions.requestEstimateFailure()
-                    lemonToast.error(apiErrorMessage(error))
+                    // Surfaced inline in the cost card with a retry, not as a toast: the card keeps the
+                    // last estimate, so a toast would just double up on the same message.
+                    actions.requestEstimateFailure(apiErrorMessage(error))
+                }
+            },
+            retryEstimate: () => {
+                const window = values.lastRequestedWindow
+                if (window) {
+                    actions.requestEstimate(window.windowStart, window.windowEnd)
                 }
             },
             createBackfill: async ({ windowStart, windowEnd }) => {

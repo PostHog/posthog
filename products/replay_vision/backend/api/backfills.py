@@ -1,5 +1,6 @@
 """API for historical backfills: estimate, create, monitor, cancel, resume."""
 
+import time
 import uuid
 import datetime as dt
 from datetime import datetime
@@ -20,6 +21,9 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -42,6 +46,20 @@ ENUMERATION_MAX_EXECUTION_SECONDS = 30
 # Beyond a year a backfill is asking for recordings almost every team has already aged out, while the
 # enumeration pays for the whole partition range. Bounds the per-request ClickHouse cost.
 MAX_BACKFILL_WINDOW_DAYS = 365
+
+# The dedicated `replay_vision` query pool is shared with the sweep and backfill workers, so the
+# interactive estimate loses the race to background scanning under load. Capacity failures fail fast,
+# so retry once with a short backoff before giving up. A timeout already spent the full budget and
+# would not finish on a re-run, so it maps straight to the message without a second attempt.
+ENUMERATION_MAX_ATTEMPTS = 2
+ENUMERATION_RETRY_BACKOFF_SECONDS = 0.5
+RETRYABLE_ENUMERATION_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
+
+
+class BackfillEstimateUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "backfill_estimate_unavailable"
+    default_detail = "We couldn't work out the cost right now because the scanner is busy. Wait a moment, then retry."
 
 
 class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -254,6 +272,31 @@ class ReplayScannerBackfillViewSet(
             )
         raise ValidationError("No recordings in this range match this scanner's filters. Try a wider range.")
 
+    def _unobserved_count_or_retry(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
+        """`_unobserved_count`, but retry a saturated query pool once instead of leaking a raw 503/504.
+
+        A `ValidationError` is a real answer about the window, so it propagates on the first attempt.
+        Only fast-failing capacity errors retry; a timeout and an exhausted retry both map to an
+        actionable message.
+        """
+        last_error: BaseException | None = None
+        for attempt in range(ENUMERATION_MAX_ATTEMPTS):
+            if attempt:
+                time.sleep(ENUMERATION_RETRY_BACKOFF_SECONDS * attempt)
+            try:
+                return self._unobserved_count(scanner, window_start, window_end)
+            except ClickHouseQueryTimeOut as error:
+                raise BackfillEstimateUnavailable() from error
+            except RETRYABLE_ENUMERATION_ERRORS as error:
+                last_error = error
+                logger.warning(
+                    "replay_vision.backfill_enumeration_retry",
+                    scanner_id=str(scanner.id),
+                    attempt=attempt,
+                    error=str(error),
+                )
+        raise BackfillEstimateUnavailable() from last_error
+
     @extend_schema(request=BackfillWindowSerializer, responses={200: BackfillEstimateResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)
     def estimate(self, request: Request, **kwargs: Any) -> Response:
@@ -262,7 +305,7 @@ class ReplayScannerBackfillViewSet(
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(window.validated_data)
-        total = self._unobserved_count(scanner, window_start, window_end)
+        total = self._unobserved_count_or_retry(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
         quota = quota_state(self.team.organization_id)
         response = BackfillEstimateResponseSerializer(
@@ -293,7 +336,7 @@ class ReplayScannerBackfillViewSet(
             raise ValidationError("This scanner already has an active backfill.")
 
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
-        total = self._unobserved_count(scanner, window_start, window_end)
+        total = self._unobserved_count_or_retry(scanner, window_start, window_end)
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,

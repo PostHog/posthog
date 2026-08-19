@@ -14,6 +14,8 @@ import { QuotaMeter } from './QuotaMeterBar'
 interface Props {
     estimate: BackfillEstimateResponseApi | null
     loading: boolean
+    error: string | null
+    onRetry: () => void
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * pro-rates across the days left in the period, which would shrink a backfill's cost to a fraction of
  * itself. A backfill is charged once, so it is added at full value as its own segment on top.
  */
-export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element {
+export function BackfillCostEstimate({ estimate, loading, error, onRetry }: Props): JSX.Element {
     const { displayQuota: quota, showUsd, onFreePlan } = useValues(visionQuotaLogic)
 
     // Rendered even with no estimate yet, showing the period as it already stands. Picking a range
@@ -106,7 +108,11 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                     </span>
                 ) : (
                     <span className="text-sm font-normal text-muted">
-                        {loading ? 'Counting recordings…' : 'Pick a time range to see the cost'}
+                        {loading
+                            ? 'Counting recordings…'
+                            : error
+                              ? 'Couldn’t work out the cost'
+                              : 'Pick a time range to see the cost'}
                     </span>
                 )}
                 {loading && estimate && (
@@ -129,7 +135,20 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                 </>
             )}
 
-            {overQuota && (
+            {error && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: onRetry,
+                        disabledReason: loading ? 'Counting recordings…' : undefined,
+                    }}
+                >
+                    {error}
+                </LemonBanner>
+            )}
+
+            {overQuota && !error && (
                 <LemonBanner type="warning">
                     This backfill costs more than your remaining credits{onFreePlan ? ' on the free plan' : ''}. It
                     scans the most recent recordings first, pauses when the quota runs out, and you can resume it next
