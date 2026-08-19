@@ -97,6 +97,24 @@ class SignalFinding(BaseModel):
             "in code or data. False if the claim couldn't be verified either way."
         ),
     )
+    proposed_change: str = Field(
+        description=(
+            "The concrete code change a coding agent would apply to address this signal, shaped "
+            "like a patch instruction. Name the file and the function or symbol, and say what to "
+            "add, remove, or change. Ground it in the code you read — not a vague direction like "
+            "'improve error handling'. This is the implementation step the downstream coding agent "
+            "starts from, so a finding that only names the failing component is incomplete. If no "
+            "code change applies (expected behavior, or the fix lives outside the codebase), say so "
+            "and explain why."
+        ),
+    )
+
+    @field_validator("proposed_change")
+    @classmethod
+    def proposed_change_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
 
 
 class ActionabilityAssessment(BaseModel):

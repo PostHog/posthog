@@ -80,12 +80,14 @@ def _build_research_output() -> ReportResearchOutput:
                 relevant_code_paths=["frontend/src/scenes/onboarding/OnboardingFlow.tsx"],
                 data_queried="Checked onboarding_completed volume in recent events; it dropped 38% week over week.",
                 verified=True,
+                proposed_change="In OnboardingFlow.tsx, restore the onboarding_completed capture call on the final step.",
             ),
             SignalFinding(
                 signal_id="sig-2",
                 relevant_code_paths=["posthog/api/event.py"],
                 data_queried="Compared pageview and user_signed_up volumes; those remained stable.",
                 verified=True,
+                proposed_change="No code change applies here; this signal only corroborates sig-1 as stable baseline traffic.",
             ),
             ActionabilityAssessment(
                 explanation="The issue has a clear code path and supporting event-volume evidence.",
@@ -549,7 +551,9 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     session = Mock()
     session.send_followup = AsyncMock(side_effect=RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"))
     session.end = AsyncMock()
-    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    first_finding = SignalFinding(
+        signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True, proposed_change="No change."
+    )
 
     with patch(
         "products.tasks.backend.facade.agents.MultiTurnSession.start",

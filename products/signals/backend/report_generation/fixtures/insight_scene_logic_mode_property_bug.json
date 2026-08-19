@@ -17,7 +17,8 @@
         ],
         "relevant_commit_hashes": {},
         "data_queried": "Verified via source that posthog/dags/backups.py line 346 reads 'Checks the latest succesful backup to use it as a base backup.' — the correct spelling is 'successful'.",
-        "verified": true
+        "verified": true,
+        "proposed_change": "In `posthog/dags/backups.py` line 346, fix the docstring typo: change 'succesful' to 'successful'."
       },
       {
         "explanation": "Single docstring typo fix in a single file. One word to change. Pure docstring, so zero test/behavior impact. An agent can perform this end to end without any human input.",

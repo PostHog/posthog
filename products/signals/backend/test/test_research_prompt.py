@@ -2,9 +2,12 @@ from datetime import datetime
 
 import pytest
 
+from pydantic import ValidationError
+
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
+    SignalFindingUpdate,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
@@ -116,6 +119,7 @@ class TestBuildInitialResearchPrompt:
                 relevant_code_paths=["example.py"],
                 data_queried="Queried the relevant events.",
                 verified=True,
+                proposed_change="In example.py, add the missing null check.",
             )
             if has_previous_finding
             else None
@@ -174,3 +178,16 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+
+class TestSignalFindingUpdate:
+    # A re-research that keeps a prior finding must still state the fix, so the confirmation
+    # response carries a diagnosis rather than bare confirmation prose.
+    @pytest.mark.parametrize("proposed_change", [None, "   "])
+    def test_confirmation_requires_proposed_change(self, proposed_change):
+        with pytest.raises(ValidationError):
+            SignalFindingUpdate(previous_finding_correct=True, proposed_change=proposed_change)
+
+    def test_confirmation_accepts_restated_proposed_change(self):
+        update = SignalFindingUpdate(previous_finding_correct=True, proposed_change="In a.py, add the null check.")
+        assert update.finding is None

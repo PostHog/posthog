@@ -117,7 +117,13 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("priority_judgment", {"explanation": "It is bad.", "priority": "P1"}),
             (
                 "signal_finding",
-                {"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": True},
+                {
+                    "signal_id": "s1",
+                    "relevant_code_paths": ["a.py"],
+                    "data_queried": "none",
+                    "verified": True,
+                    "proposed_change": "In a.py, guard the None case before the call.",
+                },
             ),
             ("repo_selection", {"repository": None, "reason": "no candidates"}),
             ("suggested_reviewers", [{"github_login": "octocat", "github_name": None, "relevant_commits": []}]),
@@ -151,6 +157,16 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("actionability_judgment", {"explanation": "", "actionability": "nope", "already_addressed": False}),
             ("priority_judgment", {"explanation": "x", "priority": "P9"}),
             ("signal_finding", {"signal_id": "s1"}),
+            (
+                "signal_finding",
+                {
+                    "signal_id": "s1",
+                    "relevant_code_paths": ["a.py"],
+                    "data_queried": "ran execute-sql",
+                    "verified": True,
+                    "proposed_change": "   ",
+                },
+            ),
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
             ("note", {"note": "   "}),
