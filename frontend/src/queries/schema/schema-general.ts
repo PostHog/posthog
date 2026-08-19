@@ -9022,6 +9022,7 @@ export const externalDataSources = [
     'IronSourceAds',
     'MicrosoftExcel',
     'Profound',
+    'Polymarket',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

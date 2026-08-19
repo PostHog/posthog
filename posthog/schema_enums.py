@@ -2561,6 +2561,7 @@ class ExternalDataSourceType(StrEnum):
     IRON_SOURCE_ADS = "IronSourceAds"
     MICROSOFT_EXCEL = "MicrosoftExcel"
     PROFOUND = "Profound"
+    POLYMARKET = "Polymarket"
 
 
 class ExternalQueryErrorCode(StrEnum):
