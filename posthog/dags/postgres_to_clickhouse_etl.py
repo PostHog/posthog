@@ -1,7 +1,7 @@
 """ETL pipeline for syncing posthog_organization, posthog_team, and posthog_featureflag from Postgres to ClickHouse.
 
-Table-driven so watermark handling, batching, and column selection live in one place. Adding a table
-means a TableConfig entry plus DDL; sync comes free.
+Table-driven: every table's columns, DDL, transform behavior, and watermark expression live on one
+TableConfig entry. Adding a table means authoring one config entry plus its DDL function.
 
 How correctness is shared with the storage engine:
 - Incremental windows overlap by ``backward_lookback_seconds`` so a row committed after its
@@ -14,7 +14,7 @@ How correctness is shared with the storage engine:
 import json
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
@@ -43,8 +43,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dags.common import JobOwners
 from posthog.dataclasses import frozen
 
-PostgresFilter = Callable[[Optional[datetime]], tuple[str, list[Any]]]
-
 
 @frozen
 class TableConfig:
@@ -52,110 +50,68 @@ class TableConfig:
 
     - ``key``: columns that identify a row across writes. Must be immutable for the life of the row
       so a soft-delete-rename (feature flags rename ``key`` on tombstone) lands as an update, not a
-      new identity. The same key drives the ClickHouse ORDER BY prefix.
+      new identity. The same key drives the ClickHouse ORDER BY prefix. Unused by the sync runner
+      today; the reconcile job (follow-up branch) matches rows on it.
     - ``watermark_column``: the non-null change-timestamp column mirrored in ClickHouse and used
       to advance the incremental high-watermark. The transform is responsible for never emitting
       a NULL here (feature flags fall back to ``created_at``).
-    - ``postgres_filter``: builds the incremental WHERE clause and params for the Postgres read;
-      lets one table (feature flags' nullable ``updated_at``) deviate without leaking that quirk
-      into the generic runner.
+    - ``watermark_expr``: SQL expression used in place of ``watermark_column`` when filtering and
+      ordering the Postgres read, for tables whose watermark column is nullable at the source.
+      Flags use COALESCE(updated_at, created_at), matching the coalesced value the mirror stores.
     - ``order_by``: full ClickHouse ORDER BY tuple. Contains ``key`` (optionally behind a leading
       locality column such as ``organization_id`` for teams) so same-row versions land in the same
       part; ends with ``watermark_column`` so ``argMax`` reads are cheap.
-    - ``projections``: derived columns computed from the raw Postgres row before load (flag
-      dependency / cohort / variant counts for Grafana aggregation).
+    - ``select_columns``: Postgres columns to pull, in mirror order.
+    - ``jsonb_text_cast``: columns to select as ``col::text`` rather than parsed jsonb, so psycopg2
+      doesn't parse 30+ fields per row only for the transform to re-serialize them.
+    - ``bool_fields`` / ``uuid_fields`` / ``array_fields``: per-table type adaptations the generic
+      transform applies (booleans to 0/1, UUIDs to strings, array NULL-coalescing and
+      None-filtering).
+    - ``ddl``: callable producing the ``CREATE TABLE IF NOT EXISTS`` SQL for the ClickHouse mirror.
+    - ``post_transform``: table-specific row fixups applied after the generic type adaptations.
     """
 
     key: tuple[str, ...]
     watermark_column: str
     order_by: str
-    projections: dict[str, Callable[[dict[str, Any]], Any]]
-    postgres_filter: Optional[PostgresFilter] = None
+    select_columns: list[str]
+    ddl: Callable[[], str]
+    jsonb_text_cast: set[str] = field(default_factory=set)
+    bool_fields: list[str] = field(default_factory=list)
+    uuid_fields: list[str] = field(default_factory=list)
+    array_fields: list[str] = field(default_factory=list)
+    watermark_expr: Optional[str] = None
+    post_transform: Optional[Callable[[dict], dict]] = None
+
+    def select_clause(self) -> str:
+        return ", ".join(f"{col}::text AS {col}" if col in self.jsonb_text_cast else col for col in self.select_columns)
+
+    def build_incremental_query(self, table_name: str, last_sync: Optional[datetime]) -> tuple[str, list[Any]]:
+        """SELECT everything past the watermark, for the op-based hourly sync."""
+        if last_sync is None:
+            return self._sql(table_name, ""), []
+        return self._sql(table_name, f"WHERE {self._watermark()} > %s"), [last_sync]
+
+    def build_partition_query(self, table_name: str, start: datetime, end: datetime) -> tuple[str, list[Any]]:
+        """SELECT one fixed time window, for the asset path's per-hour backfill partitions."""
+        watermark = self._watermark()
+        return self._sql(table_name, f"WHERE {watermark} >= %s AND {watermark} < %s"), [start, end]
+
+    def _watermark(self) -> str:
+        return self.watermark_expr or self.watermark_column
+
+    def _sql(self, table_name: str, where: str) -> str:
+        parts = [f"SELECT {self.select_clause()} FROM {table_name}"]
+        if where:
+            parts.append(where)
+        parts.append(f"ORDER BY {self._watermark()} ASC")
+        return " ".join(parts)
 
 
 @dataclass
 class IncrementalState:
     last_sync_timestamp: Optional[datetime] = None
     rows_synced: int = 0
-
-
-def _feature_flag_postgres_filter(last_sync: Optional[datetime]) -> tuple[str, list[Any]]:
-    # updated_at is NULL until a flag's first edit; take rows where either column moved into the window.
-    if last_sync is None:
-        return "", []
-    return "WHERE (updated_at > %s OR (updated_at IS NULL AND created_at > %s))", [last_sync, last_sync]
-
-
-def _has_flag_dependency(filters: dict[str, Any]) -> int:
-    # A dependency is a property with type "flag" inside filters.groups; there is no top-level
-    # flag_dependencies key (see _extract_direct_dependency_ids in products/feature_flags).
-    for group in filters.get("groups") or []:
-        if not isinstance(group, dict):
-            continue
-        if any(isinstance(p, dict) and p.get("type") == "flag" for p in group.get("properties") or []):
-            return 1
-    return 0
-
-
-def _has_cohort_filters(filters: dict[str, Any]) -> int:
-    for group in filters.get("groups") or []:
-        if not isinstance(group, dict):
-            continue
-        if any(isinstance(p, dict) and p.get("type") == "cohort" for p in group.get("properties") or []):
-            return 1
-    return 0
-
-
-def _variant_count(filters: dict[str, Any]) -> int:
-    multivariate = filters.get("multivariate")
-    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
-    return len(variants) if isinstance(variants, list) else 0
-
-
-TABLE_CONFIGS: dict[str, TableConfig] = {
-    "posthog_organization": TableConfig(
-        key=("id",),
-        watermark_column="updated_at",
-        order_by="(id, updated_at)",
-        projections={},
-    ),
-    "posthog_team": TableConfig(
-        key=("id",),
-        watermark_column="updated_at",
-        order_by="(organization_id, id, updated_at)",
-        projections={},
-    ),
-    # Identity is (team_id, id), not (team_id, key): soft-delete renames key with a :deleted:<id>
-    # suffix, and id is what survives that rename. updated_at is the watermark; the transform
-    # backfills NULLs from created_at so the mirror never stores NULL.
-    "posthog_featureflag": TableConfig(
-        key=("team_id", "id"),
-        watermark_column="updated_at",
-        order_by="(team_id, id, updated_at)",
-        projections={
-            "has_flag_dependency": _has_flag_dependency,
-            "has_cohort_filters": _has_cohort_filters,
-            "variant_count": _variant_count,
-        },
-        postgres_filter=_feature_flag_postgres_filter,
-    ),
-}
-
-
-class PostgresToClickHouseETLConfig(Config):
-    full_refresh: bool = False
-    batch_size: int = 10000
-    # Overlap the incremental window by this much to catch rows that committed after their
-    # timestamp slot passed the prior high-watermark. The engine dedupes the overlap at merge time.
-    backward_lookback_seconds: int = 86400
-
-
-etl_retry_policy = RetryPolicy(
-    max_retries=3,
-    delay=60,
-    backoff=dagster.Backoff.EXPONENTIAL,
-    jitter=dagster.Jitter.PLUS_MINUS,
-)
 
 
 def get_postgres_connection():
@@ -170,7 +126,70 @@ def get_postgres_connection():
     )
 
 
-def get_organization_table_sql() -> str:
+def _normalize_filters(filters: Any) -> dict[str, Any]:
+    """``filters`` arrives as a dict (psycopg2-parsed jsonb) or a string (mocked rows); normalize to a dict."""
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters)
+        except (TypeError, ValueError):
+            return {}
+    return filters if isinstance(filters, dict) else {}
+
+
+# ----- posthog_organization -----
+
+_ORG_COLS = [
+    "id",
+    "name",
+    "slug",
+    "logo_media_id",
+    "created_at",
+    "updated_at",
+    "session_cookie_age",
+    "is_member_join_email_enabled",
+    "is_ai_data_processing_approved",
+    "enforce_2fa",
+    "members_can_invite",
+    "members_can_use_personal_api_keys",
+    "allow_publicly_shared_resources",
+    "plugins_access_level",
+    "for_internal_metrics",
+    "default_experiment_stats_method",
+    "is_hipaa",
+    "customer_id",
+    "available_product_features",
+    "usage",
+    "never_drop_data",
+    "customer_trust_scores",
+    "setup_section_2_completed",
+    "personalization",
+    "domain_whitelist",
+    "is_platform",
+]
+
+_ORG_BOOL_FIELDS = [
+    "is_member_join_email_enabled",
+    "is_ai_data_processing_approved",
+    "enforce_2fa",
+    "members_can_invite",
+    "members_can_use_personal_api_keys",
+    "allow_publicly_shared_resources",
+    "for_internal_metrics",
+    "is_hipaa",
+    "never_drop_data",
+    "setup_section_2_completed",
+    "is_platform",
+]
+
+_ORG_JSONB_TEXT_CAST = {
+    "available_product_features",
+    "usage",
+    "customer_trust_scores",
+    "personalization",
+}
+
+
+def _organization_ddl() -> str:
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_organization (
             id UUID,
@@ -207,7 +226,145 @@ def get_organization_table_sql() -> str:
     """
 
 
-def get_team_table_sql() -> str:
+# ----- posthog_team -----
+
+_TEAM_COLS = [
+    "id",
+    "uuid",
+    "organization_id",
+    "parent_team_id",
+    "project_id",
+    "api_token",
+    "app_urls",
+    "name",
+    "created_at",
+    "updated_at",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "ingested_event",
+    "autocapture_opt_out",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_opt_in",
+    "autocapture_exceptions_errors_to_ignore",
+    "person_processing_opt_out",
+    "secret_api_token",
+    "secret_api_token_backup",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
+    "session_replay_config",
+    "survey_config",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "capture_dead_clicks",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
+    "feature_flag_confirmation_message",
+    "session_recording_version",
+    "signup_token",
+    "is_demo",
+    "access_control",
+    "week_start_day",
+    "inject_web_apps",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "live_events_columns",
+    "recording_domains",
+    "human_friendly_comparison_periods",
+    "cookieless_server_hash_mode",
+    "primary_dashboard_id",
+    "default_data_theme",
+    "extra_settings",
+    "modifiers",
+    "correlation_config",
+    "session_recording_retention_period_days",
+    "plugins_opt_in",
+    "opt_out_capture",
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+    "external_data_workspace_id",
+    "external_data_workspace_last_synced_at",
+    "api_query_rate_limit",
+    "revenue_tracking_config",
+    "drop_events_older_than",
+    "base_currency",
+]
+
+_TEAM_BOOL_FIELDS = [
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "ingested_event",
+    "autocapture_opt_out",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_exceptions_opt_in",
+    "person_processing_opt_out",
+    "session_recording_opt_in",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "capture_dead_clicks",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
+    "is_demo",
+    "access_control",
+    "inject_web_apps",
+    "test_account_filters_default_checked",
+    "human_friendly_comparison_periods",
+    "plugins_opt_in",
+    "opt_out_capture",
+]
+
+_TEAM_JSONB_TEXT_CAST = {
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_errors_to_ignore",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_replay_config",
+    "survey_config",
+    "test_account_filters",
+    "path_cleaning_filters",
+    "data_attributes",
+    "extra_settings",
+    "modifiers",
+    "correlation_config",
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+    "revenue_tracking_config",
+}
+
+_TEAM_ARRAY_FIELDS = ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"]
+
+
+def _team_ddl() -> str:
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_team (
             id Int64,
@@ -296,177 +453,13 @@ def get_team_table_sql() -> str:
     """
 
 
-def get_feature_flag_table_sql() -> str:
-    order_by = TABLE_CONFIGS["posthog_featureflag"].order_by
-    projection_columns = ", ".join(f"{name} UInt32" for name in TABLE_CONFIGS["posthog_featureflag"].projections)
-    return f"""
-        CREATE TABLE IF NOT EXISTS models.posthog_featureflag (
-            id Int64,
-            team_id Int64,
-            key String,
-            name String,
-            filters String,  -- JSON serialized
-            deleted UInt8,
-            active UInt8,
-            archived UInt8,
-            version Nullable(Int32),
-            ensure_experience_continuity Nullable(UInt8),
-            usage_dashboard_id Nullable(Int64),
-            has_enriched_analytics Nullable(UInt8),
-            is_remote_configuration Nullable(UInt8),
-            has_encrypted_payloads Nullable(UInt8),
-            evaluation_runtime Nullable(String),
-            bucketing_identifier Nullable(String),
-            created_by_id Nullable(Int32),
-            created_at DateTime64(6),
-            updated_at DateTime64(6),
-            {projection_columns},
-            _inserted_at DateTime64(6) DEFAULT now64(6)
-        )
-        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_featureflag', '{{shard}}-{{replica}}', _inserted_at)
-        ORDER BY {order_by}
-        SETTINGS index_granularity = 8192
-    """
+def _finalize_team_row(row: dict) -> dict:
+    if row.get("drop_events_older_than") is not None:
+        row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
+    return row
 
 
-DDL_BY_TABLE: dict[str, Callable[[], str]] = {
-    "posthog_organization": get_organization_table_sql,
-    "posthog_team": get_team_table_sql,
-    "posthog_featureflag": get_feature_flag_table_sql,
-}
-
-
-def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
-    if context:
-        context.log.info("Creating database 'models' if it doesn't exist...")
-    cluster = get_cluster()
-    cluster.map_all_hosts(Query("CREATE DATABASE IF NOT EXISTS models")).result()
-
-
-def create_clickhouse_tables(
-    context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
-) -> None:
-    create_database_if_not_exists(context)
-    cluster = get_cluster()
-    if force_recreate:
-        for table_name in TABLE_CONFIGS:
-            cluster.map_all_hosts(Query(f"DROP TABLE IF EXISTS models.{table_name}")).result()
-    for table_name, ddl_fn in DDL_BY_TABLE.items():
-        if context:
-            context.log.info(f"Creating models.{table_name} if it doesn't exist...")
-        cluster.map_all_hosts(Query(ddl_fn())).result()
-
-
-# Organized per table rather than per kind because no two tables share a kind combination.
-_ORG_COLS = [
-    "id",
-    "name",
-    "slug",
-    "logo_media_id",
-    "created_at",
-    "updated_at",
-    "session_cookie_age",
-    "is_member_join_email_enabled",
-    "is_ai_data_processing_approved",
-    "enforce_2fa",
-    "members_can_invite",
-    "members_can_use_personal_api_keys",
-    "allow_publicly_shared_resources",
-    "plugins_access_level",
-    "for_internal_metrics",
-    "default_experiment_stats_method",
-    "is_hipaa",
-    "customer_id",
-    "available_product_features",
-    "usage",
-    "never_drop_data",
-    "customer_trust_scores",
-    "setup_section_2_completed",
-    "personalization",
-    "domain_whitelist",
-    "is_platform",
-]
-
-_TEAM_COLS = [
-    "id",
-    "uuid",
-    "organization_id",
-    "parent_team_id",
-    "project_id",
-    "api_token",
-    "app_urls",
-    "name",
-    "created_at",
-    "updated_at",
-    "anonymize_ips",
-    "completed_snippet_onboarding",
-    "has_completed_onboarding_for",
-    "onboarding_tasks",
-    "ingested_event",
-    "autocapture_opt_out",
-    "autocapture_web_vitals_opt_in",
-    "autocapture_web_vitals_allowed_metrics",
-    "autocapture_exceptions_opt_in",
-    "autocapture_exceptions_errors_to_ignore",
-    "person_processing_opt_out",
-    "secret_api_token",
-    "secret_api_token_backup",
-    "session_recording_opt_in",
-    "session_recording_sample_rate",
-    "session_recording_minimum_duration_milliseconds",
-    "session_recording_linked_flag",
-    "session_recording_network_payload_capture_config",
-    "session_recording_masking_config",
-    "session_recording_url_trigger_config",
-    "session_recording_url_blocklist_config",
-    "session_recording_event_trigger_config",
-    "session_recording_trigger_match_type_config",
-    "session_replay_config",
-    "survey_config",
-    "capture_console_log_opt_in",
-    "capture_performance_opt_in",
-    "capture_dead_clicks",
-    "surveys_opt_in",
-    "heatmaps_opt_in",
-    "flags_persistence_default",
-    "feature_flag_confirmation_enabled",
-    "feature_flag_confirmation_message",
-    "session_recording_version",
-    "signup_token",
-    "is_demo",
-    "access_control",
-    "week_start_day",
-    "inject_web_apps",
-    "test_account_filters",
-    "test_account_filters_default_checked",
-    "path_cleaning_filters",
-    "timezone",
-    "data_attributes",
-    "person_display_name_properties",
-    "live_events_columns",
-    "recording_domains",
-    "human_friendly_comparison_periods",
-    "cookieless_server_hash_mode",
-    "primary_dashboard_id",
-    "default_data_theme",
-    "extra_settings",
-    "modifiers",
-    "correlation_config",
-    "session_recording_retention_period_days",
-    "plugins_opt_in",
-    "opt_out_capture",
-    "event_names",
-    "event_names_with_usage",
-    "event_properties",
-    "event_properties_with_usage",
-    "event_properties_numerical",
-    "external_data_workspace_id",
-    "external_data_workspace_last_synced_at",
-    "api_query_rate_limit",
-    "revenue_tracking_config",
-    "drop_events_older_than",
-    "base_currency",
-]
+# ----- posthog_featureflag -----
 
 _FEATURE_FLAG_COLS = [
     "id",
@@ -490,194 +483,168 @@ _FEATURE_FLAG_COLS = [
     "updated_at",
 ]
 
-_SELECT_COLUMNS: dict[str, list[str]] = {
-    "posthog_organization": _ORG_COLS,
-    "posthog_team": _TEAM_COLS,
-    "posthog_featureflag": _FEATURE_FLAG_COLS,
-}
+_FEATURE_FLAG_BOOL_FIELDS = [
+    "deleted",
+    "active",
+    "archived",
+    "ensure_experience_continuity",
+    "has_enriched_analytics",
+    "is_remote_configuration",
+    "has_encrypted_payloads",
+]
 
-# JSON columns selected as ::text for org / team so psycopg2 doesn't parse 30+ fields per row only
-# for the transform to json.dumps them back. Flags are the exception: projections need the parsed dict.
-_JSONB_TEXT_CAST: dict[str, set[str]] = {
-    "posthog_organization": {"available_product_features", "usage", "customer_trust_scores", "personalization"},
-    "posthog_team": {
-        "has_completed_onboarding_for",
-        "onboarding_tasks",
-        "autocapture_web_vitals_allowed_metrics",
-        "autocapture_exceptions_errors_to_ignore",
-        "session_recording_linked_flag",
-        "session_recording_network_payload_capture_config",
-        "session_recording_masking_config",
-        "session_recording_url_trigger_config",
-        "session_recording_url_blocklist_config",
-        "session_recording_event_trigger_config",
-        "session_replay_config",
-        "survey_config",
-        "test_account_filters",
-        "path_cleaning_filters",
-        "data_attributes",
-        "extra_settings",
-        "modifiers",
-        "correlation_config",
-        "event_names",
-        "event_names_with_usage",
-        "event_properties",
-        "event_properties_with_usage",
-        "event_properties_numerical",
-        "revenue_tracking_config",
-    },
-    "posthog_featureflag": set(),
-}
+_FEATURE_FLAG_ORDER_BY = "(team_id, id, updated_at)"
 
-# psycopg2 already parses jsonb ::text as raw strings; these are the columns that must NOT be re-dumped.
-_BOOL_FIELDS: dict[str, list[str]] = {
-    "posthog_organization": [
-        "is_member_join_email_enabled",
-        "is_ai_data_processing_approved",
-        "enforce_2fa",
-        "members_can_invite",
-        "members_can_use_personal_api_keys",
-        "allow_publicly_shared_resources",
-        "for_internal_metrics",
-        "is_hipaa",
-        "never_drop_data",
-        "setup_section_2_completed",
-        "is_platform",
-    ],
-    "posthog_team": [
-        "anonymize_ips",
-        "completed_snippet_onboarding",
-        "ingested_event",
-        "autocapture_opt_out",
-        "autocapture_web_vitals_opt_in",
-        "autocapture_exceptions_opt_in",
-        "person_processing_opt_out",
-        "session_recording_opt_in",
-        "capture_console_log_opt_in",
-        "capture_performance_opt_in",
-        "capture_dead_clicks",
-        "surveys_opt_in",
-        "heatmaps_opt_in",
-        "flags_persistence_default",
-        "feature_flag_confirmation_enabled",
-        "is_demo",
-        "access_control",
-        "inject_web_apps",
-        "test_account_filters_default_checked",
-        "human_friendly_comparison_periods",
-        "plugins_opt_in",
-        "opt_out_capture",
-    ],
-    "posthog_featureflag": [
-        "deleted",
-        "active",
-        "archived",
-        "ensure_experience_continuity",
-        "has_enriched_analytics",
-        "is_remote_configuration",
-        "has_encrypted_payloads",
-    ],
-}
-
-_UUID_FIELDS: dict[str, list[str]] = {
-    "posthog_organization": ["id", "logo_media_id"],
-    "posthog_team": ["uuid", "organization_id"],
-    "posthog_featureflag": [],
-}
-
-_ARRAY_FIELDS: dict[str, list[str]] = {
-    "posthog_organization": ["domain_whitelist"],
-    "posthog_team": ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"],
-    "posthog_featureflag": [],
-}
+# updated_at is NULL until a flag's first edit, so Postgres-side filtering and ordering fall back
+# to created_at. The transform applies the same coalesce before insert, so the mirror's watermark
+# read and this expression always agree.
+_FEATURE_FLAG_WATERMARK_EXPR = "COALESCE(updated_at, created_at)"
 
 
-def _select_clause(table_name: str) -> str:
-    jsonb_cols = _JSONB_TEXT_CAST[table_name]
-    return ", ".join(f"{col}::text AS {col}" if col in jsonb_cols else col for col in _SELECT_COLUMNS[table_name])
+def _feature_flag_ddl() -> str:
+    return f"""
+        CREATE TABLE IF NOT EXISTS models.posthog_featureflag (
+            id Int64,
+            team_id Int64,
+            key String,
+            name String,
+            filters String,  -- JSON serialized
+            deleted UInt8,
+            active UInt8,
+            archived UInt8,
+            version Nullable(Int32),
+            ensure_experience_continuity Nullable(UInt8),
+            usage_dashboard_id Nullable(Int64),
+            has_enriched_analytics Nullable(UInt8),
+            is_remote_configuration Nullable(UInt8),
+            has_encrypted_payloads Nullable(UInt8),
+            evaluation_runtime Nullable(String),
+            bucketing_identifier Nullable(String),
+            created_by_id Nullable(Int32),
+            created_at DateTime64(6),
+            updated_at DateTime64(6),
+            _inserted_at DateTime64(6) DEFAULT now64(6)
+        )
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_featureflag', '{{shard}}-{{replica}}', _inserted_at)
+        ORDER BY {_FEATURE_FLAG_ORDER_BY}
+        SETTINGS index_granularity = 8192
+    """
 
 
-def _normalize_filters(filters: Any) -> dict[str, Any]:
-    """``filters`` arrives as a dict (mocked rows, psycopg2-parsed jsonb); normalize to a dict."""
-    if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except (TypeError, ValueError):
-            return {}
-    return filters if isinstance(filters, dict) else {}
-
-
-def transform_organization_row(row: dict) -> dict:
-    for field in _UUID_FIELDS["posthog_organization"]:
-        if row.get(field) is not None:
-            row[field] = str(row[field])
-    for field in _BOOL_FIELDS["posthog_organization"]:
-        if row.get(field) is not None:
-            row[field] = 1 if row[field] else 0
-    for field in _ARRAY_FIELDS["posthog_organization"]:
-        if row.get(field) is None:
-            row[field] = []
-        elif isinstance(row[field], list):
-            row[field] = [v for v in row[field] if v is not None]
-    return row
-
-
-def transform_team_row(row: dict) -> dict:
-    for field in _UUID_FIELDS["posthog_team"]:
-        if row.get(field) is not None:
-            row[field] = str(row[field])
-    for field in _BOOL_FIELDS["posthog_team"]:
-        if row.get(field) is not None:
-            row[field] = 1 if row[field] else 0
-    if row.get("drop_events_older_than") is not None:
-        row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
-    for field in _ARRAY_FIELDS["posthog_team"]:
-        if row.get(field) is None:
-            row[field] = []
-        elif isinstance(row[field], list):
-            row[field] = [v for v in row[field] if v is not None]
-    return row
-
-
-def transform_feature_flag_row(row: dict) -> dict:
-    filters_dict = _normalize_filters(row.get("filters"))
-    row["filters"] = json.dumps(filters_dict)
-    for field in _BOOL_FIELDS["posthog_featureflag"]:
-        if row.get(field) is not None:
-            row[field] = 1 if row[field] else 0
+def _finalize_feature_flag_row(row: dict) -> dict:
+    # Normalizing guarantees a non-null JSON object for the non-Nullable String column, even when
+    # the source value is NULL or unparseable.
+    row["filters"] = json.dumps(_normalize_filters(row.get("filters")))
     # Watermark column must never be NULL (it's in ORDER BY and the high-watermark read); a brand-new
     # flag hasn't been edited yet, so fall back to created_at. Makes updated_at non-null in the mirror.
     if row.get("updated_at") is None:
         row["updated_at"] = row.get("created_at")
-    cfg = TABLE_CONFIGS["posthog_featureflag"]
-    for projection_name, projection_fn in cfg.projections.items():
-        row[projection_name] = projection_fn(filters_dict)
     # Deliberately excluded: last_called_at has its own bulk-update writer that bypasses auto_now,
     # so a mirrored column would be permanently stale. See .notes/feature-flag-mirror-design.md.
     row.pop("last_called_at", None)
     return row
 
 
-_TRANSFORMS: dict[str, Callable[[dict], dict]] = {
-    "posthog_organization": transform_organization_row,
-    "posthog_team": transform_team_row,
-    "posthog_featureflag": transform_feature_flag_row,
+# ----- TABLE_CONFIGS -----
+
+TABLE_CONFIGS: dict[str, TableConfig] = {
+    "posthog_organization": TableConfig(
+        key=("id",),
+        watermark_column="updated_at",
+        order_by="(id, updated_at)",
+        select_columns=_ORG_COLS,
+        jsonb_text_cast=_ORG_JSONB_TEXT_CAST,
+        bool_fields=_ORG_BOOL_FIELDS,
+        uuid_fields=["id", "logo_media_id"],
+        array_fields=["domain_whitelist"],
+        ddl=_organization_ddl,
+    ),
+    "posthog_team": TableConfig(
+        key=("id",),
+        watermark_column="updated_at",
+        order_by="(organization_id, id, updated_at)",
+        select_columns=_TEAM_COLS,
+        jsonb_text_cast=_TEAM_JSONB_TEXT_CAST,
+        bool_fields=_TEAM_BOOL_FIELDS,
+        uuid_fields=["uuid", "organization_id"],
+        array_fields=_TEAM_ARRAY_FIELDS,
+        ddl=_team_ddl,
+        post_transform=_finalize_team_row,
+    ),
+    # Identity is (team_id, id), not (team_id, key): soft-delete renames key with a :deleted:<id>
+    # suffix, and id is what survives that rename.
+    "posthog_featureflag": TableConfig(
+        key=("team_id", "id"),
+        watermark_column="updated_at",
+        watermark_expr=_FEATURE_FLAG_WATERMARK_EXPR,
+        order_by=_FEATURE_FLAG_ORDER_BY,
+        select_columns=_FEATURE_FLAG_COLS,
+        bool_fields=_FEATURE_FLAG_BOOL_FIELDS,
+        ddl=_feature_flag_ddl,
+        post_transform=_finalize_feature_flag_row,
+    ),
 }
 
 
+class PostgresToClickHouseETLConfig(Config):
+    full_refresh: bool = False
+    batch_size: int = 10000
+    # Overlap the incremental window by this much to catch rows that committed after their
+    # timestamp slot passed the prior high-watermark. The engine dedupes the overlap at merge time.
+    backward_lookback_seconds: int = 86400
+
+
+etl_retry_policy = RetryPolicy(
+    max_retries=3,
+    delay=60,
+    backoff=dagster.Backoff.EXPONENTIAL,
+    jitter=dagster.Jitter.PLUS_MINUS,
+)
+
+
+def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
+    if context:
+        context.log.info("Creating database 'models' if it doesn't exist...")
+    cluster = get_cluster()
+    cluster.map_all_hosts(Query("CREATE DATABASE IF NOT EXISTS models")).result()
+
+
+def create_clickhouse_tables(
+    context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
+) -> None:
+    create_database_if_not_exists(context)
+    cluster = get_cluster()
+    if force_recreate:
+        for table_name in TABLE_CONFIGS:
+            cluster.map_all_hosts(Query(f"DROP TABLE IF EXISTS models.{table_name}")).result()
+    for table_name, cfg in TABLE_CONFIGS.items():
+        if context:
+            context.log.info(f"Creating models.{table_name} if it doesn't exist...")
+        cluster.map_all_hosts(Query(cfg.ddl())).result()
+
+
 def transform_row(table_name: str, row: dict) -> dict:
-    return _TRANSFORMS[table_name](row)
+    """Adapt one Postgres row dict for the ClickHouse mirror, in place."""
+    cfg = TABLE_CONFIGS[table_name]
+    for f in cfg.uuid_fields:
+        if row.get(f) is not None:
+            row[f] = str(row[f])
+    for f in cfg.bool_fields:
+        if row.get(f) is not None:
+            row[f] = 1 if row[f] else 0
+    for f in cfg.array_fields:
+        if row.get(f) is None:
+            row[f] = []
+        elif isinstance(row[f], list):
+            row[f] = [v for v in row[f] if v is not None]
+    return cfg.post_transform(row) if cfg.post_transform else row
 
 
 def fetch_rows_in_batches(conn, table_name: str, last_sync: Optional[datetime], batch_size: int = 10000):
-    """Yield batches from Postgres, incrementally filtered on the table's watermark column."""
+    """Yield batches from Postgres, incrementally filtered on the table's watermark expression."""
     cfg = TABLE_CONFIGS[table_name]
-    if cfg.postgres_filter is not None:
-        where_clause, params = cfg.postgres_filter(last_sync)
-    else:
-        where_clause, params = (f"WHERE {cfg.watermark_column} > %s", [last_sync]) if last_sync else ("", [])
+    query, params = cfg.build_incremental_query(table_name, last_sync)
 
-    query = f"SELECT {_select_clause(table_name)} FROM {table_name} {where_clause} ORDER BY {cfg.watermark_column} ASC"
     cursor = conn.cursor(name=f"{table_name}_cursor_{uuid.uuid4().hex[:8]}")
     try:
         cursor.execute(query, params)
@@ -697,13 +664,12 @@ def insert_rows_to_clickhouse(table_name: str, rows: list[dict], batch_size: int
     cfg = TABLE_CONFIGS[table_name]
     transformed = [transform_row(table_name, dict(r)) for r in rows]
 
-    columns = _SELECT_COLUMNS[table_name] + list(cfg.projections.keys())
-    insert_sql = f"INSERT INTO models.{table_name} ({', '.join(columns)}) VALUES"
+    insert_sql = f"INSERT INTO models.{table_name} ({', '.join(cfg.select_columns)}) VALUES"
 
     total_inserted = 0
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
-        data = [tuple(row.get(col) for col in columns) for row in batch]
+        data = [tuple(row.get(col) for col in cfg.select_columns) for row in batch]
         sync_execute(insert_sql, data, with_column_types=False)
         total_inserted += len(batch)
     return total_inserted
@@ -858,13 +824,11 @@ def _sync_asset_partition(context: AssetExecutionContext, table_name: str) -> No
         partition_dt = datetime.strptime(context.partition_key, "%Y-%m-%d-%H:%M")
         start_time, end_time = partition_dt, partition_dt + timedelta(hours=1)
         cfg = TABLE_CONFIGS[table_name]
+        query, params = cfg.build_partition_query(table_name, start_time, end_time)
         pg_conn = get_postgres_connection()
         try:
             cursor = pg_conn.cursor()
-            cursor.execute(
-                f"SELECT {_select_clause(table_name)} FROM {table_name} WHERE {cfg.watermark_column} >= %s AND {cfg.watermark_column} < %s ORDER BY {cfg.watermark_column} ASC",
-                (start_time, end_time),
-            )
+            cursor.execute(query, params)
             rows = cursor.fetchall()
             context.log.info(f"Fetched {len(rows)} {table_name} rows for partition {context.partition_key}")
             if rows:
@@ -875,19 +839,25 @@ def _sync_asset_partition(context: AssetExecutionContext, table_name: str) -> No
             pg_conn.close()
 
 
-@asset(
-    retry_policy=etl_retry_policy,
-    partitions_def=hourly_partition,
-    backfill_policy=BackfillPolicy(max_partitions_per_run=24),
-)
-def organizations_in_clickhouse(context: AssetExecutionContext) -> None:
-    _sync_asset_partition(context, "posthog_organization")
+def _hourly_backfill_asset(name: str, table_name: str):
+    """Build a partitioned asset that mirrors one UTC hour of ``table_name`` per materialization.
+
+    Manual escape hatch alongside the scheduled hourly job: materialize a partition range from the
+    Dagster UI to re-sync a known time window (for example after an incident or a missed run).
+    """
+
+    @asset(
+        name=name,
+        retry_policy=etl_retry_policy,
+        partitions_def=hourly_partition,
+        backfill_policy=BackfillPolicy(max_partitions_per_run=24),
+    )
+    def _backfill(context: AssetExecutionContext) -> None:
+        _sync_asset_partition(context, table_name)
+
+    return _backfill
 
 
-@asset(
-    retry_policy=etl_retry_policy,
-    partitions_def=hourly_partition,
-    backfill_policy=BackfillPolicy(max_partitions_per_run=24),
-)
-def teams_in_clickhouse(context: AssetExecutionContext) -> None:
-    _sync_asset_partition(context, "posthog_team")
+organizations_in_clickhouse = _hourly_backfill_asset("organizations_in_clickhouse", "posthog_organization")
+teams_in_clickhouse = _hourly_backfill_asset("teams_in_clickhouse", "posthog_team")
+feature_flags_in_clickhouse = _hourly_backfill_asset("feature_flags_in_clickhouse", "posthog_featureflag")

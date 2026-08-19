@@ -29,6 +29,7 @@ defs = dagster.Definitions(
         orm_examples.pending_deletions,
         postgres_to_clickhouse_etl.organizations_in_clickhouse,
         postgres_to_clickhouse_etl.teams_in_clickhouse,
+        postgres_to_clickhouse_etl.feature_flags_in_clickhouse,
     ],
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,

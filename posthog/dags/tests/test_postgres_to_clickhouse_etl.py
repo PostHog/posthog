@@ -11,23 +11,19 @@ from dagster import build_asset_context, build_op_context
 from parameterized import parameterized
 
 from posthog.dags.postgres_to_clickhouse_etl import (
+    TABLE_CONFIGS,
     IncrementalState,
     PostgresToClickHouseETLConfig,
     _sync_table,
     create_clickhouse_tables,
+    feature_flags_in_clickhouse,
     fetch_rows_in_batches,
-    get_feature_flag_table_sql,
-    get_organization_table_sql,
-    get_team_table_sql,
     insert_rows_to_clickhouse,
     organizations_in_clickhouse,
     postgres_to_clickhouse_etl_job,
     postgres_to_clickhouse_hourly_schedule,
     teams_in_clickhouse,
-    transform_feature_flag_row,
-    transform_organization_row,
     transform_row,
-    transform_team_row,
     verify_sync,
 )
 
@@ -85,7 +81,7 @@ class TestTransformations:
             "domain_whitelist": ["example.com"],
         }
 
-        transformed = transform_organization_row(row)
+        transformed = transform_row("posthog_organization", row)
 
         assert transformed["id"] == str(test_uuid)
         assert isinstance(transformed["logo_media_id"], str)
@@ -115,7 +111,7 @@ class TestTransformations:
             "drop_events_older_than": timedelta(days=30),
         }
 
-        transformed = transform_team_row(row)
+        transformed = transform_row("posthog_team", row)
 
         assert transformed["uuid"] == str(team_uuid)
         assert transformed["organization_id"] == str(org_uuid)
@@ -133,7 +129,7 @@ class TestTransformations:
         created = datetime(2025, 3, 1, 12, 0, 0)
         row = _flag_row(created_at=created, updated_at=None)
 
-        transformed = transform_feature_flag_row(row)
+        transformed = transform_row("posthog_featureflag", row)
 
         assert transformed["updated_at"] == created
 
@@ -144,69 +140,24 @@ class TestTransformations:
         }
         row = _flag_row(filters=original_filters)
 
-        transformed = transform_feature_flag_row(row)
+        transformed = transform_row("posthog_featureflag", row)
 
         # transform mutates the row in place (filters becomes a JSON string), so parse it back and compare to the original dict.
         assert json.loads(transformed["filters"]) == original_filters
-        assert transformed["variant_count"] == 2
-
-    @parameterized.expand(
-        [
-            (
-                "flag_dependency",
-                {"groups": [{"properties": [{"key": "123", "value": "123", "type": "flag"}]}]},
-                "has_flag_dependency",
-                1,
-            ),
-            (
-                "no_flag_dependency",
-                {"groups": [{"properties": [{"key": "email", "value": "x", "type": "person"}]}]},
-                "has_flag_dependency",
-                0,
-            ),
-            (
-                "cohort_ref",
-                {"groups": [{"properties": [{"key": "id", "value": 14, "type": "cohort"}]}]},
-                "has_cohort_filters",
-                1,
-            ),
-            (
-                "plain_person_property",
-                {"groups": [{"properties": [{"key": "email", "value": "x", "type": "person"}]}]},
-                "has_cohort_filters",
-                0,
-            ),
-            (
-                "multivariate",
-                {"groups": [], "multivariate": {"variants": [{"key": "a"}, {"key": "b"}, {"key": "c"}]}},
-                "variant_count",
-                3,
-            ),
-            ("boolean_flag_no_variants", {"groups": []}, "variant_count", 0),
-            # A non-dict group (e.g. a legacy row where enforcement was off) must be skipped, not
-            # crash the whole table sync on group.get(...). See _iter_flag_filter_properties.
-            ("malformed_group_flag_dependency", {"groups": [None]}, "has_flag_dependency", 0),
-            ("malformed_group_cohort_filters", {"groups": [None]}, "has_cohort_filters", 0),
-        ]
-    )
-    def test_transform_feature_flag_projection(self, _name, filters, projection_column, expected):
-        transformed = transform_feature_flag_row(_flag_row(filters=filters))
-        assert transformed[projection_column] == expected
+        assert transformed["deleted"] == 0
+        assert transformed["active"] == 1
 
     def test_transform_feature_flag_row_unparseable_filters_falls_back_to_empty_dict(self):
-        transformed = transform_feature_flag_row(_flag_row(filters="not json"))
+        transformed = transform_row("posthog_featureflag", _flag_row(filters="not json"))
 
         assert transformed["filters"] == "{}"
-        assert transformed["has_flag_dependency"] == 0
-        assert transformed["has_cohort_filters"] == 0
-        assert transformed["variant_count"] == 0
 
     def test_transform_feature_flag_row_drops_last_called_at(self):
         # last_called_at has its own bulk-update writer that skips updated_at; a mirrored column
         # would be permanently stale, so the transform strips it.
         row = _flag_row(last_called_at=datetime(2025, 3, 2))
 
-        transformed = transform_feature_flag_row(row)
+        transformed = transform_row("posthog_featureflag", row)
 
         assert "last_called_at" not in transformed
 
@@ -217,26 +168,23 @@ class TestTransformations:
 
 class TestTableDdl:
     def test_organization_ddl(self):
-        sql = get_organization_table_sql()
+        sql = TABLE_CONFIGS["posthog_organization"].ddl()
         assert "models.posthog_organization" in sql
         assert "ReplicatedReplacingMergeTree" in sql
 
     def test_team_ddl(self):
-        sql = get_team_table_sql()
+        sql = TABLE_CONFIGS["posthog_team"].ddl()
         assert "models.posthog_team" in sql
         assert "ReplicatedReplacingMergeTree" in sql
 
     def test_feature_flag_ddl_shape(self):
-        sql = get_feature_flag_table_sql()
+        sql = TABLE_CONFIGS["posthog_featureflag"].ddl()
         assert "models.posthog_featureflag" in sql
         assert "ReplicatedReplacingMergeTree" in sql
         assert "key String" in sql
         assert "filters String" in sql
         # Flag identity is (team_id, id), not (team_id, key) — see TableConfig note on tombstone renames.
         assert "ORDER BY (team_id, id, updated_at)" in sql
-        assert "has_flag_dependency" in sql
-        assert "has_cohort_filters" in sql
-        assert "variant_count" in sql
 
 
 class TestFetchRowsInBatches:
@@ -265,13 +213,14 @@ class TestFetchRowsInBatches:
 
     def test_feature_flag_incremental_catches_updated_and_created_rows(self):
         # A flag's first edit sets updated_at; creation sets created_at and leaves updated_at NULL.
-        # The filter must pick up either one moving into the window.
+        # The COALESCE watermark must pick up either one moving into the window.
         conn, cursor = self._conn_yielding([[{"id": 1}]])
         list(fetch_rows_in_batches(conn, "posthog_featureflag", datetime(2024, 1, 1), batch_size=100))
 
         sql, params = cursor.execute.call_args[0]
-        assert "WHERE (updated_at > %s OR (updated_at IS NULL AND created_at > %s))" in sql
-        assert params == [datetime(2024, 1, 1)] * 2
+        assert "WHERE COALESCE(updated_at, created_at) > %s" in sql
+        assert "ORDER BY COALESCE(updated_at, created_at) ASC" in sql
+        assert params == [datetime(2024, 1, 1)]
 
     def test_jsonb_columns_selected_as_text_to_skip_parse(self):
         """Org/team JSON columns go over the wire as text so psycopg2 doesn't parse them only to re-serialize."""
@@ -281,7 +230,7 @@ class TestFetchRowsInBatches:
         sql = cursor.execute.call_args[0][0]
         assert "test_account_filters::text AS test_account_filters" in sql
 
-    def test_flag_filters_not_cast_to_text_because_projections_need_the_dict(self):
+    def test_flag_filters_not_cast_to_text(self):
         conn, cursor = self._conn_yielding([[{"id": 1}]])
         list(fetch_rows_in_batches(conn, "posthog_featureflag", None, batch_size=100))
 
@@ -470,17 +419,16 @@ class TestSyncTable:
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_feature_flag_watermark_uses_updated_at_when_present(
+    def test_feature_flag_watermark_skips_null_updated_at_in_mixed_batch(
         self, mock_create_tables, mock_get_pg, mock_sync_execute
     ):
-        """updated_at is the watermark for edited flags; created_at only matters for flags that were never edited."""
+        """A batch mixing edited and never-edited flags must not crash max() and must advance to the edited flag."""
         mock_sync_execute.side_effect = [
             [[None]],
             None,
         ]
         mock_get_pg.return_value = MagicMock()
         edited_at = datetime(2025, 4, 15, 10, 0, 0)
-        created_at = datetime(2025, 3, 1, 12, 0, 0)
         with (
             patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
             patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse") as mock_insert,
@@ -488,16 +436,37 @@ class TestSyncTable:
             mock_fetch.return_value = iter(
                 [
                     [
-                        {
-                            "id": 7,
-                            "team_id": 42,
-                            "key": "flag",
-                            "created_at": created_at,
-                            "updated_at": edited_at,
-                            "filters": {},
-                        }
+                        {"id": 7, "team_id": 42, "created_at": datetime(2025, 3, 1), "updated_at": None},
+                        {"id": 8, "team_id": 42, "created_at": datetime(2025, 3, 2), "updated_at": edited_at},
                     ]
                 ]
+            )
+            mock_insert.return_value = 2
+            context = build_op_context()
+
+            state = _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
+
+            assert state.rows_synced == 2
+            assert state.last_sync_timestamp == edited_at
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_feature_flag_watermark_stays_empty_for_all_null_batch(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        """A batch of only never-edited flags still syncs rows but reports no watermark for the run."""
+        mock_sync_execute.side_effect = [
+            [[None]],
+            None,
+        ]
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse") as mock_insert,
+        ):
+            mock_fetch.return_value = iter(
+                [[{"id": 7, "team_id": 42, "created_at": datetime(2025, 3, 1), "updated_at": None}]]
             )
             mock_insert.return_value = 1
             context = build_op_context()
@@ -505,9 +474,7 @@ class TestSyncTable:
             state = _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
 
             assert state.rows_synced == 1
-            # The high-watermark advances to updated_at, not created_at — even though the flag config
-            # falls back to created_at for writing, the *read* watermark uses updated_at verbatim.
-            assert state.last_sync_timestamp == edited_at
+            assert state.last_sync_timestamp is None
 
 
 class TestVerifySync:
@@ -537,13 +504,34 @@ class TestDagsterWiring:
         assert postgres_to_clickhouse_hourly_schedule.cron_schedule == "0 * * * *"
         assert postgres_to_clickhouse_hourly_schedule.execution_timezone == "UTC"
 
-    def test_organizations_and_teams_assets_still_defined(self):
-        assert organizations_in_clickhouse.partitions_def is not None
-        assert teams_in_clickhouse.partitions_def is not None
-        assert organizations_in_clickhouse.backfill_policy is not None
-        assert organizations_in_clickhouse.backfill_policy.max_partitions_per_run == 24
+    @parameterized.expand(
+        [
+            ("organizations", organizations_in_clickhouse),
+            ("teams", teams_in_clickhouse),
+            ("feature_flags", feature_flags_in_clickhouse),
+        ]
+    )
+    def test_backfill_assets_are_hourly_partitioned(self, _name, backfill_asset):
+        assert backfill_asset.partitions_def is not None
+        assert backfill_asset.backfill_policy is not None
+        assert backfill_asset.backfill_policy.max_partitions_per_run == 24
 
-    def test_asset_window_query_filters_on_watermark_bounds(self):
+    @parameterized.expand(
+        [
+            (
+                "organizations",
+                organizations_in_clickhouse,
+                "WHERE updated_at >= %s AND updated_at < %s",
+            ),
+            # Never-edited flags have NULL updated_at in Postgres; a plain-column window would skip them.
+            (
+                "feature_flags",
+                feature_flags_in_clickhouse,
+                "WHERE COALESCE(updated_at, created_at) >= %s AND COALESCE(updated_at, created_at) < %s",
+            ),
+        ]
+    )
+    def test_asset_window_query_filters_on_watermark_bounds(self, _name, backfill_asset, expected_where):
         mock_pg = MagicMock()
         cur = MagicMock()
         cur.fetchall.return_value = []
@@ -554,10 +542,10 @@ class TestDagsterWiring:
             patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables"),
         ):
             ctx = build_asset_context(partition_key="2024-01-15-14:00")
-            organizations_in_clickhouse(ctx)
+            backfill_asset(ctx)
 
         sql, params = cur.execute.call_args[0]
-        assert "WHERE updated_at >= %s AND updated_at < %s" in sql
+        assert expected_where in sql
         assert params[0].isoformat() == "2024-01-15T14:00:00"
         assert params[1].isoformat() == "2024-01-15T15:00:00"
 
