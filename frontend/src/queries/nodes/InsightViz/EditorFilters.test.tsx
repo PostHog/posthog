@@ -43,13 +43,6 @@ function makeTrendsQuery(): TrendsQuery {
     }
 }
 
-function makeActionTrendsQuery(): TrendsQuery {
-    return {
-        kind: NodeKind.TrendsQuery,
-        series: [{ kind: NodeKind.ActionsNode, id: 1, name: 'Signup', math: BaseMathType.TotalCount }],
-    }
-}
-
 function makeDataWarehouseTrendsQuery(): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
@@ -144,13 +137,16 @@ describe('EditorFilters', () => {
         cleanup()
     })
 
-    it('loads actions only for insight editors with action series', async () => {
+    it('does not load actions for insight editors before a taxonomy picker opens', async () => {
         setupAndRender(makeTrendsQuery())
         expect(actionRequestCount).toBe(0)
 
         actionsModel({ skipLoad: true }).unmount()
-        setupAndRender(makeActionTrendsQuery())
-        await waitFor(() => expect(actionRequestCount).toBe(1))
+        setupAndRender({
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.ActionsNode, id: 1, name: 'Signup', math: BaseMathType.TotalCount }],
+        })
+        await waitFor(() => expect(actionRequestCount).toBe(0))
     })
 
     it.each([

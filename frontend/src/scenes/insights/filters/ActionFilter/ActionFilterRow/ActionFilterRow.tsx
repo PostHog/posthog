@@ -132,7 +132,7 @@ export function ActionFilterRow({
         duplicateFilter,
         convertFilterToGroup,
     } = useActions(logic)
-    const { actions } = useValues(filter.type === EntityTypes.ACTIONS ? actionsModel : actionsModel({ skipLoad: true }))
+    const { actions } = useValues(actionsModel({ skipLoad: true }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
