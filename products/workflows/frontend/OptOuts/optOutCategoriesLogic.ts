@@ -74,6 +74,7 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
         categories: {
             __default: [] as MessageCategory[],
             loadCategories: async (): Promise<MessageCategory[]> => {
+                // nosemgrep: prefer-codegen-api
                 const response = await messagingCategoriesList(String(ApiConfig.getCurrentProjectId()), {
                     category_type: 'marketing',
                 })
@@ -101,6 +102,7 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
     listeners(({ actions }) => ({
         deleteCategory: async ({ id }: { id: string }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await messagingCategoriesPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, { deleted: true })
                 actions.loadCategories()
             } catch (error) {

@@ -142,6 +142,7 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                 if (props.category) {
                     // Update existing category
                     await messagingCategoriesPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         props.category.id,
                         formValues
@@ -149,6 +150,7 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
+                    // nosemgrep: prefer-codegen-api
                     await messagingCategoriesCreate(String(ApiConfig.getCurrentProjectId()), formValues)
                     lemonToast.success('Category created successfully')
                 }

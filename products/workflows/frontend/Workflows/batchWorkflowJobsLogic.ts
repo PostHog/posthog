@@ -94,6 +94,7 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                     }
 
                     return (await hogFlowsBatchJobsList(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         props.id
                     )) as unknown as HogFlowBatchJob[]

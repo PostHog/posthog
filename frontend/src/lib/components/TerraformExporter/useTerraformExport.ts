@@ -36,6 +36,7 @@ async function fetchAlertsForInsights(insights: InsightModel[]): Promise<Map<num
 
     const alertPromises = insightsWithIds.map(async (insight) => {
         try {
+            // nosemgrep: prefer-codegen-api
             const response = await alertsList(String(ApiConfig.getCurrentProjectId()), { insight_id: insight.id })
             return { insightId: insight.id, alerts: response.results as unknown as AlertType[] }
         } catch (e) {

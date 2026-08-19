@@ -166,6 +166,7 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
                 loadIssue: async () => {
                     try {
                         return (await errorTrackingIssuesRetrieve(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             props.issueId,
                             { fingerprint: props.fingerprint }
@@ -213,6 +214,7 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             {
                 loadSpikeEvents: async () => {
                     const { date_from, date_to } = defaultDateRange()
+                    // nosemgrep: prefer-codegen-api
                     const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
                         issue_ids: props.issueId,
                         date_from: date_from ?? undefined,

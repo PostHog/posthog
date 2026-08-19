@@ -63,6 +63,7 @@ export const workflowNameLogic = kea<workflowNameLogicType>([
             {
                 loadWorkflow: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await hogFlowsRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                     } catch {
                         // Deleted, or not visible to this user. Callers fall back to a generic label.

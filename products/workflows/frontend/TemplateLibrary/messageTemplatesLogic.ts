@@ -162,6 +162,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await messagingTemplatesList(String(ApiConfig.getCurrentProjectId()))
                     return response.results
                 },
@@ -183,6 +184,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
                         const newTemplate = await messagingTemplatesCreate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             template
                         )
@@ -202,6 +204,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 }) => {
                     try {
                         const updatedTemplate = await messagingTemplatesPartialUpdate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             templateId,
                             template
@@ -216,6 +219,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
                         const duplicatedTemplate = await messagingTemplatesCreate(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             {
                                 name: `${template.name} (copy)`,

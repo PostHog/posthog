@@ -489,6 +489,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
                     const subscription = (await subscriptionsRetrieve(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         props.id
                     )) as unknown as SubscriptionType
@@ -524,6 +525,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         summaryQuota: {
             __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
             loadSummaryQuota: async () => {
+                // nosemgrep: prefer-codegen-api
                 return await subscriptionsSummaryQuotaRetrieve(String(ApiConfig.getCurrentProjectId()))
             },
         },
@@ -568,10 +570,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const updatedSub: SubscriptionType =
                     props.id === 'new'
                         ? ((await subscriptionsCreate(
+                              // nosemgrep: prefer-codegen-api
                               String(ApiConfig.getCurrentProjectId()),
                               payload as Parameters<typeof subscriptionsCreate>[1]
                           )) as unknown as SubscriptionType)
                         : ((await subscriptionsUpdate(
+                              // nosemgrep: prefer-codegen-api
                               String(ApiConfig.getCurrentProjectId()),
                               props.id,
                               payload as Parameters<typeof subscriptionsUpdate>[2]

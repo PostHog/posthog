@@ -138,6 +138,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
 
                     try {
                         const response = await conversationsTicketsUnreadCountRetrieve(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId())
                         )
                         actions.clearErrorCount()

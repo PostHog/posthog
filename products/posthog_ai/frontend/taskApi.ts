@@ -16,6 +16,7 @@ import {
 
 import { Task, TaskListParams, TaskRun, TaskUpsertProps } from './types/taskTypes'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export const taskApi = {

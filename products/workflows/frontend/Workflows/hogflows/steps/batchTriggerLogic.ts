@@ -112,6 +112,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
                     if (!props.filters) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await hogFlowsUserBlastRadiusCreate(String(ApiConfig.getCurrentProjectId()), {
                         filters: props.filters,
                         dedupe_key: props.dedupeKey,

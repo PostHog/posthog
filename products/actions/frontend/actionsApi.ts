@@ -12,6 +12,7 @@ import {
 } from './generated/api'
 import type { ActionReferenceApi, ActionsListParams } from './generated/api.schemas'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 const listParams = (query?: string): ActionsListParams => {

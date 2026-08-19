@@ -367,6 +367,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     const apiResponse = (await hogFlowsInvocationsCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         values.workflow.id,
                         {

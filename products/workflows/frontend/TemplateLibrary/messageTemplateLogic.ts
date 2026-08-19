@@ -352,12 +352,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
+                // nosemgrep: prefer-codegen-api
                 return await messagingTemplatesRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
             },
             saveTemplate: (template) => {
                 if (template.id === 'new') {
+                    // nosemgrep: prefer-codegen-api
                     return messagingTemplatesCreate(String(ApiConfig.getCurrentProjectId()), template)
                 }
+                // nosemgrep: prefer-codegen-api
                 return messagingTemplatesPartialUpdate(String(ApiConfig.getCurrentProjectId()), template.id, template)
             },
         },
@@ -421,6 +424,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             const template = values.template
             try {
+                // nosemgrep: prefer-codegen-api
                 const duplicatedTemplate = await messagingTemplatesCreate(String(ApiConfig.getCurrentProjectId()), {
                     name: `${template.name} (copy)`,
                     description: template.description,

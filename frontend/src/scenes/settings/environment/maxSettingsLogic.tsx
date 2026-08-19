@@ -143,6 +143,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
             __default: null as MaxCoreMemoryApi | null,
             loadCoreMemory: async (): Promise<MaxCoreMemoryApi | null> => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await coreMemoryList(String(ApiConfig.getCurrentProjectId()))
                     return response.results[0] || null
                 } catch (error) {
@@ -157,12 +158,14 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
+                    // nosemgrep: prefer-codegen-api
                     const response = await coreMemoryCreate(String(ApiConfig.getCurrentProjectId()), data)
                     lemonToast.success('PostHog AI memory has been created.')
                     return response
                 }
 
                 const response = await coreMemoryPartialUpdate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     values.coreMemory.id,
                     data

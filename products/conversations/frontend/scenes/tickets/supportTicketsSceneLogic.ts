@@ -762,6 +762,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await conversationsTicketsList(String(ApiConfig.getCurrentProjectId()), params)
                 // Drop responses that were superseded while in flight, so a slow reply
                 // to an older query can't overwrite newer results.
@@ -908,6 +909,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setBulkUpdating(true)
             try {
                 const result = await conversationsTicketsBulkUpdateStatusCreate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     { ids, status }
                 )

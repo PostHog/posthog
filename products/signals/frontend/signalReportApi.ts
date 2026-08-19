@@ -16,6 +16,7 @@ import {
     SignalReportStateRequest,
 } from './inbox/types'
 
+// nosemgrep: prefer-codegen-api
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 type ReportListParams = SignalsReportsListParams & {

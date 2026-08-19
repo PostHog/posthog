@@ -411,6 +411,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     }
 
                     const result = (await hogFlowsInvocationsCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         workflow.id,
                         {

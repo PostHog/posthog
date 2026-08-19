@@ -271,6 +271,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await hogFlowTemplatesCreate(String(ApiConfig.getCurrentProjectId()), {
                         ...workflow,
                         name: formValues.name || workflow.name || '',
@@ -354,6 +355,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     // In edit mode, use workflow values for name/description, but load template for image_url, tags, and scope
                     try {
                         const template = await hogFlowTemplatesRetrieve(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             props.editTemplateId
                         )
@@ -390,6 +392,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
             })
 
             await hogFlowTemplatesPartialUpdate(
+                // nosemgrep: prefer-codegen-api
                 String(ApiConfig.getCurrentProjectId()),
                 workflowTemplate.id,
                 workflowTemplate

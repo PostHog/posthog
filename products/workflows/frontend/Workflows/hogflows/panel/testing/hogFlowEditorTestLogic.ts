@@ -998,6 +998,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = (await hogFlowsInvocationsCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         values.workflow.id,
                         {

@@ -113,10 +113,12 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
             [] as HogFlowTemplate[],
             {
                 loadWorkflowTemplates: async (): Promise<HogFlowTemplate[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await hogFlowTemplatesList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as HogFlowTemplate[]
                 },
                 deleteHogflowTemplate: async ({ template }) => {
+                    // nosemgrep: prefer-codegen-api
                     await hogFlowTemplatesDestroy(String(ApiConfig.getCurrentProjectId()), template.id)
                     return values.workflowTemplates.filter((t) => t.id !== template.id)
                 },

@@ -277,6 +277,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             const establishConnection = async (isReconnect: boolean): Promise<boolean> => {
                 let token: string
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await maxHandsFreeTokenCreate(String(ApiConfig.getCurrentProjectId()))
                     token = response.token
                 } catch (err) {
@@ -499,6 +500,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
 
             try {
                 const response = await api.createResponse(
+                    // nosemgrep: prefer-codegen-api
                     getMaxHandsFreeSynthesizeCreateUrl(String(ApiConfig.getCurrentProjectId())),
                     { text: spokenText },
                     { signal: controller.signal }

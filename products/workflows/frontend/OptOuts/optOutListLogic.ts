@@ -451,6 +451,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 exportCsv: async (): Promise<null> => {
                     try {
                         const blob = await messagingPreferencesExportOptOutsCsvRetrieve(
+                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentProjectId()),
                             { category_key: props.category?.key }
                         )
@@ -493,6 +494,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                         const chunk = parsed.entries.slice(start, start + BULK_OPT_OUT_CHUNK_SIZE)
                         try {
                             const chunkResult = await messagingPreferencesBulkAddOptOutsCreate(
+                                // nosemgrep: prefer-codegen-api
                                 String(ApiConfig.getCurrentProjectId()),
                                 {
                                     opt_outs: chunk.map(({ identifier, category_key }) => ({

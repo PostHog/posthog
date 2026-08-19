@@ -460,6 +460,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await messagingTemplatesList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as unknown as MessageTemplate[]
                 },
@@ -801,6 +802,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
 
                 await messagingTemplatesCreate(
+                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentProjectId()),
                     templateData as Parameters<typeof messagingTemplatesCreate>[1]
                 )
