@@ -191,6 +191,7 @@ function TracingFilterSearch(): JSX.Element {
 
 function FilterGroupValues({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null {
     const { filterGroup } = useValues(universalFiltersLogic)
+    const { suppressAutoOpenFilter } = useValues(tracingFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
     if (filterGroup.values.length === 0) {
@@ -211,7 +212,11 @@ function FilterGroupValues({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        initiallyOpen={
+                            allowInitiallyOpen &&
+                            filterOrGroup.type != PropertyFilterType.HogQL &&
+                            filterOrGroup !== suppressAutoOpenFilter
+                        }
                     />
                 )
             })}

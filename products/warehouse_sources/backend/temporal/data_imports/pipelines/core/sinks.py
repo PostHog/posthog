@@ -4,6 +4,7 @@ from typing import Protocol
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import schema_binding
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
@@ -66,7 +67,7 @@ def build_pipeline_sinks(
     cdp_producer = CDPProducer(team_id=team_id, schema_id=schema_id, job_id=job_id, logger=logger)
     person_property_sink = PersonPropertyRowSink(
         team_id=team_id,
-        schema_id=schema_id,
+        binding=schema_binding(schema_id),
         job_id=job_id,
         logger=logger,
         is_incremental=is_incremental,
