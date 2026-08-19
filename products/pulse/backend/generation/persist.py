@@ -8,6 +8,8 @@ from django.db.models import QuerySet
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.alerts.backend.models import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -132,12 +134,21 @@ def _validated_proposal(brief: ProductBrief, opp: OpportunityOut, item: SourceIt
     }
 
 
+@frozen
+class PromotedMetric:
+    """The metric_ref/baseline pair a promotion produces. Named rather than a tuple so the two
+    dicts cannot be swapped at the call site."""
+
+    metric_ref: dict
+    baseline: dict
+
+
 def _promoted_metric(
     brief: ProductBrief,
     proposed_experiment: dict,
     results_cache: InsightResultsCache,
     period_days: int,
-) -> tuple[dict, dict] | None:
+) -> PromotedMetric | None:
     """Close the suggest→act→measure loop for a proposal-carrying opportunity that resolved no
     metric of its own: promote the proposal's (already membership-validated) target metric into
     the `metric_ref`/`baseline` pair accountability re-scores, snapshotting the current window
@@ -195,7 +206,10 @@ def _promoted_metric(
         return None
     # The minimal shape accountability's usability gate requires — the same snapshot semantics
     # as anchored-insights movement numbers (current window total over period_days).
-    return dict(target), {"current_total": float(sum(windows.current)), "period_days": period_days}
+    return PromotedMetric(
+        metric_ref=dict(target),
+        baseline={"current_total": float(sum(windows.current)), "period_days": period_days},
+    )
 
 
 def _build_opportunity(
@@ -343,7 +357,7 @@ def persist_brief_output(
             else:
                 promoted = _promoted_metric(brief, proposed_experiment, results_cache, window_days)
                 if promoted is not None:
-                    metric_ref, baseline = promoted
+                    metric_ref, baseline = promoted.metric_ref, promoted.baseline
         opportunity = _build_opportunity(brief, opp, baseline, metric_ref, proposed_experiment)
         new_opportunities.append(opportunity)
         links_by_opportunity.append((opportunity, evidence))
