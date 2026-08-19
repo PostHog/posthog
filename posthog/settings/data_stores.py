@@ -563,6 +563,10 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Dedicated Redis for the usage-ingestion service's team-to-organization HyperCache.
+# Django owns writes while the Rust service reads the projection directly.
+USAGE_INGESTION_REDIS_URL = os.getenv("USAGE_INGESTION_REDIS_URL", None)
+
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
 # published where the gateway reads it — zero config for the gateway e2e
@@ -628,6 +632,19 @@ if FLAGS_REDIS_URL:
     CACHES[FLAGS_DEDICATED_CACHE_ALIAS] = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": FLAGS_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+if USAGE_INGESTION_REDIS_URL:
+    from posthog.caching.usage_ingestion_redis_cache import USAGE_INGESTION_CACHE_ALIAS
+
+    CACHES[USAGE_INGESTION_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": USAGE_INGESTION_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",

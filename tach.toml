@@ -1326,3 +1326,17 @@ expose = [
 from = [
     "products.data_quality",
 ]
+
+[[modules]]
+path = "products.usage_ingestion"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.usage_ingestion",
+]
