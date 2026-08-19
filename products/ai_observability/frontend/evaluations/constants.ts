@@ -1,6 +1,5 @@
-// Evaluation summary limits
-// This should match EVALUATION_SUMMARY_MAX_RUNS in backend/summarization/constants.py
-export const EVALUATION_SUMMARY_MAX_RUNS = 250
+// Most-recent runs fetched for an evaluation's runs table and its result badges
+export const EVALUATION_RUNS_QUERY_LIMIT = 250
 
 // Compared against the string 'true', not `= true` or `= 1`: HogQL types $ai_evaluation_result from
 // each team's own property definition, so teams that haven't registered it as Boolean extract the
