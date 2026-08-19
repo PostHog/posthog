@@ -33379,7 +33379,7 @@
             "type": "object"
         },
         "MarketingAnalyticsConstants": {
-            "enum": ["Goal", "Cost per", "const:"],
+            "enum": ["Goal", "Cost per", "ROAS", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsDrillDownConfig": {
