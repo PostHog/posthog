@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { useMocks } from '~/mocks/jest'
 import type {
@@ -104,6 +105,21 @@ describe('miniBreakdownsLogic', () => {
         expect(getSelectedEventBreakdownProperties(properties, false)).toHaveLength(
             MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES
         )
+    })
+
+    it('hides breakdown properties without values after loading', () => {
+        expect(breakdowns.values.visibleBreakdownProperties).toEqual(BREAKDOWN_PRESETS)
+
+        breakdowns.actions.loadResponseSuccess({
+            results: {
+                $browser: { values: [{ value: 'Chrome', count: 2 }], total_count: 2 },
+                $os: { values: [{ value: BREAKDOWN_NULL_STRING_LABEL, count: 2 }], total_count: 2 },
+            },
+        })
+
+        expect(breakdowns.values.visibleBreakdownProperties).toEqual([
+            BREAKDOWN_PRESETS.find(({ property }) => property === '$browser'),
+        ])
     })
 
     it('loads the expanded value set when opening breakdown details', async () => {
