@@ -30,6 +30,7 @@ __all__ = [
     "DuckLakeQueryResult",
     "DuckLakeS3Secret",
     "DuckLakeTableResult",
+    "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceJobRecord",
@@ -96,7 +97,7 @@ class ServiceCredential:
 class ServiceCredentialUnavailable(RuntimeError):
     """The control plane couldn't issue a service credential (unreachable,
     org/team not provisioned, or a 5xx). Callers decide whether to fall back
-    to stored org-root credentials (transitional) or fail the run."""
+    to the stored server login or fail the run."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -145,6 +146,14 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
+
+
+@frozen
+class DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to."""
+
+    events_table: str
+    persons_table: str
 
 
 @dataclass(frozen=True, kw_only=True)

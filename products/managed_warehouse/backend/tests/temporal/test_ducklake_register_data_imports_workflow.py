@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
-    DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
     S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
@@ -52,7 +51,7 @@ def _cp_no_rows():
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_registration_gate_uses_independent_feature_flag(monkeypatch, ateam, flag_enabled):
+async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ateam, flag_enabled):
     captured: dict[str, object] = {}
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
@@ -64,12 +63,10 @@ async def test_registration_gate_uses_independent_feature_flag(monkeypatch, atea
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
     assert result is flag_enabled
-    assert captured["key"] == DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG
-    assert captured["distinct_id"] == str(ateam.uuid)
-    assert captured["groups"] == {
-        "organization": str(ateam.organization_id),
-        "project": str(ateam.id),
-    }
+    assert captured["key"] == "data-warehouse-scene"
+    assert captured["distinct_id"] == str(ateam.organization_id)
+    assert captured["groups"] == {"organization": str(ateam.organization_id)}
+    assert captured["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
 
@@ -183,7 +180,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
-    monkeypatch.setattr(registration_module, "make_duckgres_conninfo", lambda team_id: "postgresql://duckgres")
+    monkeypatch.setattr(
+        registration_module, "make_duckgres_conninfo", lambda team_id, **kwargs: "postgresql://duckgres"
+    )
 
     conn = MagicMock()
     conn.__enter__ = MagicMock(return_value=conn)
@@ -240,7 +239,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
-    connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
+    connect.assert_called_once_with(
+        "postgresql://duckgres",
+        autocommit=True,
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
     assert s3.copy_calls == [
         (
             [
@@ -277,10 +280,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     )
-    assert parquet_glob in registration_query
-    assert sum(parquet_glob in query for query in executed) == 3
-    assert not any(first_path in query for query in executed)
-    assert not any(second_path in query for query in executed)
+    assert first_path in registration_query
+    assert second_path in registration_query
+    assert parquet_glob not in registration_query
+    assert sum(parquet_glob in query for query in executed) == 2
     assert len(verification_indexes) == 2
     assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
@@ -313,6 +316,40 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_production_register_connection_requests_right_sized_duckgres_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = MagicMock()
+    server.host = "duckgres.example.com"
+    server.port = 5432
+    server.database = "ducklake"
+    server.username = "posthog"
+    server.password = "example-password"
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda _team_id: "org-id")
+    monkeypatch.setattr(registration_module, "get_duckgres_server_for_organization", lambda _org_id: server)
+
+    conn = MagicMock()
+    connect = MagicMock()
+    connect.return_value.__enter__.return_value = conn
+    connect.return_value.__exit__.return_value = False
+    monkeypatch.setattr(registration_module.psycopg, "connect", connect)
+
+    with registration_module._connect_to_duckgres_for_team(1) as connected:
+        assert connected is conn
+
+    connect.assert_called_once_with(
+        host="duckgres.example.com",
+        port=5432,
+        dbname="ducklake",
+        user="posthog",
+        password="example-password",
+        autocommit=True,
+        application_name="ducklake-register",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
 
 
 def test_duckgres_cancel_watchdog_cancels_the_active_query(monkeypatch):
@@ -441,10 +478,44 @@ def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
     assert len(registration_queries) == 1
-    assert f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}" in registration_queries[0]
+    assert landing_paths[0] in registration_queries[0]
+    assert f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}" not in registration_queries[0]
     assert not any("SELECT count(*)" in query for query in executed)
     assert sum("DROP TABLE" in query and "__ph_register_" in query for query in executed) == 1
     assert not any("RENAME TO" in query for query in executed)
+
+
+def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "_ADD_DATA_FILES_BATCH_SIZE", 1)
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        result = MagicMock()
+        result.fetchone.return_value = (2,)
+        return result
+
+    conn.execute.side_effect = execute
+    landing_uri = registration_module._generation_scoped_landing_uri(
+        _activity_inputs().metadata.landing_uri,
+        job_id=_activity_inputs().job_id,
+        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
+    )
+    landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second")]
+
+    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths)
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
+    parquet_glob = f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}"
+    assert len(registration_queries) == 2
+    assert landing_paths[0] in registration_queries[0]
+    assert landing_paths[1] not in registration_queries[0]
+    assert landing_paths[1] in registration_queries[1]
+    assert landing_paths[0] not in registration_queries[1]
+    assert not any(parquet_glob in query for query in registration_queries)
+    assert sum(parquet_glob in query for query in executed) == 2
 
 
 @pytest.mark.parametrize(
@@ -690,7 +761,7 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
         for call in execute_activity.await_args_list
         if call.args[0] is copy_and_register_ducklake_data_imports_activity
     )
-    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=1)
+    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=4)
     assert registration_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
@@ -901,40 +972,20 @@ def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWa
     ]
 
 
-def _workflow_id(prepared_queryable_folder: str) -> str:
-    return build_register_data_imports_workflow_id(
-        team_id=473662,
-        schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15",
-        job_id="019fb012-26e7-0000-2959-704b254131bd",
-        prepared_queryable_folder=prepared_queryable_folder,
-    )
+def test_workflow_id_is_stable_for_one_schema():
+    schema_id = "019ef5df-e4c7-0000-b543-8ef7f13b5f15"
 
-
-@parameterized.expand(
-    [
-        (
-            "timestamped",
-            "customer_balance_transaction__query_1785365519_02076d94",
-            "customer_balance_transaction__query_1785365530_d3277966",
-        ),
-        (
-            "untimestamped",
-            "customer_balance_transaction__query",
-            "customer_balance_transaction__query_legacy",
-        ),
-    ]
-)
-def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, later_folder):
-    earlier = _workflow_id(earlier_folder)
-    later = _workflow_id(later_folder)
-
-    assert earlier != later
-
-
-def test_workflow_id_is_stable_for_one_prepared_generation():
-    folder = "customer_balance_transaction__query_1785365530_d3277966"
-
-    first = _workflow_id(folder)
-    second = _workflow_id(folder)
+    first = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
+    second = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
 
     assert first == second
+    assert first == f"ducklake-register-data-imports-473662-{schema_id}"
+
+
+def test_workflow_id_differs_across_schemas():
+    team_id = 473662
+
+    first = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15")
+    second = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c8-0000-b543-8ef7f13b5f16")
+
+    assert first != second

@@ -322,6 +322,30 @@ describe("activity events", () => {
     });
   });
 
+  it.each([
+    "plan",
+    "context",
+    "reference",
+    "artifact",
+    "tree_snapshot",
+    "user_attachment",
+    "skill_bundle",
+  ])(
+    "drops non-output %s artifacts from historical timelines",
+    (artifactType) => {
+      expect(
+        parseActivityEvent({
+          event: "artifact_created",
+          payload: {
+            artifact_id: "internal-1",
+            name: "checkpoint.index",
+            artifact_type: artifactType,
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
   it("drops a pull request event with no url, since it can't be opened", () => {
     expect(parseActivityEvent({ event: "pr_merged", payload: {} })).toBeNull();
   });
