@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -14,7 +16,7 @@ CLEVER_PAGE_SIZE = 10000
 _EVENTS_INCREMENTAL_FIELD = "id"
 
 
-@dataclass
+@frozen
 class CleverEndpointConfig:
     name: str
     path: str

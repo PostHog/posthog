@@ -1,8 +1,9 @@
-import dataclasses
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
     CLEVER_BASE_URL,
@@ -19,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
-@dataclasses.dataclass
+@frozen
 class CleverResumeConfig:
     starting_after: str
 
