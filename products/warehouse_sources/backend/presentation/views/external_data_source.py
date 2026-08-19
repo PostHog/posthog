@@ -864,6 +864,12 @@ class BulkSchemaSaveError(APIException):
         )
 
 
+class SyncSchedulerUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "sync_scheduler_unavailable"
+    default_detail = "Could not reach the sync scheduler. Please try again in a moment."
+
+
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -3134,10 +3140,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Temporal is unreachable (transient network or DNS problem). The source is unchanged,
             # so ask the caller to retry instead of returning a confusing 500.
             logger.warning("Could not reach Temporal to reload external data source", exc_info=e)
-            return Response(
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                data={"message": "Could not reach the sync scheduler. Please try again in a moment."},
-            )
+            raise SyncSchedulerUnavailable() from e
 
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
