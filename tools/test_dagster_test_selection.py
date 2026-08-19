@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import json
 import tempfile
+import subprocess
 import importlib.util
 from pathlib import Path
 from types import ModuleType
@@ -207,6 +208,30 @@ class TestDagsterTestSelection(unittest.TestCase):
         ):
             with self.subTest(seconds=seconds, files=files):
                 self.assertEqual(self.module.shard_count(seconds, files), expected)
+
+    def test_renamed_module_reports_both_the_old_and_new_path(self) -> None:
+        repo = self.root / "repo"
+        (repo / "posthog" / "dags").mkdir(parents=True)
+        self.module.REPO_ROOT = repo
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        (repo / "posthog" / "dags" / "foo.py").write_text("x\n")
+        git("add", "-A")
+        base = git("commit-tree", git("write-tree"), "-m", "base")
+        (repo / "posthog" / "dags" / "foo.py").unlink()
+        (repo / "posthog" / "dags" / "bar.py").write_text("x\n")
+        git("add", "-A")
+        head = git("commit-tree", git("write-tree"), "-p", base, "-m", "rename")
+        git("update-ref", "HEAD", head)
+
+        changed = self.module.changed_files_from_git(base)
+        self.assertIn("posthog/dags/foo.py", changed)
+        self.assertIn("posthog/dags/bar.py", changed)
 
     def test_selected_mode_reports_shards_from_durations(self) -> None:
         self._write(

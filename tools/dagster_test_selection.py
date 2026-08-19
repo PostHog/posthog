@@ -121,8 +121,11 @@ def tree_of(path: str) -> str | None:
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:
+    # --no-renames splits a rename into a delete + an add, so the removed path
+    # stays visible. The tree-fallback and removed-tree guards key on it; with
+    # rename detection on, git reports only the destination and both are bypassed.
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        ["git", "diff", "--no-renames", "--name-only", f"{base_ref}...HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
