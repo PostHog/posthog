@@ -39,11 +39,13 @@ Start with the recording to get metadata and the person's distinct ID:
 ```json
 posthog:session-recording-get
 {
-  "id": "<recording_id>"
+  "id": "<session_id>"
 }
 ```
 
-The response includes `distinct_id`, `person`, duration, interaction counts,
+The recording `id` and the event `$session_id` are the same value. It selects the
+recording here and the same-session events in Step 2. The response includes
+`distinct_id`, `person`, `start_time`, `end_time`, duration, interaction counts,
 console error counts, and viewing status. Use the `distinct_id` to fetch
 the full person profile:
 
@@ -56,7 +58,8 @@ posthog:persons-retrieve
 
 ### Step 2 — Query same-session events
 
-Get the timeline of what the user did during the session:
+Use the recording `id` from Step 1 as the `$session_id` value. Get the timeline
+of what the user did during the session:
 
 ```sql
 posthog:execute-sql
@@ -90,6 +93,35 @@ WHERE $session_id = '<session_id>'
 ORDER BY timestamp ASC
 LIMIT 100
 ```
+
+#### No rows? Recover the event session ID
+
+The recording `id` normally equals the event `$session_id`, so the queries above
+return the session's events. In rare cases the two do not match and the query
+returns no rows. When that happens, find the event `$session_id` from the
+person's events in the recording's time window. Use the recording's `distinct_id`,
+`start_time`, and `end_time` from Step 1:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$session_id AS session_id,
+    count() AS event_count,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen
+FROM events
+WHERE distinct_id = '<distinct_id>'
+    AND timestamp >= '<start_time>'
+    AND timestamp <= '<end_time>'
+    AND properties.$session_id IS NOT NULL
+GROUP BY session_id
+ORDER BY event_count DESC
+LIMIT 10
+```
+
+Continue only when one session ID is clearly the match. Re-run the Step 2 queries
+with that `$session_id`. Keep the recording `id` for the replay URL. In this case
+it is not interchangeable with the event `$session_id`.
 
 ### Step 3 — Check for linked error tracking issues
 
