@@ -197,7 +197,7 @@ async function updateSelfInTx(
 function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: string): void {
     if (rowCount !== 1) {
         throw new Error(
-            `bulkCreateAndCheckIn(${kind}) self UPDATE matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
+            `bulkCreateAndCheckIn(${kind}) self row matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
         )
     }
 }
@@ -544,7 +544,9 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }> {
+            async bulkCreateAndCheckIn(
+                input: CyclotronV2BulkCreateAndCheckInInput
+            ): Promise<{ newJobIds: string[]; cancelRequested?: boolean }> {
                 releaseGuard('bulkCreateAndCheckIn')
 
                 // Validate new jobs up front, outside the TX, so a malformed
@@ -554,6 +556,27 @@ export class CyclotronV2Worker {
                 const client = await pool.connect()
                 try {
                     await client.query('BEGIN')
+
+                    // Cancel tombstone, checked inside the transaction. The FOR UPDATE takes the
+                    // self row's lock, so this serializes against cancelJobs' flag write: a flag
+                    // that committed first refuses the whole page here (nothing inserted), and a
+                    // page that locked first commits before the flag can land — the cancel
+                    // sweep's remaining-count then still sees its jobs. Without this check, a
+                    // page could commit after a cancel sweep counted zero remaining, leaving
+                    // jobs that never get flagged.
+                    const selfRow = await client.query<{ cancel_requested_at: string | null }>(
+                        `SELECT cancel_requested_at FROM cyclotron_jobs
+                         WHERE id = $1 AND lock_id = $2
+                         FOR UPDATE`,
+                        [row.id, lockId]
+                    )
+                    assertSelfRowAffected(selfRow.rowCount, row.id, 'precheck')
+                    if (selfRow.rows[0].cancel_requested_at !== null) {
+                        await client.query('ROLLBACK')
+                        // The job was never released — hand it back to the caller to dispose.
+                        released = false
+                        return { newJobIds: [], cancelRequested: true }
+                    }
 
                     const newJobIds = await insertNewJobsInTx(client, newJobs)
                     await updateSelfInTx(client, row.id, lockId, input.selfDisposition)

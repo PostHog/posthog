@@ -119,7 +119,7 @@ describe('replayScannerLogic', () => {
                 rationale: 'A classifier fits because you want the mix of visit intents.',
                 query: {
                     kind: 'RecordingsQuery',
-                    events: [{ type: 'events', id: 'signed_up', name: 'signed_up', order: 0 }],
+                    events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
                 },
             }
             draftSpy.mockReturnValue([200, draft])
@@ -146,6 +146,27 @@ describe('replayScannerLogic', () => {
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
             logic.actions.startFromTemplate(null)
             expect(logic.values.goalDraft).toBeNull()
+        })
+
+        it('keeps the default query (every session) when the draft has no session filter', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Overview',
+                    description: 'Summarizes sessions.',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Summarize the session.' },
+                    rationale: '',
+                    query: null,
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
