@@ -19,8 +19,7 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
-  /** A /clear is in flight; its dedicated "Clearing…" row replaces the
-   *  generic generating indicator, same as compaction. */
+  /** A /clear is in flight. */
   isClearing?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
@@ -39,8 +38,6 @@ export function SessionFooter({
   queuedCount = 0,
   hasPendingPermission = false,
   pausedDurationMs,
-  isCompacting = false,
-  isClearing = false,
   completedToolCallCount,
   lastActivityAt,
 }: SessionFooterProps) {
@@ -52,7 +49,7 @@ export function SessionFooter({
       {task && <DiffStatsChip task={task} />}
     </Flex>
   );
-  if (isPromptPending && !isCompacting && !isClearing) {
+  if (isPromptPending) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
