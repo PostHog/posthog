@@ -337,29 +337,30 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             if dashboard_date_from == "all" and filters.get("compare", None) is True:
                 filters["compare"] = None
 
+            insight_properties = insight_filters.get("properties")
             if dashboard_properties:
-                if isinstance(insight_filters.get("properties"), list):
+                if isinstance(insight_properties, list):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
-                            {"type": "AND", "values": insight_filters["properties"]},
+                            {"type": "AND", "values": insight_properties},
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif not insight_filters.get("properties"):
+                elif not insight_properties:
                     filters["properties"] = dashboard_properties
-                elif insight_filters.get("properties").get("type"):
+                elif insight_properties.get("type"):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
-                            insight_filters["properties"],
+                            insight_properties,
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
                 else:
-                    raise ValidationError("Unrecognized property format: ", insight_filters["properties"])
-            elif insight_filters.get("properties"):
-                filters["properties"] = insight_filters.get("properties")
+                    raise ValidationError("Unrecognized property format: ", insight_properties)
+            elif insight_properties:
+                filters["properties"] = insight_properties
 
             return filters
         else:
