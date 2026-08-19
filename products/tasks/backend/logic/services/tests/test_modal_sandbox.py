@@ -1094,10 +1094,16 @@ class TestModalSandboxResourceUsage:
 
         assert sandbox.read_billed_cpu_usage_usec() == 3_500_000
 
-    def test_starts_cpu_billing_sampler(self):
+    @pytest.mark.parametrize(
+        "burstable_resources,expected_request",
+        [(True, "0.5"), (False, "4.0")],
+    )
+    def test_starts_cpu_billing_sampler(self, burstable_resources: bool, expected_request: str):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-usage"
-        sandbox.config = SandboxConfig(name="usage", vm_runtime=True, burstable_resources=True)
+        sandbox.config = SandboxConfig(
+            name="usage", cpu_cores=4, vm_runtime=True, burstable_resources=burstable_resources
+        )
         with patch.object(
             sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0)
         ) as execute:
@@ -1105,7 +1111,7 @@ class TestModalSandboxResourceUsage:
         command = execute.call_args.args[0]
         assert CPU_BILLING_STATE_PATH in command
         assert CPU_BILLING_SAMPLER_PATH in command
-        assert "0.5" in command
+        assert expected_request in command
 
 
 class TestModalSandboxAgentServerStartupHelpers:

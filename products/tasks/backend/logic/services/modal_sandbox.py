@@ -1791,7 +1791,9 @@ class ModalSandbox(SandboxBase):
         return None
 
     def start_cpu_billing_sampler(self) -> bool:
-        request_cores = self.config.effective_cpu_request_cores
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
         command = (
             f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
             f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
