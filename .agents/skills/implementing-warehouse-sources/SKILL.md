@@ -592,8 +592,17 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 ## Retry and throttling strategy
 
 - **`make_tracked_session()` and `rest_source.RESTClient` already retry `429` + transient `5xx` at the transport layer**, honoring `Retry-After`. Do NOT wrap a second `tenacity` `@retry` around your fetch for status codes — it compounds (e.g. 3 transport attempts × 5 tenacity attempts) and is the single most-copied mistake across existing sources. If you use the framework or the tracked session, status-code retries are already handled; write none.
-- Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
-- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
+- **For a condition the transport does not cover, prefer declarative `response_actions` on the endpoint over a second retry layer.** The framework retries on HTTP status only. `response_actions` classifies a response by body field, content substring, or nonstandard status code, so it reaches the cases the transport misses. Add a `ResponseAction` to the endpoint config (`products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/typing.py`); `config_setup.py` installs the hook. Match on:
+  - `json_field` + `json_values` — a value at a dotted path in the parsed JSON body (e.g. `code`, `error.type`). Use this for an HTTP-200 body-level error envelope. It does not depend on the API's whitespace or on the value appearing only once in the payload.
+  - `content` — a substring of the raw response text.
+  - `status_code` — an exact status, including a nonstandard one like `408`.
+- **The action decides the terminal behavior.** Set `action` to one of:
+  - `ignore` — treat the matched response as a valid empty page and stop pagination.
+  - `retry` — raise the framework retryable error (`RESTClientRetryableError`) so the transport re-issues the request. Use this for an HTTP-200 body-level rate-limit signal or to promote a non-5xx status to retryable. This is the declarative replacement for a `tenacity` body-condition retry.
+  - `raise` — raise a permanent, non-retryable `ValueError` with `message`, so a success-status body error fails loud instead of syncing 0 rows.
+- Author `message` in the manifest, not from response data — it reaches logs and errors, so keep secrets and URLs out of it. It falls back to a status-only default when unset.
+- **Add `tenacity` only for a retry condition `response_actions` cannot express.** If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`. Keep the custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
+- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 
 The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
