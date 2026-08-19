@@ -2124,6 +2124,30 @@ class TaskRun(models.Model):
         return cls.mutate_state_atomic(run_id, _mutator)
 
     @classmethod
+    def update_output_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge output updates against the latest persisted row output.
+
+        Output is written from several independent places (the agent server, the
+        PR webhook backstop, the CI follow-up snapshot), so an unlocked
+        read-modify-write could resurrect keys another writer already changed.
+        Skips the save when nothing changes, so pollers don't churn ``updated_at``.
+        """
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            output = dict(locked_task_run.output or {})
+            merged = {**output, **updates}
+            if merged == output:
+                return output
+            locked_task_run.output = merged
+            locked_task_run.save(update_fields=["output", "updated_at"])
+            return merged
+
+    @classmethod
     def clear_sandbox_connection_state_atomic(
         cls,
         run_id: str | uuid.UUID,
@@ -3194,8 +3218,20 @@ class SandboxCustomImage(TeamScopedRootMixin):
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
 
 
+class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
+    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
+        at = at or django_timezone.now()
+        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
+
+    def expire(self, at: datetime | None = None) -> int:
+        at = at or django_timezone.now()
+        return self.unexpired(at).update(expires_at=at)
+
+
 class CodeInvite(UUIDModel):
     """Invite codes for PostHog Desktop access."""
+
+    objects = CodeInviteQuerySet.as_manager()
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")

@@ -1513,6 +1513,34 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
+    pr_state = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.PR_STATES),
+        help_text=(
+            "Filter tasks by the state of their most recent run's pull request, as last observed "
+            "from GitHub (webhooks plus the CI follow-up snapshot)."
+        ),
+    )
+    ci_status = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.CI_STATUSES),
+        help_text=(
+            "Filter tasks by the CI check rollup on their most recent run's pull request, as last "
+            "observed from GitHub. 'none' means the PR has no checks."
+        ),
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="With true, only tasks the requesting user has pinned.",
+    )
+    commented_by = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks carrying a thread comment written by this user ID.",
+    )
+    mentions = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks whose thread mentions this user ID.",
+    )
     internal = serializers.ChoiceField(
         required=False,
         choices=["true", "false", "all"],
@@ -1871,6 +1899,17 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
+    target_scope = serializers.ChoiceField(
+        choices=["desktop_canvas"],
+        allow_null=True,
+        required=False,
+        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
+    )
+    target_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Identifier of the activity target. Present together with target_scope.",
+    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -1888,6 +1927,8 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
+            "target_scope",
+            "target_id",
             "is_unread",
         ]
 
