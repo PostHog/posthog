@@ -301,6 +301,33 @@ const EQUIVALENCE_CASES = Object.entries(SCENARIOS).flatMap(([name, events]) =>
 );
 
 describe("createIncrementalConversationBuilder", () => {
+  it("resets the stable prefix when a transcript is replaced with the same prompt ids", () => {
+    const inc = createIncrementalConversationBuilder();
+    inc.update(
+      [
+        userPromptMsg(1, 1, "first"),
+        agentChunk(2, "old response"),
+        promptResponseMsg(3, 1),
+        userPromptMsg(4, 2, "second"),
+        agentChunk(5, "streaming"),
+      ],
+      true,
+    );
+
+    const replacement = inc.update(
+      [
+        userPromptMsg(1, 1, "first"),
+        agentChunk(2, "replacement response"),
+        promptResponseMsg(3, 1),
+        userPromptMsg(4, 2, "second"),
+        agentChunk(5, "streaming"),
+      ],
+      true,
+    );
+
+    expect(replacement.stablePrefixItemCount).toBe(0);
+  });
+
   it.each(EQUIVALENCE_CASES)(
     "matches buildConversationItems at every prefix — $name (pending=$pending)",
     ({ events, pending }) => {

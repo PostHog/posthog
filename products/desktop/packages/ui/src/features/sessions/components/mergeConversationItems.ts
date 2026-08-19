@@ -15,6 +15,16 @@ interface MergeConversationItemsArgs {
   isCloud: boolean;
 }
 
+interface IncrementalMergeConversationItemsArgs
+  extends MergeConversationItemsArgs {
+  stablePrefixItemCount: number;
+}
+
+interface IncrementalMergeResult {
+  items: ConversationItem[];
+  stablePrefixItemCount: number;
+}
+
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 
 // The pinned optimistic bubble is seeded from the bare task description, but the
@@ -147,4 +157,74 @@ export function mergeConversationItems({
     ...tailOptimisticItems,
     ...dedupedConversation.slice(tailInsertionIndex),
   ];
+}
+
+function sameUserMessage(
+  left: ConversationItem,
+  right: ConversationItem,
+): boolean {
+  return (
+    left.type === "user_message" &&
+    right.type === "user_message" &&
+    left.id === right.id &&
+    left.content === right.content &&
+    left.timestamp === right.timestamp &&
+    left.attachments === right.attachments &&
+    left.pinToTop === right.pinToTop
+  );
+}
+
+export function createIncrementalConversationMerger() {
+  let previousItems: ConversationItem[] = [];
+
+  return {
+    update({
+      conversationItems,
+      optimisticItems,
+      isCloud,
+      stablePrefixItemCount,
+    }: IncrementalMergeConversationItemsArgs): IncrementalMergeResult {
+      let items = mergeConversationItems({
+        conversationItems,
+        optimisticItems,
+        isCloud,
+      });
+      if (stablePrefixItemCount === 0 || previousItems.length === 0) {
+        previousItems = items;
+        return { items, stablePrefixItemCount: 0 };
+      }
+
+      const stableItems = mergeConversationItems({
+        conversationItems: conversationItems.slice(0, stablePrefixItemCount),
+        optimisticItems,
+        isCloud,
+      });
+      let mergedStablePrefixItemCount = 0;
+      while (
+        mergedStablePrefixItemCount < items.length &&
+        mergedStablePrefixItemCount < stableItems.length &&
+        mergedStablePrefixItemCount < previousItems.length
+      ) {
+        const item = items[mergedStablePrefixItemCount];
+        const stableItem = stableItems[mergedStablePrefixItemCount];
+        const previousItem = previousItems[mergedStablePrefixItemCount];
+        if (item !== stableItem && !sameUserMessage(item, stableItem)) {
+          break;
+        }
+        if (item !== previousItem && !sameUserMessage(item, previousItem)) {
+          break;
+        }
+        if (item !== previousItem) {
+          if (items === conversationItems) {
+            items = items.slice();
+          }
+          items[mergedStablePrefixItemCount] = previousItem;
+        }
+        mergedStablePrefixItemCount++;
+      }
+
+      previousItems = items;
+      return { items, stablePrefixItemCount: mergedStablePrefixItemCount };
+    },
+  };
 }

@@ -94,7 +94,7 @@ import {
 import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitActionMessage";
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
-import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { createIncrementalConversationMerger } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
@@ -1372,11 +1372,25 @@ function ChatThreadRenderer({
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
 
-  const items = useMemo<ConversationItem[]>(
+  const merger = useMemo(() => createIncrementalConversationMerger(), []);
+  const mergedConversation = useMemo(
     () =>
-      mergeConversationItems({ conversationItems, optimisticItems, isCloud }),
-    [conversationItems, optimisticItems, isCloud],
+      merger.update({
+        conversationItems,
+        optimisticItems,
+        isCloud,
+        stablePrefixItemCount,
+      }),
+    [
+      conversationItems,
+      optimisticItems,
+      isCloud,
+      merger,
+      stablePrefixItemCount,
+    ],
   );
+  const items = mergedConversation.items;
+  const mergedStablePrefixItemCount = mergedConversation.stablePrefixItemCount;
 
   const rowGrouper = useMemo(
     () =>
@@ -1386,8 +1400,8 @@ function ChatThreadRenderer({
     [groupToolCalls],
   );
   const rows = useMemo<TurnRow[]>(
-    () => rowGrouper.update(items, stablePrefixItemCount),
-    [items, rowGrouper, stablePrefixItemCount],
+    () => rowGrouper.update(items, mergedStablePrefixItemCount),
+    [items, mergedStablePrefixItemCount, rowGrouper],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and

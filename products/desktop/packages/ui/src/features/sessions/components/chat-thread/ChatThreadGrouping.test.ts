@@ -8,7 +8,7 @@ function userMessage(id: string): ConversationItem {
   return { type: "user_message", id, content: id, timestamp: 1 };
 }
 
-function agentMessage(id: string): ConversationItem {
+function agentMessage(id: string, text = id): ConversationItem {
   return {
     type: "session_update",
     id,
@@ -20,7 +20,7 @@ function agentMessage(id: string): ConversationItem {
     },
     update: {
       sessionUpdate: "agent_message_chunk",
-      content: { type: "text", text: id },
+      content: { type: "text", text },
     },
   };
 }
@@ -79,6 +79,28 @@ describe("createIncrementalChatRowGrouper", () => {
       { id: "x1" },
       { type: "agent_turn", items: [{ id: "x2" }] },
     ]);
+  });
+
+  it("rebuilds same-id rows when the stable prefix is reset", () => {
+    const grouper = createIncrementalChatRowGrouper(groupRows);
+    grouper.update([
+      userMessage("u1"),
+      agentMessage("a1", "old response"),
+      userMessage("u2"),
+      agentMessage("a2"),
+    ]);
+
+    const replacement = agentMessage("a1", "replacement response");
+    const rows = grouper.update(
+      [userMessage("u1"), replacement, userMessage("u2"), agentMessage("a2")],
+      0,
+    );
+    const firstAgentTurn = rows[1];
+
+    if (firstAgentTurn.type !== "agent_turn") {
+      throw new Error("expected an agent turn");
+    }
+    expect(firstAgentTurn.items[0]).toBe(replacement);
   });
 
   it("rebuilds when a row inside the retained prefix is replaced in place", () => {

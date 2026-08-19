@@ -127,7 +127,8 @@ export function createIncrementalConversationBuilder() {
         events[processedCount - 1] === boundaryEventRef) &&
       extendsTimestampOrder(events, processedCount, lastProcessedTs);
 
-    if (!canAppend) {
+    const didRebuild = !canAppend;
+    if (didRebuild) {
       b = createItemBuilder();
       processedCount = 0;
       lastProcessedTs = Number.NEGATIVE_INFINITY;
@@ -181,7 +182,7 @@ export function createIncrementalConversationBuilder() {
     // renderers, not via row identity.
     return {
       items: builder.items.slice(),
-      stablePrefixItemCount: activeStart,
+      stablePrefixItemCount: didRebuild ? 0 : activeStart,
       lastTurnInfo: readLastTurnInfoForOutput(builder),
       isCompacting: builder.isCompacting,
       isClearing: builder.isClearing,

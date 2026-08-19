@@ -26,7 +26,7 @@ import {
   type ConversationTurn,
   groupRowsIntoTurns,
 } from "@posthog/ui/features/sessions/components/groupConversationTurns";
-import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { createIncrementalConversationMerger } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import type {
   ThreadGrouping,
   ThreadRow,
@@ -182,15 +182,29 @@ export function ConversationView({
 
   const isCloud = session?.isCloud ?? false;
 
-  const items = useMemo<ConversationItem[]>(
+  const mergerRef = useRef<ReturnType<
+    typeof createIncrementalConversationMerger
+  > | null>(null);
+  mergerRef.current ??= createIncrementalConversationMerger();
+  const merger = mergerRef.current;
+  const mergedConversation = useMemo(
     () =>
-      mergeConversationItems({
+      merger.update({
         conversationItems,
         optimisticItems,
         isCloud,
+        stablePrefixItemCount,
       }),
-    [conversationItems, optimisticItems, isCloud],
+    [
+      conversationItems,
+      optimisticItems,
+      isCloud,
+      merger,
+      stablePrefixItemCount,
+    ],
   );
+  const items = mergedConversation.items;
+  const mergedStablePrefixItemCount = mergedConversation.stablePrefixItemCount;
 
   // Fold each completed turn's tool-call work into a collapsible chip, and emit
   // the keepMounted indices (standalone MCP-app rows, whose iframes must survive
@@ -201,8 +215,9 @@ export function ConversationView({
   threadGrouperRef.current ??= createIncrementalThreadGrouper();
   const threadGrouper = threadGrouperRef.current;
   const grouping = useMemo<ThreadGrouping>(
-    () => threadGrouper.update(items, groupOverrides, stablePrefixItemCount),
-    [items, groupOverrides, stablePrefixItemCount, threadGrouper],
+    () =>
+      threadGrouper.update(items, groupOverrides, mergedStablePrefixItemCount),
+    [items, groupOverrides, mergedStablePrefixItemCount, threadGrouper],
   );
   const threadRows = grouping.rows;
   const rowKeepMounted = grouping.keepMounted;

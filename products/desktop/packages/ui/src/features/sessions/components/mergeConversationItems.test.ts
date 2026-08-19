@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationItem } from "./buildConversationItems";
-import { mergeConversationItems } from "./mergeConversationItems";
+import {
+  createIncrementalConversationMerger,
+  mergeConversationItems,
+} from "./mergeConversationItems";
 
 function progressGroup(id: string): ConversationItem {
   return {
@@ -236,5 +239,38 @@ describe("mergeConversationItems", () => {
       isCloud: true,
     });
     expect(result.map((i) => i.id)).toEqual(["old", "setup", "opt"]);
+  });
+
+  it("invalidates the merged prefix when a streaming echo upgrades the pinned prompt", () => {
+    const merger = createIncrementalConversationMerger();
+    const optimisticItems = [userMessage("opt", "hello")];
+    const plainEcho = userMessage("plain", "hello", undefined, 100);
+    const completedItem = userMessage("other", "different", undefined, 200);
+    merger.update({
+      conversationItems: [plainEcho, completedItem],
+      optimisticItems,
+      isCloud: true,
+      stablePrefixItemCount: 2,
+    });
+
+    const shadowEcho = userMessage(
+      "shadow",
+      'hello\n\n<channel_context channel="bluebird">background</channel_context>',
+      undefined,
+      300,
+    );
+    const upgraded = merger.update({
+      conversationItems: [plainEcho, completedItem, shadowEcho],
+      optimisticItems,
+      isCloud: true,
+      stablePrefixItemCount: 2,
+    });
+
+    expect(upgraded.stablePrefixItemCount).toBe(0);
+    expect(upgraded.items[0]).toMatchObject({
+      id: "opt",
+      content: shadowEcho.content,
+      timestamp: 300,
+    });
   });
 });
