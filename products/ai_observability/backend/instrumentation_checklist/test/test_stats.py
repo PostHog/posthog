@@ -64,10 +64,11 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
 
         assert stats == ChecklistStats(
             generations=2,
-            generations_with_session=1,
+            events_with_session=1,
             generations_with_tool_calls=1,
             generations_with_tools_declared=1,
-            generations_identified=1,
+            sdk_generations=2,
+            sdk_generations_identified=1,
             spans=1,
             events_with_parent=1,
             # Neither generations + spans nor generations alone: $ai_trace and $ai_embedding count
@@ -80,10 +81,11 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
 
         assert stats == ChecklistStats(
             generations=0,
-            generations_with_session=0,
+            events_with_session=0,
             generations_with_tool_calls=0,
             generations_with_tools_declared=0,
-            generations_identified=0,
+            sdk_generations=0,
+            sdk_generations_identified=0,
             spans=0,
             events_with_parent=0,
             total_events=0,
@@ -108,8 +110,8 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
 
         assert stats.total_events == 1
         assert stats.generations == 1
-        assert stats.generations_with_session == 0
-        assert stats.generations_identified == 0
+        assert stats.events_with_session == 0
+        assert stats.sdk_generations_identified == 0
 
     def test_events_older_than_the_window_are_excluded(self) -> None:
         bulk_create_ai_events(
@@ -139,9 +141,66 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         # silent zero in production and the checklist accuses a correctly instrumented project.
         # bulk_create_ai_events does not strip it, so no seeded-data assertion can catch this.
         normalized = " ".join(_STATS_SQL.split())
-        assert "coalesce(tools, '') != ''" in normalized
+        assert "coalesce(tools, '')" in normalized
         # \b keeps $ai_tools_called, which does live in the properties blob, out of the match.
         assert re.search(r"properties\.\$ai_tools\b", normalized) is None
+
+    def test_an_empty_tool_array_is_not_counted_as_declared_definitions(self) -> None:
+        bulk_create_ai_events(
+            [
+                _ai_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    trace_id="trace-empty-tools",
+                    properties={"$ai_tools": []},
+                ),
+                _ai_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    trace_id="trace-real-tools",
+                    properties={"$ai_tools": [{"type": "function", "function": {"name": "search"}}]},
+                ),
+            ]
+        )
+
+        assert fetch_checklist_stats(self.team).generations_with_tools_declared == 1
+
+    def test_a_session_id_counts_when_it_arrives_on_a_trace_rather_than_a_generation(self) -> None:
+        bulk_create_ai_events(
+            [
+                _ai_event(
+                    team=self.team,
+                    event="$ai_trace",
+                    trace_id="trace-1",
+                    properties={"$ai_session_id": "session-1"},
+                ),
+                _ai_event(team=self.team, event="$ai_generation", trace_id="trace-1"),
+            ]
+        )
+
+        assert fetch_checklist_stats(self.team).events_with_session == 1
+
+    def test_otel_ingested_generations_are_left_out_of_the_identity_counts(self) -> None:
+        bulk_create_ai_events(
+            [
+                _ai_event(team=self.team, event="$ai_generation", trace_id="trace-sdk"),
+                _ai_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    trace_id="trace-otel",
+                    # An unidentified OTel span carries one random UUID per OTLP request, which never
+                    # equals the hex trace id, so it reads as identified to the distinct_id heuristic.
+                    distinct_id="4d1cc9d4-0f2e-4a55-9a9b-6c0f7d3e1b22",
+                    properties={"$ai_ingestion_source": "otel"},
+                ),
+            ]
+        )
+
+        stats = fetch_checklist_stats(self.team)
+
+        assert stats.generations == 2
+        assert stats.sdk_generations == 1
+        assert stats.sdk_generations_identified == 0
 
     def test_the_aggregate_stays_ungrouped(self) -> None:
         # An ungrouped aggregate always returns exactly one row, so query_ai_events' empty-result

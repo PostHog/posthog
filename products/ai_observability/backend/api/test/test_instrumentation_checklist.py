@@ -75,7 +75,7 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         assert all(set(item) == CHECK_FIELDS for item in body["checks"])
         assert check(body, "sessions")["stats"] == {
             "generations": VOLUME_FLOOR,
-            "generations_with_session": 1,
+            "events_with_session": 1,
         }
 
     def test_dismissal_mutes_a_check_until_it_is_restored(self) -> None:
@@ -112,6 +112,22 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
 
         body = self.client.get(endpoint(self.team.pk)).json()
         assert check(body, "tool_calls")["status"] == "warning"
+
+    def test_a_dismissal_from_a_child_environment_is_durable_and_repeatable(self) -> None:
+        # RootTeamMixin.save() rewrites the row onto the parent team, so a lookup keyed on the
+        # environment's own id would miss the row it just wrote: the read shows the check
+        # undismissed, and the second dismissal violates the partial unique constraint.
+        environment = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Staging"
+        )
+
+        first = self.client.post(endpoint(environment.pk, "dismiss/"), {"check": "tool_calls"})
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert check(self.client.get(endpoint(environment.pk)).json(), "tool_calls")["status"] == "dismissed"
+
+        second = self.client.post(endpoint(environment.pk, "dismiss/"), {"check": "tool_calls"})
+        assert second.status_code == status.HTTP_200_OK, second.content
+        assert check(second.json(), "tool_calls")["status"] == "dismissed"
 
 
 class TestInstrumentationChecklistApiKeyAccess(ClickhouseTestMixin, APIBaseTest):

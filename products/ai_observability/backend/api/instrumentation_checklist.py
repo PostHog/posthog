@@ -1,20 +1,17 @@
 from typing import cast
 
-from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission
 
 from ..instrumentation_checklist import WINDOW_DAYS, CheckKey, CheckStatus, fetch_checklist_stats, grade_checklist
 from ..models.instrumentation_checklist import AIObservabilityChecklistItemState
@@ -63,7 +60,7 @@ class InstrumentationCheckActionSerializer(serializers.Serializer):
     check = serializers.ChoiceField(choices=CHECK_KEYS, help_text="Key of the check to dismiss or restore.")
 
 
-class _SingletonSchema(AutoSchema):
+class _SingletonSchema(PostHogAutoSchema):
     """Prevents drf-spectacular from wrapping the ``list`` response in an array.
 
     The checklist is one graded object per project, not a collection.
@@ -84,7 +81,6 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
     # so any future create/update/destroy has to be added here too.
     scope_object_write_actions = ["dismiss", "restore"]
     serializer_class = _FallbackSerializer
-    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @property
     def _checklist_team_id(self) -> int:

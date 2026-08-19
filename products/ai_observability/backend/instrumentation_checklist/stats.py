@@ -21,27 +21,41 @@ CHECKLIST_EVENTS = ("$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding")
 # materialized view strips heavy properties out of the JSON blob, so a properties read returns a
 # silent zero and the checklist would warn that tool instrumentation is broken when it is fine.
 #
+# The identity counts exclude OTel-ingested generations because `is_identified` cannot read them.
+# An unidentified OTel span falls back to one random UUID per OTLP request
+# (rust/capture/src/otel/identity.rs), not to the trace id the server SDKs reuse, so a hex trace id
+# never equals it and every such generation would look identified. Counting them would tell an
+# all-OTel project its users are identified while its Users tab fills with per-request UUIDs.
+#
 # Column aliases are the ChecklistStats field names. `_row_to_stats` maps by name, so a renamed
 # column raises instead of shifting a count onto the wrong check.
 _STATS_SQL = """
 SELECT
-    countIf(is_generation)                        AS generations,
-    countIf(is_generation AND has_session)        AS generations_with_session,
-    countIf(is_generation AND has_tool_calls)     AS generations_with_tool_calls,
-    countIf(is_generation AND has_tools_declared) AS generations_with_tools_declared,
-    countIf(is_generation AND is_identified)      AS generations_identified,
-    countIf(is_span)                              AS spans,
-    countIf(has_parent)                           AS events_with_parent,
-    count()                                       AS total_events
+    countIf(is_generation)                                   AS generations,
+    countIf(has_session)                                     AS events_with_session,
+    countIf(is_generation AND has_tool_calls)                AS generations_with_tool_calls,
+    countIf(is_generation AND has_tools_declared)            AS generations_with_tools_declared,
+    countIf(is_generation AND NOT is_otel)                   AS sdk_generations,
+    countIf(is_generation AND NOT is_otel AND is_identified) AS sdk_generations_identified,
+    countIf(is_span)                                         AS spans,
+    countIf(has_parent)                                      AS events_with_parent,
+    count()                                                  AS total_events
 FROM (
     SELECT
-        event = '$ai_generation'                        AS is_generation,
-        event = '$ai_span'                              AS is_span,
-        coalesce(session_id, '') != ''                  AS has_session,
-        coalesce(properties.$ai_tools_called, '') != '' AS has_tool_calls,
-        coalesce(tools, '') != ''                       AS has_tools_declared,
-        distinct_id != coalesce(trace_id, '')           AS is_identified,
-        coalesce(parent_id, '') != ''                   AS has_parent
+        event = '$ai_generation'                                AS is_generation,
+        event = '$ai_span'                                      AS is_span,
+        -- Any of the four event types can carry $ai_session_id, and the Sessions tab reads it off
+        -- whichever one has it (see queries/sessions.sql), so flooring on generations alone would
+        -- warn about a missing session id at a project whose Sessions tab works.
+        coalesce(session_id, '') != ''                          AS has_session,
+        coalesce(properties.$ai_tools_called, '') != ''         AS has_tool_calls,
+        -- `tools` holds the raw JSON, so an SDK that always sends `$ai_tools: []` stores '[]'. A
+        -- non-empty test would read that as declared definitions and accuse a working SDK of not
+        -- reporting the calls it makes.
+        JSONLength(coalesce(tools, '')) > 0                     AS has_tools_declared,
+        coalesce(properties.$ai_ingestion_source, '') = 'otel'  AS is_otel,
+        distinct_id != coalesce(trace_id, '')                   AS is_identified,
+        coalesce(parent_id, '') != ''                           AS has_parent
     FROM posthog.ai_events AS ai_events
     WHERE event IN {checklist_events}
       AND timestamp >= {date_from}

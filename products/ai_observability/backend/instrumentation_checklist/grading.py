@@ -5,8 +5,12 @@ from posthog.dataclasses import frozen
 
 VOLUME_FLOOR = 20
 
-# Every check points at the installation page until per-check docs anchors exist to deep-link to.
-_DOCS_URL = "https://posthog.com/docs/ai-observability/installation"
+# A check gets its own page where one covers the instrumentation it asks for, and the installation
+# page otherwise. Sending a reader to a page that does not answer the question the check just raised
+# is worse than leaving them on installation.
+_INSTALLATION_DOCS_URL = "https://posthog.com/docs/ai-observability/installation"
+_SESSIONS_DOCS_URL = "https://posthog.com/docs/ai-observability/sessions"
+_TOOLS_DOCS_URL = "https://posthog.com/docs/ai-observability/tools"
 
 _PENDING_GENERATIONS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} generations."
 _PENDING_AI_EVENTS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} AI events."
@@ -29,10 +33,11 @@ class CheckStatus(StrEnum):
 @frozen
 class ChecklistStats:
     generations: int
-    generations_with_session: int
+    events_with_session: int
     generations_with_tool_calls: int
     generations_with_tools_declared: int
-    generations_identified: int
+    sdk_generations: int
+    sdk_generations_identified: int
     spans: int
     events_with_parent: int
     total_events: int
@@ -65,6 +70,7 @@ class _CheckInputs:
     warning_detail: str
     ok_detail: str
     pending_detail: str
+    docs_url: str
     stats: dict[str, int]
 
 
@@ -73,7 +79,7 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
         key=CheckKey.SESSIONS,
         title="Sessions",
         denominator=stats.generations,
-        has_signal=stats.generations_with_session > 0,
+        has_signal=stats.events_with_session > 0,
         warning_detail=(
             "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us "
             "group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot "
@@ -81,9 +87,10 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
         ),
         ok_detail="Traces are grouping into sessions.",
         pending_detail=_PENDING_GENERATIONS,
+        docs_url=_SESSIONS_DOCS_URL,
         stats={
             "generations": stats.generations,
-            "generations_with_session": stats.generations_with_session,
+            "events_with_session": stats.events_with_session,
         },
     )
 
@@ -110,6 +117,7 @@ def _tool_calls(stats: ChecklistStats) -> _CheckInputs:
         warning_detail=warning_detail,
         ok_detail="Tool calls are being recorded.",
         pending_detail=_PENDING_GENERATIONS,
+        docs_url=_TOOLS_DOCS_URL,
         stats={
             "generations": stats.generations,
             "generations_with_tool_calls": stats.generations_with_tool_calls,
@@ -122,17 +130,21 @@ def _user_identity(stats: ChecklistStats) -> _CheckInputs:
     return _CheckInputs(
         key=CheckKey.USER_IDENTITY,
         title="User identity",
-        denominator=stats.generations,
-        has_signal=stats.generations_identified > 0,
+        denominator=stats.sdk_generations,
+        has_signal=stats.sdk_generations_identified > 0,
         warning_detail=(
-            "Every event uses its trace ID as the distinct ID, so usage and cost cannot be tied to people. Set "
-            "distinct_id to your own user identifier."
+            "Generations are arriving with their trace ID as the distinct ID, so usage and cost cannot be tied to "
+            "people. Set distinct_id to your own user identifier."
         ),
         ok_detail="AI events are attributed to identified users.",
-        pending_detail=_PENDING_GENERATIONS,
+        pending_detail=(
+            f"This check runs once there are {VOLUME_FLOOR} generations from a PostHog SDK. Generations sent over "
+            "OpenTelemetry are not counted, because we cannot tell whether they are identified."
+        ),
+        docs_url=_INSTALLATION_DOCS_URL,
         stats={
-            "generations": stats.generations,
-            "generations_identified": stats.generations_identified,
+            "sdk_generations": stats.sdk_generations,
+            "sdk_generations_identified": stats.sdk_generations_identified,
         },
     )
 
@@ -147,8 +159,11 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
         warning_detail=(
             "Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them."
         ),
-        ok_detail="Traces include spans.",
+        # A generation carrying $ai_parent_id is enough structure to grade ok even with no $ai_span
+        # event, so the copy cannot name spans.
+        ok_detail="Traces show the steps around your LLM calls.",
         pending_detail=_PENDING_AI_EVENTS,
+        docs_url=_INSTALLATION_DOCS_URL,
         stats={
             "total_events": stats.total_events,
             "spans": stats.spans,
@@ -175,7 +190,7 @@ def _grade(inputs: _CheckInputs, *, dismissed: bool) -> GradedCheck:
         status=CheckStatus.DISMISSED if dismissed else graded_status,
         title=inputs.title,
         detail=detail,
-        docs_url=_DOCS_URL,
+        docs_url=inputs.docs_url,
         stats=inputs.stats,
     )
 

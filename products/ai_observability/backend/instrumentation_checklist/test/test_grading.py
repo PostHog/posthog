@@ -28,31 +28,37 @@ TOOL_CALLS_WARNING_NOT_DECLARED = (
 )
 TOOL_CALLS_OK = "Tool calls are being recorded."
 USER_IDENTITY_WARNING = (
-    "Every event uses its trace ID as the distinct ID, so usage and cost cannot be tied to people. Set distinct_id "
-    "to your own user identifier."
+    "Generations are arriving with their trace ID as the distinct ID, so usage and cost cannot be tied to people. "
+    "Set distinct_id to your own user identifier."
 )
 USER_IDENTITY_OK = "AI events are attributed to identified users."
+USER_IDENTITY_PENDING = (
+    "This check runs once there are 20 generations from a PostHog SDK. Generations sent over OpenTelemetry are not "
+    "counted, because we cannot tell whether they are identified."
+)
 TRACE_STRUCTURE_WARNING = (
     "Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them."
 )
-TRACE_STRUCTURE_OK = "Traces include spans."
+TRACE_STRUCTURE_OK = "Traces show the steps around your LLM calls."
 PENDING_GENERATIONS = "Still collecting data. This check runs once there are 20 generations."
 PENDING_AI_EVENTS = "Still collecting data. This check runs once there are 20 AI events."
 
+# The denominator each check floors on, paired with the count that clears its warning.
 GENERATION_DENOMINATED = [
-    (CheckKey.SESSIONS, "generations_with_session"),
-    (CheckKey.TOOL_CALLS, "generations_with_tool_calls"),
-    (CheckKey.USER_IDENTITY, "generations_identified"),
+    (CheckKey.SESSIONS, "generations", "events_with_session"),
+    (CheckKey.TOOL_CALLS, "generations", "generations_with_tool_calls"),
+    (CheckKey.USER_IDENTITY, "sdk_generations", "sdk_generations_identified"),
 ]
 
 
 def _stats(**overrides: int) -> ChecklistStats:
     counts = {
         "generations": 0,
-        "generations_with_session": 0,
+        "events_with_session": 0,
         "generations_with_tool_calls": 0,
         "generations_with_tools_declared": 0,
-        "generations_identified": 0,
+        "sdk_generations": 0,
+        "sdk_generations_identified": 0,
         "spans": 0,
         "events_with_parent": 0,
     }
@@ -72,8 +78,8 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
-            (f"{key.value}_{generations}_signal_{signal}", key, field, generations, signal, expected)
-            for key, field in GENERATION_DENOMINATED
+            (f"{key.value}_{generations}_signal_{signal}", key, denominator, field, generations, signal, expected)
+            for key, denominator, field in GENERATION_DENOMINATED
             for generations, signal, expected in [
                 (VOLUME_FLOOR - 1, 0, CheckStatus.PENDING),
                 (VOLUME_FLOOR - 1, VOLUME_FLOOR - 1, CheckStatus.PENDING),
@@ -87,12 +93,13 @@ class TestGradeChecklist:
         self,
         _name: str,
         key: CheckKey,
+        denominator: str,
         field: str,
         generations: int,
         signal: int,
         expected: CheckStatus,
     ):
-        stats = _stats(generations=generations, **{field: signal})
+        stats = _stats(**{"generations": generations, denominator: generations, field: signal})
         assert _graded(stats, key).status == expected
 
     @parameterized.expand(
@@ -106,7 +113,7 @@ class TestGradeChecklist:
         stats = _stats(total_events=total_events, spans=0, events_with_parent=0)
         assert _graded(stats, CheckKey.TRACE_STRUCTURE).status == expected
 
-    @parameterized.expand([(key.value, key) for key, _ in GENERATION_DENOMINATED])
+    @parameterized.expand([(key.value, key) for key, *_ in GENERATION_DENOMINATED])
     def test_generation_denominated_checks_stay_pending_at_a_spans_only_project(self, _name: str, key: CheckKey):
         stats = _stats(generations=0, spans=25, events_with_parent=25)
         assert _graded(stats, key).status == CheckStatus.PENDING
@@ -135,9 +142,13 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
-            (CheckKey.SESSIONS.value, CheckKey.SESSIONS, {"generations": 1000, "generations_with_session": 1}),
+            (CheckKey.SESSIONS.value, CheckKey.SESSIONS, {"generations": 1000, "events_with_session": 1}),
             (CheckKey.TOOL_CALLS.value, CheckKey.TOOL_CALLS, {"generations": 1000, "generations_with_tool_calls": 1}),
-            (CheckKey.USER_IDENTITY.value, CheckKey.USER_IDENTITY, {"generations": 1000, "generations_identified": 1}),
+            (
+                CheckKey.USER_IDENTITY.value,
+                CheckKey.USER_IDENTITY,
+                {"generations": 1000, "sdk_generations": 1000, "sdk_generations_identified": 1},
+            ),
             (CheckKey.TRACE_STRUCTURE.value, CheckKey.TRACE_STRUCTURE, {"total_events": 1000, "spans": 1}),
         ]
     )
@@ -155,7 +166,7 @@ class TestGradeChecklist:
             ),
             (
                 "sessions_ok",
-                {"generations": 40, "generations_with_session": 1},
+                {"generations": 40, "events_with_session": 1},
                 CheckKey.SESSIONS,
                 CheckStatus.OK,
                 SESSIONS_OK,
@@ -190,17 +201,25 @@ class TestGradeChecklist:
             ),
             (
                 "user_identity_warning",
-                {"generations": 40},
+                {"generations": 40, "sdk_generations": 40},
                 CheckKey.USER_IDENTITY,
                 CheckStatus.WARNING,
                 USER_IDENTITY_WARNING,
             ),
             (
                 "user_identity_ok",
-                {"generations": 40, "generations_identified": 1},
+                {"generations": 40, "sdk_generations": 40, "sdk_generations_identified": 1},
                 CheckKey.USER_IDENTITY,
                 CheckStatus.OK,
                 USER_IDENTITY_OK,
+            ),
+            (
+                # An all-OTel project sits here forever, so this sentence cannot claim data is still coming in.
+                "user_identity_pending_at_an_all_otel_project",
+                {"generations": 4000, "sdk_generations": 0},
+                CheckKey.USER_IDENTITY,
+                CheckStatus.PENDING,
+                USER_IDENTITY_PENDING,
             ),
             (
                 "trace_structure_warning",
@@ -234,7 +253,7 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
-            ("would_be_ok", {"generations": 40, "generations_with_session": 40}, SESSIONS_OK),
+            ("would_be_ok", {"generations": 40, "events_with_session": 40}, SESSIONS_OK),
             ("would_be_warning", {"generations": 40}, SESSIONS_WARNING),
             ("would_be_pending", {}, PENDING_GENERATIONS),
         ]
@@ -272,13 +291,17 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
-            (CheckKey.SESSIONS.value, CheckKey.SESSIONS, {"generations": 40, "generations_with_session": 7}),
+            (CheckKey.SESSIONS.value, CheckKey.SESSIONS, {"generations": 40, "events_with_session": 7}),
             (
                 CheckKey.TOOL_CALLS.value,
                 CheckKey.TOOL_CALLS,
                 {"generations": 40, "generations_with_tool_calls": 3, "generations_with_tools_declared": 11},
             ),
-            (CheckKey.USER_IDENTITY.value, CheckKey.USER_IDENTITY, {"generations": 40, "generations_identified": 9}),
+            (
+                CheckKey.USER_IDENTITY.value,
+                CheckKey.USER_IDENTITY,
+                {"sdk_generations": 31, "sdk_generations_identified": 9},
+            ),
             (
                 CheckKey.TRACE_STRUCTURE.value,
                 CheckKey.TRACE_STRUCTURE,
@@ -291,10 +314,11 @@ class TestGradeChecklist:
     ):
         stats = _stats(
             generations=40,
-            generations_with_session=7,
+            events_with_session=7,
             generations_with_tool_calls=3,
             generations_with_tools_declared=11,
-            generations_identified=9,
+            sdk_generations=31,
+            sdk_generations_identified=9,
             spans=12,
             events_with_parent=5,
             total_events=90,
@@ -307,10 +331,11 @@ class TestChecklistStats:
         with pytest.raises(ValueError):
             ChecklistStats(
                 generations=100,
-                generations_with_session=0,
+                events_with_session=0,
                 generations_with_tool_calls=0,
                 generations_with_tools_declared=0,
-                generations_identified=0,
+                sdk_generations=100,
+                sdk_generations_identified=0,
                 spans=10,
                 events_with_parent=0,
                 total_events=0,
