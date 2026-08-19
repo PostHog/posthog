@@ -262,6 +262,10 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
         "author_team_slugs": author_team_slugs,
+        # get_pr_files always answers for the PR's live head, not for run.head_sha, so the stored
+        # list only describes the reviewed diff when the two agree. Recording the head this fetch saw
+        # lets approval retention refuse a payload that belongs to a different commit.
+        "files_head_sha": (pr.get("head") or {}).get("sha") or "",
     }
     run.save(update_fields=["output", "updated_at"])
 

@@ -530,8 +530,10 @@ class ApprovalRetentionTests(SimpleTestCase):
         [
             ("docs/how-to.md", True),
             ("README.md", True),
-            ("products/x/CHANGELOG.mdx", True),
-            ("frontend/__snapshots__/x.snap", True),
+            # MDX compiles to JavaScript and a snapshot file is a JavaScript module the test runner
+            # executes, so neither is inert however much it looks like documentation or data.
+            ("products/x/CHANGELOG.mdx", False),
+            ("frontend/__snapshots__/x.snap", False),
             ("posthog/api/thing.py", False),
             (".github/workflows/ci.yml", False),
             ("Dockerfile", False),
@@ -552,6 +554,12 @@ class ApprovalRetentionTests(SimpleTestCase):
             # The gate's own files are markdown or config the suffix rule would otherwise call inert.
             (".stamphog/policy.yml", False),
             ("products/visual_review/AGENT_APPROVALS.md", False),
+            # Shipped as the hosted reviewer's own guidance, and markdown, so the suffix rule would
+            # otherwise call an edit to the review prompt inert.
+            ("products/stamphog/backend/logic/policy_defaults/review-guidance.md", False),
+            ("tools/owners/posthog_owners/resolver.py", False),
+            ("owners.yaml", False),
+            ("products/stamphog/product.yaml", False),
             ("products/stamphog/packages/pr-approval-agent/gates.py", False),
             # Vendored copies keep the engine under tools/, and the rule must not care where it sits.
             ("tools/pr-approval-agent/gates.py", False),

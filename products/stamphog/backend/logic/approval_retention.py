@@ -27,21 +27,33 @@ from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
 
-# Suffixes whose content cannot execute anywhere: not in CI, not in a build, not in a shipped
-# artifact. The list is deliberately shorter than what the path alone might suggest is safe.
+# The one suffix whose content cannot execute anywhere: not in CI, not in a build, not in a shipped
+# artifact. The list is deliberately shorter than what a path alone might suggest is safe.
 #
 # Lockfiles, tests, generated sources and anything under docs/ are all excluded even though a change
 # to one is usually harmless. A lockfile selects the dependency code that gets installed, a test runs
 # in CI with CI's credentials, a file under a generated/ directory can be hand-edited and still
 # compiles into a service, and docs/onboarding is aliased into the production frontend, so a .tsx
-# there ships. Retention has no human in the loop, so it only trusts content that cannot run.
-_INERT_SUFFIXES = frozenset({".md", ".mdx", ".snap"})
+# there ships. `.mdx` and `.snap` are out for the same reason: MDX compiles to JavaScript, and a
+# snapshot file is a JavaScript module the test runner executes. Retention has no human in the loop,
+# so it only trusts content that cannot run.
+_INERT_SUFFIXES = frozenset({".md"})
 
-# Stamphog's own policy and engine files are never trivial, or a retained approval would let an edit
-# to the gate itself land unreviewed. AGENT_APPROVALS.md is the one that makes this necessary rather
-# than merely tidy: it is markdown, which the suffix rule above treats as inert.
+# The gate's own policy, engine and ownership inputs are never trivial, or a retained approval would
+# let an edit to the gate itself land unreviewed. This mirrors the `stamphog_policy` deny families in
+# .stamphog/policy.yml, and it is markdown that makes mirroring all of them necessary rather than
+# merely tidy: AGENT_APPROVALS.md and the reviewer guidance shipped under policy_defaults/ are both
+# .md, which the suffix rule above treats as inert. The engine pattern stays location-agnostic so a
+# vendored copy under tools/ is covered too.
 _GATE_OWN_FILES_RE = re.compile(
-    r"\.stamphog/|AGENT_APPROVALS\.md|pr-approval-agent/|CODEOWNERS",
+    r"\.stamphog/"
+    r"|AGENT_APPROVALS\.md"
+    r"|pr-approval-agent/"
+    r"|backend/logic/policy_defaults/"
+    r"|tools/owners/"
+    r"|CODEOWNERS"
+    r"|owners\.yaml"
+    r"|product\.yaml",
     re.IGNORECASE,
 )
 

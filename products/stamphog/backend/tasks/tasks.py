@@ -566,8 +566,16 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     if standing.posted_review_id is None:
         return None
 
-    approved_files = (standing.output or {}).get("files")
+    stored = standing.output or {}
+    approved_files = stored.get("files")
     if not isinstance(approved_files, list):
+        return None
+
+    # The stored listing comes from get_pr_files, which answers for the PR's live head rather than
+    # for the head the run reviewed. It only describes the approved diff when the head had not moved
+    # by the time it was fetched, so the fetch records what it saw and this refuses anything else,
+    # including a run from before that field existed.
+    if stored.get("files_head_sha") != standing.head_sha:
         return None
 
     client = StamphogGitHubClient(repo_config.installation_id)

@@ -1273,7 +1273,7 @@ def test_trivial_push_retains_standing_approval(team, repo_config, changed_file,
     with team_scope(team.id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             posted_review_id=9,
-            output={"files": [{"filename": changed_file["filename"], "sha": "aaa"}]},
+            output={"files": [{"filename": changed_file["filename"], "sha": "aaa"}], "files_head_sha": "sha-1"},
         )
 
     with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
@@ -1303,7 +1303,8 @@ def test_manually_dismissed_approval_is_not_retained(team, repo_config):
     _run_task(_pr_payload(), "delivery-dismissed-approved", team.id)
     with team_scope(team.id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
-            posted_review_id=9, output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}]}
+            posted_review_id=9,
+            output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}], "files_head_sha": "sha-1"},
         )
 
     mock_execute = _run_task(
@@ -1332,7 +1333,7 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}]},
+            output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}], "files_head_sha": "sha-1"},
         )
 
     _run_task(
@@ -1361,3 +1362,27 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
         assert list(PullRequestAudience.objects.filter(pull_request=merged).values_list("audience_key", flat=True)) == [
             "team:devex"
         ]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("files_head_sha,expect_retained", [("sha-1", True), ("sha-9", False), (None, False)])
+def test_retention_refuses_a_file_list_from_another_head(team, repo_config, files_head_sha, expect_retained):
+    # get_pr_files answers for the PR's live head, not for the head the run reviewed, so a push
+    # landing during the context fetch would store a newer head's listing against an older approval.
+    # Comparing that against the same newer head reads as "unchanged" and retains an approval over
+    # commits nobody reviewed. A run predating the marker is refused for the same reason.
+    _run_task(_pr_payload(), f"delivery-provenance-approved-{files_head_sha}", team.id)
+    output: dict[str, Any] = {"files": [{"filename": "docs/thing.md", "sha": "aaa"}]}
+    if files_head_sha is not None:
+        output["files_head_sha"] = files_head_sha
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output=output)
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        f"delivery-provenance-push-{files_head_sha}",
+        team.id,
+        pr_files=[{"filename": "docs/thing.md", "sha": "bbb"}],
+    )
+
+    assert mock_execute.called is not expect_retained
