@@ -783,10 +783,9 @@ def send_batch_export_run_failure(
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
-    is_scheduled = isinstance(batch_export, BatchExport)
     subject = (
         f"PostHog: {batch_export.name} batch export run failure"
-        if is_scheduled
+        if isinstance(batch_export, BatchExport)
         else "PostHog: batch export on demand run failure"
     )
     message = EmailMessage(
@@ -795,10 +794,10 @@ def send_batch_export_run_failure(
         template_name="batch_export_run_failure",
         template_context={
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
-            "name": batch_export.name if is_scheduled else "",
+            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
             # None for on-demand runs and deleted exports, which have no page to link to.
             "review_url": batch_export_run_review_path(batch_export_run),
-            "on_demand": not is_scheduled,
+            "on_demand": not isinstance(batch_export, BatchExport),
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)

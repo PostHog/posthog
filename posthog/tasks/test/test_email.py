@@ -573,11 +573,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        team = user.team
+        assert team is not None
         batch_export_destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
         )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=user.team, name="A batch export", destination=batch_export_destination
+        batch_export = BatchExport.objects.create(
+            team=team, name="A batch export", destination=batch_export_destination
         )
         now = dt.datetime.now()
         batch_export_run = BatchExportRun.objects.create(
@@ -594,18 +596,20 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html_body = mocked_email_messages[0].html_body
         assert html_body
         # Links to the live route, so it resolves instead of rendering "Batch export not found".
-        assert f"/project/{user.team.id}/pipeline/batch-exports/{batch_export.id}" in html_body
+        assert f"/project/{team.id}/pipeline/batch-exports/{batch_export.id}" in html_body
 
     def test_send_batch_export_run_failure_for_on_demand_run_omits_the_dead_link(
         self, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        team = user.team
+        assert team is not None
         destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
         )
-        with team_scope(team_id=user.team.pk, canonical=True):
-            batch_export = BatchExportOnDemand.objects.create(team=user.team, destination=destination, model="events")
+        with team_scope(team_id=team.pk, canonical=True):
+            batch_export = BatchExportOnDemand.objects.create(team=team, destination=destination, model="events")
         now = dt.datetime.now()
         batch_export_run = BatchExportRun.objects.create(
             batch_export_on_demand=batch_export,
