@@ -184,6 +184,25 @@ class ChannelsAPITestCase(TestCase):
         legacy.refresh_from_db()
         self.assertEqual(legacy.system_role, Channel.SystemRole.GENERAL)
 
+    @parameterized.expand(
+        [
+            ("hash_prefix", "#growth", "growth"),
+            ("spaces", "Growth Ideas", "growth-ideas"),
+            ("punctuation", "team.core!", "team-core"),
+            ("surrounding_separators", "  --growth--  ", "growth"),
+        ]
+    )
+    def test_a_created_space_takes_the_name_desktop_showed(self, _name, sent, stored):
+        # The field normalizes as the user types, so the server has to land on the same
+        # name. A "#" matters most: several surfaces write one in front of the name.
+        response = self.client.post(self._channels_url(), {"name": sent})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["name"], stored)
+
+    def test_a_name_with_nothing_usable_in_it_is_rejected(self):
+        response = self.client.post(self._channels_url(), {"name": "###"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_creating_a_space_named_general_resolves_the_system_space(self):
         created = self.client.post(self._channels_url(), {"name": "General"})
         self.assertEqual(created.status_code, status.HTTP_200_OK)
