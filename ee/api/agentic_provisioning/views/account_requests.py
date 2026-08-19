@@ -22,7 +22,7 @@ from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import CLIENT_NOT_REGISTERED_MESSAGE, ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import CODE_CHALLENGE_RE
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.ratelimits import Budget, account_creation_daily_ceiling, rate_limited
+from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
 from ee.api.agentic_provisioning.throttling import CIMDRegistrationThrottle
 from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
@@ -37,13 +37,11 @@ class AccountRequestsView(ProvisioningAPIView):
 
     # charge="manual": the partner is only known mid-handler, and a partner refused
     # the capability outright must keep its budget. The tier grid puts this at
-    # 10/20/50/100 per hour; the durable ceiling bounds account creation per day
-    # even when the Redis bucket loses state.
+    # 10/20/50/100 per hour.
     @rate_limited(
         "account_requests",
         budget=Budget(burst=5, per_hour=10),
         charge="manual",
-        durable_ceiling=account_creation_daily_ceiling,
     )
     def post(self, request: Request) -> Response:
         # --- Identify partner ---

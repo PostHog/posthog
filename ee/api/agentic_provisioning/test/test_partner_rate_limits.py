@@ -11,18 +11,12 @@ from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.oauth_provisioning import PartnerTier
-from posthog.models.team.team import Team
-from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import Budget, TEST_reset_scripts
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.ratelimits import (
-    FLAT_MULTIPLIERS,
-    account_creation_daily_ceiling,
-    charge_partner_by_name,
-)
+from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, charge_partner_by_name
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
     ProvisioningTestBase,
@@ -304,27 +298,3 @@ class TestPartnerRateLimits(ProvisioningTestBase):
                     branch=None,
                 )
             assert ctx.exception.code == "rate_limited"
-
-    # --- Durable ceiling ---
-
-    def test_account_ceiling_holds_after_redis_loses_state(self):
-        # Override 1/hour -> Budget(1, 1) -> daily ceiling of 1*24 + 1 = 25.
-        self.partner_app.update_provisioning_rate_limits(account_requests=1)
-        budget = Budget(burst=1, per_hour=1)
-
-        for i in range(25):
-            team = Team.objects.create(organization=self.organization, name=f"ceiling-{i}")
-            TeamProvisioningConfig.objects.filter(team_id=team.id).update(application=self.partner_app)
-
-        # A flushed Redis hands back a full bucket; the Postgres ceiling must
-        # still reject the request.
-        TEST_clear_clients()
-        TEST_reset_scripts()
-
-        with self.assertRaises(ProvisioningError) as ctx:
-            account_creation_daily_ceiling(self.partner_app, budget)
-        assert ctx.exception.status == 429
-
-        with self.assertRaises(ProvisioningError) as ctx:
-            charge_partner_by_name("account_requests", self.partner_app)
-        assert ctx.exception.status == 429

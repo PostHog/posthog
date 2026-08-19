@@ -24,20 +24,17 @@ work (the error code is in the declaration's ``refund_on``), so a partner
 debugging a 400 does not spend its budget on rejections.
 
 The buckets are best-effort: Redis eviction or an outage hands a caller a
-fresh budget, and charging fails open. ``account_requests`` therefore also
-carries a durable ceiling, a Postgres count of the accounts the partner
-actually created in the last day, which stays correct when Redis cannot.
+fresh budget, and charging fails open. Losing a key costs one extra burst
+before the normal refill resumes, which is the overage this accepts.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from datetime import timedelta
 from typing import ClassVar, Literal
 
 from django.core.exceptions import ImproperlyConfigured
-from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -46,7 +43,6 @@ from rest_framework.request import Request
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import PartnerTier
-from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume, refund
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -120,11 +116,6 @@ BACKEND_ERRORS_COUNTER = Counter(
     "Rate limit decisions Redis could not answer, by fallback mode.",
     labelnames=["endpoint", "mode"],
 )
-ACCOUNT_CEILING_COUNTER = Counter(
-    "provisioning_account_ceiling_hits_total",
-    "Account requests rejected by the durable daily account-creation ceiling.",
-    labelnames=["tier"],
-)
 
 
 @frozen
@@ -134,7 +125,6 @@ class BudgetDeclaration:
     multipliers: Mapping[PartnerTier, int]
     charge: Literal["auto", "manual"]
     refund_on: frozenset[str]
-    durable_ceiling: Callable[[OAuthApplication, Budget], None] | None
     key: Callable[[Request, object], str] | None
     # Overrides the view's error envelope on the 429 (the token endpoint keeps
     # the typed envelope, its historical wire shape).
@@ -165,7 +155,6 @@ def rate_limited(
     multipliers: Mapping[PartnerTier, int] | None = None,
     charge: Literal["auto", "manual"] = "auto",
     refund_on: frozenset[str] = DID_NO_WORK_CODES,
-    durable_ceiling: Callable[[OAuthApplication, Budget], None] | None = None,
     key: Callable[[Request, object], str] | None = None,
     envelope: Envelope | None = None,
 ) -> Callable:
@@ -184,7 +173,6 @@ def rate_limited(
         multipliers={**TIER_MULTIPLIERS, **(multipliers or {})},
         charge=charge,
         refund_on=refund_on,
-        durable_ceiling=durable_ceiling,
         key=key,
         envelope=envelope,
     )
@@ -292,13 +280,8 @@ def charge_partner(
 
     decision = consume(bucket_key, budget)
     if isinstance(decision, BucketUnavailable):
-        # Fail open: an unreachable Redis must not take the API down. The
-        # durable ceiling below still bounds the one endpoint where a free
-        # window matters.
-        mode = "fell_through_to_db" if declaration.durable_ceiling else "failed_open"
-        BACKEND_ERRORS_COUNTER.labels(endpoint=declaration.endpoint, mode=mode).inc()
-        if declaration.durable_ceiling is not None:
-            declaration.durable_ceiling(partner, budget)
+        # Fail open: an unreachable Redis must not take the API down.
+        BACKEND_ERRORS_COUNTER.labels(endpoint=declaration.endpoint, mode="failed_open").inc()
         return
 
     HEADROOM_HISTOGRAM.labels(endpoint=declaration.endpoint, tier=tier).observe(
@@ -334,9 +317,6 @@ def charge_partner(
         )
 
     DECISIONS_COUNTER.labels(endpoint=declaration.endpoint, tier=tier, outcome="allowed").inc()
-
-    if declaration.durable_ceiling is not None:
-        declaration.durable_ceiling(partner, budget)
 
 
 def charge_partner_by_name(
@@ -386,36 +366,3 @@ def apply_rate_limit_headers(request: Request, response) -> None:
     response["RateLimit-Limit"] = str(ledger.decision.limit)
     response["RateLimit-Remaining"] = str(min(remaining, ledger.decision.limit))
     response["RateLimit-Reset"] = str(ledger.decision.reset)
-
-
-def account_creation_daily_ceiling(partner: OAuthApplication, budget: Budget) -> None:
-    """Durable backstop on account creation: the Redis bucket forgets on
-    eviction or failover, this Postgres count of accounts the partner actually
-    created in the last day does not. Sized to the bucket's own daily
-    throughput, so it only bites when the bucket lost state.
-
-    Counts live mappings, so removing a provisioned resource lowers the count
-    again while the organization and user it created remain. A partner willing
-    to remove what it provisioned can therefore keep creating through an outage.
-    Closing that needs an append-only record of creations, which the mapping row
-    is not; the bound accepted here is the coarse one this backstop was for.
-    """
-    # Not serialized: locking the partner row would put every account request behind
-    # one writer to hold a cap that is already coarse (a day of bucket throughput), and
-    # overshoot is bounded by how many requests one partner has in flight at once.
-    cap = budget.per_hour * 24 + budget.burst
-    since = timezone.now() - timedelta(days=1)
-    created = TeamProvisioningConfig.objects.filter(application=partner, created_at__gte=since).count()
-    if created < cap:
-        return
-    tier = partner.partner_tier
-    ACCOUNT_CEILING_COUNTER.labels(tier=tier).inc()
-    capture_provisioning_event(
-        "rate_limited", "account_ceiling", partner=partner, endpoint="account_requests", limit=cap, created=created
-    )
-    raise ProvisioningError(
-        "rate_limited",
-        "Daily account creation limit reached for this partner. Try again later.",
-        status=429,
-        retry_after=3600,
-    )

@@ -269,8 +269,8 @@ def handle_new_user(
 
     # Attribute the bootstrap team to the creating partner. The row already exists
     # (the Team extension signal created it inside bootstrap), so this is an update.
-    # The (application, created_at) pair backs the durable daily ceiling on partner
-    # account creation, which must hold even when the Redis buckets lose state.
+    # Without it the mapping stays unclaimed, and resource removal treats unclaimed as
+    # fair game for any partner whose token happens to scope the team.
     TeamProvisioningConfig.objects.filter(team_id=team.id, application__isnull=True).update(application=partner)
 
     # Every provisioned account is treated as already onboarded — apply the flags at
