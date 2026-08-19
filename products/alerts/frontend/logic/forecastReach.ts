@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { ForecastErrorMode } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import { INSIGHT_INTERVAL_DURATION_MINUTES } from './alertIntervalHelpers'
@@ -47,6 +48,24 @@ export function clampHorizon<T extends { horizon?: number | null }>(
  *  under, not a number to reach. */
 export function forecastTargetValueError(target: number | null | undefined): string | null {
     return target != null && Number.isFinite(target) ? null : 'Enter a target value'
+}
+
+/** Why a deviation threshold is unusable, or null when it is fine. Shared so the field that blocks
+ *  the save is the field that gets marked. */
+export function forecastErrorThresholdError(config: {
+    error_mode?: ForecastErrorMode | null
+    error_threshold_pct?: number | null
+    error_threshold_abs?: number | null
+}): string | null {
+    if (config.error_mode === ForecastErrorMode.RELATIVE) {
+        const pct = config.error_threshold_pct
+        return pct != null && Number.isFinite(pct) && pct > 0 ? null : 'Enter a percentage above zero'
+    }
+    if (config.error_mode === ForecastErrorMode.ABSOLUTE) {
+        const abs = config.error_threshold_abs
+        return abs != null && Number.isFinite(abs) && abs > 0 ? null : 'Enter an amount above zero'
+    }
+    return null
 }
 
 /** Why a target date cannot be forecast, or null when it can. Reach is measured from today and does

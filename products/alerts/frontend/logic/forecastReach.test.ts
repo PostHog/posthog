@@ -1,6 +1,14 @@
 import { dayjs } from 'lib/dayjs'
 
-import { clampHorizon, forecastTargetDateError, intervalSupportsForecast, maxHorizonForInterval } from './forecastReach'
+import { ForecastErrorMode } from '~/queries/schema/schema-general'
+
+import {
+    clampHorizon,
+    forecastErrorThresholdError,
+    forecastTargetDateError,
+    intervalSupportsForecast,
+    maxHorizonForInterval,
+} from './forecastReach'
 
 describe('maxHorizonForInterval', () => {
     // Keyed by the INSIGHT's interval, not the check cadence. The backend counts horizon in insight
@@ -90,5 +98,25 @@ describe('forecastTargetDateError measures reach from today', () => {
         expect(forecastTargetDateError(today.add(184, 'day').format('YYYY-MM-DD'), today)).toBe(
             'A forecast target must be within 6 months. Move the date closer.'
         )
+    })
+})
+
+describe('forecastErrorThresholdError', () => {
+    // Percentage and fixed-amount modes each need a number the user supplies. Without this the save
+    // failed at the server with no field marked, the way the missing target used to.
+    it.each([
+        ['percentage mode with no value', { error_mode: ForecastErrorMode.RELATIVE }, 'Enter a percentage above zero'],
+        [
+            'percentage mode at zero',
+            { error_mode: ForecastErrorMode.RELATIVE, error_threshold_pct: 0 },
+            'Enter a percentage above zero',
+        ],
+        ['percentage mode with a value', { error_mode: ForecastErrorMode.RELATIVE, error_threshold_pct: 0.2 }, null],
+        ['fixed mode with no value', { error_mode: ForecastErrorMode.ABSOLUTE }, 'Enter an amount above zero'],
+        ['fixed mode with a value', { error_mode: ForecastErrorMode.ABSOLUTE, error_threshold_abs: 50 }, null],
+        ['expected-range mode needs neither', { error_mode: ForecastErrorMode.PREDICTION_INTERVAL }, null],
+        ['an unset mode needs neither', {}, null],
+    ] as const)('%s', (_n, config, expected) => {
+        expect(forecastErrorThresholdError(config)).toBe(expected)
     })
 })

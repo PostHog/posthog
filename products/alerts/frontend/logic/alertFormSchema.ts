@@ -7,7 +7,7 @@ import { AlertConditionType, ForecastConditionType } from '~/queries/schema/sche
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
-import { forecastTargetDateError, forecastTargetValueError } from './forecastReach'
+import { forecastErrorThresholdError, forecastTargetDateError, forecastTargetValueError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
@@ -96,6 +96,15 @@ const alertFormSchema = z
         // Save used to be the only thing that checked a target, so the user met the server's
         // message as a toast with no field marked, after a round trip.
         const forecast = (alert as AlertFormType).forecast_config
+        // A band alert in percentage or fixed-amount mode has a number the user must supply, the
+        // same way a target alert does.
+        if (forecast?.condition === ForecastConditionType.BAND_DEVIATION) {
+            const thresholdError = forecastErrorThresholdError(forecast)
+            if (thresholdError) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['forecast_config'], message: thresholdError })
+            }
+        }
+
         if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
             const targetError = forecastTargetValueError(forecast.target)
             if (targetError) {
