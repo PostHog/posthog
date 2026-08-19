@@ -25,7 +25,9 @@ class ResourceLinkSerializer(serializers.Serializer):
     # `type` mirrors the section-citation shape the frontend already renders (type/ref/label/url).
     type = serializers.CharField(source="resource_type", help_text="The kind of PostHog resource this link points at.")
     ref = serializers.CharField(help_text="Stable identifier of the referenced resource (e.g. an insight short id).")
-    label = serializers.CharField(allow_blank=True, help_text="Human-readable label for the resource.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        allow_blank=True, help_text="Human-readable label for the resource."
+    )
     url = serializers.CharField(allow_blank=True, help_text="Deep link into the app, or empty when there is none.")
 
 
@@ -80,7 +82,7 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Opportunity.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Opportunity]) -> QuerySet[Opportunity]:
-        scoped = (
+        scoped: QuerySet[Opportunity] = (
             Opportunity.objects.for_team(self.team_id)
             .select_related("created_by")
             .prefetch_related("resource_links")

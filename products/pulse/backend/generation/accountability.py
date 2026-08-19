@@ -6,7 +6,7 @@ from concurrent.futures import (
 )
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import connection
 from django.utils import timezone
@@ -15,6 +15,7 @@ import structlog
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.product_analytics.backend.models.insight import Insight
@@ -47,14 +48,23 @@ def series_daily_values(series_result: Any, period_days: int) -> list[float] | N
     return [float(v) for v in series_result["data"][-2 * period_days :]]
 
 
-def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
-    # Split into (baseline, current) halves. Callers pre-trim to 2×period_days via series_daily_values.
+@frozen
+class ScoreWindows:
+    """The two equal-length halves a movement is scored across. Named rather than a tuple so the
+    two same-typed series cannot be swapped at a call site."""
+
+    baseline: list[float]
+    current: list[float]
+
+
+def split_score_windows(values: list[float]) -> ScoreWindows | None:
+    # Callers pre-trim to 2×period_days via series_daily_values.
     if len(values) % 2:
         values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
     if len(values) < 2:
         return None
     half = len(values) // 2
-    return values[:half], values[half:]
+    return ScoreWindows(baseline=values[:half], current=values[half:])
 
 
 # A single stuck insight query can't hang the shared synthesize activity: cap each execution,
@@ -186,7 +196,8 @@ def _has_usable_refs(opportunity: Opportunity) -> bool:
 
 
 def _insights_by_short_id(team: Team, opportunities: list[Opportunity]) -> dict[str, Insight]:
-    short_ids = {opportunity.metric_ref["insight_short_id"] for opportunity in opportunities}
+    # Only opportunities that cleared _has_usable_refs reach here, so metric_ref is a dict.
+    short_ids = {cast(dict, opportunity.metric_ref)["insight_short_id"] for opportunity in opportunities}
     # (team_id, short_id) is unique on the insight table, so each short_id resolves to at most one row.
     return {
         insight.short_id: insight
@@ -200,7 +211,7 @@ def _status_line(
     insights: dict[str, Insight],
     results_cache: _InsightResultsCache,
 ) -> OpportunityStatusLine:
-    baseline = opportunity.baseline
+    baseline = cast(dict, opportunity.baseline)
     period_days = int(baseline["period_days"])
     # period_days is the only denominator the snapshot recorded.
     then_rate = float(baseline["current_total"]) / period_days
@@ -245,7 +256,8 @@ def _current_window(
     A fixed-date-range insight returns the same series forever and re-scores to delta ≈ 0,
     which reads as "no change" — a known v1 limitation.
     """
-    insight = insights.get(opportunity.metric_ref["insight_short_id"])
+    metric_ref = cast(dict, opportunity.metric_ref)
+    insight = insights.get(metric_ref["insight_short_id"])
     if insight is None:
         return None
     try:
@@ -254,7 +266,7 @@ def _current_window(
         # A stuck query degrades to "metric no longer available", not a blanked activity.
         logger.warning("pulse_accountability_insight_timeout", insight_short_id=insight.short_id)
         return None
-    series_index = int(opportunity.metric_ref.get("series_index", 0))
+    series_index = int(metric_ref.get("series_index", 0))
     if not 0 <= series_index < len(results):
         return None
     values = series_daily_values(results[series_index], period_days)
@@ -263,7 +275,7 @@ def _current_window(
     windows = split_score_windows(values)
     if windows is None:
         return None
-    return windows[1]
+    return windows.current
 
 
 def _rate_summary(rate: float) -> str:
