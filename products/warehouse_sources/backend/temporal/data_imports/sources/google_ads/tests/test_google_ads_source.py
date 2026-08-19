@@ -1567,7 +1567,7 @@ class TestGoogleAdsQueryConstruction:
             ("2025-03-01", "2025-03-01"),
         ],
     )
-    def test_drain_starts_at_the_schema_history_start(self, history_start: str, expected_start: str) -> None:
+    def test_drain_starts_at_the_schema_history_start(self, history_start, expected_start: str) -> None:
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
@@ -1607,6 +1607,29 @@ class TestGoogleAdsQueryConstruction:
         )
         assert f"WHERE segments.date >= '{expected_start}'" in queries[1]
 
+    def test_the_probe_repeats_the_resource_filter(self):
+        # Five report resources append `metrics.impressions > 0`. Without it the probe reports a
+        # start earlier than the first row the drain will import, and that start gets recorded.
+        table = self._stats_table()
+        table.extra_where = "metrics.impressions > 0"
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                table,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                history_start=None,
+                earliest_date="2020-02-08",
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
+            "AND metrics.impressions > 0 ORDER BY segments.date ASC LIMIT 1"
+        )
+
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
         # the same backfill date every run and the refresh replaces the whole table with that same
@@ -1623,18 +1646,21 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         ]
 
-    def test_run_stops_when_the_drain_budget_is_spent(self):
-        # Stopping on elapsed time rather than a window count lets a run take as many windows as it
-        # can afford, so a backlog drains at the speed the work costs instead of a fixed 35 days.
+    # Parametrized so the count tracks the budget. A single case landing on five windows is the
+    # same number the deleted `MAX_DATA_WINDOWS_PER_RUN = 5` produced, so it could not tell the two
+    # rules apart.
+    @pytest.mark.parametrize("budget,expected_windows", [(4, 5), (9, 10), (19, 20)])
+    def test_a_run_takes_as_many_windows_as_the_budget_buys(self, budget: int, expected_windows: int) -> None:
         cursor = dt.date(2026, 1, 1)
         window_rows = {
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
-        # One second of drain per loop check, against a four-second budget.
+        # One second of drain per loop check. The first window starts at the cursor, so its rows are
+        # not guaranteed past it and it does not arm the budget; the budget buys the rest.
         clock = itertools.count()
 
         with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
-            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 4):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
                 _response, queries = self._run_source(
                     self._stats_table(),
                     window_rows=window_rows,
@@ -1644,9 +1670,7 @@ class TestGoogleAdsQueryConstruction:
                     incremental_field_type=IncrementalFieldType.Date,
                 )
 
-        # The first window starts at the cursor, so its rows aren't guaranteed to be past it; it
-        # doesn't arm the budget. The four seconds of budget then buy four more windows: five total.
-        assert len(queries) == 5
+        assert len(queries) == expected_windows
         assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
 
     def test_empty_windows_are_crossed_within_one_run(self):
