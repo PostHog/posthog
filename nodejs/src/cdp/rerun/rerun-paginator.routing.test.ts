@@ -142,7 +142,7 @@ describe('RerunPaginatorService queue routing', () => {
 
     const rehydrate = (type: string) => {
         const hogFunctionManager = {
-            getHogFunction: jest.fn().mockResolvedValue({ id: 'fn-1', team_id: 1, type }),
+            getHogFunction: jest.fn().mockResolvedValue({ id: 'fn-1', team_id: 1, type, enabled: true }),
         } as unknown as HogFunctionManagerService
         const webhookPaginator = new RerunPaginatorService(
             {} as any,
