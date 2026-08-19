@@ -28,6 +28,9 @@ from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
+_FEATURE_DISCOVERY_FAILED_MESSAGE = "Feature discovery failed. Check the repository connection and try again."
+_MAX_FAILURE_DETAILS_LENGTH = 8000
+
 
 @frozen
 class FeatureDiscoveryFailedInput:
@@ -44,6 +47,7 @@ def _mark_discovery_running(team_id: int, run_id: str) -> None:
     FeatureDiscoveryRun.objects.for_team(team_id).filter(id=run_id).update(
         status=FeatureDiscoveryRun.Status.RUNNING,
         error="",
+        failure_details="",
         updated_at=timezone.now(),
     )
 
@@ -53,18 +57,20 @@ def _link_discovery_task_sync(team_id: int, run_id: str, task_id: str) -> None:
         task_id=task_id,
         status=FeatureDiscoveryRun.Status.RUNNING,
         error="",
+        failure_details="",
         updated_at=timezone.now(),
     )
 
 
-def _mark_discovery_failed(team_id: int, run_id: str) -> None:
+def _mark_discovery_failed(team_id: int, run_id: str, failure_details: str) -> None:
     (
         FeatureDiscoveryRun.objects.for_team(team_id)
         .filter(id=run_id)
         .exclude(status=FeatureDiscoveryRun.Status.COMPLETED)
         .update(
             status=FeatureDiscoveryRun.Status.FAILED,
-            error="Feature discovery failed. Check the repository connection and try again.",
+            error=_FEATURE_DISCOVERY_FAILED_MESSAGE,
+            failure_details=failure_details[:_MAX_FAILURE_DETAILS_LENGTH],
             updated_at=timezone.now(),
         )
     )
@@ -161,6 +167,18 @@ async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -
         )
         return discovered_count
     except Exception as error:
+        try:
+            await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(
+                input.team_id,
+                input.run_id,
+                str(error),
+            )
+        except Exception:
+            logger.exception(
+                "feature discovery failure state persistence failed",
+                run_id=input.run_id,
+                team_id=input.team_id,
+            )
         logger.exception(
             "feature discovery activity failed",
             run_id=input.run_id,
@@ -181,4 +199,8 @@ async def mark_feature_discovery_failed_activity(input: FeatureDiscoveryFailedIn
         team_id=input.team_id,
         error=input.error,
     )
-    await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(input.team_id, input.run_id)
+    await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(
+        input.team_id,
+        input.run_id,
+        input.error,
+    )

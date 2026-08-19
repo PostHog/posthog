@@ -182,6 +182,44 @@ async def test_feature_discovery_failure_activity_marks_the_run_failed_from_asyn
     saved_run = await database_sync_to_async(_load_discovery_run)(ateam.id, str(run.id))
     assert saved_run.status == FeatureDiscoveryRun.Status.FAILED
     assert saved_run.error == "Feature discovery failed. Check the repository connection and try again."
+    assert saved_run.failure_details == "Activity task failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_feature_discovery_activity_persists_failure_before_workflow_cleanup(ateam: Team) -> None:
+    run = await database_sync_to_async(_create_discovery_run)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.feature_discovery.get_or_create_signals_sandbox_env",
+            return_value="sandbox-environment-id",
+        ),
+        patch(
+            "products.signals.backend.temporal.feature_discovery.resolve_agent_runtime",
+            return_value=AgentRuntime(),
+        ),
+        patch(
+            "products.signals.backend.temporal.feature_discovery.run_multi_turn_feature_discovery",
+            new=AsyncMock(side_effect=RuntimeError("Agent session disconnected")),
+        ),
+        patch("products.signals.backend.temporal.feature_discovery.Heartbeater"),
+        pytest.raises(RuntimeError, match="Agent session disconnected"),
+    ):
+        await run_feature_discovery_activity(
+            FeatureDiscoveryWorkflowInput(
+                run_id=str(run.id),
+                team_id=ateam.id,
+                user_id=1,
+                repository=run.repository,
+                focus="",
+            )
+        )
+
+    saved_run = await database_sync_to_async(_load_discovery_run)(ateam.id, str(run.id))
+    assert saved_run.status == FeatureDiscoveryRun.Status.FAILED
+    assert saved_run.error == "Feature discovery failed. Check the repository connection and try again."
+    assert saved_run.failure_details == "Agent session disconnected"
 
 
 class TestPersistDiscoveredFeatures(APIBaseTest):

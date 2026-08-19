@@ -1,1 +1,1 @@
-0096_add_feature_discovery_runs
+0097_featurediscoveryrun_failure_details

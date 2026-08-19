@@ -201,6 +201,7 @@ def start_feature_discovery(*, team: Team, user: User, repository: str, focus: s
         FeatureDiscoveryRun.objects.for_team(team.id).filter(id=run.id).update(
             status=FeatureDiscoveryRun.Status.FAILED,
             error="Feature discovery could not start. Try again.",
+            failure_details=str(error)[:8000],
             updated_at=timezone.now(),
         )
         logger.exception(

@@ -351,5 +351,6 @@ def persist_discovered_features(*, run_id: str, team_id: int, result: FeatureDis
     run.status = FeatureDiscoveryRun.Status.COMPLETED
     run.discovered_count = len(result.features)
     run.error = ""
-    run.save(update_fields=["task", "status", "discovered_count", "error", "updated_at"])
+    run.failure_details = ""
+    run.save(update_fields=["task", "status", "discovered_count", "error", "failure_details", "updated_at"])
     return run.discovered_count

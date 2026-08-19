@@ -219,6 +219,7 @@ class FeatureDiscoveryRun(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=20, choices=Status, default=Status.QUEUED, db_default=Status.QUEUED)
     discovered_count = models.PositiveIntegerField(default=0, db_default=0)
     error = models.TextField(blank=True, default="", db_default="")
+    failure_details = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -54,6 +54,9 @@ An optional focus from the user is a hard scope constraint throughout exploratio
 The workflow persists no feature reports until every turn succeeds.
 It then creates all reports in one transaction, marks them `staged`, and links them to the discovery task.
 Activity retries see a completed run and return without creating duplicates.
+Each run persists its current state and a user-safe error message.
+Failures also retain bounded diagnostic details on the run without exposing them through the feature API.
+The main discovery activity records failures directly, and the workflow cleanup activity provides a second attempt after retries are exhausted.
 
 ### Planning agent
 
