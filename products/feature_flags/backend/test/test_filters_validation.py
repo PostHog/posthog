@@ -7,11 +7,13 @@ from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
+from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
     Violation,
     check_groups_non_empty_for_create,
+    check_variant_rollout_sum,
     collect_cross_field_violations,
     collect_filters_violations,
     flatten_structural_errors,
@@ -35,6 +37,18 @@ class TestFiltersValidation(SimpleTestCase):
                 ["cross_field.variant_rollout_sum_not_100"],
             ),
             ("variant_sum_exactly_100", {"multivariate": _multivariate(("a", 50), ("b", 50))}, []),
+            # Sums to 100.00000000000001; the flag UI accepts the same split.
+            (
+                "variant_sum_100_with_float_drift",
+                {"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35.95))},
+                [],
+            ),
+            # The smallest miss the flag UI can express, so the tolerance cannot swallow it.
+            (
+                "variant_sum_short_by_smallest_step",
+                {"multivariate": _multivariate(("a", 50), ("b", 49.99))},
+                ["cross_field.variant_rollout_sum_not_100"],
+            ),
             (
                 "variant_keys_duplicated",
                 {"multivariate": _multivariate(("a", 50), ("a", 50))},
@@ -221,6 +235,34 @@ class TestFiltersValidation(SimpleTestCase):
         violations = collect_cross_field_violations(filters)
         assert [violation.path for violation in violations] == ["groups[1].properties[1].value"]
 
+    # Validated filters are stored and then served verbatim to SDKs, and the .NET and Java
+    # clients type rollout percentages as int, so 100 must not come back as 100.0.
+    @parameterized.expand(
+        [
+            ("int_stays_int", 100, 100, int),
+            ("whole_float_narrows_to_int", 100.0, 100, int),
+            ("fraction_stays_float", 33.33, 33.33, float),
+            ("zero_stays_int", 0, 0, int),
+        ]
+    )
+    def test_rollout_percentage_keeps_whole_numbers_as_ints(
+        self, _name: str, stored: float, expected: float, expected_type: type
+    ) -> None:
+        serializer = FeatureFlagFiltersSerializer(
+            data={
+                "groups": [{"properties": [], "rollout_percentage": stored, "variant": None}],
+                "multivariate": _multivariate(("a", stored)),
+            },
+            context={},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        group_rollout = serializer.validated_data["groups"][0]["rollout_percentage"]
+        variant_rollout = serializer.validated_data["multivariate"]["variants"][0]["rollout_percentage"]
+        assert group_rollout == expected
+        assert type(group_rollout) is expected_type
+        assert type(variant_rollout) is expected_type
+
     def test_flatten_structural_errors_strips_indices_in_rule_id(self) -> None:
         errors = {
             "groups": [
@@ -259,6 +301,11 @@ class TestFiltersValidation(SimpleTestCase):
         }
         rule_ids = [violation.rule_id for violation in collect_filters_violations(filters)]
         assert rule_ids == ["structural.payloads.invalid_payload_json"]
+
+    def test_variant_rollout_sum_violation_message_hides_float_artifacts(self) -> None:
+        violations = check_variant_rollout_sum({"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35))})
+
+        assert violations[0].message == "Variant rollout percentages must sum to 100, got 99.05."
 
     def test_collect_filters_violations_end_to_end(self) -> None:
         structural = collect_filters_violations({"groups": [{"properties": [{"type": "person"}]}]})
