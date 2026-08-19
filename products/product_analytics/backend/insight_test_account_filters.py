@@ -9,9 +9,6 @@ from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 
 _WRAPPER_KINDS = {kind.value for kind in WRAPPER_NODE_KINDS}
 
-# Legacy insights store the same toggle on `filters` instead of `query`.
-_LEGACY_FILTER_KEY = "filter_test_accounts"
-
 
 def _kinds_supporting_test_account_filter() -> frozenset[str]:
     """Read the query kinds that carry `filterTestAccounts` off the generated schema, so a kind that gains
@@ -38,31 +35,25 @@ class TestAccountFilterUpdate:
 
     supported: bool
     query: dict[str, Any] | None = None
-    filters: dict[str, Any] | None = None
 
     @property
     def changed(self) -> bool:
-        return self.query is not None or self.filters is not None
+        return self.query is not None
 
 
 UNSUPPORTED = TestAccountFilterUpdate(supported=False)
 ALREADY_SET = TestAccountFilterUpdate(supported=True)
 
 
-def plan_test_account_filter_update(query: Any, filters: Any, *, enabled: bool) -> TestAccountFilterUpdate:
-    """Work out how to set the test account filter on an insight, without touching the stored objects.
+def plan_test_account_filter_update(query: Any, *, enabled: bool) -> TestAccountFilterUpdate:
+    """Work out how to set the test account filter on an insight, without touching the stored query.
 
     `supported` is False for insights with nowhere to put the toggle, such as SQL insights. When it is True
     but nothing changed, the insight already had this value.
     """
-    if isinstance(query, dict):
-        return _plan_query_update(query, enabled=enabled)
-    if isinstance(filters, dict) and filters:
-        return _plan_legacy_filters_update(filters, enabled=enabled)
-    return UNSUPPORTED
+    if not isinstance(query, dict):
+        return UNSUPPORTED
 
-
-def _plan_query_update(query: dict[str, Any], *, enabled: bool) -> TestAccountFilterUpdate:
     node = query
     while node.get("kind") in _WRAPPER_KINDS and isinstance(node.get("source"), dict):
         node = node["source"]
@@ -77,9 +68,3 @@ def _plan_query_update(query: dict[str, Any], *, enabled: bool) -> TestAccountFi
         target = target["source"]
     target["filterTestAccounts"] = enabled
     return TestAccountFilterUpdate(supported=True, query=updated)
-
-
-def _plan_legacy_filters_update(filters: dict[str, Any], *, enabled: bool) -> TestAccountFilterUpdate:
-    if bool(filters.get(_LEGACY_FILTER_KEY)) == enabled:
-        return ALREADY_SET
-    return TestAccountFilterUpdate(supported=True, filters={**filters, _LEGACY_FILTER_KEY: enabled})

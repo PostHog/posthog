@@ -2765,9 +2765,10 @@ When set, the specified dashboard's filters and date range override will be appl
             "Turn 'filter out internal and test users' on or off for every existing insight in the environment "
             "the request is scoped to. The setting of the same name only decides the default for new insights; "
             "this applies it to the insights that already exist. Insights in sibling environments of the same "
-            "project are not touched: the filters this toggle applies are defined per environment. Insights with "
-            "nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester "
-            "cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights "
+            "project are not touched: the filters this toggle applies are defined per environment. Only insights "
+            "that store a query are considered, so insights still holding legacy `filters` are not included. "
+            "Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the "
+            "requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights "
             "are updated in batches, so a failure part way through leaves the finished batches applied. "
             "Retrying is safe and picks up the rest."
         ),
@@ -2779,7 +2780,9 @@ When set, the specified dashboard's filters and date range override will be appl
         # access-control rows under that one team, so an insight from a sibling environment would be checked
         # against the wrong team's rows and fall through to the permissive default.
         insight_ids = list(
-            Insight.objects.filter(team_id=self.team.id, saved=True).order_by("id").values_list("id", flat=True)
+            Insight.objects.filter(team_id=self.team.id, saved=True, query__isnull=False)
+            .order_by("id")
+            .values_list("id", flat=True)
         )
 
         totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
@@ -2807,11 +2810,31 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(totals)
 
-    def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
-        counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
+    # Annotated as Sequence rather than list because this viewset defines a `list` action, which shadows the
+    # builtin inside the class body: `list[Insight]` here raises TypeError at import.
+    def _editable_insights(self, insight_ids: Sequence[int]) -> tuple[Sequence[Insight], int]:
+        """The insights from this environment the caller may edit, and how many were held back.
+
+        Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
+        insight is visible rather than whether it can be edited, so filtering in the query would let insights
+        the caller only has `viewer` on through to the write.
+        """
         insights = list(Insight.objects.filter(id__in=insight_ids, team_id=self.team.id))
-        if self.user_access_control:
-            self.user_access_control.preload_object_access_controls(cast(list, insights))
+        if not self.user_access_control:
+            return insights, 0
+
+        self.user_access_control.preload_object_access_controls(cast(list, insights))
+        editable = [
+            insight
+            for insight in insights
+            if (level := self.user_access_control.get_user_access_level(insight))
+            and access_level_satisfied_for_resource("insight", level, "editor")
+        ]
+        return editable, len(insights) - len(editable)
+
+    def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
+        editable, skipped = self._editable_insights(insight_ids)
+        counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": skipped}
 
         current_user = cast(User, self.request.user)
         was_impersonated = is_impersonated(self.request)
@@ -2820,16 +2843,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
         to_update: list[Insight] = []
         activity_log_entries: list[LogActivityEntry] = []
-        for insight in insights:
-            if self.user_access_control:
-                user_access_level = self.user_access_control.get_user_access_level(insight)
-                if not (
-                    user_access_level and access_level_satisfied_for_resource("insight", user_access_level, "editor")
-                ):
-                    counts["skipped"] += 1
-                    continue
-
-            update = plan_test_account_filter_update(insight.query, insight.filters, enabled=enabled)
+        for insight in editable:
+            update = plan_test_account_filter_update(insight.query, enabled=enabled)
             if not update.supported:
                 counts["unsupported"] += 1
                 continue
@@ -2837,19 +2852,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 counts["unchanged"] += 1
                 continue
 
-            changes: list[Change] = []
-            if update.query is not None:
-                changes.append(
-                    Change(type="Insight", field="query", action="changed", before=insight.query, after=update.query)
-                )
-                insight.query = update.query
-            if update.filters is not None:
-                changes.append(
-                    Change(
-                        type="Insight", field="filters", action="changed", before=insight.filters, after=update.filters
-                    )
-                )
-                insight.filters = update.filters
+            change = Change(type="Insight", field="query", action="changed", before=insight.query, after=update.query)
+            insight.query = update.query
             insight.last_modified_at = modified_at
             insight.last_modified_by = current_user
             to_update.append(insight)
@@ -2867,7 +2871,7 @@ When set, the specified dashboard's filters and date range override will be appl
                         item_id=insight.id,
                         scope="Insight",
                         activity="updated",
-                        detail=Detail(name=insight_name, short_id=insight.short_id, changes=changes),
+                        detail=Detail(name=insight_name, short_id=insight.short_id, changes=[change]),
                     )
                 )
 
@@ -2875,10 +2879,7 @@ When set, the specified dashboard's filters and date range override will be appl
             with transaction.atomic():
                 # `query_metadata` is derived from the query's entities, which this toggle doesn't touch, so it
                 # stays valid even though bulk_update skips the regeneration in `Insight.save`.
-                Insight.objects.bulk_update(
-                    to_update,
-                    ["query", "filters", "last_modified_at", "last_modified_by"],
-                )
+                Insight.objects.bulk_update(to_update, ["query", "last_modified_at", "last_modified_by"])
                 bulk_log_activity(activity_log_entries)
 
         return counts

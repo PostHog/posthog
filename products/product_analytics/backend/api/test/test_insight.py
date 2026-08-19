@@ -5359,16 +5359,19 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0})
         self.assertNotIn("filterTestAccounts", self._reloaded_source(sql_insight))
 
-    def test_sets_the_legacy_filter_on_insights_without_a_query(self) -> None:
+    def test_ignores_insights_that_only_have_legacy_filters(self) -> None:
+        mine = self._create_query_insight(filter_test_accounts=False)
         legacy = Insight.objects.create(
             team=self.team, name="Legacy", saved=True, filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
         )
 
         response = self._bulk_set(True)
 
-        self.assertEqual(response.json()["updated"], 1)
+        # `unsupported: 0` is the assertion that matters: legacy insights are out of scope, not merely unhandled.
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0})
+        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
         legacy.refresh_from_db()
-        self.assertTrue(legacy.filters["filter_test_accounts"])
+        self.assertNotIn("filter_test_accounts", legacy.filters)
 
     @parameterized.expand([("another project",), ("a sibling environment",)])
     def test_leaves_insights_outside_this_environment_alone(self, scope: str) -> None:
