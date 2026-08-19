@@ -82,9 +82,9 @@ def _columns(**overrides: str) -> dict[str, str]:
 # gets written.
 _MIXED_CURRENCY_NOTE = (
     " The value is in this row's own currency (see the `currency` column), which can differ from row "
-    "to row, so a plain sum across rows mixes currencies and returns a wrong total. For a correct "
-    "total in one currency, query your Revenue analytics revenue view, which converts every amount to "
-    "your team's base currency."
+    "to row, so a plain sum across rows mixes currencies and returns a wrong total. Filter to a single "
+    "currency or group by `currency` before summing. For revenue converted to your team's base "
+    "currency, use Revenue analytics."
 )
 
 
