@@ -47,7 +47,7 @@ describe('CI report section builders', () => {
             expected: {
                 status: 'fail',
                 summary: 'universal lane',
-                body: 'This PR affects every lane, so Trunk will merge it on its own.',
+                body: 'This PR is assigned to the universal lane. It runs the full suite and will take longer to merge. Ask dev-ex if you think this is wrong.',
             },
         },
         {
