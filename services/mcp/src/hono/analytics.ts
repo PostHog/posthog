@@ -295,10 +295,16 @@ const REDACTED_VALUE = '[redacted]'
 // like user-settings-update carry `password`/`current_password`, warehouse
 // sources carry `client_secret`, and hog-function inputs carry `secret` values.
 // Match errs toward redaction — an over-redacted eval field is harmless, a
-// leaked credential is not. Deliberately excludes bare `key`/`id`/`token`, which
-// are almost always identifiers or token counts an evaluation needs.
+// leaked credential is not.
+//
+// Enumerating credential prefixes missed most of them: our own warehouse sources
+// name their secret `api_token`, `database_token`, `consumer_key`,
+// `signing_key`, and a dozen more, none of which the prefix list matched. The
+// trailing-segment rule catches that whole shape. Plural `*_tokens` stays out on
+// purpose — it is LLM token counts and Adjust's `app_tokens` app ids, never a
+// secret.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer/i
+    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|(^|[_-])(token|key|keys)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
