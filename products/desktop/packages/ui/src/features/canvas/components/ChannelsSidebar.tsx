@@ -18,6 +18,7 @@ import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkCha
 import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
+  clearKeepListForRoute,
   shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
@@ -191,7 +192,15 @@ export function ChannelsSidebar() {
     enabled: channelsLayout,
   });
   useEffect(() => {
-    if (!channelsLayout || !routeChannelId) return;
+    if (!channelsLayout) return;
+    // A channel-less route (activity, home, a feed) still sits under this
+    // layout but ends the navigation the keep-list latch was armed for, so drop
+    // the latch here — left set, it would hold a later deep link back to the
+    // same channel on the list instead of sliding into it.
+    if (!routeChannelId) {
+      clearKeepListForRoute();
+      return;
+    }
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
