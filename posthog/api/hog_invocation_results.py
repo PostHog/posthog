@@ -14,6 +14,7 @@ from posthog.schema import ProductKey
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 
 FUNCTION_KIND_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
@@ -195,6 +196,15 @@ def _build_invocation(row: tuple, detail: bool) -> Any:
     return HogInvocationResult(**common)
 
 
+@frozen
+class _InvocationResultsFilters:
+    """Shared WHERE clauses for the list and count queries, so their filters can't drift."""
+
+    where: list[str]
+    outer_where: list[str]
+    kwargs: dict[str, Any]
+
+
 def _build_invocation_results_filters(
     team_id: int,
     function_kind: str,
@@ -204,8 +214,7 @@ def _build_invocation_results_filters(
     error_message_contains: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
-) -> tuple[list[str], list[str], dict[str, Any]]:
-    """Shared WHERE clauses for the list and count queries, so their filters can't drift."""
+) -> _InvocationResultsFilters:
     where = [
         "team_id = %(team_id)s",
         "function_kind = %(function_kind)s",
@@ -244,7 +253,7 @@ def _build_invocation_results_filters(
         outer_where.append("positionCaseInsensitive(latest_error_message, %(error_message_contains)s) > 0")
         kwargs["error_message_contains"] = error_message_contains
 
-    return where, outer_where, kwargs
+    return _InvocationResultsFilters(where=where, outer_where=outer_where, kwargs=kwargs)
 
 
 def fetch_hog_invocation_results(
@@ -259,7 +268,7 @@ def fetch_hog_invocation_results(
     before: Optional[datetime] = None,
 ) -> list[HogInvocationResult]:
     """List a function's invocations, each collapsed to its latest lifecycle state."""
-    where, outer_where, kwargs = _build_invocation_results_filters(
+    filters = _build_invocation_results_filters(
         team_id=team_id,
         function_kind=function_kind,
         function_id=function_id,
@@ -269,22 +278,22 @@ def fetch_hog_invocation_results(
         after=after,
         before=before,
     )
-    kwargs["limit"] = limit
+    filters.kwargs["limit"] = limit
 
     query = f"""
         SELECT {_OUTER_COLUMNS}
         FROM (
             SELECT {_COLLAPSED_AGGREGATES}
             FROM hog_invocation_results
-            WHERE {" AND ".join(where)}
+            WHERE {" AND ".join(filters.where)}
             GROUP BY invocation_id
         )
-        WHERE {" AND ".join(outer_where)}
+        WHERE {" AND ".join(filters.outer_where)}
         ORDER BY latest_scheduled_at DESC
         LIMIT %(limit)s
     """
 
-    results = cast(list, sync_execute(query, kwargs))
+    results = cast(list, sync_execute(query, filters.kwargs))
     return [_build_invocation(row, detail=False) for row in results]
 
 
@@ -299,7 +308,7 @@ def fetch_hog_invocation_results_count(
     before: Optional[datetime] = None,
 ) -> int:
     """Count invocations matching the same filters as fetch_hog_invocation_results, without the row cap."""
-    where, outer_where, kwargs = _build_invocation_results_filters(
+    filters = _build_invocation_results_filters(
         team_id=team_id,
         function_kind=function_kind,
         function_id=function_id,
@@ -315,13 +324,13 @@ def fetch_hog_invocation_results_count(
         FROM (
             SELECT {_COLLAPSED_AGGREGATES}
             FROM hog_invocation_results
-            WHERE {" AND ".join(where)}
+            WHERE {" AND ".join(filters.where)}
             GROUP BY invocation_id
         )
-        WHERE {" AND ".join(outer_where)}
+        WHERE {" AND ".join(filters.outer_where)}
     """
 
-    results = cast(list, sync_execute(query, kwargs))
+    results = cast(list, sync_execute(query, filters.kwargs))
     return int(results[0][0]) if results else 0
 
 
