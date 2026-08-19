@@ -9,16 +9,29 @@ import {
 } from "./canvasGenerationStatus";
 
 type Run = Pick<TaskRun, "environment" | "status">;
-type Session = Pick<AgentSession, "status" | "cloudStatus" | "isPromptPending">;
+type Session = Pick<
+  AgentSession,
+  | "status"
+  | "cloudStatus"
+  | "isPromptPending"
+  | "taskRunId"
+  | "agentIdleForRunId"
+>;
 type GenSession = Session;
 
 const genSession = (
   status: AgentSession["status"],
-  opts?: { cloudStatus?: TaskRunStatus; isPromptPending?: boolean },
+  opts?: {
+    cloudStatus?: TaskRunStatus;
+    isPromptPending?: boolean;
+    agentIdle?: boolean;
+  },
 ): GenSession => ({
   status,
   cloudStatus: opts?.cloudStatus,
   isPromptPending: opts?.isPromptPending ?? false,
+  taskRunId: "r1",
+  agentIdleForRunId: opts?.agentIdle ? "r1" : undefined,
 });
 
 const run = (environment: "local" | "cloud", status: TaskRunStatus): Run => ({
@@ -28,7 +41,13 @@ const run = (environment: "local" | "cloud", status: TaskRunStatus): Run => ({
 const session = (
   status: AgentSession["status"],
   cloudStatus?: TaskRunStatus,
-): Session => ({ status, cloudStatus, isPromptPending: false });
+): Session => ({
+  status,
+  cloudStatus,
+  isPromptPending: false,
+  taskRunId: "r1",
+  agentIdleForRunId: undefined,
+});
 
 describe("isCanvasGenerationRunning", () => {
   it("is not running when there is no generation task", () => {
@@ -73,7 +92,7 @@ describe("isCanvasGenerationRunning", () => {
     [
       "turn settled on the lingering sandbox",
       run("cloud", "in_progress"),
-      genSession("connected", { isPromptPending: false }),
+      genSession("connected", { agentIdle: true }),
       false,
     ],
     [
@@ -192,9 +211,15 @@ describe("isCanvasGenerating", () => {
       true,
     ],
     [
+      "cloud automatic turn attached after its prompt",
+      run("cloud", "in_progress"),
+      genSession("connected"),
+      true,
+    ],
+    [
       "cloud turn settled while the sandbox lingers",
       run("cloud", "in_progress"),
-      genSession("connected", { isPromptPending: false }),
+      genSession("connected", { agentIdle: true }),
       false,
     ],
     [
