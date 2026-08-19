@@ -49,6 +49,7 @@ import {
   hydrateSessionJsonl,
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
+import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import {
   type AgentErrorClassification,
@@ -4428,9 +4429,16 @@ ${commonInstructions}
           // relayed tool auto-run in non-asking modes.
           const mcpServerName =
             this.readPermissionMcpDescriptor(params)?.server;
+          // Codex reports the key the adapter registered the server under:
+          // the raw name sanitized, plus a numeric suffix when another
+          // server's name sanitized to the same base. The matcher accepts
+          // every form the assignment can produce, because missing any of
+          // them loses the relayed server's always-ask guarantee.
           if (
             mcpServerName &&
-            (this.config.relayMcpServers ?? []).includes(mcpServerName)
+            (this.config.relayMcpServers ?? []).some((name) =>
+              codexKeyMatchesMcpServerName(mcpServerName, name),
+            )
           ) {
             if (mode !== "background" && this.hasReachableClient()) {
               return this.relayPermissionToClient(params);
