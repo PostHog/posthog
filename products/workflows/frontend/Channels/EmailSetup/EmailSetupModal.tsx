@@ -167,17 +167,34 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <LemonButton
-                                                            size="small"
-                                                            icon={<IconCopy />}
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(
-                                                                    record.copyableValue ?? record.recordValue
-                                                                )
-                                                                lemonToast.success('Value copied to clipboard')
-                                                            }}
-                                                            tooltip="Copy value"
-                                                        />
+                                                        <div className="flex gap-1 items-center">
+                                                            <LemonButton
+                                                                size="small"
+                                                                icon={<IconCopy />}
+                                                                onClick={() => {
+                                                                    void navigator.clipboard.writeText(
+                                                                        record.recordValue
+                                                                    )
+                                                                    lemonToast.success('Value copied to clipboard')
+                                                                }}
+                                                                tooltip="Copy value"
+                                                            />
+                                                            {record.copyableValue && (
+                                                                <LemonButton
+                                                                    size="small"
+                                                                    icon={<IconCopy />}
+                                                                    onClick={() => {
+                                                                        void navigator.clipboard.writeText(
+                                                                            record.copyableValue as string
+                                                                        )
+                                                                        lemonToast.success(
+                                                                            'Priority and value copied to clipboard'
+                                                                        )
+                                                                    }}
+                                                                    tooltip="Copy priority and value together, for hosts with a single record field"
+                                                                />
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </td>
                                                 <td className="py-2 w-[8rem]">
