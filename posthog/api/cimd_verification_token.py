@@ -8,7 +8,6 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
-from posthog.api.oauth.cimd import _cache_key, validate_cimd_url
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.helpers.impersonation import is_impersonated
@@ -78,6 +77,11 @@ class _CIMDUrlWriteValidationMixin:
     """
 
     def validate_cimd_url(self, value: str) -> str:
+        # Imported lazily: `posthog.api.oauth.cimd` pulls in a heavy graph (celery, requests,
+        # oauth2_provider). A module-level import here would run at router build time, which
+        # can race with model initialization and break with a circular import.
+        from posthog.api.oauth.cimd import validate_cimd_url  # noqa: PLC0415
+
         value = value.strip()
         # Skips the DNS check: the URL is often not serving yet at issuance time,
         # and the fetch path re-validates with SSRF checks before it ever loads it.
@@ -264,6 +268,10 @@ class CIMDVerificationTokenViewSet(
         return Response(output, status=200)
 
     def perform_destroy(self, instance: CIMDVerificationToken) -> None:
+        # Imported lazily to keep the heavy `posthog.api.oauth.cimd` graph off this module's
+        # import path; see the note in `_CIMDUrlWriteValidationMixin.validate_cimd_url`.
+        from posthog.api.oauth.cimd import _cache_key  # noqa: PLC0415
+
         org_id = instance.organization_id
         label = instance.label
         token_id = str(instance.id)

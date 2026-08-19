@@ -1,4 +1,9 @@
+import ast
+from pathlib import Path
+
 from posthog.test.base import APIBaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -147,3 +152,27 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         self.assertIn(response.status_code, (status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN))
         other_token.refresh_from_db()
         self.assertIsNone(other_token.cimd_url)
+
+
+class TestCIMDVerificationTokenImports(SimpleTestCase):
+    def test_view_module_keeps_oauth_cimd_import_lazy(self):
+        # Regression guard for the CIMD verification-token outage: a module-level import of
+        # posthog.api.oauth.cimd here pulls a heavy graph (celery, requests, oauth2_provider)
+        # onto the router-build path, where it can race with model initialization and fail with
+        # an import-time circular import ("cannot import name 'Action' from 'posthog.models'").
+        # The two helpers the view needs must stay imported lazily inside the methods that use
+        # them, so no top-level import statement may reach that module.
+        source = Path(__file__).parent.parent.joinpath("cimd_verification_token.py").read_text()
+        offending = []
+        for node in ast.parse(source).body:
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("posthog.api.oauth.cimd"):
+                offending.append(node.module)
+            elif isinstance(node, ast.Import):
+                offending.extend(a.name for a in node.names if a.name.startswith("posthog.api.oauth.cimd"))
+
+        self.assertEqual(
+            offending,
+            [],
+            "posthog.api.oauth.cimd must be imported lazily inside methods, not at module level, "
+            "to avoid the import-time circular import that broke every CIMD verification-token request",
+        )
