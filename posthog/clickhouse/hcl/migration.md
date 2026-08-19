@@ -57,7 +57,7 @@ We want to achieve a state of full schema of each env and cluster to be represen
 End state: we have 5 environments schemas as HCL, a golden per cluster, something like:
 
 - local-single (in PostHog/posthog)
-  - schema.hcl
+  - all.hcl (one node hosts every role, so one golden)
 - local-multi (in PostHog/posthog):
   - ops.hcl
   - posthog.hcl
