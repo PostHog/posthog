@@ -89,8 +89,8 @@ S3_READ_COUNTER = Counter(
 
 # Only blobs of at least QUERY_CACHE_S3_MIN_COMPRESSED_BYTES reach S3, so a round trip rarely
 # beats 50ms, while multi-MB transfers need resolution out to tens of seconds. Durations carry
-# outcome labels because failures return fast (1s connect timeout, no retries); folded into
-# one series they would make latency look better during an S3 outage.
+# outcome labels because failures return fast (1s connect and 5s idle-socket timeouts, no
+# retries); folded into one series they would make latency look better during an S3 outage.
 _S3_DURATION_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float("inf")]
 
 S3_WRITE_DURATION = Histogram(
