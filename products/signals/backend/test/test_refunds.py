@@ -512,6 +512,18 @@ class TestSignalReportRefundAPI(APIBaseTest):
         ):
             assert self.client.get(url).json()["quota_limited"] is True
 
+    @freeze_time(_NOW)
+    def test_refund_summary_is_cached_within_the_window(self, _flag):
+        # The endpoint holds a pooled connection for three reads, so repeated widget polls serve a
+        # cached payload. A credited refund written out-of-band (past the endpoint's own cache
+        # clear) stays invisible until the entry expires.
+        url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
+        assert self.client.get(url).json()["credited_refund_count"] == 0
+
+        _make_refund(_make_report(self.team), pr_run_created_at=datetime(2026, 6, 12, tzinfo=UTC))
+
+        assert self.client.get(url).json()["credited_refund_count"] == 0
+
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
     @patch("posthoganalytics.feature_enabled")

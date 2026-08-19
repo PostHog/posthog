@@ -175,6 +175,14 @@ tracer = trace.get_tracer(__name__)
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
 PR_GITHUB_CACHE_SECONDS = 15
+# The refund summary powers a polled billing widget and does three reads per request. Cache the
+# whole payload per org so repeated polls skip those reads; creating a refund clears the entry so
+# the widget still reacts to a fresh refund at once.
+REFUND_SUMMARY_CACHE_SECONDS = 30
+
+
+def _refund_summary_cache_key(organization_id: str | uuid.UUID) -> str:
+    return f"signals:refund-summary:{organization_id}"
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -2243,6 +2251,9 @@ class SignalReportViewSet(
                     raise
                 return self._refund_response(existing, already_refunded=True)
 
+            # Drop the cached summary so the widget reflects this refund on its next poll.
+            cache.delete(_refund_summary_cache_key(self.organization.id))
+
             # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
             # dismissal receiver closes the implementation PR that was paid for and then refunded.
             # The one exception is a report resolved by a merged PR: that PR shipped, so the report
@@ -2333,6 +2344,11 @@ class SignalReportViewSet(
         if not (self._signals_pr_refunds_enabled() or self_driving_quota_enforcement_enabled(self.team)):
             raise NotFound("PR refunds are not enabled for this organization.")
 
+        cache_key = _refund_summary_cache_key(self.organization.id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
         period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
@@ -2345,14 +2361,14 @@ class SignalReportViewSet(
             )
             .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
         )
-        return Response(
-            {
-                "credited_refund_count": aggregates["credited_refund_count"] or 0,
-                "credited_credits": aggregates["credited_credits"] or 0,
-                "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
-                "quota_limited": self_driving_quota_gate(self.team).enforced,
-            }
-        )
+        payload = {
+            "credited_refund_count": aggregates["credited_refund_count"] or 0,
+            "credited_credits": aggregates["credited_credits"] or 0,
+            "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
+            "quota_limited": self_driving_quota_gate(self.team).enforced,
+        }
+        cache.set(cache_key, payload, timeout=REFUND_SUMMARY_CACHE_SECONDS)
+        return Response(payload)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
