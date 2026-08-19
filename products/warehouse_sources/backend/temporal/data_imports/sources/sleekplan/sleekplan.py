@@ -42,7 +42,7 @@ FIRST_PAGE = 1
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class SleekplanResumeConfig:
     # Next page to fetch, for the top-level endpoints.
     page: Optional[int] = None

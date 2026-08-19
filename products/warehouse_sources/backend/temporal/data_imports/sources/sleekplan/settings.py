@@ -48,7 +48,7 @@ POST_VOTES_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class SleekplanEndpointConfig:
     name: str
     path: str
