@@ -160,7 +160,7 @@ class TestScoutReportAPI(APIBaseTest):
         # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
         assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
         assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
-        # The emit posts a first-time report; both edits post an update (threaded, no header). Only the
+        # The emit posts a first-time report; both edits post an update (no header). Only the
         # note-only edit carries the note; a content rewrite shows the new summary instead, even when
         # it also appended a note.
         assert enqueue.call_args_list[0].kwargs.get("is_edit", False) is False

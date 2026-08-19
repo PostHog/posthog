@@ -245,12 +245,6 @@ class SignalReport(UUIDModel):
     # the column it doesn't know about — fails until the rollout finishes.
     charts = models.JSONField(default=list, db_default=[], blank=True)
 
-    # The Slack message this report was first delivered to, so later edits reply in its thread instead
-    # of posting a fresh top-level message. Shape: {"integration_id": int, "channel_id": str, "ts": str}
-    # (channel_id is the resolved id, not the raw configured string). Null until a surfaced report is
-    # delivered to a configured Slack destination.
-    slack_message = models.JSONField(null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)

@@ -282,8 +282,8 @@ def build_scout_report_update_slack_message(
     """Render a report edit as an update, distinct from a first-time report.
 
     An edit drops the `header` block a new report leads with and opens with an update line instead,
-    so a threaded reply does not read as fresh work. A note-only edit shows the note (the only thing
-    that changed); any other edit shows the report's current summary."""
+    so a new message in the channel does not read as fresh work. A note-only edit shows the note (the
+    only thing that changed); any other edit shows the report's current summary."""
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
     action = "added a note to" if note is not None else "updated"
@@ -298,32 +298,6 @@ def build_scout_report_update_slack_message(
     blocks.append(_report_link_block(report))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} {action}: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
-
-
-def _report_slack_thread_ts(report: SignalReport, *, integration_id: int, channel_id: str) -> str | None:
-    """Return the parent message `ts` to reply under, or None to post a top-level message.
-
-    Matches on the resolved channel id (what `chat_postMessage` posts to), not the raw configured
-    string, so a rename of the display half does not lose the thread. A report whose stored
-    destination no longer matches has no parent message there, so its edit posts top-level."""
-    ref = report.slack_message
-    if not isinstance(ref, dict):
-        return None
-    if ref.get("integration_id") != integration_id or ref.get("channel_id") != channel_id:
-        return None
-    ts = ref.get("ts")
-    return ts if isinstance(ts, str) and ts else None
-
-
-def _persist_report_slack_thread_ts(report: SignalReport, *, integration_id: int, channel_id: str, ts: object) -> None:
-    """Record the parent message so later edits can thread under it. First write wins: a conditional
-    update skips reports that already carry a reference, so a retried or racing delivery never
-    re-points the thread at a duplicate message."""
-    if not isinstance(ts, str) or not ts:
-        return
-    SignalReport.objects.filter(id=report.id, team_id=report.team_id, slack_message__isnull=True).update(
-        slack_message={"integration_id": integration_id, "channel_id": channel_id, "ts": ts}
-    )
 
 
 def post_scout_report_to_slack(
@@ -352,10 +326,6 @@ def post_scout_report_to_slack(
         if is_edit
         else build_scout_report_slack_message(report, run)
     )
-    # Reply under the parent message for an edit that has one; a post with no parent stays top-level.
-    thread_ts = (
-        _report_slack_thread_ts(report, integration_id=integration_id, channel_id=channel_id) if is_edit else None
-    )
     client = SlackIntegration(integration).client
     try:
         response = client.chat_postMessage(
@@ -363,7 +333,6 @@ def post_scout_report_to_slack(
             blocks=blocks,
             text=fallback,
             client_msg_id=delivery_id,
-            thread_ts=thread_ts,
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -375,14 +344,6 @@ def post_scout_report_to_slack(
                 error_code=error_code,
             ) from exc
         raise
-
-    # Anchor the thread on any top-level post, whether the emit or an edit that found no parent (a
-    # report delivered before this column existed, or one first surfaced by an edit). First-write-wins
-    # keeps the emit's message as the parent when an edit races ahead of it.
-    if not thread_ts:
-        _persist_report_slack_thread_ts(
-            report, integration_id=integration_id, channel_id=channel_id, ts=response.get("ts")
-        )
 
     _post_scout_slack_reply(
         client,

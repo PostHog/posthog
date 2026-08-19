@@ -1270,9 +1270,9 @@ def _do_edit_report(
         # and skips queueing work that would no-op.
         report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
         if report_status is not None and _surfaced(report_status):
-            # Every edit delivers as an update: threaded under the original message, framed as an
-            # edit rather than a fresh report. A note-only edit carries its note so the update shows
-            # what changed; a title or summary rewrite shows the report's new summary instead.
+            # Every edit delivers as an update, framed as an edit rather than a fresh report. A
+            # note-only edit carries its note so the update shows what changed; a title or summary
+            # rewrite shows the report's new summary instead.
             queue_configured_scout_slack_delivery(
                 run_id=run.id,
                 output_type="report",
