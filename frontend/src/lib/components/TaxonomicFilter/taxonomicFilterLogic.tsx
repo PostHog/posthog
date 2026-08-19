@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import {
     MakeLogicType,
     BuiltLogic,
+    LogicWrapper,
     actions,
     afterMount,
     beforeUnmount,
@@ -1053,7 +1054,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Actions',
                         searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
-                        logic: actionsModel({ skipLoad: true }),
+                        logic: actionsModel({ skipLoad: true }) as unknown as LogicWrapper,
                         value: 'actionsSorted',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,

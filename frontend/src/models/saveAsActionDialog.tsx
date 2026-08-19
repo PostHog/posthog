@@ -19,7 +19,7 @@ import {
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsModel } from '~/models/actionsModel'
+import { actionsModel, refreshMountedActions } from '~/models/actionsModel'
 import { ActionStepType, EventType, RecordingEventType } from '~/types'
 
 type AutocaptureEvent = (EventType | RecordingEventType) & { event: '$autocapture' }
@@ -123,7 +123,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
                     steps: [step],
                     ...(createInFolder ? { _create_in_folder: createInFolder } : {}),
                 })
-                actionsModel.findMounted()?.actions.loadActions(true)
+                refreshMountedActions()
                 lemonToast.success(
                     <>
                         Action created. <Link to={urls.action(action.id)}>View action</Link>

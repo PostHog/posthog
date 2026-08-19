@@ -859,8 +859,10 @@ describe('MenuFilterCombobox', () => {
 
     it('loads and displays actions after the user selects the Actions category', async () => {
         const user = userEvent.setup()
+        actionsModel.unmount()
         actionsModel({ skipLoad: true }).unmount()
-        actionList.mockResolvedValueOnce({ results: [{ id: 1, name: 'Signup action' }], count: 1 })
+        actionList.mockReset()
+        actionList.mockResolvedValue({ results: [{ id: 1, name: 'Signup action' }], count: 1 })
 
         renderAll({ groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions] })
 

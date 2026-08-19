@@ -161,8 +161,16 @@ export function CohortTaxonomicField({
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
-    const supportsActions = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
-    useMountedLogic(supportsActions ? actionsModel() : actionsModel({ skipLoad: true }))
+    const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
+    const lazyActionsModel = useMountedLogic(actionsModel({ skipLoad: true }))
+    const { loadActions } = useActions(lazyActionsModel)
+
+    useEffect(() => {
+        if (groupType === TaxonomicFilterGroupType.Actions) {
+            loadActions()
+        }
+    }, [groupType, loadActions])
+
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
@@ -172,7 +180,6 @@ export function CohortTaxonomicField({
 
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
-    const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
 
     return (
         <TaxonomicPopover
