@@ -11,6 +11,7 @@ import {
     facetFilterSelection,
     facetScopeSignature,
     facetSelection,
+    facetValueGroup,
     mergeSelectedIntoOptions,
     resolveFacets,
 } from './facets'
@@ -113,6 +114,38 @@ describe('facets', () => {
         ])('%s', (_, operator, value, expected) => {
             const group = groupWith([{ key: 'status_code', type: PropertyFilterType.Span, operator, value }])
             expect(read(group, STATUS_SOURCE)).toEqual(expected)
+        })
+    })
+
+    describe('facetValueGroup', () => {
+        it.each<[string, FacetSource, string, string[]]>([
+            ['status_code OK folds in Unset', STATUS_SOURCE, '1', ['0', '1']],
+            ['status_code Error is its own singleton', STATUS_SOURCE, '2', ['2']],
+            ['a resource-attribute source passes its value through unchanged', POD_SOURCE, 'pod-a', ['pod-a']],
+        ])('%s', (_, source, value, expected) => {
+            expect(facetValueGroup(source, value)).toEqual(expected)
+        })
+    })
+
+    describe('cycleFacetFilter folds status_code Unset into OK', () => {
+        it('selecting OK ("1") writes both "0" and "1" into the exact filter', () => {
+            const group = cycleFacetFilter(undefined, STATUS_SOURCE, '1')
+            const inner = (group.values[0] as UniversalFiltersGroup).values
+            expect(inner).toEqual([expect.objectContaining({ operator: PropertyOperator.Exact, value: ['0', '1'] })])
+        })
+
+        it('deselecting OK moves both "0" and "1" to the is_not filter, not just "1"', () => {
+            const included = cycleFacetFilter(undefined, STATUS_SOURCE, '1')
+            const excluded = cycleFacetFilter(included, STATUS_SOURCE, '1')
+            expect(facetFilterSelection(excluded, STATUS_SOURCE)).toEqual({ included: [], excluded: ['0', '1'] })
+        })
+
+        it('upgrades a filter with only the pre-fold single digit "1" to the full group on toggle', () => {
+            const legacy = groupWith([
+                { key: 'status_code', type: PropertyFilterType.Span, operator: PropertyOperator.Exact, value: ['1'] },
+            ])
+            const excluded = cycleFacetFilter(legacy, STATUS_SOURCE, '1')
+            expect(facetFilterSelection(excluded, STATUS_SOURCE)).toEqual({ included: [], excluded: ['0', '1'] })
         })
     })
 
