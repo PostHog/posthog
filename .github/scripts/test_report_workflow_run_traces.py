@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 SCRIPT_PATH = Path(__file__).with_name("report_workflow_run_traces.py")
@@ -488,6 +489,24 @@ class TestExitStatus:
             ),
         )
         assert reporter.main(["--dry-run", "--run-id", "999"]) == reporter.EXIT_INCOMPLETE
+
+    def test_a_rejected_export_holds_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The SDK only logs a rejected batch, so an hour of 403s from the ingest
+        # endpoint would otherwise read as a clean tick.
+        class _RejectingExporter(SpanExporter):
+            def export(self, spans: Any) -> SpanExportResult:
+                return SpanExportResult.FAILURE
+
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", "p")
+        monkeypatch.delenv("POSTHOG_CI_TRACES_EXTRA_TOKEN", raising=False)
+        monkeypatch.setattr(reporter, "OTLPSpanExporter", lambda **_kwargs: _RejectingExporter())
+        monkeypatch.setattr(
+            reporter.urllib.request,
+            "urlopen",
+            _FakeOpener({"/jobs": {"jobs": [_raw_job()]}, "/actions/runs/999": _raw_run()}),
+        )
+        assert reporter.main(["--run-id", "999"]) == reporter.EXIT_INCOMPLETE
 
     def test_a_run_reporting_zero_jobs_advances_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A cancelled run really can report zero jobs — nothing was lost, so the tick is clean.

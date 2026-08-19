@@ -52,7 +52,7 @@ import argparse
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -60,8 +60,8 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
 
@@ -517,6 +517,34 @@ def run_resource_attributes(run: WorkflowRun) -> dict[str, str | int]:
     return {k: v for k, v in attrs.items() if v != "" and v != 0}
 
 
+class ExportError(Exception):
+    pass
+
+
+class _FailureRecordingExporter(SpanExporter):
+    """Surfaces a rejected batch, which the SDK only logs.
+
+    Without this an hour of 403s from the ingest endpoint reads as a clean tick and
+    the watermark walks past every trace it dropped.
+    """
+
+    def __init__(self, inner: SpanExporter) -> None:
+        self.inner = inner
+        self.failed = False
+
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        result = self.inner.export(spans)
+        if result is not SpanExportResult.SUCCESS:
+            self.failed = True
+        return result
+
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        return self.inner.force_flush(timeout_millis)
+
+    def shutdown(self) -> None:
+        self.inner.shutdown()
+
+
 def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None) -> int:
     """Emit the run's whole span tree over OTLP HTTP. Returns the span count."""
     id_generator = _FixedIdGenerator()
@@ -526,16 +554,21 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     )
     if exporter is None:
         exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
+    recorder = _FailureRecordingExporter(exporter)
     provider.add_span_processor(
-        BatchSpanProcessor(exporter, max_queue_size=SPAN_QUEUE_SIZE, max_export_batch_size=SPAN_BATCH_SIZE)
+        BatchSpanProcessor(recorder, max_queue_size=SPAN_QUEUE_SIZE, max_export_batch_size=SPAN_BATCH_SIZE)
     )
     tracer = provider.get_tracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
     id_generator.trace_id = deterministic_trace_id(run.id, run.attempt)
 
     try:
-        return _emit_run_span(tracer, id_generator, run)
+        span_count = _emit_run_span(tracer, id_generator, run)
     finally:
+        # Drains the queue, so a rejected batch is recorded by the time this returns.
         provider.shutdown()
+    if recorder.failed:
+        raise ExportError(f"OTLP endpoint rejected spans for run {run.id} attempt {run.attempt}")
+    return span_count
 
 
 def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun) -> int:
