@@ -38,7 +38,6 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
-    PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
     GitHubInstallationAccess,
@@ -82,183 +81,102 @@ class TestSlackIntegration:
         )
 
     @patch("posthog.models.integration.WebClient")
-    def test_list_channels_with_access(self, mock_webclient_class):
+    def test_list_channels_follows_bot_membership_and_never_masks_private(self, mock_webclient_class):
+        # Regression guard: private channels must come from the bot's conversations_list view, not
+        # the installer's users_conversations. A returned private channel is one the bot sits in,
+        # so it must appear with its real name, selectable by any caller.
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
 
-        mock_client.conversations_list.return_value = {
-            "channels": [
-                {"id": "C123", "name": "a_channel", "is_private": False, "is_ext_shared": False},
-                {"id": "C456", "name": "b_channel", "is_private": False, "is_ext_shared": False},
-                {"id": "C789", "name": "c_channel", "is_private": False, "is_ext_shared": False},
-            ],
-            "response_metadata": {"next_cursor": ""},
-        }
-
-        mock_client.users_conversations.return_value = {
-            "channels": [
-                {
-                    "id": "CP123",
-                    "name": "d_private_channel",
-                    "is_private": True,
-                    "is_ext_shared": False,
+        def conversations_list(types, **kwargs):
+            if types == "public_channel":
+                return {
+                    "channels": [
+                        {"id": "C123", "name": "a_channel", "is_private": False, "is_ext_shared": False},
+                        {"id": "C789", "name": "c_channel", "is_private": False, "is_ext_shared": False},
+                    ],
+                    "response_metadata": {"next_cursor": ""},
                 }
-            ],
+            return {
+                "channels": [{"id": "CP123", "name": "b_private_channel", "is_private": True, "is_ext_shared": False}],
+                "response_metadata": {"next_cursor": ""},
+            }
+
+        mock_client.conversations_list.side_effect = conversations_list
+
+        channels = SlackIntegration(self.integration).list_channels()
+
+        mock_client.users_conversations.assert_not_called()
+        assert [channel["name"] for channel in channels] == ["a_channel", "b_private_channel", "c_channel"]
+        private = next(channel for channel in channels if channel["id"] == "CP123")
+        assert not private.get("is_private_without_access")
+
+    @patch("posthog.models.integration.WebClient")
+    def test_list_channels_can_skip_private_channels(self, mock_webclient_class):
+        # Background callers (e.g. digest routing) list public channels only.
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [{"id": "C123", "name": "a_channel", "is_private": False, "is_ext_shared": False}],
             "response_metadata": {"next_cursor": ""},
         }
 
-        slack = SlackIntegration(self.integration)
-
-        channels = slack.list_channels(True, "test_user_id")
+        channels = SlackIntegration(self.integration).list_channels(include_private=False)
 
         mock_client.conversations_list.assert_called_once_with(
             exclude_archived=True, types="public_channel", limit=1000, cursor=None
         )
-        mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
-        )
-
-        assert len(channels) == 4
-        assert channels[0]["id"] == "C123"
-        assert channels[0]["name"] == "a_channel"
-        assert channels[3]["id"] == "CP123"
-        assert channels[3]["name"] == "d_private_channel"
+        assert [channel["id"] for channel in channels] == ["C123"]
 
     @patch("posthog.models.integration.WebClient")
-    def test_list_channels_without_access(self, mock_webclient_class):
+    def test_list_channels_tolerates_missing_response_metadata(self, mock_webclient_class):
+        # Slack can omit response_metadata; reading the cursor must not raise.
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-
         mock_client.conversations_list.return_value = {
-            "channels": [
-                {"id": "C123", "name": "a_channel", "is_private": False, "is_ext_shared": False},
-                {"id": "C456", "name": "b_channel", "is_private": False, "is_ext_shared": False},
-                {"id": "C789", "name": "c_channel", "is_private": False, "is_ext_shared": False},
-            ],
-            "response_metadata": {"next_cursor": ""},
+            "channels": [{"id": "C123", "name": "a_channel", "is_private": False, "is_ext_shared": False}],
         }
 
-        mock_client.users_conversations.return_value = {
-            "channels": [
-                {
-                    "id": "CP123",
-                    "name": "d_private_channel",
-                    "is_private": True,
-                    "is_ext_shared": False,
-                }
-            ],
-            "response_metadata": {"next_cursor": ""},
-        }
+        channels = SlackIntegration(self.integration).list_channels(include_private=False)
 
-        slack = SlackIntegration(self.integration)
+        assert [channel["id"] for channel in channels] == ["C123"]
 
-        channels = slack.list_channels(False, "test_user_id")
-
-        mock_client.conversations_list.assert_called_once_with(
-            exclude_archived=True, types="public_channel", limit=1000, cursor=None
-        )
-        mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
-        )
-
-        assert len(channels) == 4
-        assert channels[1]["id"] == "C123"
-        assert channels[1]["name"] == "a_channel"
-        assert channels[0]["id"] == "CP123"
-        assert channels[0]["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
-        assert channels[0]["is_private_without_access"]
-
+    @parameterized.expand([("public", False), ("private", True)])
     @patch("posthog.models.integration.WebClient")
-    def test_get_channel_by_id_private_with_access(self, mock_webclient_class):
+    def test_get_channel_by_id_resolves_by_bot_membership(self, _name, is_private, mock_webclient_class):
+        # conversations_info returns a private channel only when the bot is a member, so no
+        # per-user membership lookup is needed and the channel is never masked.
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-
         mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
+            "channel": {
+                "id": "C123",
+                "name": "general",
+                "is_private": is_private,
+                "is_ext_shared": False,
+                "is_member": True,
+            }
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123")
 
-        slack = SlackIntegration(self.integration)
-        channel = slack.get_channel_by_id("C123", True, "test_user_id")
-
-        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
-
-        assert channel is not None
-        assert channel["id"] == "C123"
-        assert channel["name"] == "general"
-        assert channel["is_private"]
-        assert not channel["is_private_without_access"]
+        mock_client.conversations_members.assert_not_called()
+        assert channel == {
+            "id": "C123",
+            "name": "general",
+            "is_private": is_private,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
 
     @patch("posthog.models.integration.WebClient")
-    def test_get_channel_by_id_private_without_access(self, mock_webclient_class):
+    def test_get_channel_by_id_returns_none_when_not_found(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
+        mock_client.conversations_info.side_effect = SlackApiError("channel_not_found", {"error": "channel_not_found"})
 
-        mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
-        }
-
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
-
-        slack = SlackIntegration(self.integration)
-        channel = slack.get_channel_by_id("C123", False, "test_user_id")
-
-        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
-
-        assert channel is not None
-        assert channel["id"] == "C123"
-        assert channel["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
-        assert channel["is_private"]
-        assert channel["is_private_without_access"]
-
-    @patch("posthog.models.integration.WebClient")
-    def test_get_channel_by_id_public_with_access(self, mock_webclient_class):
-        mock_client = MagicMock()
-        mock_webclient_class.return_value = mock_client
-
-        mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
-        }
-
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
-
-        slack = SlackIntegration(self.integration)
-        channel = slack.get_channel_by_id("C123", True, "test_user_id")
-
-        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
-
-        assert channel is not None
-        assert channel["id"] == "C123"
-        assert channel["name"] == "general"
-        assert not channel["is_private"]
-        assert not channel["is_private_without_access"]
-
-    @patch("posthog.models.integration.WebClient")
-    def test_get_channel_by_id_public_without_access(self, mock_webclient_class):
-        mock_client = MagicMock()
-        mock_webclient_class.return_value = mock_client
-
-        mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
-        }
-
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
-
-        slack = SlackIntegration(self.integration)
-        channel = slack.get_channel_by_id("C123", False, "test_user_id")
-
-        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
-
-        assert channel is not None
-        assert channel["id"] == "C123"
-        assert channel["name"] == "general"
-        assert not channel["is_private"]
-        assert not channel["is_private_without_access"]
+        assert SlackIntegration(self.integration).get_channel_by_id("C123") is None
 
     def test_granted_scopes_parses_comma_separated_string(self):
         self.integration.config["scope"] = "chat:write,users:read,users:read.email"
@@ -1738,7 +1656,7 @@ class TestIntegrationAPIKeyAccess:
             },
             {
                 "id": "CPRIVATE",
-                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS,
+                "name": "hidden-private",
                 "is_private": True,
                 "is_member": False,
                 "is_ext_shared": False,
@@ -1951,7 +1869,9 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert [channel["id"] for channel in data["channels"]] == expected_ids
 
-    def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_without_authed_user_still_lists_channels(self, mock_slack_class, client: HttpClient):
+        # The list follows bot membership, so a missing authed_user must not dead-end the picker.
         slack_integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -1960,6 +1880,18 @@ class TestIntegrationAPIKeyAccess:
             sensitive_config={"access_token": "test-token"},
             created_by=self.user,
         )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {
+                "id": "C1",
+                "name": "general",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            }
+        ]
+        mock_slack_class.return_value = mock_slack_instance
 
         key_value = "test_key_no_authed_user"
         PersonalAPIKey.objects.create(
@@ -1974,8 +1906,8 @@ class TestIntegrationAPIKeyAccess:
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "authed_user" in response.json()["detail"]
+        assert response.status_code == status.HTTP_200_OK
+        assert [channel["id"] for channel in response.json()["channels"]] == ["C1"]
 
     @pytest.mark.parametrize(
         "slack_error_code,expect_inactive",

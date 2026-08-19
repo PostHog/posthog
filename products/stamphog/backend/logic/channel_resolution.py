@@ -19,8 +19,6 @@ logic/audiences.py for how the audience_key itself is produced.
 
 from __future__ import annotations
 
-from typing import cast
-
 from django.db import IntegrityError, router
 from django.db.models import Q
 
@@ -57,17 +55,14 @@ def _is_shared_channel(channel: dict) -> bool:
 def _fetch_channel_map(integration: Integration, *, exclude_shared: bool) -> dict[str, dict[str, str]]:
     """Public channel name -> {"id": ..., "name": ...} for one Slack integration.
 
-    Private channels are skipped: listing them needs a real authed Slack user, and this runs from
-    a background task with no request user to act as — public-only is fine for name matching.
-    When ``exclude_shared`` (the name-match auto-provision path), externally/org-shared channels are
-    dropped too so a digest can never be routed into a channel another org can see (see
-    _SHARED_CHANNEL_FLAGS). A repo-declared channel is looked up with ``exclude_shared=False`` — the
-    maintainer named it explicitly, so a shared target there is their deliberate choice.
+    Private channels are skipped: this runs from a background task and only needs public channel
+    names for matching. When ``exclude_shared`` (the name-match auto-provision path),
+    externally/org-shared channels are dropped too so a digest can never be routed into a channel
+    another org can see (see _SHARED_CHANNEL_FLAGS). A repo-declared channel is looked up with
+    ``exclude_shared=False`` — the maintainer named it explicitly, so a shared target there is
+    their deliberate choice.
     """
-    authed_user = cast(str, (integration.config or {}).get("authed_user", {}).get("id") or "")
-    channels = SlackIntegration(integration).list_channels(
-        should_include_private_channels=False, authed_user=authed_user
-    )
+    channels = SlackIntegration(integration).list_channels(include_private=False)
     return {
         channel["name"]: {"id": channel["id"], "name": channel["name"]}
         for channel in channels
