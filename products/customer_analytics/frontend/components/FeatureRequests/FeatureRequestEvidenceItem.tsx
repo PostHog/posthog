@@ -5,14 +5,10 @@ import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type {
-    EvidenceSourceEnumApi,
-    FeatureRequestAccountLinkApi,
-    FeatureRequestEvidenceApi,
-} from '../../generated/api.schemas'
+import type { FeatureRequestAccountLinkApi, FeatureRequestEvidenceApi } from '../../generated/api.schemas'
 import { featureRequestEvidenceElementId, featureRequestsLogic } from './featureRequestsLogic'
 
-const EVIDENCE_SOURCE_LABELS: Record<EvidenceSourceEnumApi, string> = {
+const EVIDENCE_SOURCE_LABELS: Record<string, string> = {
     conversation: 'Customer conversation',
     slack: 'Slack',
     zendesk: 'Zendesk',
@@ -39,7 +35,7 @@ export function FeatureRequestEvidenceItem({
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 flex-col gap-2">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
-                            <span>{EVIDENCE_SOURCE_LABELS[evidence.evidence_source]}</span>
+                            <span>{EVIDENCE_SOURCE_LABELS[evidence.evidence_source] ?? evidence.evidence_source}</span>
                             {evidence.requested_on && <span>{evidence.requested_on}</span>}
                             {evidence.source_url && (
                                 <Link to={evidence.source_url} target="_blank">

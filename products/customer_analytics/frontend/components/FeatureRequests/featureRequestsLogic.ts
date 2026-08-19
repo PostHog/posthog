@@ -28,7 +28,6 @@ import {
 } from '../../generated/api'
 import type {
     AccountApi,
-    EvidenceSourceEnumApi,
     FeatureRequestAccountApi,
     FeatureRequestAccountLinkApi,
     FeatureRequestApi,
@@ -210,7 +209,7 @@ export interface featureRequestsLogicValues {
     evidenceQuote: string
     evidenceRequestedOn: string | null
     evidenceSaveDisabledReason: string | undefined
-    evidenceSource: EvidenceSourceEnumApi
+    evidenceSource: string
     evidenceSummary: string
     evidenceUrl: string
     featureRequestsError: string | null
@@ -453,8 +452,8 @@ export interface featureRequestsLogicActions {
     setEvidenceRequestedOn: (evidenceRequestedOn: string | null) => {
         evidenceRequestedOn: string | null
     }
-    setEvidenceSource: (evidenceSource: EvidenceSourceEnumApi) => {
-        evidenceSource: EvidenceSourceEnumApi
+    setEvidenceSource: (evidenceSource: string) => {
+        evidenceSource: string
     }
     setEvidenceSummary: (evidenceSummary: string) => {
         evidenceSummary: string
@@ -711,7 +710,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         closeEvidence: true,
         setEvidenceSummary: (evidenceSummary: string) => ({ evidenceSummary }),
         setEvidenceQuote: (evidenceQuote: string) => ({ evidenceQuote }),
-        setEvidenceSource: (evidenceSource: EvidenceSourceEnumApi) => ({ evidenceSource }),
+        setEvidenceSource: (evidenceSource: string) => ({ evidenceSource }),
         setEvidenceUrl: (evidenceUrl: string) => ({ evidenceUrl }),
         setEvidenceRequestedOn: (evidenceRequestedOn: string | null) => ({ evidenceRequestedOn }),
         setEvidenceError: (evidenceError: string | null) => ({ evidenceError }),
@@ -1137,7 +1136,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         evidenceSource: [
-            'conversation' as EvidenceSourceEnumApi,
+            'conversation',
             {
                 openAddAccount: () => 'conversation',
                 openNewEvidence: () => 'conversation',
@@ -1228,23 +1227,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         activeRequestAccountLinks: [
             (selectors) => [selectors.activeRequest],
-            (activeRequest: FeatureRequestApi | null): FeatureRequestAccountLinkApi[] =>
-                (activeRequest?.account_links ?? [])
-                    .map((accountLink) => ({
-                        ...accountLink,
-                        evidence: [...accountLink.evidence].sort((first, second) => {
-                            const firstDate = first.requested_on ?? first.created_at
-                            const secondDate = second.requested_on ?? second.created_at
-                            return (
-                                secondDate.localeCompare(firstDate) || second.created_at.localeCompare(first.created_at)
-                            )
-                        }),
-                    }))
-                    .sort(
-                        (first, second) =>
-                            second.evidence.length - first.evidence.length ||
-                            first.account.name.localeCompare(second.account.name)
-                    ),
+            (activeRequest: FeatureRequestApi | null): FeatureRequestAccountLinkApi[] => [
+                ...(activeRequest?.account_links ?? []),
+            ],
         ],
         visibleActiveRequestAccountLinks: [
             (selectors) => [selectors.activeRequestAccountLinks, selectors.requestAccountsShowingAll],

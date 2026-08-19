@@ -119,15 +119,6 @@ _FEATURE_REQUEST_STATUS_CHOICES = [
     ("duplicate", "Duplicate"),
 ]
 _FEATURE_REQUEST_PRIORITY_CHOICES = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
-_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES = [
-    ("conversation", "Customer conversation"),
-    ("slack", "Slack"),
-    ("zendesk", "Zendesk"),
-    ("email", "Email"),
-    ("meeting", "Meeting"),
-    ("buildbetter", "BuildBetter"),
-    ("other", "Other"),
-]
 _FEATURE_REQUEST_PRIORITY_FILTER_CHOICES = [*_FEATURE_REQUEST_PRIORITY_CHOICES, ("none", "No priority")]
 _FEATURE_REQUEST_ARCHIVE_CHOICES = [("active", "Active"), ("archived", "Archived"), ("all", "All")]
 _FEATURE_REQUEST_ORDERING_CHOICES = [
@@ -187,10 +178,10 @@ class FeatureRequestEvidenceSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Stable evidence ID.")
     summary = serializers.CharField(read_only=True, help_text="Internal summary of this account's request evidence.")
     customer_quote = serializers.CharField(read_only=True, help_text="Customer quote kept with this evidence item.")
-    evidence_source = serializers.ChoiceField(
+    evidence_source = serializers.CharField(
         read_only=True,
-        choices=_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES,
-        help_text="Channel where this evidence was recorded.",
+        max_length=200,
+        help_text="Free-form name of the source where this evidence was recorded.",
     )
     source_url = serializers.URLField(read_only=True, help_text="HTTP or HTTPS link to the source, or an empty string.")
     requested_on = serializers.DateField(
@@ -625,9 +616,9 @@ class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
         trim_whitespace=True,
         help_text="Customer quote kept with this evidence item.",
     )
-    evidence_source = serializers.ChoiceField(
-        choices=_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES,
-        help_text="Channel where this evidence was recorded.",
+    evidence_source = serializers.CharField(
+        max_length=200,
+        help_text="Free-form name of the source where this evidence was recorded.",
     )
     source_url = serializers.URLField(
         required=False,

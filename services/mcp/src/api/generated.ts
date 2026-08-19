@@ -31787,28 +31787,6 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
-    /**
-     * * `conversation` - Customer conversation
-     * * `slack` - Slack
-     * * `zendesk` - Zendesk
-     * * `email` - Email
-     * * `meeting` - Meeting
-     * * `buildbetter` - BuildBetter
-     * * `other` - Other
-     */
-    export type EvidenceSourceEnum = typeof EvidenceSourceEnum[keyof typeof EvidenceSourceEnum];
-
-
-    export const EvidenceSourceEnum = {
-      Conversation: 'conversation',
-      Slack: 'slack',
-      Zendesk: 'zendesk',
-      Email: 'email',
-      Meeting: 'meeting',
-      Buildbetter: 'buildbetter',
-      Other: 'other',
-    } as const;
-
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -37461,16 +37439,11 @@ export namespace Schemas {
       readonly summary: string;
       /** Customer quote kept with this evidence item. */
       readonly customer_quote: string;
-      /** Channel where this evidence was recorded.
-       *
-       * * `conversation` - Customer conversation
-       * * `slack` - Slack
-       * * `zendesk` - Zendesk
-       * * `email` - Email
-       * * `meeting` - Meeting
-       * * `buildbetter` - BuildBetter
-       * * `other` - Other */
-      readonly evidence_source: EvidenceSourceEnum;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      readonly evidence_source: string;
       /** HTTP or HTTPS link to the source, or an empty string. */
       readonly source_url: string;
       /**
@@ -37596,16 +37569,11 @@ export namespace Schemas {
       summary?: string;
       /** Customer quote kept with this evidence item. */
       customer_quote?: string;
-      /** Channel where this evidence was recorded.
-       *
-       * * `conversation` - Customer conversation
-       * * `slack` - Slack
-       * * `zendesk` - Zendesk
-       * * `email` - Email
-       * * `meeting` - Meeting
-       * * `buildbetter` - BuildBetter
-       * * `other` - Other */
-      evidence_source: EvidenceSourceEnum;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
       /**
          * Optional HTTP or HTTPS link to the source.
          * @maxLength 2000
@@ -37651,16 +37619,11 @@ export namespace Schemas {
       summary?: string;
       /** Customer quote kept with this evidence item. */
       customer_quote?: string;
-      /** Channel where this evidence was recorded.
-       *
-       * * `conversation` - Customer conversation
-       * * `slack` - Slack
-       * * `zendesk` - Zendesk
-       * * `email` - Email
-       * * `meeting` - Meeting
-       * * `buildbetter` - BuildBetter
-       * * `other` - Other */
-      evidence_source: EvidenceSourceEnum;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
       /**
          * Optional HTTP or HTTPS link to the source.
          * @maxLength 2000
@@ -37695,16 +37658,11 @@ export namespace Schemas {
       summary?: string;
       /** Customer quote kept with this evidence item. */
       customer_quote?: string;
-      /** Channel where this evidence was recorded.
-       *
-       * * `conversation` - Customer conversation
-       * * `slack` - Slack
-       * * `zendesk` - Zendesk
-       * * `email` - Email
-       * * `meeting` - Meeting
-       * * `buildbetter` - BuildBetter
-       * * `other` - Other */
-      evidence_source: EvidenceSourceEnum;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
       /**
          * Optional HTTP or HTTPS link to the source.
          * @maxLength 2000

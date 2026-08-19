@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0035_alter_feature_request_description"),
+        ("customer_analytics", "0036_custompropertysyncrun_saved_query_id"),
         ("posthog", "1304_organization_has_active_subscription"),
     ]
 
@@ -43,28 +43,36 @@ class Migration(migrations.Migration):
                 ),
                 ("summary", models.TextField(blank=True, default="")),
                 ("customer_quote", models.TextField(blank=True, default="")),
-                (
-                    "source",
-                    models.CharField(
-                        choices=[
-                            ("conversation", "Customer conversation"),
-                            ("slack", "Slack"),
-                            ("zendesk", "Zendesk"),
-                            ("email", "Email"),
-                            ("meeting", "Meeting"),
-                            ("buildbetter", "BuildBetter"),
-                            ("other", "Other"),
-                        ],
-                        max_length=32,
-                    ),
-                ),
+                ("source", models.CharField(max_length=200)),
                 (
                     "source_url",
                     models.URLField(blank=True, default="", max_length=2000),
                 ),
                 ("requested_on", models.DateField(blank=True, null=True)),
-                ("created_by_id", models.BigIntegerField(blank=True, null=True)),
-                ("updated_by_id", models.BigIntegerField(blank=True, null=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        db_index=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
+                        to="posthog.user",
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        db_index=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
+                        to="posthog.user",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
@@ -79,8 +87,16 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="featurerequestaccountlink",
-            name="unlinked_by_id",
-            field=models.BigIntegerField(blank=True, null=True),
+            name="unlinked_by",
+            field=models.ForeignKey(
+                blank=True,
+                db_constraint=False,
+                db_index=False,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="+",
+                to="posthog.user",
+            ),
         ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
@@ -97,9 +113,5 @@ class Migration(migrations.Migration):
                     field=models.DateTimeField(auto_now=True, blank=True, null=True),
                 ),
             ],
-        ),
-        migrations.AddIndex(
-            model_name="featurerequestevidence",
-            index=models.Index(fields=["team", "account_link"], name="fr_evidence_link_idx"),
         ),
     ]

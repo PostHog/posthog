@@ -1084,6 +1084,8 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax = 200
+
 export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
 
@@ -1105,13 +1107,9 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
                     .default(featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault)
                     .describe('Customer quote kept with this evidence item.'),
                 evidence_source: zod
-                    .enum(['conversation', 'slack', 'zendesk', 'email', 'meeting', 'buildbetter', 'other'])
-                    .describe(
-                        '\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-                    )
-                    .describe(
-                        'Channel where this evidence was recorded.\n\n\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-                    ),
+                    .string()
+                    .max(featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax)
+                    .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
                     .url()
                     .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
@@ -1130,6 +1128,8 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
 
 export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
+export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
+
 export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
 export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
 
@@ -1143,13 +1143,9 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .default(featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault)
         .describe('Customer quote kept with this evidence item.'),
     evidence_source: zod
-        .enum(['conversation', 'slack', 'zendesk', 'email', 'meeting', 'buildbetter', 'other'])
-        .describe(
-            '\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-        )
-        .describe(
-            'Channel where this evidence was recorded.\n\n\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-        ),
+        .string()
+        .max(featureRequestsAddEvidenceCreateBodyEvidenceSourceMax)
+        .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
         .url()
         .max(featureRequestsAddEvidenceCreateBodySourceUrlMax)
@@ -1187,6 +1183,8 @@ export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
 
 export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
+
 export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
 
@@ -1200,13 +1198,9 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .default(featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault)
         .describe('Customer quote kept with this evidence item.'),
     evidence_source: zod
-        .enum(['conversation', 'slack', 'zendesk', 'email', 'meeting', 'buildbetter', 'other'])
-        .describe(
-            '\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-        )
-        .describe(
-            'Channel where this evidence was recorded.\n\n\* `conversation` - Customer conversation\n\* `slack` - Slack\n\* `zendesk` - Zendesk\n\* `email` - Email\n\* `meeting` - Meeting\n\* `buildbetter` - BuildBetter\n\* `other` - Other'
-        ),
+        .string()
+        .max(featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax)
+        .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
         .url()
         .max(featureRequestsUpdateEvidenceCreateBodySourceUrlMax)

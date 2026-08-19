@@ -1587,27 +1587,6 @@ export interface FeatureRequestAccountApi {
     readonly name: string
 }
 
-/**
- * * `conversation` - Customer conversation
- * * `slack` - Slack
- * * `zendesk` - Zendesk
- * * `email` - Email
- * * `meeting` - Meeting
- * * `buildbetter` - BuildBetter
- * * `other` - Other
- */
-export type EvidenceSourceEnumApi = (typeof EvidenceSourceEnumApi)[keyof typeof EvidenceSourceEnumApi]
-
-export const EvidenceSourceEnumApi = {
-    Conversation: 'conversation',
-    Slack: 'slack',
-    Zendesk: 'zendesk',
-    Email: 'email',
-    Meeting: 'meeting',
-    Buildbetter: 'buildbetter',
-    Other: 'other',
-} as const
-
 export interface FeatureRequestEvidenceApi {
     /** Stable evidence ID. */
     readonly id: string
@@ -1615,16 +1594,11 @@ export interface FeatureRequestEvidenceApi {
     readonly summary: string
     /** Customer quote kept with this evidence item. */
     readonly customer_quote: string
-    /** Channel where this evidence was recorded.
-     *
-     * * `conversation` - Customer conversation
-     * * `slack` - Slack
-     * * `zendesk` - Zendesk
-     * * `email` - Email
-     * * `meeting` - Meeting
-     * * `buildbetter` - BuildBetter
-     * * `other` - Other */
-    readonly evidence_source: EvidenceSourceEnumApi
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    readonly evidence_source: string
     /** HTTP or HTTPS link to the source, or an empty string. */
     readonly source_url: string
     /**
@@ -1824,16 +1798,11 @@ export interface FeatureRequestEvidencePayloadApi {
     summary?: string
     /** Customer quote kept with this evidence item. */
     customer_quote?: string
-    /** Channel where this evidence was recorded.
-     *
-     * * `conversation` - Customer conversation
-     * * `slack` - Slack
-     * * `zendesk` - Zendesk
-     * * `email` - Email
-     * * `meeting` - Meeting
-     * * `buildbetter` - BuildBetter
-     * * `other` - Other */
-    evidence_source: EvidenceSourceEnumApi
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
     /**
      * Optional HTTP or HTTPS link to the source.
      * @maxLength 2000
@@ -1863,16 +1832,11 @@ export interface FeatureRequestEvidenceCreateApi {
     summary?: string
     /** Customer quote kept with this evidence item. */
     customer_quote?: string
-    /** Channel where this evidence was recorded.
-     *
-     * * `conversation` - Customer conversation
-     * * `slack` - Slack
-     * * `zendesk` - Zendesk
-     * * `email` - Email
-     * * `meeting` - Meeting
-     * * `buildbetter` - BuildBetter
-     * * `other` - Other */
-    evidence_source: EvidenceSourceEnumApi
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
     /**
      * Optional HTTP or HTTPS link to the source.
      * @maxLength 2000
@@ -2079,16 +2043,11 @@ export interface FeatureRequestEvidenceUpdateApi {
     summary?: string
     /** Customer quote kept with this evidence item. */
     customer_quote?: string
-    /** Channel where this evidence was recorded.
-     *
-     * * `conversation` - Customer conversation
-     * * `slack` - Slack
-     * * `zendesk` - Zendesk
-     * * `email` - Email
-     * * `meeting` - Meeting
-     * * `buildbetter` - BuildBetter
-     * * `other` - Other */
-    evidence_source: EvidenceSourceEnumApi
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
     /**
      * Optional HTTP or HTTPS link to the source.
      * @maxLength 2000

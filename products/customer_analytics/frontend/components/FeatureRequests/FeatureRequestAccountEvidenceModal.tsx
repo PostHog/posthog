@@ -15,10 +15,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { EvidenceSourceEnumApi } from '../../generated/api.schemas'
 import { featureRequestsLogic } from './featureRequestsLogic'
 
-const EVIDENCE_SOURCE_OPTIONS: { value: EvidenceSourceEnumApi; label: string }[] = [
+const EVIDENCE_SOURCE_OPTIONS: { value: string; label: string }[] = [
     { value: 'conversation', label: 'Customer conversation' },
     { value: 'slack', label: 'Slack' },
     { value: 'zendesk', label: 'Zendesk' },

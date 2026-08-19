@@ -404,7 +404,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
     def test_multiple_accounts_keep_separate_evidence_across_unlink_and_relink(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
-        other_account = create_account(team_id=self.team.id, name="Globex")
+        other_account = create_account(team_id=self.team.id, name="Aardvark")
         request_url = f"{self.requests_url}{created['id']}/"
         linked = self.client.patch(
             request_url,
@@ -428,17 +428,17 @@ class TestFeatureRequestsAPI(APIBaseTest):
             account_link_id=links_by_account_id[str(self.account.id)]["id"],
             summary="Acme repeated the request during renewal.",
         )
-        with_globex_evidence = self._add_evidence(
+        with_other_evidence = self._add_evidence(
             request_id=created["id"],
             version=with_second_acme_evidence["version"],
             account_link_id=links_by_account_id[str(other_account.id)]["id"],
-            summary="Globex needs a weekly export.",
+            summary="Aardvark needs a weekly export.",
         )
 
         unlinked = self.client.patch(
             request_url,
             {
-                "expected_version": with_globex_evidence["version"],
+                "expected_version": with_other_evidence["version"],
                 "account_ids": [str(self.account.id)],
             },
             format="json",
@@ -454,10 +454,14 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         self.assertEqual(len(unlinked["account_links"]), 1)
         self.assertEqual(len(unlinked["account_links"][0]["evidence"]), 2)
+        self.assertEqual([link["account"]["name"] for link in restored["account_links"]], ["Acme", "Aardvark"])
         restored_links = {link["account"]["id"]: link for link in restored["account_links"]}
-        self.assertEqual(len(restored_links[str(self.account.id)]["evidence"]), 2)
         self.assertEqual(
-            restored_links[str(other_account.id)]["evidence"][0]["summary"], "Globex needs a weekly export."
+            [evidence["summary"] for evidence in restored_links[str(self.account.id)]["evidence"]],
+            ["Acme repeated the request during renewal.", "Acme needs monthly exports."],
+        )
+        self.assertEqual(
+            restored_links[str(other_account.id)]["evidence"][0]["summary"], "Aardvark needs a weekly export."
         )
         other_link = FeatureRequestAccountLink.objects.for_team(self.team.id).get(account=other_account)
         self.assertIsNone(other_link.unlinked_at)
@@ -477,7 +481,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 "evidence": {
                     "summary": "Globex needs a weekly export.",
                     "customer_quote": "We need this before our Monday review.",
-                    "evidence_source": "meeting",
+                    "evidence_source": "productboard",
                     "source_url": "https://example.com/meeting/1",
                     "requested_on": date.today().isoformat(),
                 },
@@ -492,6 +496,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
             links_by_account[str(other_account.id)]["evidence"][0]["summary"],
             "Globex needs a weekly export.",
         )
+        self.assertEqual(links_by_account[str(other_account.id)]["evidence"][0]["evidence_source"], "productboard")
         history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
         self.assertEqual([change["field"] for change in history[0]["changes"]], ["accounts", "evidence"])
 

@@ -16,7 +16,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
     FeatureRequestEvidence,
-    FeatureRequestEvidenceSource,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -89,6 +88,14 @@ def _to_account_link_view(account_link: FeatureRequestAccountLink) -> contracts.
 
 def _to_feature_request_view(feature_request: FeatureRequest) -> contracts.FeatureRequestView:
     account_links = [_to_account_link_view(link) for link in feature_request.account_links.all()]
+    legacy_account = account_links[0].account if account_links else None
+    account_links.sort(
+        key=lambda link: (
+            -len(link.evidence),
+            link.account.name.casefold() if link.account else "",
+            str(link.id),
+        )
+    )
     return contracts.FeatureRequestView(
         id=feature_request.id,
         title=feature_request.title,
@@ -99,7 +106,7 @@ def _to_feature_request_view(feature_request: FeatureRequest) -> contracts.Featu
         archived_at=feature_request.archived_at,
         archived_by=feature_request.archived_by_id,
         version=feature_request.version,
-        account=account_links[0].account if account_links else None,
+        account=legacy_account,
         account_links=account_links,
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
         created_by=feature_request.created_by_id,
@@ -730,8 +737,6 @@ def _validate_evidence(
     summary = input.summary.strip()
     customer_quote = input.customer_quote.strip()
     source_url = input.source_url.strip()
-    if input.evidence_source not in FeatureRequestEvidenceSource.values:
-        raise FeatureRequestValidationError("evidence_source", "Select a valid evidence source.")
     if not summary and not customer_quote and not source_url:
         raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, or source URL.")
     if source_url:
