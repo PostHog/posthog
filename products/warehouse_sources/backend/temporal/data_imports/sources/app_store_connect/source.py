@@ -53,17 +53,26 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
     @property
     def get_source_config(self) -> SourceConfig:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            restatement_caption,
+        )
+
+        caption = """Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
+
+An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
+
+Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data."""
+        restatement_note = restatement_caption()
+        if restatement_note:
+            caption = f"{caption}\n\n{restatement_note}"
+
         return SourceConfig(
             name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
             releaseStatus=ReleaseStatus.BETA,
             keywords=["app store", "ios", "apple", "mobile analytics"],
-            caption="""Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
-
-An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
-
-Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.""",
+            caption=caption,
             iconPath="/static/services/app_store_connect.png",
             docsUrl="https://posthog.com/docs/cdp/sources/app-store-connect",
             fields=cast(
@@ -109,8 +118,24 @@ Sales and subscription reports also need your vendor number (App Store Connect �
         from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            with_restatement_guidance,
+        )
 
-        return CANONICAL_DESCRIPTIONS
+        # Applied at read time so every analytics stream in the catalog carries its restatement
+        # dedup query, wherever in the module its entry was added.
+        return with_restatement_guidance(CANONICAL_DESCRIPTIONS)
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            with_restatement_guidance,
+        )
+
+        # The dedup queries name a physical table, so they are rebuilt for this source's prefix.
+        return with_restatement_guidance(CANONICAL_DESCRIPTIONS, table_prefix=table_prefix)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Match the stable status text plus the base host, not the per-request path and cursor.
