@@ -14,7 +14,8 @@ import { workflowsIncidentReplayLogic } from './workflowsIncidentReplayLogic'
 const RERUN_MAX_COUNT_PER_REQUEST = 10000
 
 export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
-    const { showBanner, affectedWorkflows, replayStatusById } = useValues(workflowsIncidentReplayLogic)
+    const { showBanner, affectedWorkflows, replayStatusById, currentProjectId } =
+        useValues(workflowsIncidentReplayLogic)
     const { replayWorkflow } = useActions(workflowsIncidentReplayLogic)
 
     if (!showBanner) {
@@ -26,7 +27,9 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
     return (
         <LemonBanner
             type="warning"
-            dismissKey="workflows-incident-replay-2026-08-17"
+            // Per project: without the suffix, dismissing in one project hides the recovery
+            // path in every other project this browser visits.
+            dismissKey={`workflows-incident-replay-2026-08-17-${currentProjectId}`}
             data-attr="workflows-incident-replay-banner"
         >
             <div className="flex flex-col gap-2">
@@ -50,6 +53,7 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Workflow}
                                     minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflow.userAccessLevel ?? undefined}
                                 >
                                     <LemonButton
                                         type="secondary"

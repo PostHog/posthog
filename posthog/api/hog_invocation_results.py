@@ -137,6 +137,14 @@ class HogInvocationResultsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Only return invocations triggered for this distinct_id (the person the run executed for).",
     )
+    error_message_contains = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). "
+            "Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+        ),
+    )
     after = serializers.CharField(
         required=False,
         default="-7d",
@@ -183,6 +191,7 @@ def fetch_hog_invocation_results(
     limit: int,
     status: Optional[list[str]] = None,
     distinct_id: Optional[str] = None,
+    error_message_contains: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
 ) -> list[HogInvocationResult]:
@@ -219,6 +228,12 @@ def fetch_hog_invocation_results(
     if status:
         outer_where.append("latest_status IN %(statuses)s")
         kwargs["statuses"] = status
+    # Post-collapse like status: the message changes across lifecycle rows, so only the
+    # latest one reflects what the invocation actually failed with. positionCaseInsensitive
+    # instead of LIKE so the needle needs no %/_ escaping — mirrors the rerun paginator.
+    if error_message_contains:
+        outer_where.append("positionCaseInsensitive(latest_error_message, %(error_message_contains)s) > 0")
+        kwargs["error_message_contains"] = error_message_contains
 
     query = f"""
         SELECT {_OUTER_COLUMNS}

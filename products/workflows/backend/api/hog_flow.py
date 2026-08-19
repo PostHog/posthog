@@ -3864,6 +3864,7 @@ class HogFlowViewSet(
             limit=params["limit"],
             status=params["status"].split(",") if params.get("status") else None,
             distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
             after=after_date,
             before=before_date,
         )

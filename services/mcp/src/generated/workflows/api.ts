@@ -734,6 +734,8 @@ export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.objec
 
 export const hogFlowsInvocationResultsRetrieveQueryAfterDefault = `-7d`
 
+export const hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax = 200
+
 export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
 export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
 
@@ -755,6 +757,14 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.
         .min(1)
         .optional()
         .describe('Only return invocations triggered for this distinct_id (the person the run executed for).'),
+    error_message_contains: zod
+        .string()
+        .min(1)
+        .max(hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax)
+        .optional()
+        .describe(
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+        ),
     limit: zod
         .number()
         .min(1)

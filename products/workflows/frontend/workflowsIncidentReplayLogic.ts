@@ -1,11 +1,14 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
+
+import { AccessControlLevel } from '~/types'
 
 import {
     hogFlowsInvocationResultsRetrieve,
@@ -28,6 +31,7 @@ export interface AffectedWorkflow {
     id: string
     name: string
     failedCount: number
+    userAccessLevel: AccessControlLevel | null
 }
 
 export type ReplayStatus = 'pending' | 'queued'
@@ -57,6 +61,7 @@ export interface workflowsIncidentReplayLogicActions {
             failedCount: number
             id: string
             name: string
+            userAccessLevel: AccessControlLevel | null
         }[],
         payload?: any
     ) => {
@@ -64,6 +69,7 @@ export interface workflowsIncidentReplayLogicActions {
             failedCount: number
             id: string
             name: string
+            userAccessLevel: AccessControlLevel | null
         }[]
         payload?: any
     }
@@ -131,50 +137,56 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                         return []
                     }
 
+                    // Keep only workflows the list endpoint returns: it applies object-level
+                    // access control, so this never names a workflow the user can't see, and it
+                    // drops deleted workflows, which can't be replayed anyway.
+                    const projectId = String(values.currentProjectId)
+                    const flows = await hogFlowsList(projectId, { limit: 300 })
+                    const flowsById = new Map((flows.results ?? []).map((flow) => [flow.id, flow]))
+                    const visible = affected.filter((row) => flowsById.has(row.id))
+
+                    if (visible.length === 0) {
+                        return []
+                    }
+
                     // App metrics are historical counters, so a fully replayed workflow would sit in
                     // the banner forever. Only keep workflows that still have a failed invocation
-                    // carrying the incident's error message - the same rows the rerun would target -
-                    // so a workflow drops off once its replay drains, and stays while a >10k replay
-                    // still has a leftover. A check that errors keeps its row (never hide the
+                    // carrying the incident's error message - the same server-side filter the rerun
+                    // uses - so a workflow drops off once its replay drains, and stays while a >10k
+                    // replay still has a leftover. A check that errors keeps its row (never hide the
                     // recovery path on a transient failure).
                     //
                     // No `before`: replay lifecycle rows land in the partition of their own
                     // scheduled_at (replay time), so capping at the window end would hide them and
                     // a replayed invocation would read as failed forever. `after` alone bounds the
                     // partition scan; the failed-status collapse then reflects the true latest state.
-                    const projectId = String(values.currentProjectId)
-                    const needle = INCIDENT_ERROR_MESSAGE_PREFIX.toLowerCase()
                     const stillFailing = await Promise.all(
-                        affected.map(async (row) => {
+                        visible.map(async (row) => {
                             try {
                                 const invocations = await hogFlowsInvocationResultsRetrieve(projectId, row.id, {
                                     status: 'failed',
+                                    error_message_contains: INCIDENT_ERROR_MESSAGE_PREFIX,
                                     after: INCIDENT_WINDOW_START,
-                                    limit: 500,
+                                    limit: 1,
                                 })
-                                return invocations.some((invocation) =>
-                                    invocation.error_message.toLowerCase().includes(needle)
-                                )
+                                return invocations.length > 0
                             } catch {
                                 return true
                             }
                         })
                     )
-                    const remaining = affected.filter((_, index) => stillFailing[index])
 
-                    if (remaining.length === 0) {
-                        return []
-                    }
-
-                    const flows = await hogFlowsList(projectId, { limit: 300 })
-                    const namesById = new Map((flows.results ?? []).map((flow) => [flow.id, flow.name]))
-
-                    return remaining
-                        .map((row) => ({
-                            id: row.id,
-                            name: namesById.get(row.id) ?? 'Deleted workflow',
-                            failedCount: row.failedCount,
-                        }))
+                    return visible
+                        .filter((_, index) => stillFailing[index])
+                        .map((row) => {
+                            const flow = flowsById.get(row.id)
+                            return {
+                                id: row.id,
+                                name: flow?.name ?? '',
+                                failedCount: row.failedCount,
+                                userAccessLevel: (flow?.user_access_level ?? null) as AccessControlLevel | null,
+                            }
+                        })
                         .sort((a, b) => b.failedCount - a.failedCount)
                 },
             },
@@ -222,10 +234,16 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        // Only flagged (affected) teams pay for the lookup query.
-        if (values.featureFlags[FEATURE_FLAGS.WORKFLOWS_INCIDENT_REPLAY]) {
-            actions.loadAffectedWorkflows()
-        }
-    }),
+    // A subscription instead of afterMount: flags can resolve after the logic mounts, and a
+    // one-time mount check would then never load. This fires with the value at mount and again
+    // when the flag flips on, so only flagged (affected) teams pay for the lookup query.
+    subscriptions(({ actions }) => ({
+        featureFlags: (featureFlags: FeatureFlagsSet, oldFeatureFlags: FeatureFlagsSet | undefined) => {
+            const isOn = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_INCIDENT_REPLAY]
+            const wasOn = !!oldFeatureFlags?.[FEATURE_FLAGS.WORKFLOWS_INCIDENT_REPLAY]
+            if (isOn && !wasOn) {
+                actions.loadAffectedWorkflows()
+            }
+        },
+    })),
 ])
