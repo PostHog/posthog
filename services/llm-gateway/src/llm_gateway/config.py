@@ -227,11 +227,6 @@ class Settings(BaseSettings):
     sandbox_task_cost_limits: dict[str, ProductCostLimit] = DEFAULT_SANDBOX_TASK_COST_LIMITS
     sandbox_task_cost_limits_disabled: bool = False
 
-    # Extra OAuth application ids per product, for applications provisioned per region after
-    # this service was built. Merged with the literals in products/config.py, never replacing
-    # them: {"signals": ["<us app id>", "<eu app id>"]}.
-    product_extra_application_ids: dict[str, list[str]] = {}
-
     posthog_code_free_tier_models: list[str] = [
         "@cf/zai-org/glm-5.2",
         "deepseek-ai/deepseek-v4-flash-0731",

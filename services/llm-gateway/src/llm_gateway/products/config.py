@@ -63,8 +63,8 @@ WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
-# The dedicated Signals app. US and EU rows are created per region, so their ids arrive
-# through `product_extra_application_ids` rather than being pinned here.
+SIGNALS_US_APP_ID = "01a01611-1dc2-0000-61ea-c4c8322e8936"
+SIGNALS_EU_APP_ID = "01a01613-c382-0000-1472-f7881db30f4f"
 SIGNALS_DEV_APP_ID = "019fb2ee-9d54-0000-61d9-faf825230d44"
 
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
@@ -247,7 +247,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # region has a Signals application row and its runs mint under it. Dropping them is
         # what finally makes this product unreachable from a Desktop-app token.
         allowed_application_ids=frozenset(
-            {POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID, SIGNALS_DEV_APP_ID}
+            {
+                POSTHOG_CODE_US_APP_ID,
+                POSTHOG_CODE_EU_APP_ID,
+                POSTHOG_CODE_DEV_APP_ID,
+                SIGNALS_US_APP_ID,
+                SIGNALS_EU_APP_ID,
+                SIGNALS_DEV_APP_ID,
+            }
         ),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
@@ -496,21 +503,6 @@ def is_model_restricted_for_product(model: str, product: str) -> bool:
     return allowed_products is not None and resolve_product_alias(product) not in allowed_products
 
 
-def allowed_application_ids_for_product(product: str, config: ProductConfig) -> frozenset[str]:
-    """The OAuth applications authorized for `product`, including any added by settings.
-
-    An application row is created per region, so a newly provisioned app's id isn't knowable
-    when this file is written. `product_extra_application_ids` lets a region authorize its own
-    app id without a deploy; the literals above stay the source of truth for dev and for apps
-    that already exist.
-    """
-    configured = config.allowed_application_ids or frozenset()
-    extra = get_settings().product_extra_application_ids.get(product)
-    if not extra:
-        return configured
-    return configured | frozenset(extra)
-
-
 def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     """The budget a request meters against, which is not always its product.
 
@@ -550,8 +542,7 @@ def check_product_access(
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        allowed_application_ids = allowed_application_ids_for_product(resolved_product, config)
-        if application_id not in allowed_application_ids:
+        if application_id not in (config.allowed_application_ids or frozenset()):
             return False, f"OAuth application not authorized for product '{product}'"
 
     # Internal products that share the PostHog Desktop OAuth app are only ever driven by

@@ -276,7 +276,7 @@ locks an entitled user out for at most a minute after their cached grant expires
 `LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
 `signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
-Its US and EU application rows are created per region, so their ids are supplied through `LLM_GATEWAY_PRODUCT_EXTRA_APPLICATION_IDS` (`{"signals": ["<app id>"]}`) rather than pinned in `products/config.py`.
+Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.
 The PostHog Code application ids stay listed on `signals` until every region mints under the new app; removing them completes the isolation.
 
 ### Adding a new product

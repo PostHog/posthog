@@ -747,10 +747,7 @@ class TestSignalsApplicationIsolation:
             ("slack_app", False),
         ],
     )
-    @patch(
-        "llm_gateway.products.config.get_settings",
-        return_value=MagicMock(debug=False, product_extra_application_ids={}),
-    )
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False))
     def test_signals_app_reaches_only_the_signals_product(
         self, mock_get_settings: MagicMock, product: str, expected_allowed: bool
     ):
@@ -759,13 +756,3 @@ class TestSignalsApplicationIsolation:
         # of which it could reach while Signals shared the Desktop app.
         allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
         assert allowed is expected_allowed
-
-    @patch(
-        "llm_gateway.products.config.get_settings",
-        return_value=MagicMock(debug=False, product_extra_application_ids={"signals": ["region-provisioned-app-id"]}),
-    )
-    def test_settings_can_authorize_a_region_provisioned_application(self, mock_get_settings: MagicMock):
-        # US and EU application rows are created after this service ships, so their ids arrive
-        # through settings rather than through a deploy.
-        allowed, _ = check_product_access("signals", "oauth_access_token", "region-provisioned-app-id", None)
-        assert allowed is True
