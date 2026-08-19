@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import { retryWithBackoff } from 'lib/utils/async'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
@@ -531,13 +531,16 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async (templateId: string, breakpoint) => {
-                    // A missing template row 404s and never recovers on retry, so only retry the
-                    // transient failures (a network blip, a 5xx). The 404 case surfaces its own empty state.
+                    // Only retry genuinely transient failures: a network blip (no HTTP status) or a
+                    // 502/503/504. Permanent responses like 404/401/403/429 fail fast, so their state
+                    // surfaces at once instead of after three doomed attempts.
                     let template: HogFunctionTemplateType
                     try {
                         template = await retryWithBackoff(() => api.hogFunctions.getTemplate(templateId), {
                             maxAttempts: 3,
-                            shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
+                            shouldRetry: (error) =>
+                                (error instanceof ApiError && error.status === undefined) ||
+                                isTransientServerError(error),
                         })
                     } catch (error) {
                         // The retry window is seconds long. If the user picked another destination

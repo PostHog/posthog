@@ -24,7 +24,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
@@ -1009,11 +1009,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    // A missing template row 404s and never recovers on retry, so only retry the
-                    // transient failures (a network blip, a 5xx). Failure surfaces an inline retry state.
+                    // Only retry genuinely transient failures: a network blip (no HTTP status) or a
+                    // 502/503/504. Permanent responses like 404/401/403/429 fail fast, so their state
+                    // surfaces at once instead of after three doomed attempts.
                     const res = await retryWithBackoff(() => api.hogFunctions.getTemplate(props.templateId!), {
                         maxAttempts: 3,
-                        shouldRetry: (error) => !(error instanceof ApiError && error.status === 404),
+                        shouldRetry: (error) =>
+                            (error instanceof ApiError && error.status === undefined) ||
+                            isTransientServerError(error),
                     })
 
                     if (!res) {
