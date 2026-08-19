@@ -151,7 +151,6 @@ export function DefaultTooltip<Meta = unknown>({
                     maxHeight: ROWS_MAX_HEIGHT,
                     overflowY: 'auto',
                     scrollbarWidth: 'none',
-                    scrollBehavior: 'smooth',
                     maskImage,
                     WebkitMaskImage: maskImage,
                 }}
