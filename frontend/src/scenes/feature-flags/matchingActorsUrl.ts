@@ -37,8 +37,8 @@ export function matchingActorsUrl(
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.ActorsQuery,
-            // Without an explicit select the backend falls back to its raw actor columns, which render
-            // as an unnamed person and a bare UUID instead of the display name, link, and created_at.
+            // Without an explicit select the backend returns its own `person` column, and the global
+            // product column renderers claim that key and render "Unknown" for an actors query.
             select: defaultDataTableColumns(NodeKind.ActorsQuery),
             // A person-targeted condition (resolvedGroupTypeIndex null) only carries person and
             // cohort filters, which are person-scoped; the group-targeted case takes the branch above.

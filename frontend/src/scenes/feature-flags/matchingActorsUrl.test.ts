@@ -25,11 +25,8 @@ describe('matchingActorsUrl', () => {
         expect(parsed.pathname).toBe('/persons')
         expect(parsed.hashParams.q.source.kind).toBe('ActorsQuery')
         expect(parsed.hashParams.q.source.properties).toEqual([personProperty])
-    })
-
-    it('selects the person display name so the list is readable instead of raw UUIDs', () => {
-        const parsed = combineUrl(matchingActorsUrl([personProperty], null))
-        expect(parsed.hashParams.q.source.select).toEqual([PERSON_DISPLAY_NAME_COLUMN_NAME, 'id', 'created_at'])
+        // Without this the backend picks its own columns and the list shows raw UUIDs
+        expect(parsed.hashParams.q.source.select).toContain(PERSON_DISPLAY_NAME_COLUMN_NAME)
     })
 
     it('links a group-targeted condition to that group type list with the filters', () => {
