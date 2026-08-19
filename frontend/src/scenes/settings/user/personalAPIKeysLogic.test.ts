@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PersonalAPIKeyType } from '~/types'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 
@@ -132,5 +133,22 @@ describe('personalAPIKeysLogic', () => {
 
         expect(logic.values.editingKey.scopes).toContain('survey:write')
         expect(logic.values.editingKey.scopes).not.toContain('feature_flag:write')
+    })
+
+    it('treats a 404 on delete as success and drops the already-gone key', async () => {
+        useMocks({
+            delete: {
+                '/api/personal_api_keys/:id/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+        logic.actions.loadKeysSuccess([{ id: 'gone-key', label: 'Gone', scopes: ['*'] } as PersonalAPIKeyType])
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteKey('gone-key')
+        })
+            .toDispatchActions(['deleteKeySuccess'])
+            .toNotHaveDispatchedActions(['deleteKeyFailure'])
+
+        expect(logic.values.keys.find((k) => k.id === 'gone-key')).toBeUndefined()
     })
 })

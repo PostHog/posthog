@@ -7,6 +7,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -320,7 +321,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return await api.personalApiKeys.list()
                 },
                 deleteKey: async ({ id }) => {
-                    await api.personalApiKeys.delete(id)
+                    try {
+                        await api.personalApiKeys.delete(id)
+                    } catch (error) {
+                        // A 404 means the key is already gone (e.g. deleted in another tab).
+                        // The user's intent is met, so treat it as success instead of a scary
+                        // error toast plus an error tracking issue. Reload to resync the list.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            throw error
+                        }
+                        actions.loadKeys()
+                    }
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
                 rollKey: async ({ id }) => {
