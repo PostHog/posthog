@@ -45,7 +45,14 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
+        # Mirror `requests.Session.prepare_request`: the real prepared request's `.url`
+        # is what `RESTClient._check_allowed_host` inspects (host/scheme/port pinning), so
+        # a bare `MagicMock()` here -- whose `.url` is an unconfigured child mock -- fails
+        # `urlparse`/`urlsplit` with a `MagicMock`-vs-`int` `TypeError` once that host check
+        # runs, rather than exercising it.
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
