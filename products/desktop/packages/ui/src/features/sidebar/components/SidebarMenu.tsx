@@ -299,13 +299,16 @@ function SidebarMenuComponent() {
       return;
     }
 
-    // Bulk menu when 2+ tasks are in the effective selection (active + cmd/shift-clicked)
-    // and the right-clicked task is one of them. Otherwise clear and fall through.
-    if (selectedTaskIds.length > 1) {
-      if (selectedTaskIds.includes(taskId)) {
+    // Bulk menu when 2+ rows are selected and the right-clicked row is one of
+    // them. A right-click outside the selection clears it first, so the row menu
+    // that follows is about the row under the pointer — the same rule the space
+    // sidebar applies in ChannelSidebar.
+    if (selectedTaskIds.includes(taskId)) {
+      if (selectedTaskIds.length > 1) {
         handleBulkContextMenu(e);
         return;
       }
+    } else if (selectedTaskIds.length > 0) {
       clearSelection();
     }
 
