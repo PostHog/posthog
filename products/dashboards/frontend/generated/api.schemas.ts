@@ -8051,6 +8051,8 @@ export interface AccountsQueryApi {
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsQuery'
     limit?: number | null
     /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -8077,6 +8079,7 @@ export const AccountsTableAccountFieldApi = {
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
     ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -8295,6 +8298,8 @@ export interface AccountsTableQueryApi {
         | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
