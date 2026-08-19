@@ -23,6 +23,8 @@ export function CredentialReview(): JSX.Element {
     const { passkeysLoading } = useValues(passkeySettingsLogic)
     const { connectedAppsLoading } = useValues(connectedAppsLogic)
 
+    const loading = keysLoading || passkeysLoading || connectedAppsLoading
+
     return (
         <BridgePage view="credential-review" fixedWidth={false}>
             <div className="px-12 py-8 flex flex-col items-center max-w-3xl w-full text-center">
@@ -42,9 +44,7 @@ export function CredentialReview(): JSX.Element {
                     type="primary"
                     size="large"
                     onClick={() => markComplete()}
-                    disabledReason={
-                        keysLoading || passkeysLoading || connectedAppsLoading ? 'Loading your credentials…' : null
-                    }
+                    disabledReason={loading ? 'Loading your credentials…' : null}
                 >
                     Continue to PostHog
                 </LemonButton>
