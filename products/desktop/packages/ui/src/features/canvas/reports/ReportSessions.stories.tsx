@@ -1,6 +1,6 @@
 import type { SignalReport } from "@posthog/shared/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ReportSessionsView } from "./ReportSessions";
+import { ReportSessionsView } from "./ReportSessionsList";
 import { partitionReportSessions } from "./reportSessions";
 
 const report = (overrides: Partial<SignalReport>): SignalReport => ({
