@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -48,10 +49,24 @@ MAX_SNOOZE_DAYS = 90
     }
 )
 class SnoozeDurationField(serializers.DateTimeField):
+    # Only a positive relative duration like "7d". relative_date_parse searches for a duration
+    # anywhere in its input instead of anchoring it, and does the date arithmetic with no upper
+    # bound, so without this gate "prefix7dsuffix" would resolve to a 7-day snooze and a value like
+    # "9999y" would overflow the arithmetic into an uncaught 500 before the cap below runs.
+    _DURATION_RE = re.compile(r"\d+[hdwmy]")
+
     def to_internal_value(self, data: Any) -> datetime:
-        # relative_date_parse falls back to "now" for anything it can't read, so an unparseable
-        # duration is indistinguishable from a zero-length one. Both fail the lower bound below.
-        snoozed_until = relative_date_parse(str(data), ZoneInfo("UTC"), increase=True)
+        if not isinstance(data, str) or not self._DURATION_RE.fullmatch(data.strip()):
+            raise serializers.ValidationError(
+                f"Expected a relative duration, such as '7d', '30d' or '90d'. Got: {data!r}",
+            )
+        try:
+            snoozed_until = relative_date_parse(data.strip(), ZoneInfo("UTC"), increase=True)
+        except (ValueError, OverflowError):
+            # A duration large enough to overflow the date arithmetic is well beyond the cap.
+            raise serializers.ValidationError(f"Cannot snooze for longer than {MAX_SNOOZE_DAYS} days.") from None
+        # Capture now after parsing: a zero-length duration such as "0d" resolves to the parser's own
+        # "now", so comparing against a now taken afterwards reliably rejects it as not in the future.
         now = timezone.now()
         if snoozed_until <= now:
             raise serializers.ValidationError(

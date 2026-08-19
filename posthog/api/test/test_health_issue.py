@@ -432,10 +432,23 @@ class TestSnoozeDurationField(SimpleTestCase):
             ("zero_length", "0d"),
             ("beyond_cap", "120d"),
             ("absolute_past_date", "2020-01-01"),
+            ("unanchored_substring", "prefix7dsuffix"),
+            ("overflows_date_arithmetic", "9999y"),
+            ("non_string", {"value": "7d"}),
         ]
     )
-    def test_rejects_duration(self, _name: str, value: str):
+    def test_rejects_duration(self, _name: str, value: object):
         serializer = HealthIssueSerializer(data={"snoozed_until": value}, partial=True)
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("snoozed_until", serializer.errors)
+
+    def test_accepts_relative_duration(self):
+        serializer = HealthIssueSerializer(data={"snoozed_until": "7d"}, partial=True)
+
+        self.assertTrue(serializer.is_valid())
+        self.assertAlmostEqual(
+            serializer.validated_data["snoozed_until"],
+            datetime.now(UTC) + timedelta(days=7),
+            delta=timedelta(minutes=1),
+        )
