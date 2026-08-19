@@ -15,6 +15,7 @@ from products.alerts.backend.forecasting.engine import (
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
+    save_time_anchor,
 )
 
 
@@ -151,3 +152,32 @@ class TestForecastReach:
         for interval in (IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH):
             points = bounded_training_points(1_000_000, interval)
             assert forecast_reach_days(points, interval) <= MAX_FORECAST_LOOKBACK_DAYS
+
+    @parameterized.expand(
+        [
+            ("hourly", IntervalType.HOUR, 0),
+            ("daily", IntervalType.DAY, 1),
+            ("weekly", IntervalType.WEEK, 7),
+            ("monthly", IntervalType.MONTH, 31),
+        ]
+    )
+    def test_a_date_accepted_at_save_still_evaluates(self, _name, interval, interval_days) -> None:
+        """Evaluation counts from the last completed bucket, which is behind today. Validating from
+        today accepted a date the first check then rejected, which auto-disabled the alert and
+        emailed its subscribers."""
+        today = datetime.date(2026, 3, 1)
+        anchor = save_time_anchor(interval, today)
+
+        latest_settable = None
+        for days in range(1, 400):
+            try:
+                horizon_for_target_date(today + datetime.timedelta(days=days), interval, anchor)
+            except ValueError:
+                break
+            latest_settable = days
+        assert latest_settable is not None
+
+        target = today + datetime.timedelta(days=latest_settable)
+        last_completed_bucket = today - datetime.timedelta(days=max(interval_days - 1, 0))
+        # Must not raise: the first check has to accept what save accepted.
+        horizon_for_target_date(target, interval, last_completed_bucket)

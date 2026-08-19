@@ -1,5 +1,6 @@
 import time
 import logging
+import threading
 
 import structlog
 
@@ -20,6 +21,12 @@ logger = structlog.get_logger(__name__)
 # An alert has to decide the same way twice on the same data, so the draw is pinned. The global
 # state is restored afterwards, because it belongs to the worker rather than to this fit.
 _UNCERTAINTY_SEED = 20260818
+
+# Seeding a global is only deterministic if one fit owns it at a time. evaluate_alert runs under
+# thread_sensitive=False, so a worker fits several alerts concurrently: without this lock two fits
+# interleave their seed and restore, neither is reproducible, and the worker is left permanently
+# seeded. The lock is correctness, not throughput tuning.
+_FIT_LOCK = threading.Lock()
 
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
@@ -53,15 +60,16 @@ class ProphetEngine:
         model = Prophet(interval_width=interval_width, mcmc_samples=0)
 
         start = time.monotonic()
-        rng_state = np.random.get_state()
-        try:
-            np.random.seed(_UNCERTAINTY_SEED)
-            model.fit(df)
-            freq = _FREQ.get(interval or IntervalType.DAY, "D")
-            future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
-            prediction = model.predict(future)
-        finally:
-            np.random.set_state(rng_state)
+        with _FIT_LOCK:
+            rng_state = np.random.get_state()
+            try:
+                np.random.seed(_UNCERTAINTY_SEED)
+                model.fit(df)
+                freq = _FREQ.get(interval or IntervalType.DAY, "D")
+                future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
+                prediction = model.predict(future)
+            finally:
+                np.random.set_state(rng_state)
         duration_ms = (time.monotonic() - start) * 1000
         logger.info(
             "forecast_fit_completed", engine="prophet", horizon=horizon, n_points=len(values), duration_ms=duration_ms

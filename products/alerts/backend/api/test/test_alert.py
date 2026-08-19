@@ -1914,6 +1914,66 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
+class TestFinishedTargetAlertIsEditable(APIBaseTest):
+    def test_a_finished_target_alert_can_still_be_patched(self) -> None:
+        """Validating an inherited target date on every PATCH locked a finished alert against every
+        edit, including turning it off. A direct validator test misses this: it only shows up
+        through the serializer, which is the path the editor uses."""
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "ActionsLineGraph"},
+                    "interval": "day",
+                }
+            },
+        ).json()
+        future = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "target alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": future,
+                    },
+                },
+            )
+            assert created.status_code == status.HTTP_201_CREATED, created.content
+            alert_id = created.json()["id"]
+
+            # The date passes. A rename and a disable must both still work.
+            AlertConfiguration.objects.filter(pk=alert_id).update(
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": "2020-01-01",
+                }
+            )
+            renamed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"name": "renamed"})
+            disabled = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"enabled": False})
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.content
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert disabled.json()["enabled"] is False
+
+
 class TestForecastTargetProjection(APIBaseTest):
     @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
     def test_simulate_returns_the_target_projection(self, mock_simulate) -> None:
