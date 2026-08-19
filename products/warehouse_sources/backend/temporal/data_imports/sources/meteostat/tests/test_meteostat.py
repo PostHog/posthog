@@ -37,7 +37,7 @@ def _response(status: int = 200, json_body: Any = None) -> mock.MagicMock:
     response.status_code = status
     response.json.return_value = json_body if json_body is not None else {}
     if status >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status} error", response=response)
     return response
 
 
@@ -96,6 +96,14 @@ class TestHelpers:
     )
     def test_parse_station_ids(self, _name, value, expected):
         assert _parse_station_ids(value) == expected
+
+    def test_parse_station_ids_bounds_split_regardless_of_input_size(self):
+        # A pathological input with millions of commas must not make split() materialize
+        # millions of parts before the caller's MAX_STATIONS check ever runs.
+        station_ids = ",".join(str(i) for i in range(2_000_000))
+        stations = _parse_station_ids(station_ids)
+        assert len(stations) == MAX_STATIONS + 1
+        assert stations[:5] == ["0", "1", "2", "3", "4"]
 
     @parameterized.expand(
         [

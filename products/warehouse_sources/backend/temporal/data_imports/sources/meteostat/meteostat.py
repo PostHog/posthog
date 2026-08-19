@@ -39,9 +39,12 @@ class MeteostatResumeConfig:
 def _parse_station_ids(station_ids: Optional[str]) -> list[str]:
     if not station_ids:
         return []
+    # Bound the number of parts split() ever materializes, regardless of how many commas the
+    # input contains, so a pathological string can't burn worker memory before the MAX_STATIONS
+    # check downstream ever runs.
     stations: list[str] = []
     seen: set[str] = set()
-    for raw in station_ids.split(","):
+    for raw in station_ids.split(",", MAX_STATIONS)[: MAX_STATIONS + 1]:
         station = raw.strip()
         if station and station not in seen:
             seen.add(station)
