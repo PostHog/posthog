@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -72,6 +73,12 @@ class RunAgenticReportOutput:
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
 
+# `proposed_change` became a required `SignalFinding` field after some findings were already stored.
+# Backfill this placeholder when a stored finding predates the field, so re-research can still load
+# prior context and either confirm it (restating a real change) or replace it. Never persisted:
+# a confirmation writes nothing, and a replacement supplies its own change.
+_LEGACY_PROPOSED_CHANGE = "Not recorded: this finding predates the proposed_change field."
+
 
 def _parse_artefact_content(
     model_cls: type[_ArtefactContentT], artefact: SignalReportArtefact, report_id: str
@@ -85,6 +92,25 @@ def _parse_artefact_content(
         raise ValueError(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {model_cls.__name__} schema"
+        ) from error
+
+
+def _parse_stored_finding(artefact: SignalReportArtefact, report_id: str) -> SignalFinding:
+    # Tolerant read for stored findings only: unlike the strict write API, a legacy row missing
+    # `proposed_change` is backfilled rather than rejected. Any other schema mismatch still fails
+    # loudly, matching `_parse_artefact_content`.
+    try:
+        payload = json.loads(artefact.content)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"report {report_id}: {artefact.type} artefact {artefact.id} is not valid JSON") from error
+    if isinstance(payload, dict) and not str(payload.get("proposed_change") or "").strip():
+        payload["proposed_change"] = _LEGACY_PROPOSED_CHANGE
+    try:
+        return SignalFinding.model_validate(payload)
+    except ValidationError as error:
+        raise ValueError(
+            f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
+            f"current {SignalFinding.__name__} schema"
         ) from error
 
 
@@ -120,7 +146,7 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
-                finding = _parse_artefact_content(SignalFinding, artefact, report_id)
+                finding = _parse_stored_finding(artefact, report_id)
                 findings_by_signal[finding.signal_id] = finding
             case SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
                 actionability = _parse_artefact_content(ActionabilityAssessment, artefact, report_id)
