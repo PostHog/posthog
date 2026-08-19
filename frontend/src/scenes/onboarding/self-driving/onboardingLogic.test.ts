@@ -93,6 +93,7 @@ describe('onboardingLogic', () => {
                 {
                     session_recording_opt_in: true,
                     session_recording_masking_config: { maskAllInputs: true },
+                    session_recording_minimum_duration_milliseconds: 2000,
                     capture_console_log_opt_in: true,
                     capture_performance_opt_in: true,
                 },

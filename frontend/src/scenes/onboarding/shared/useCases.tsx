@@ -19,6 +19,7 @@ export type OnboardingUseCaseKey =
 export type TeamOption =
     | 'session_recording' // session_recording_opt_in
     | 'replay_masking_floor' // session_recording_masking_config, only if unset
+    | 'replay_cost_floor' // session_recording_minimum_duration_milliseconds, only if unset
     | 'console_log_capture' // capture_console_log_opt_in (admin-gated)
     | 'network_performance' // capture_performance_opt_in (admin-gated)
     | 'exception_autocapture' // autocapture_exceptions_opt_in
@@ -54,7 +55,13 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
         productPath: 'Session replay',
         productKey: ProductKey.SESSION_REPLAY,
         benefit: 'Real sessions recorded, so agents can watch what users did.',
-        options: ['session_recording', 'replay_masking_floor', 'console_log_capture', 'network_performance'],
+        options: [
+            'session_recording',
+            'replay_masking_floor',
+            'replay_cost_floor',
+            'console_log_capture',
+            'network_performance',
+        ],
     },
     error_tracking: {
         productPath: 'Error tracking',

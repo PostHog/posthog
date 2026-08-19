@@ -30,6 +30,11 @@ from posthog.models.team import Team
 # by default, so this just pins that floor — page text stays visible for Signals to read.
 REPLAY_MASKING_FLOOR = {"maskAllInputs": True}
 
+# Written only when the team has no minimum set. New teams record every session with no
+# floor, so a bounce of a few hundred milliseconds costs the same as a real session. Two
+# seconds drops those trivially short recordings while keeping every session worth watching.
+REPLAY_MINIMUM_DURATION_FLOOR_MS = 2000
+
 # Sets the primary toggle (always) + companion defaults (only if unset, never clobbering
 # user config). Adds touched field names to `touched`; returns "enabled" or "already_enabled".
 Recipe = Callable[[Team, set[str]], str]
@@ -39,6 +44,9 @@ def _enable_session_replay(team: Team, touched: set[str]) -> str:
     if team.session_recording_masking_config is None:
         team.session_recording_masking_config = dict(REPLAY_MASKING_FLOOR)
         touched.add("session_recording_masking_config")
+    if team.session_recording_minimum_duration_milliseconds is None:
+        team.session_recording_minimum_duration_milliseconds = REPLAY_MINIMUM_DURATION_FLOOR_MS
+        touched.add("session_recording_minimum_duration_milliseconds")
     if team.session_recording_opt_in:
         return "already_enabled"
     team.session_recording_opt_in = True

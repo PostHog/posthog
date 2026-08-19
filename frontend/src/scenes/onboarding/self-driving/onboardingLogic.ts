@@ -58,11 +58,19 @@ function completedOnboardingMap(
     return completedMap
 }
 
+// New teams record every session with no minimum, so a bounce of a few hundred milliseconds
+// costs the same as a real session. Two seconds drops those trivially short recordings while
+// keeping every session worth watching. Matches REPLAY_MINIMUM_DURATION_FLOOR_MS on the backend.
+const REPLAY_MINIMUM_DURATION_FLOOR_MS = 2000
+
 function optionsPayload(team: TeamPublicType | TeamType | null, options: TeamOption[]): Partial<TeamType> {
     return {
         ...(options.includes('session_recording') ? { session_recording_opt_in: true } : {}),
         ...(options.includes('replay_masking_floor') && team?.session_recording_masking_config == null
             ? { session_recording_masking_config: { maskAllInputs: true } }
+            : {}),
+        ...(options.includes('replay_cost_floor') && team?.session_recording_minimum_duration_milliseconds == null
+            ? { session_recording_minimum_duration_milliseconds: REPLAY_MINIMUM_DURATION_FLOOR_MS }
             : {}),
         ...(options.includes('exception_autocapture') ? { autocapture_exceptions_opt_in: true } : {}),
         ...(options.includes('web_vitals') ? { autocapture_web_vitals_opt_in: true } : {}),
@@ -123,6 +131,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 const {
                     session_recording_opt_in,
                     session_recording_masking_config,
+                    session_recording_minimum_duration_milliseconds,
                     capture_console_log_opt_in,
                     capture_performance_opt_in,
                     heatmaps_opt_in,
@@ -142,6 +151,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     ? {
                           ...(session_recording_opt_in ? { session_recording_opt_in } : {}),
                           session_recording_masking_config,
+                          session_recording_minimum_duration_milliseconds,
                           capture_console_log_opt_in,
                           capture_performance_opt_in,
                           heatmaps_opt_in,
@@ -149,6 +159,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                       }
                     : {
                           session_recording_masking_config,
+                          session_recording_minimum_duration_milliseconds,
                           capture_console_log_opt_in,
                           capture_performance_opt_in,
                           heatmaps_opt_in,

@@ -20,7 +20,7 @@ class TestProductEnablementAPI(APIBaseTest):
     def _enable(self, products: list[str], **kwargs):
         return self.client.post(self._url(), {"products": products}, format="json", **kwargs)
 
-    def test_enables_session_replay_with_masking_floor(self):
+    def test_enables_session_replay_with_masking_and_cost_floors(self):
         response = self._enable(["session_replay"])
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": {"session_replay": "enabled"}})
@@ -28,6 +28,7 @@ class TestProductEnablementAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertTrue(self.team.session_recording_opt_in)
         self.assertEqual(self.team.session_recording_masking_config, {"maskAllInputs": True})
+        self.assertEqual(self.team.session_recording_minimum_duration_milliseconds, 2000)
 
     def test_does_not_clobber_existing_masking_config(self):
         self.team.session_recording_masking_config = {"maskAllInputs": False, "maskTextSelector": "*"}
@@ -42,6 +43,17 @@ class TestProductEnablementAPI(APIBaseTest):
             self.team.session_recording_masking_config,
             {"maskAllInputs": False, "maskTextSelector": "*"},
         )
+
+    def test_does_not_clobber_existing_minimum_duration(self):
+        self.team.session_recording_minimum_duration_milliseconds = 5000
+        self.team.save()
+
+        self._enable(["session_replay"])
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.session_recording_opt_in)
+        # The user's deliberate cost floor is left untouched.
+        self.assertEqual(self.team.session_recording_minimum_duration_milliseconds, 5000)
 
     def test_enables_error_tracking(self):
         response = self._enable(["error_tracking"])
