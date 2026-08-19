@@ -40,7 +40,7 @@ export async function resolveStartupLocation(
       firstRun: { generalChannelId: general.id },
     };
   }
-  // Personal fallback covers a server that does not provision #general yet.
+  // Defensive: land somewhere sensible even if provisioning returned no #general.
   const personal = channels.find((channel) => isPersonalChannel(channel));
   if (!personal) throw new Error("Personal channel was not provisioned");
   return { href: `/website/${personal.id}/new`, firstRun: null };
