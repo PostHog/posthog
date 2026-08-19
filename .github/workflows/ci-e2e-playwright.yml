@@ -312,8 +312,15 @@ jobs:
                       REF="$MERGE_BASE"
                   fi
                   # Last-resort restore prefix: matches the newest saved dump of any
-                  # migration set, for the window where both exact keys miss.
-                  echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
                   # the ref's migration files match a saved master schema — far more
