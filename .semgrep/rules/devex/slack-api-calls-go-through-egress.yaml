@@ -7,6 +7,11 @@ rules:
           Slack SDK calls and `posthog.egress.slack.transport.slack_request` for direct HTTP.
           Incoming webhooks and interactivity response URLs are outside this rule because their
           secret URL, not a workspace ID, owns the budget. See `posthog/egress/README.md`.
+
+          The direct-HTTP half only catches literal/f-string URLs on the `requests` module, so
+          keep URLs inline at the call site. Any `WebClient` / `AsyncWebClient` construction is
+          caught regardless of URL shape. Suppress a legitimate exception with
+          `# nosemgrep: slack-api-calls-go-through-egress -- <reason>`.
       languages: [python]
       severity: ERROR
       pattern-either:
