@@ -42,11 +42,11 @@ export interface experimentMetricModalLogicActions {
         context: MetricContext
         metric: ExperimentMetricUnion | undefined
     }
-    setMetric: (metric?: ExperimentMetric) => {
-        metric: ExperimentMetricUnion | undefined
-    }
     setIsSavingMetric: (isSaving: boolean) => {
         isSaving: boolean
+    }
+    setMetric: (metric?: ExperimentMetric) => {
+        metric: ExperimentMetricUnion | undefined
     }
 }
 
