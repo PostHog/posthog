@@ -77,7 +77,7 @@ export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
 }
 
-const USER_AGENT = 'PostHogSessionReplayBot/1.0 (+https://posthog.com/docs/session-replay/image-bot)'
+const USER_AGENT = 'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)'
 
 const REQUEST_HEADERS: Record<string, string> = {
     'user-agent': USER_AGENT,
