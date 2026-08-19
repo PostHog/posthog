@@ -7,10 +7,13 @@ import type {
 import { isTerminalStatus } from "@posthog/shared/types";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
-// Task↔report associations are unlabelled — a task's purpose is derived from the report's
-// `task_run` artefacts (the signals pipeline writes product="signals" with one of these types;
-// custom agents write their own (product, type) pair).
-export type ReportTaskPurpose = "research" | "implementation" | "other";
+// A task's purpose comes from the report's task_run artefact. Built-in report tasks use
+// product="signals" and a relationship type; custom agents provide their own pair.
+export type ReportTaskPurpose =
+  | "discussion"
+  | "research"
+  | "implementation"
+  | "other";
 
 export interface ReportTaskData {
   task: Task;
@@ -20,11 +23,14 @@ export interface ReportTaskData {
   startedAt: string;
 }
 
-function derivePurpose(taskRun: {
+export function deriveReportTaskPurpose(taskRun: {
   product: string;
   type: string;
 }): { purpose: ReportTaskPurpose; purposeLabel: string } | null {
   if (taskRun.product === "signals") {
+    if (taskRun.type === "discussion") {
+      return { purpose: "discussion", purposeLabel: "Discussion" };
+    }
     if (taskRun.type === "research") {
       return { purpose: "research", purposeLabel: "Research" };
     }
@@ -42,6 +48,7 @@ function derivePurpose(taskRun: {
 }
 
 const PURPOSE_ORDER: ReportTaskPurpose[] = [
+  "discussion",
   "implementation",
   "research",
   "other",
@@ -82,7 +89,7 @@ export function useReportTasks(
 
       const relevant = [...taskRunByTaskId.entries()].flatMap(
         ([taskId, run]) => {
-          const derived = derivePurpose(run);
+          const derived = deriveReportTaskPurpose(run);
           return derived
             ? [{ taskId, startedAt: run.startedAt, ...derived }]
             : [];
@@ -116,6 +123,17 @@ export function useReportTasks(
 export function getTaskPrUrl(task: Task): string | null {
   const prUrl = task.latest_run?.output?.pr_url;
   return typeof prUrl === "string" && prUrl.length > 0 ? prUrl : null;
+}
+
+export function findLatestDiscussionTask(
+  reportTasks: ReportTaskData[] | undefined,
+): Task | null {
+  if (!reportTasks) return null;
+  return (
+    reportTasks
+      .filter((entry) => entry.purpose === "discussion")
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.task ?? null
+  );
 }
 
 /**

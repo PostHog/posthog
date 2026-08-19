@@ -1,7 +1,9 @@
 import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+  deriveReportTaskPurpose,
   findContinuableImplementationTask,
+  findLatestDiscussionTask,
   getTaskPrUrl,
   type ReportTaskData,
   type ReportTaskPurpose,
@@ -103,6 +105,32 @@ describe("findContinuableImplementationTask", () => {
     expect(
       findContinuableImplementationTask([entry(failed), entry(running)]),
     ).toBe(running);
+  });
+});
+
+describe("findLatestDiscussionTask", () => {
+  it("returns the newest discussion without reusing pipeline work", () => {
+    const older = makeTask("older");
+    const newer = makeTask("newer");
+    const implementation = makeTask("implementation");
+    const tasks = [
+      { ...entry(older, "discussion"), startedAt: "2026-06-24T10:00:00Z" },
+      {
+        ...entry(implementation, "implementation"),
+        startedAt: "2026-06-24T12:00:00Z",
+      },
+      { ...entry(newer, "discussion"), startedAt: "2026-06-24T11:00:00Z" },
+    ];
+
+    expect(findLatestDiscussionTask(tasks)).toBe(newer);
+  });
+});
+
+describe("deriveReportTaskPurpose", () => {
+  it("keeps discussions separate from implementation work", () => {
+    expect(
+      deriveReportTaskPurpose({ product: "signals", type: "discussion" }),
+    ).toEqual({ purpose: "discussion", purposeLabel: "Discussion" });
   });
 });
 
