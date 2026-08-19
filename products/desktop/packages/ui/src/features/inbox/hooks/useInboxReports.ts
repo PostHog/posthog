@@ -236,7 +236,7 @@ interface UpdateSuggestedReviewersVariables {
  * Edits a report's suggested reviewers. The server appends a new `suggested_reviewers` status
  * artefact (latest-wins), so the work-log keeps the full history of changes. We optimistically
  * append a synthetic latest row — mirroring the server — so the detail pane reflects the change
- * instantly (immediate apply); the refetch on settle reconciles it with the real row.
+ * instantly (immediate apply); the refetch on settle reconciles the report and artefact caches.
  */
 export function useUpdateSuggestedReviewers(reportId: string) {
   const queryClient = useQueryClient();
@@ -283,9 +283,8 @@ export function useUpdateSuggestedReviewers(reportId: string) {
         }
         toast.error(error.message || "Failed to update suggested reviewers");
       },
-      onSettled: () => {
-        queryClient.invalidateQueries({ queryKey });
-      },
+      onSettled: () =>
+        queryClient.invalidateQueries({ queryKey: reportKeys.all }),
     },
   );
 }
