@@ -47,13 +47,19 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * once that stack resolves, which lands a handled 401 in the same issue as a genuine crash.
  *
  * Left unreported, because something else already resolves them for the user:
- * - 401 — `apiStatusLogic` re-checks the session and logs the user out.
+ * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
+ *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
+ *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
- * Each of these still toasts wherever it did before; only the error tracking report goes away.
+ * Each of these still toasts wherever it did before, and `client_request_failure` still records
+ * every non-OK response with its status and pathname, so failure rates stay queryable even where
+ * no recovery runs. That event is also the better record, since an exception raised here cannot say
+ * which endpoint failed: every `ApiError` shares this file's stack.
+ *
  * A plain 500 stays reportable on purpose, being a genuine backend exception, and so does anything
  * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it.
  */
