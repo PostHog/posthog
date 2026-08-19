@@ -1,3 +1,4 @@
+import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
 import {
@@ -9,6 +10,58 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("fetches later task pages before reporting complete results", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 2 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 2 });
+
+    await expect(
+      client.getTasksWithStatus(
+        { repository: "posthog/posthog" },
+        { maxPages: 2 },
+      ),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(1, {
+      limit: 100,
+      offset: 0,
+      repository: "posthog/posthog",
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      offset: 1,
+      repository: "posthog/posthog",
+    });
+  });
+
+  it("reports partial task results after reaching the page cap", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    vi.spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { maxPages: 2 }),
+    ).resolves.toMatchObject({
+      isComplete: false,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+  });
+
   it.each([
     "user_message",
     "permission_response",
