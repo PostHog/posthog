@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
-import api, { ApiConfig, ApiError } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { createFuseSearch } from 'lib/utils/fuseSearch'
@@ -10,6 +10,8 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
+
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -206,8 +208,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.dataWarehouseViewLinks.list()
+                    const response = await generatedWarehouseViewLinks.list()
                     return response.results || []
                 },
             },

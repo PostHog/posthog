@@ -1,11 +1,12 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
+
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { DatabaseSchemaTable } from '../../../../../frontend/src/queries/schema/schema-general'
 
@@ -83,8 +84,7 @@ export const joinsLogic = kea<joinsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const joins = await api.dataWarehouseViewLinks.list()
+                    const joins = await generatedWarehouseViewLinks.list()
                     return joins.results
                 },
             },

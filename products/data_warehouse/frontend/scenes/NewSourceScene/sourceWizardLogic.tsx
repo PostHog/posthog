@@ -7,7 +7,6 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,6 +39,8 @@ import {
     manualLinkSources,
     RowFilter,
 } from '~/types'
+
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
@@ -2577,8 +2578,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const payload = ((values.sourceConnectionDetails as any)?.payload || {}) as Record<string, any>
                     const mode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.externalDataSources.check_cdc_prerequisites(
+                        return await generatedExternalDataSources.check_cdc_prerequisites(
                             {
                                 source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...payload,
@@ -2615,8 +2615,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
                         .map((s: any) => s.table as string)
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.externalDataSources.check_cdc_prerequisites(
+                        return await generatedExternalDataSources.check_cdc_prerequisites(
                             {
                                 source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...connectionPayload,
@@ -3322,8 +3321,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
                 let webhookResult: WebhookCreateResult
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    webhookResult = await api.externalDataSources.createWebhook(sourceId)
+                    webhookResult = await generatedExternalDataSources.createWebhook(sourceId)
                 } catch (e: any) {
                     posthog.captureException(e)
                     webhookResult = {
@@ -3357,8 +3355,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             try {
-                // nosemgrep: prefer-codegen-api
-                const { id } = await api.externalDataSources.create({
+                const { id } = await generatedExternalDataSources.create({
                     ...values.source,
                     source_type: values.selectedConnector.name,
                     created_via: 'web',
@@ -3416,8 +3413,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             try {
-                // nosemgrep: prefer-codegen-api
-                const result = await api.externalDataSources.createWebhook(values.sourceId)
+                const result = await generatedExternalDataSources.createWebhook(values.sourceId)
                 actions.setWebhookResult(result)
             } catch (e: any) {
                 actions.setWebhookResult({
@@ -3436,8 +3432,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const fieldValues = values.webhookFieldInputs
             if (Object.keys(fieldValues).length > 0) {
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    await api.externalDataSources.updateWebhookInputs(values.sourceId, fieldValues)
+                    await generatedExternalDataSources.updateWebhookInputs(values.sourceId, fieldValues)
                 } catch (e: any) {
                     lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
                     return
@@ -3474,8 +3469,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(true)
 
             try {
-                // nosemgrep: prefer-codegen-api
-                const schemas = await api.externalDataSources.database_schema(
+                const schemas = await generatedExternalDataSources.database_schema(
                     values.selectedConnector.name,
                     getDatabaseSchemaPayload(values.source)
                 )
@@ -3797,8 +3791,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     try {
                         if (!isDirectQueryMode) {
-                            // nosemgrep: prefer-codegen-api
-                            await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+                            await generatedExternalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
                         }
 
                         const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({

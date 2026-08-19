@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconTarget } from '@posthog/icons'
 import { LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -18,6 +18,7 @@ import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
@@ -44,10 +45,13 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
             return
         }
         try {
-            // nosemgrep: prefer-codegen-api
-            const savedQuery = await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+            const savedQuery = await warehouseSavedQueriesRetrieve(
+                // nosemgrep: prefer-codegen-api
+                String(ApiConfig.getCurrentProjectId()),
+                node.saved_query_id
+            )
             if (savedQuery?.query?.query) {
-                editView(savedQuery.query.query, savedQuery)
+                editView(savedQuery.query.query, savedQuery as unknown as DataWarehouseSavedQuery)
             }
         } catch {
             lemonToast.error('Failed to load view details')

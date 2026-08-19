@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -13,6 +12,8 @@ import {
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
+
+import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
@@ -277,8 +278,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
-                                // nosemgrep: prefer-codegen-api
-                                const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
+                                const data = await savedQueryApi.dependencies(viewId)
                                 return { viewId, data }
                             } catch (error) {
                                 console.error(`Failed to load dependencies for view ${viewId}:`, error)
@@ -309,8 +309,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
-                                // nosemgrep: prefer-codegen-api
-                                const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
+                                const data = await savedQueryApi.dependencies(viewId)
                                 return { viewId, data }
                             } catch (error) {
                                 console.error(`Failed to load dependencies for view ${viewId}:`, error)
@@ -341,8 +340,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
-                                // nosemgrep: prefer-codegen-api
-                                const data = await api.dataWarehouseSavedQueries.runHistory(viewId)
+                                const data = await savedQueryApi.runHistory(viewId)
                                 return { viewId, data: data.run_history }
                             } catch (error) {
                                 console.error(`Failed to load run history for view ${viewId}:`, error)
