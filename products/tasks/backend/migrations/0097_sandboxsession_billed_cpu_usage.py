@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("tasks", "0085_sandboxsession_cpu_attribution_usage")]
+    dependencies = [("tasks", "0096_taskworkflowdispatch")]
 
     operations = [
         migrations.AddField(
