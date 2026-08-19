@@ -77,6 +77,7 @@ the row lists both.
 | appdynamics                      | HTTP                        | requests                                                        | ✅                          |
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
+| apple_search_ads                 | HTTP                        | requests                                                        | ✅                          |
 | applovin                         | HTTP                        | requests                                                        | ✅                          |
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
@@ -841,7 +842,6 @@ doesn't conflict with concurrent PRs.
 - appcues
 - appdirect
 - appfolio
-- apple_search_ads
 - apptivo
 - appwrite
 - arxiv
