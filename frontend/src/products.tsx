@@ -861,7 +861,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'code_review',
     },
     Inbox: {
-        name: 'Self-driving',
+        name: 'Inbox',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
     },
