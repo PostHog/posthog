@@ -6,7 +6,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -728,12 +728,12 @@ def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | N
     return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
-@dataclass
+@frozen
 class OauthConfig:
     authorize_url: str
     token_url: str
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
     scope: str
     id_path: str
     name_path: str
@@ -742,7 +742,7 @@ class OauthConfig:
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
     client_id_fallback: str | None = None
-    client_secret_fallback: str | None = None
+    client_secret_fallback: str | None = field(default=None, repr=False)
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -907,8 +907,11 @@ class OauthIntegration:
         config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
-            config.client_secret_fallback = fallback["client_secret"]
-            config.client_id_fallback = fallback.get("client_id") or config.client_id
+            config = replace(
+                config,
+                client_secret_fallback=fallback["client_secret"],
+                client_id_fallback=fallback.get("client_id") or config.client_id,
+            )
         return config
 
     @classmethod
@@ -3428,8 +3431,8 @@ class GitHubUserAuthorization:
 
     gh_id: int
     gh_login: str
-    access_token: str
-    refresh_token: str | None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
 
@@ -3440,7 +3443,7 @@ class GitHubInstallationAccess:
 
     installation_id: str
     installation_info: dict[str, Any]
-    access_token: str
+    access_token: str = field(repr=False)
     token_expires_at: str  # ISO datetime returned by GitHub, e.g. "2024-01-01T14:00:00Z"
     repository_selection: str
 
