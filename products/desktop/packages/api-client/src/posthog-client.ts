@@ -362,6 +362,20 @@ export interface UserGitHubIntegration {
   created_at?: string;
 }
 
+/** A personal GitHub App install awaiting (or granted) org-owner approval; the
+ * durable server-side counterpart to the in-flight connect spinner. Mirrors
+ * `GitHubInstallRequest` on the backend. */
+export interface GitHubInstallRequest {
+  id: string;
+  github_login: string;
+  /** `unidentified` means the requester could not be resolved, so approval can
+   *  never be detected and the user has to restart the connect flow. */
+  status: "pending" | "approved" | "unidentified";
+  installation_id?: string | null;
+  requested_at: string;
+  resolved_at?: string | null;
+}
+
 export interface LlmSkillCreatedBy {
   id?: number;
   email?: string | null;
@@ -1764,6 +1778,27 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as {
       results?: UserGitHubIntegration[];
+    };
+    return data.results ?? [];
+  }
+
+  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      results?: GitHubInstallRequest[];
     };
     return data.results ?? [];
   }
