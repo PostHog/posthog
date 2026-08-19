@@ -70,6 +70,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setTimeSensitiveAuthenticationRequired: (required: boolean | [onSuccess: () => void, onFailure: () => void]) => {
         required: boolean | [onSuccess: () => void, onFailure: () => void]
     } // apiStatusLogic
+    reportReauthenticationCompleted: () => {
+        value: true
+    } // apiStatusLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -211,7 +214,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             modalInterruptionTrackingLogic,
             ['interruptedForm'],
         ],
-        actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
+        actions: [
+            apiStatusLogic,
+            ['setTimeSensitiveAuthenticationRequired', 'reportReauthenticationCompleted'],
+            userLogic,
+            ['loadUser'],
+        ],
         logic: [modalInterruptionTrackingLogic],
     })),
     actions({
@@ -364,6 +372,11 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
     subscriptions(({ values, actions }) => ({
         showAuthenticationModal: (shown) => {
             if (shown) {
+                // The logic is a singleton, so a stale "Incorrect password" error and a leftover 2FA
+                // step would otherwise survive into a fresh open. Clear them so the form starts clean.
+                actions.resetReauthentication()
+                actions.setRequiresTwoFactor(false)
+
                 posthog.capture('reauthentication_modal_shown', {
                     interrupted_form: values.interruptedForm,
                 })
@@ -386,7 +399,10 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
             posthog.capture('reauthentication_completed')
+            actions.reportReauthenticationCompleted()
             actions.setTimeSensitiveAuthenticationRequired(false)
+            actions.resetReauthentication()
+            actions.setRequiresTwoFactor(false)
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },
@@ -395,7 +411,10 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
             posthog.capture('reauthentication_completed', { method: 'passkey_2fa' })
+            actions.reportReauthenticationCompleted()
             actions.setTimeSensitiveAuthenticationRequired(false)
+            actions.resetReauthentication()
+            actions.setRequiresTwoFactor(false)
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },

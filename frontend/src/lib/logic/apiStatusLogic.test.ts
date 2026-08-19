@@ -123,4 +123,41 @@ describe('apiStatusLogic', () => {
             errorSpy.mockRestore()
         })
     })
+
+    describe('sensitive action re-authentication 403 handling', () => {
+        const reauthResponse = (): Response =>
+            ({
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ code: 'sensitive_action_required_reauth' }),
+            }) as unknown as Response
+
+        it('requires re-authentication on a sensitive-action 403', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(reauthResponse())
+            }).toFinishAllListeners()
+
+            expect(logic.values.timeSensitiveAuthenticationRequired).toBe(true)
+        })
+
+        it('ignores a sensitive-action 403 that lands just after a successful re-auth', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.reportReauthenticationCompleted()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(reauthResponse())
+            }).toFinishAllListeners()
+
+            expect(logic.values.timeSensitiveAuthenticationRequired).toBe(false)
+        })
+    })
 })

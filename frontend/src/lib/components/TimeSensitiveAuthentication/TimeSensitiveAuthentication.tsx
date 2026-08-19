@@ -138,6 +138,9 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
                         extraQueryParams={extraQueryParams}
                         showPasskey={true}
+                        // Re-auth only succeeds through a provider the account is already linked to, so
+                        // offer just those. Absent (precheck pending or failed) means no restriction.
+                        restrictToProviders={precheckResponse?.social_providers ?? null}
                     />
                     {precheckResponse?.saml_available ? (
                         <SSOEnforcedLoginButton
