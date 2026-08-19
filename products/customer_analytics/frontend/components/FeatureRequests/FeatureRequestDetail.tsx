@@ -24,26 +24,25 @@ import { FeatureRequestAccountEvidenceModal } from './FeatureRequestAccountEvide
 import { FeatureRequestAccountItem } from './FeatureRequestAccountItem'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
-import { FeatureRequestEvidenceItem } from './FeatureRequestEvidenceItem'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
-import { FEATURE_REQUEST_EVIDENCE_PREVIEW_SIZE, featureRequestsLogic } from './featureRequestsLogic'
+import { featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
     const {
         mutatingArchive,
         listSearchParams,
-        activeRequestEvidence,
-        visibleActiveRequestEvidence,
-        requestEvidenceShowingAll,
+        activeRequestAccountLinks,
+        activeRequestEvidenceCount,
+        accountsEvidenceCollapsed,
     } = useValues(featureRequestsLogic)
     const {
         openEditRequest,
         openAddAccount,
         archiveActiveRequest,
         restoreActiveRequest,
-        setRequestEvidenceShowingAll,
+        setAccountsEvidenceCollapsed,
     } = useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -147,13 +146,15 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         icon={<IconBuilding />}
                         title="Accounts and evidence"
                         collapsible
+                        collapsed={accountsEvidenceCollapsed}
+                        onCollapsedChange={setAccountsEvidenceCollapsed}
                         dataAttr="feature-request-accounts-evidence-collapse"
                         meta={
                             <span className="text-xs text-tertiary tabular-nums">
-                                {request.account_links.length}{' '}
-                                {request.account_links.length === 1 ? 'account' : 'accounts'} ·{' '}
-                                {activeRequestEvidence.length}{' '}
-                                {activeRequestEvidence.length === 1 ? 'evidence item' : 'evidence items'}
+                                {activeRequestAccountLinks.length}{' '}
+                                {activeRequestAccountLinks.length === 1 ? 'account' : 'accounts'} ·{' '}
+                                {activeRequestEvidenceCount}{' '}
+                                {activeRequestEvidenceCount === 1 ? 'evidence item' : 'evidence items'}
                             </span>
                         }
                         action={
@@ -169,45 +170,14 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                             </LemonButton>
                         }
                     >
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-2">
-                                <h3 className="m-0 text-xs font-semibold text-secondary">Accounts</h3>
-                                {request.account_links.map((accountLink) => (
-                                    <FeatureRequestAccountItem
-                                        key={accountLink.id}
-                                        accountLink={accountLink}
-                                        canEdit={canEdit}
-                                    />
-                                ))}
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <h3 className="m-0 text-xs font-semibold text-secondary">Evidence</h3>
-                                {visibleActiveRequestEvidence.length ? (
-                                    visibleActiveRequestEvidence.map(({ accountLink, evidence }) => (
-                                        <FeatureRequestEvidenceItem
-                                            key={evidence.id}
-                                            accountLink={accountLink}
-                                            evidence={evidence}
-                                            canEdit={canEdit}
-                                        />
-                                    ))
-                                ) : (
-                                    <span className="text-secondary">No evidence recorded yet.</span>
-                                )}
-                                {activeRequestEvidence.length > FEATURE_REQUEST_EVIDENCE_PREVIEW_SIZE && (
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="small"
-                                        onClick={() => setRequestEvidenceShowingAll(!requestEvidenceShowingAll)}
-                                        data-attr="feature-request-evidence-show-all"
-                                        className="self-start"
-                                    >
-                                        {requestEvidenceShowingAll
-                                            ? `Show latest ${FEATURE_REQUEST_EVIDENCE_PREVIEW_SIZE} evidence items`
-                                            : `Show all ${activeRequestEvidence.length} evidence items`}
-                                    </LemonButton>
-                                )}
-                            </div>
+                        <div className="flex flex-col gap-2">
+                            {activeRequestAccountLinks.map((accountLink) => (
+                                <FeatureRequestAccountItem
+                                    key={accountLink.id}
+                                    accountLink={accountLink}
+                                    canEdit={canEdit}
+                                />
+                            ))}
                         </div>
                     </FeatureRequestDetailSection>
 

@@ -395,40 +395,81 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceModalOpen).toBe(false)
     })
 
-    it('shows the five latest evidence items before expanding the full list', () => {
+    it('groups all evidence by account and orders each account newest first', () => {
         const requestWithEvidence: FeatureRequestApi = {
             ...createdRequest,
             account_links: [
                 {
                     ...createdRequest.account_links[0],
-                    evidence: Array.from({ length: 6 }, (_, index) => ({
-                        id: `evidence-${index + 1}`,
-                        summary: `Evidence ${index + 1}`,
-                        customer_quote: '',
-                        evidence_source: 'conversation' as const,
-                        source_url: '',
-                        requested_on: null,
-                        created_by: 1,
-                        updated_by: 1,
-                        created_at: `2026-01-0${index + 1}T00:00:00Z`,
-                        updated_at: `2026-01-0${index + 1}T00:00:00Z`,
-                    })),
+                    evidence: [
+                        {
+                            id: 'acme-older',
+                            summary: 'Older Acme evidence',
+                            customer_quote: '',
+                            evidence_source: 'conversation',
+                            source_url: '',
+                            requested_on: '2026-01-01',
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-02T00:00:00Z',
+                            updated_at: '2026-01-02T00:00:00Z',
+                        },
+                        {
+                            id: 'acme-newer',
+                            summary: 'Newer Acme evidence',
+                            customer_quote: '',
+                            evidence_source: 'email',
+                            source_url: '',
+                            requested_on: '2026-01-03',
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-03T00:00:00Z',
+                            updated_at: '2026-01-03T00:00:00Z',
+                        },
+                    ],
+                },
+                {
+                    ...createdRequest.account_links[0],
+                    id: 'account-link-2',
+                    account: { id: 'account-2', name: 'Globex' },
+                    evidence: [
+                        {
+                            id: 'globex-evidence',
+                            summary: 'Globex evidence',
+                            customer_quote: '',
+                            evidence_source: 'meeting',
+                            source_url: '',
+                            requested_on: null,
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-04T00:00:00Z',
+                            updated_at: '2026-01-04T00:00:00Z',
+                        },
+                    ],
                 },
             ],
         }
 
         logic.actions.loadActiveRequestSuccess(requestWithEvidence)
 
-        expect(logic.values.visibleActiveRequestEvidence.map(({ evidence }) => evidence.id)).toEqual([
-            'evidence-6',
-            'evidence-5',
-            'evidence-4',
-            'evidence-3',
-            'evidence-2',
+        expect(
+            logic.values.activeRequestAccountLinks.map((accountLink) => ({
+                account: accountLink.account.name,
+                evidence: accountLink.evidence.map((evidence) => evidence.id),
+            }))
+        ).toEqual([
+            { account: 'Acme', evidence: ['acme-newer', 'acme-older'] },
+            { account: 'Globex', evidence: ['globex-evidence'] },
         ])
+        expect(logic.values.activeRequestEvidenceCount).toBe(3)
+    })
 
-        logic.actions.setRequestEvidenceShowingAll(true)
-        expect(logic.values.visibleActiveRequestEvidence).toHaveLength(6)
+    it('opens the accounts section for a history target', () => {
+        logic.actions.setAccountsEvidenceCollapsed(true)
+
+        logic.actions.showHistoryTarget('account-1', 'evidence-1')
+
+        expect(logic.values.accountsEvidenceCollapsed).toBe(false)
     })
 
     it('opens the account evidence form from an account page link', () => {
