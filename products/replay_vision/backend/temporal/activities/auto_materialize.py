@@ -7,6 +7,7 @@ loop by feeding the specific keys to the same `materialize_properties_task` mach
 analyzer cron runs, once a scanner's metered spend shows the cost is real and sustained.
 """
 
+import re
 import datetime as dt
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -48,6 +49,11 @@ _ACTING_HOUR_UTC = 3
 # Property filter types that read event properties; everything else (person, session, log_entry,
 # hogql, cohort) does not touch the events properties column and cannot be helped by this.
 _EVENT_SCOPED_FILTER_TYPES = ("event", "feature")
+
+# Mirrors the weekly analyzer's extraction charset. Materialized-column metadata round-trips the key
+# through a `::`-delimited column comment, so a key like `foo::bar` would poison every registry
+# lookup cluster-wide; scanner filters are user input, so only plainly safe keys become columns.
+_SAFE_PROPERTY_KEY = re.compile(r"^[a-zA-Z0-9_\-\.\$\/ ]{1,200}$")
 
 
 @frozen
@@ -97,7 +103,7 @@ def auto_materialize_scanner_properties_activity() -> AutoMaterializeResult:
 def _candidate_properties(now: dt.datetime) -> list[_Candidate]:
     """Unmaterialized event properties filtered on by scanners over the spend threshold, costliest first."""
     scanners = ReplayScanner.objects.filter(enabled=True).only(
-        "id", "query", "sweep_read_bytes_by_hour", "fast_read_bytes_by_hour", "deep_read_bytes_by_hour"
+        "id", "query", "fast_read_bytes_by_hour", "deep_read_bytes_by_hour"
     )
     qualifying = [
         (scanner, spend)
@@ -118,10 +124,11 @@ def _candidate_properties(now: dt.datetime) -> list[_Candidate]:
 
 
 def _daily_read_bytes(scanner: ReplayScanner, now: dt.datetime) -> int:
-    """Trailing-24h reads from the scanner's own passes, so backfill spend cannot qualify it."""
-    if scanner.fast_read_bytes_by_hour is None and scanner.deep_read_bytes_by_hour is None:
-        # Pre-split rows: the total is the only measurement until the meter first splits it.
-        return sweep_spend_bytes_24h(scanner.sweep_read_bytes_by_hour, now)
+    """Trailing-24h reads from the scanner's own passes, so backfill spend cannot qualify it.
+
+    Rows the meter has not split yet read as zero rather than falling back to the total, which
+    carries backfill reads; missing a transitional hour of candidates costs nothing.
+    """
     return sweep_spend_bytes_24h(scanner.fast_read_bytes_by_hour, now) + sweep_spend_bytes_24h(
         scanner.deep_read_bytes_by_hour, now
     )
@@ -141,12 +148,12 @@ def _event_property_keys(scanner: ReplayScanner) -> set[str]:
     keys = {
         prop.key for prop in (query.properties or []) if isinstance(prop, EventPropertyFilter | FeaturePropertyFilter)
     }
-    for event in query.events or []:
-        for prop in event.get("properties") or []:
+    for entity in [*(query.events or []), *(query.actions or [])]:
+        for prop in entity.get("properties") or []:
             if (
                 isinstance(prop, dict)
                 and prop.get("type") in _EVENT_SCOPED_FILTER_TYPES
                 and isinstance(prop.get("key"), str)
             ):
                 keys.add(prop["key"])
-    return keys
+    return {key for key in keys if _SAFE_PROPERTY_KEY.match(key)}

@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
         auto_materialize_scanner_properties_activity,
         meter_scanner_read_bytes_activity,
     )
+    from products.replay_vision.backend.temporal.metrics import record_auto_materialize_outcome
 
 
 @workflow.defn(name=READ_METER_WORKFLOW_NAME)
@@ -55,6 +56,8 @@ class MeterScannerReadsWorkflow(PostHogWorkflow):
             except Exception:
                 # Best-effort: a failed materialization attempt must not fail the metering run,
                 # whose buckets every sweep throttle reads.
+                if not workflow.unsafe.is_replaying():
+                    record_auto_materialize_outcome("failed", 1)
                 workflow.logger.warning("replay_vision.auto_materialize_failed")
         return result
 

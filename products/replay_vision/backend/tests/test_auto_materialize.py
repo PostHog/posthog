@@ -25,6 +25,13 @@ _QUERY_WITH_EVENT_FILTERS = {
             "properties": [{"type": "event", "key": "plan_tier", "operator": "exact", "value": "enterprise"}],
         }
     ],
+    "actions": [
+        {
+            "id": 42,
+            "type": "actions",
+            "properties": [{"type": "event", "key": "checkout_step", "operator": "exact", "value": "3"}],
+        }
+    ],
 }
 
 
@@ -58,9 +65,9 @@ class TestAutoMaterializeScannerProperties:
         # Person-scoped filters never reach the events properties column, so they must not be proposed.
         assert sorted(task.call_args.kwargs["properties_to_materialize"]) == [
             ("events", "properties", "$feature/expensive-flag"),
-            ("events", "properties", "plan_tier"),
+            ("events", "properties", "checkout_step"),
         ]
-        assert result.candidates == 2
+        assert result.candidates == 3
         assert result.materialized == 2
 
     def test_a_scanner_under_the_spend_threshold_is_never_a_candidate(self) -> None:
@@ -72,12 +79,17 @@ class TestAutoMaterializeScannerProperties:
         assert result.candidates == 0
 
     def test_backfill_spend_alone_does_not_qualify_a_scanner(self) -> None:
-        # Backfill reads land only in the total bucket; a one-day backfill must not mint columns.
+        # Backfill reads land only in the total bucket; a one-day backfill must not mint columns,
+        # and pre-split rows (no fast/deep buckets yet) read as zero rather than as their total.
         hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0).isoformat()
         _make_scanner(
             query=_QUERY_WITH_EVENT_FILTERS,
             fast_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES // 10},
             deep_read_bytes_by_hour={},
+            sweep_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 5},
+        )
+        _make_scanner(
+            query=_QUERY_WITH_EVENT_FILTERS,
             sweep_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 5},
         )
 
@@ -92,8 +104,24 @@ class TestAutoMaterializeScannerProperties:
         result, task = _run(enabled=False)
 
         task.assert_not_called()
-        assert result.candidates == 2
+        assert result.candidates == 3
         assert result.materialized == 0
+
+    def test_a_property_key_unsafe_for_column_metadata_is_never_proposed(self) -> None:
+        # Materialized-column metadata round-trips the key through a `::`-delimited comment, so a
+        # hostile or accidental `::` key would poison every registry lookup cluster-wide.
+        _spendy_scanner(
+            AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 2,
+            query={
+                "kind": "RecordingsQuery",
+                "properties": [{"type": "event", "key": "foo::bar", "operator": "exact", "value": "x"}],
+            },
+        )
+
+        result, task = _run()
+
+        task.assert_not_called()
+        assert result.candidates == 0
 
     def test_outside_the_acting_hour_nothing_is_created(self) -> None:
         # The meter runs hourly; acting once a day is what bounds cluster-wide column growth.
@@ -102,12 +130,15 @@ class TestAutoMaterializeScannerProperties:
         result, task = _run(acting_hour=False)
 
         task.assert_not_called()
-        assert result.candidates == 2
+        assert result.candidates == 3
 
     def test_already_materialized_properties_are_not_proposed_again(self) -> None:
         _spendy_scanner(AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 2)
 
         result, task = _run(already_materialized=frozenset({"$feature/expensive-flag"}))
 
-        assert task.call_args.kwargs["properties_to_materialize"] == [("events", "properties", "plan_tier")]
-        assert result.materialized == 1
+        assert sorted(task.call_args.kwargs["properties_to_materialize"]) == [
+            ("events", "properties", "checkout_step"),
+            ("events", "properties", "plan_tier"),
+        ]
+        assert result.materialized == 2
