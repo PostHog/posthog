@@ -16,7 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementsEventType } from '~/toolbar/types'
-import { getSafeText } from '~/toolbar/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
@@ -100,15 +99,28 @@ function emptyCounts(): Pick<ClickmapBox, 'count' | 'clickCount' | 'rageclickCou
     return { count: 0, clickCount: 0, rageclickCount: 0, deadclickCount: 0 }
 }
 
+// read only the element's own text nodes, joined with a space. Descendant text is left out
+// so a field group does not collapse its labels and options into one run-together string.
+// A space between nodes keeps words apart when inline markup splits the text, and the
+// tooltip ellipsizes the rest in CSS.
+function directChildText(element: HTMLElement): string {
+    const parts: string[] = []
+    element.childNodes.forEach((child) => {
+        const text = child.nodeType === Node.TEXT_NODE ? child.textContent?.trim() : ''
+        if (text) {
+            parts.push(text)
+        }
+    })
+    return parts.join(' ')
+}
+
 function describeElement(element: HTMLElement): { label: string; displaySelector: string } {
     const tag = element.tagName.toLowerCase()
     const id = element.id ? `#${element.id}` : ''
     const firstClass = element.classList.length ? `.${element.classList[0]}` : ''
     return {
         displaySelector: `${tag}${id}${firstClass}`,
-        // read only direct child text. This stops a field group from collapsing its labels
-        // and options into one run-together string. The tooltip ellipsizes the rest in CSS.
-        label: getSafeText(element),
+        label: directChildText(element),
     }
 }
 
@@ -448,17 +460,27 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             actions.watchSnapshotReflow()
         },
         watchSnapshotReflow: () => {
-            // the snapshot renders asynchronously. Images, fonts, and late layout move
-            // element positions after the first measure. Re-measure on reflow so each box
-            // and its tooltip stay aligned with the element they describe.
+            // the snapshot renders asynchronously, so element positions move after the first
+            // measure. Re-measure when the body resizes (late images that grow the document)
+            // or when its subtree mutates. A reflow that keeps the body size and the DOM tree,
+            // such as a web font swap that keeps the line count, is not caught here.
             cache.disposables.add(() => {
                 const snapshotBody = props.iframeRef?.current?.contentDocument?.body
-                if (!snapshotBody || typeof ResizeObserver === 'undefined') {
+                if (!snapshotBody) {
                     return () => {}
                 }
-                const observer = new ResizeObserver(() => actions.recomputeClickmap())
-                observer.observe(snapshotBody)
-                return () => observer.disconnect()
+                const resizeObserver =
+                    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => actions.recomputeClickmap()) : null
+                resizeObserver?.observe(snapshotBody)
+                const mutationObserver =
+                    typeof MutationObserver !== 'undefined'
+                        ? new MutationObserver(() => actions.recomputeClickmap())
+                        : null
+                mutationObserver?.observe(snapshotBody, { childList: true, subtree: true, attributes: true })
+                return () => {
+                    resizeObserver?.disconnect()
+                    mutationObserver?.disconnect()
+                }
             }, 'reflowObserver')
         },
         loadElementStatsSuccess: () => actions.recomputeClickmap(),

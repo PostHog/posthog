@@ -93,10 +93,19 @@ describe('recordingClickmapLogic', () => {
             })
         })
 
-        it('labels a box from direct child text only, not concatenated descendant text', () => {
-            snapshotDocument.getElementById('cta')!.innerHTML = 'Sign up<span>tracked event label</span>'
+        it.each([
+            // drops descendant text so a field group does not run its labels together
+            { name: 'excludes descendant text', html: 'Sign up<span>tracked event label</span>', label: 'Sign up' },
+            // keeps a space between own text nodes split by inline markup
+            {
+                name: 'keeps spaces around inline markup',
+                html: 'Save <strong>now</strong> please',
+                label: 'Save please',
+            },
+        ])('labels a box from direct child text only: $name', ({ html, label }) => {
+            snapshotDocument.getElementById('cta')!.innerHTML = html
             const boxes = computeClickmapBoxes([statsRow({ count: 1 })], snapshotDocument, null, ['data-attr'])
-            expect(boxes[0].label).toBe('Sign up')
+            expect(boxes[0].label).toBe(label)
         })
 
         it('produces one box per matched element, sorted by count descending', () => {
