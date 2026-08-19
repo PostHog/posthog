@@ -44,6 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    capture_repartition_event,
+    is_repartition_hold_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
@@ -168,6 +172,43 @@ async def _warehouse_parent_reuse_available(
     return True
 
 
+def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
+    """Whether an in-flight repartition should pause this schema's import for one run.
+
+    Both conditions have to hold: the schema opted into the hold, and a rewrite checkpoint is fresh
+    enough to be worth waiting for. The flag is checked second so a schema without it never pays for
+    the evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    ingestion is the more expensive way to be wrong.
+    """
+    if schema is None or not schema.repartition_holds_import:
+        return False
+    try:
+        if not is_repartition_hold_enabled(schema):
+            return False
+    except Exception:
+        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
+        return False
+
+    rewrite = schema.repartition_rewrite or {}
+    logger.info(
+        "Holding import: a repartition rewrite is converging on this table",
+        schema_id=str(schema.id),
+        rows_written=rewrite.get("rows_written"),
+        held_at=rewrite.get("held_at"),
+    )
+    capture_repartition_event(
+        "warehouse_repartition_import_held",
+        {
+            "team_id": schema.team_id,
+            "schema_id": str(schema.id),
+            "resource_name": schema.name,
+            "rows_written": rewrite.get("rows_written"),
+            "held_at": rewrite.get("held_at"),
+        },
+    )
+    return True
+
+
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
@@ -210,6 +251,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
                 )
+
+        # A rewrite spanning several activity budgets resumes only while live stays at the Delta
+        # version its checkpoint was built against, and the merge below is what moves it. Importing
+        # here invalidates the checkpoint the previous run wrote, so the rewrite restarts from row 0
+        # and the table never converges. Skipping leaves this run a clean no-op: the workflow
+        # finalizes as usual and the next sync picks the data up once the rewrite lands. The hold
+        # lapses on its own if the rewrite stops advancing, so a stuck one costs freshness rather
+        # than ingestion.
+        if await database_sync_to_async_pool(_import_held_for_repartition)(model.schema, logger):
+            return PipelineResult(should_trigger_cdp_producer=False, consumer_manages_job_status=False)
 
         await logger.adebug("Running import_data_activity")
 
