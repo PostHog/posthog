@@ -863,7 +863,7 @@ class BatchExportsField(TypedDict):
 
 class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
-    values: dict[str, str]
+    values: dict[str, Any]
     hogql_query: str
 
 
