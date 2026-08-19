@@ -112,6 +112,19 @@ describe('taxonomicFilterLogic', () => {
         expect(actionRequestCount).toBe(1)
     })
 
+    it('does not request actions for a filter without the Actions group', () => {
+        const noActionsLogic = taxonomicFilterLogic({
+            taxonomicFilterLogicKey: 'noActions',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        })
+        noActionsLogic.mount()
+
+        // A filter that can't surface the Actions group mounts the skip-load instance, which never fetches.
+        expect(actionsModel({ skipLoad: true }).isMounted()).toBe(true)
+
+        noActionsLogic.unmount()
+    })
+
     it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({

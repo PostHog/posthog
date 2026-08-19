@@ -648,7 +648,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect(() => ({
+    connect((props: TaxonomicFilterLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -668,7 +668,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
-        logic: [actionsModel],
+        // Only fetch the action list when this filter can actually surface the Actions group.
+        // An absent taxonomicGroupTypes prop means every group is available, Actions included.
+        logic: [
+            !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
+                ? actionsModel
+                : actionsModel({ skipLoad: true }),
+        ],
     })),
     actions(() => ({
         moveUp: true,
