@@ -1205,10 +1205,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     paymentEntryLogic.actions.showPaymentEntryModal()
                 } else {
                     lemonToast.error(response.error || 'Failed to activate subscription')
+                    // Reload billing so a parent that locks its CTAs until billing changes
+                    // (PlatformAddonComparison's `activating` flag) re-enables them on failure.
+                    void billingLogic.asyncActions.loadBilling()
                 }
             } catch (error) {
                 posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
                 lemonToast.error('Failed to activate subscription. Please try again.')
+                void billingLogic.asyncActions.loadBilling()
             } finally {
                 actions.setBillingProductLoading(null)
             }

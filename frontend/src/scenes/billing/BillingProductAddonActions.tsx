@@ -117,7 +117,11 @@ export const BillingProductAddonActions = ({
                     type="primary"
                     size="small"
                     data-attr="billing-addon-trial-subscribe-now"
-                    disabledReason={(billingError && billingError.message) || purchaseDisabledReason}
+                    disabledReason={
+                        (billingError && billingError.message) ||
+                        purchaseDisabledReason ||
+                        (trialLoading ? 'Please wait…' : undefined)
+                    }
                     loading={billingProductLoading === addon.type}
                     onClick={() => {
                         // Subscribing ends the trial and starts the paid plan now, so a
@@ -136,6 +140,7 @@ export const BillingProductAddonActions = ({
                 <LemonButton
                     type="secondary"
                     size="small"
+                    disabledReason={billingProductLoading === addon.type ? 'Please wait…' : undefined}
                     onClick={() => {
                         setSurveyResponse('$survey_response_1', addon.type)
                         reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
