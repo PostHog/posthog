@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Read-only shape of an external reference, shared by every response.",
+    "description": "Payload for creating a new provider issue and linking it to an error tracking issue.",
     "properties": {
         "config": {
             "additionalProperties": {
