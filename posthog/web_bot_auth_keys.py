@@ -30,8 +30,16 @@ class WebBotAuthPrivateKeyConfiguration:
 
 @lru_cache(maxsize=1)
 def load_web_bot_auth_private_key_configuration(
-    private_key_pems: tuple[str, ...],
+    private_key_pems: tuple[str, ...], *, require_at_least_one: bool
 ) -> WebBotAuthPrivateKeyConfiguration:
+    if require_at_least_one and not private_key_pems:
+        return WebBotAuthPrivateKeyConfiguration(
+            private_keys=(),
+            validation_error=WebBotAuthPrivateKeyConfigurationError(
+                "WEB_BOT_AUTH_PRIVATE_KEYS is present but contains no keys"
+            ),
+        )
+
     private_keys: list[Ed25519PrivateKey] = []
     for key_index, private_key_pem in enumerate(private_key_pems, start=1):
         try:
@@ -59,7 +67,7 @@ def load_web_bot_auth_private_key_configuration(
 
 def _validate_and_capture_web_bot_auth_private_key_configuration(private_key_pems: tuple[str, ...]) -> None:
     try:
-        configuration = load_web_bot_auth_private_key_configuration(private_key_pems)
+        configuration = load_web_bot_auth_private_key_configuration(private_key_pems, require_at_least_one=True)
         if configuration.validation_error is None:
             return
         validation_error = configuration.validation_error
@@ -106,7 +114,7 @@ def validate_web_bot_auth_private_keys_in_background(private_key_pems: tuple[str
 
 
 def validate_configured_web_bot_auth_private_keys_in_background() -> threading.Thread | None:
-    if not settings.WEB_BOT_AUTH_PRIVATE_KEYS:
+    if not settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
         return None
     try:
         return validate_web_bot_auth_private_keys_in_background(tuple(settings.WEB_BOT_AUTH_PRIVATE_KEYS))

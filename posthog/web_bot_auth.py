@@ -94,19 +94,22 @@ def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
 
     https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/
     """
-    # The signature covers _AUTHORITY, so anywhere else would serve a directory that cannot verify
-    # where it is served. The keys are deployed to every region, so their presence does not gate this.
+    # The signature covers _AUTHORITY, so only the US deployment can serve this directory.
     if (settings.CLOUD_DEPLOYMENT or "").upper() != "US":
-        return HttpResponseNotFound()
-    if not settings.WEB_BOT_AUTH_PRIVATE_KEYS:
         return HttpResponseNotFound()
 
     try:
-        configuration = load_web_bot_auth_private_key_configuration(tuple(settings.WEB_BOT_AUTH_PRIVATE_KEYS))
+        configuration = load_web_bot_auth_private_key_configuration(
+            tuple(settings.WEB_BOT_AUTH_PRIVATE_KEYS),
+            require_at_least_one=settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT,
+        )
     except Exception:
         return HttpResponse(status=503)
     if configuration.validation_error is not None:
         return HttpResponse(status=503)
+    if not configuration.private_keys:
+        return HttpResponseNotFound()
+
     body, headers = signed_directory(
         configuration.private_keys,
         int(time.time()),
