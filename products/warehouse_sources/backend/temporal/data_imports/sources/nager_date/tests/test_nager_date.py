@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 import requests
@@ -8,11 +9,14 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date import (
+    BACKFILL_YEARS_BACK,
     BASE_URL,
+    FORWARD_YEARS,
     MAX_COUNTRY_CODES,
     NagerDateResumeConfig,
     _get,
     _holiday_id,
+    _holiday_years,
     check_country_codes,
     nager_date_source,
     parse_country_codes,
@@ -124,12 +128,32 @@ class TestGet:
 
         assert _get(session, "/Countries/Available") == [{"countryCode": "US"}]
 
+    def test_returns_none_for_empty_body_on_200(self) -> None:
+        # A 200 with no body is distinct from the documented "no data" statuses, but should
+        # still come back as None rather than raising on `.json()`.
+        session = mock.MagicMock()
+        response = _response(200)
+        response.content = b""
+        session.get.return_value = response
+
+        assert _get(session, "/Countries/Available") is None
+
     def test_raises_for_server_error(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(500)
 
         with pytest.raises(requests.HTTPError):
             _get(session, "/Countries/Available")
+
+
+class TestHolidayYears:
+    @freeze_time("2026-06-15")
+    def test_spans_the_configured_backfill_and_forward_window(self) -> None:
+        years = _holiday_years()
+
+        assert years == list(range(2026 - BACKFILL_YEARS_BACK, 2026 + FORWARD_YEARS + 1))
+        assert years[0] == 2025
+        assert years[-1] == 2031
 
 
 def _make_manager(index: Optional[int] = None) -> mock.MagicMock:
@@ -235,6 +259,37 @@ class TestNagerDateSource:
             called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
 
         assert called_urls == [f"{BASE_URL}/Holidays/US/Next"]
+
+    def test_next_public_holidays_resumes_from_saved_index(self) -> None:
+        manager = _make_manager(index=1)
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(
+                200, [{"countryCode": "GB", "date": "2026-12-25", "name": "Christmas Day"}]
+            )
+
+            batches = list(nager_date_source(NEXT_PUBLIC_HOLIDAYS, ["US", "GB"], manager))
+
+        # The country before the saved index (US) is skipped entirely.
+        assert len(batches) == 1
+        called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert called_urls == [f"{BASE_URL}/Holidays/GB/Next"]
+
+    def test_public_holidays_resumes_from_saved_index(self) -> None:
+        manager = _make_manager(index=1)
+        with (
+            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
+            mock.patch(f"{MODULE}._holiday_years", return_value=[2025, 2026]),
+        ):
+            mock_session.return_value.get.return_value = _response(
+                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
+            )
+
+            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
+
+        # The work item before the saved index (US/2025) is skipped entirely.
+        assert len(batches) == 1
+        called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert called_urls == [f"{BASE_URL}/Holidays/US/2026"]
 
     @parameterized.expand([(COUNTRY_INFO,), (NEXT_PUBLIC_HOLIDAYS,), (PUBLIC_HOLIDAYS,)])
     def test_raises_when_country_codes_are_misconfigured(self, endpoint: str) -> None:
