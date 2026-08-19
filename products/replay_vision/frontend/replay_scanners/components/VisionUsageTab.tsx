@@ -14,6 +14,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, 
 
 import { VisionDocsLink } from '../../components/DocsLink'
 import { CreditPriceNote } from '../../components/PricingLink'
+import { VisionLoadError } from '../../components/VisionLoadError'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
@@ -56,16 +57,18 @@ const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
 ).join(' + ')
 
 export function VisionUsageTab(): JSX.Element {
-    const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
-    const { setSpendChartInterval } = useActions(visionUsageLogic)
+    const { usageScanners, usageScannersLoading, usageScannersError, spendChartInterval } = useValues(visionUsageLogic)
+    const { setSpendChartInterval, loadUsageScanners } = useActions(visionUsageLogic)
     const {
         displayQuota: quota,
         quotaLoading,
+        quotaError,
         showUsd,
         billedCredits,
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
+    const { loadQuota } = useActions(visionQuotaLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
 
@@ -281,12 +284,22 @@ export function VisionUsageTab(): JSX.Element {
                 loading={usageScannersLoading}
                 rowKey={(scanner) => scanner.id}
                 emptyState={
-                    <>
-                        No spend this period yet. Costs appear here once scanners produce observations.{' '}
-                        <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
-                            Learn how credits and limits work
-                        </VisionDocsLink>
-                    </>
+                    usageScannersError || quotaError ? (
+                        <VisionLoadError
+                            message="Couldn't load your usage."
+                            onRetry={() => {
+                                loadUsageScanners()
+                                loadQuota()
+                            }}
+                        />
+                    ) : (
+                        <>
+                            No spend this period yet. Costs appear here once scanners produce observations.{' '}
+                            <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
+                                Learn how credits and limits work
+                            </VisionDocsLink>
+                        </>
+                    )
                 }
                 footer={
                     hiddenCount > 0 ? (

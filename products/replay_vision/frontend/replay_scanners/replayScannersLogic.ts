@@ -160,9 +160,11 @@ export interface replayScannersLogicValues {
     filters: ScannersFilters
     hasActiveFilters: boolean
     scannerStats: ScannerStatsResponseApi | null
+    scannerStatsError: boolean
     scannerStatsLoading: boolean
     scannerTypeFilter: ScannerTypeEnumApi[]
     scanners: ReplayScanner[]
+    scannersError: boolean
     scannersLoading: boolean
     scannersPage: number
     scannersSort: ScannersSorting | null
@@ -355,6 +357,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                         const response = await visionScannersCreatorsRetrieve(String(teamId))
                         return response.creators ?? []
                     } catch {
+                        // Non-critical: this only populates the "Created by" filter, so a failure
+                        // degrades the dropdown rather than blanking the scene. Keep the last list.
                         return values.creators
                     }
                 },
@@ -370,11 +374,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     if (!teamId) {
                         return values.scannerStats
                     }
-                    try {
-                        return await visionScannersStatsRetrieve(String(teamId))
-                    } catch {
-                        return values.scannerStats
-                    }
+                    // On failure kea-loaders keeps the last snapshot and dispatches the failure action,
+                    // which flips scannerStatsError so the scene shows a retry instead of a blank gate.
+                    return await visionScannersStatsRetrieve(String(teamId))
                 },
             },
         ],
@@ -440,6 +442,24 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
+            },
+        ],
+        // A failed list read, so the table shows a retry instead of the "No scanners yet" empty
+        // state, which reads like the read succeeded and found nothing.
+        scannersError: [
+            false,
+            {
+                loadScanners: () => false,
+                loadScannersSuccess: () => false,
+                loadScannersFailure: () => true,
+            },
+        ],
+        scannerStatsError: [
+            false,
+            {
+                loadScannerStats: () => false,
+                loadScannerStatsSuccess: () => false,
+                loadScannerStatsFailure: () => true,
             },
         ],
         chartDateFrom: [

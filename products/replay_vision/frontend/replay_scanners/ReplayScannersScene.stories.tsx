@@ -539,6 +539,28 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
+// Every data endpoint returns HTTP 500. The scene must show a retry, not a blank page that reads
+// as "no scanners".
+const erroredDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/': () => [500, {}],
+            '/api/projects/:team_id/vision/scanners/stats/': () => [500, {}],
+            '/api/projects/:team_id/vision/scanners/creators/': () => [500, {}],
+            '/api/projects/:team_id/vision/quota/': () => [500, {}],
+        },
+    }),
+]
+
+export const ScannersListErrored: StoryObj = {
+    decorators: erroredDecorators,
+}
+
+export const UsageTabErrored: StoryObj = {
+    decorators: erroredDecorators,
+    parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
+}
+
 // Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },

@@ -438,4 +438,31 @@ describe('replayScannersLogic', () => {
         expect(logic.values.filters.page).toBe(1)
         expect(logic.values.scanners).toHaveLength(1)
     })
+
+    describe('error surfacing', () => {
+        it('flags a failed scanner list and clears it on a successful retry', async () => {
+            // Without the flag the empty table reads as "no scanners", hiding a transient 500.
+            useMocks({ get: { '/api/projects/:team/vision/scanners/': () => [500, {}] } })
+            await expectLogic(logic, () => logic.actions.loadScanners())
+                .toDispatchActions(['loadScannersFailure'])
+                .toMatchValues({ scannersError: true })
+
+            useMocks({ get: { '/api/projects/:team/vision/scanners/': { results: [], count: 0 } } })
+            await expectLogic(logic, () => logic.actions.loadScanners())
+                .toDispatchActions(['loadScannersSuccess'])
+                .toMatchValues({ scannersError: false })
+        })
+
+        it('flags failed scanner stats and keeps the last snapshot', async () => {
+            useMocks({ get: { '/api/projects/:team/vision/scanners/stats/': { total: 3, enabled: 2, by_type: {} } } })
+            await expectLogic(logic, () => logic.actions.loadScannerStats()).toDispatchActions([
+                'loadScannerStatsSuccess',
+            ])
+
+            useMocks({ get: { '/api/projects/:team/vision/scanners/stats/': () => [500, {}] } })
+            await expectLogic(logic, () => logic.actions.loadScannerStats())
+                .toDispatchActions(['loadScannerStatsFailure'])
+                .toMatchValues({ scannerStatsError: true, scannerStats: expect.objectContaining({ total: 3 }) })
+        })
+    })
 })

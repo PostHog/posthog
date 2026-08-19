@@ -20,6 +20,7 @@ export interface visionQuotaLogicValues {
     displayQuota: VisionQuotaApi | null
     onFreePlan: boolean
     quota: VisionQuotaApi | null
+    quotaError: boolean
     quotaLoading: boolean
     showStartupCap: boolean
     showStartupCapLine: boolean
@@ -103,12 +104,9 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                     if (!teamId) {
                         return values.quota
                     }
-                    try {
-                        return await environmentVisionQuotaRetrieve(String(teamId))
-                    } catch {
-                        // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
-                        return values.quota
-                    }
+                    // On failure kea-loaders keeps the last-known snapshot (nulling it would drop the
+                    // exhausted-quota guards) and dispatches the failure action, which flips quotaError.
+                    return await environmentVisionQuotaRetrieve(String(teamId))
                 },
             },
         ],
@@ -124,6 +122,15 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                       }
                     : state,
         },
+        // A failed quota read, so spend surfaces can show a retry instead of reading as an idle account.
+        quotaError: [
+            false,
+            {
+                loadQuota: () => false,
+                loadQuotaSuccess: () => false,
+                loadQuotaFailure: () => true,
+            },
+        ],
     }),
 
     selectors({
