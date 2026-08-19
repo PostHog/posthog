@@ -38,6 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.sett
 HOST_NOT_ALLOWED_ERROR = "Moxie workspace base URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Moxie workspace base URL must use HTTPS"
 
+# (connect, read) timeout: a customer-controlled host that accepts the connection and then never
+# responds (or trickles bytes) would otherwise hold an import worker for the activity's full runtime
+# budget, since RESTClient passes this straight to `requests` as `timeout=None` when unset.
+REQUEST_TIMEOUT_SECONDS = (10.0, 60.0)
+
 
 class MoxieHostNotAllowedError(Exception):
     pass
@@ -117,6 +122,7 @@ def moxie_source(
             # Don't follow redirects: a compromised/edited base_url could 3xx to an internal address,
             # bypassing the host check below (SSRF).
             "allow_redirects": False,
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": None,
         "resources": [get_resource(endpoint)],
