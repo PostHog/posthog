@@ -174,15 +174,6 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
 const extractTriggerFields = (
     invocation: CyclotronJobInvocation
 ): { event_uuid: string; distinct_id: string; person_id: string } => {
-    if (isHogFunctionInvocation(invocation)) {
-        const globals = invocation.state.globals
-        return {
-            event_uuid: globals.event?.uuid ?? '',
-            distinct_id: globals.event?.distinct_id ?? '',
-            person_id: globals.person?.id ?? '',
-        }
-    }
-
     if (isHogFlowInvocation(invocation)) {
         const event = invocation.state?.event
         return {
@@ -192,7 +183,17 @@ const extractTriggerFields = (
         }
     }
 
-    return { event_uuid: '', distinct_id: '', person_id: '' }
+    // Hog function invocation — either loaded, or a skipped one (disabled/missing
+    // function) that reaches the service before the worker attaches `hogFunction`.
+    // Its trigger context lives on `state.globals` in both cases, so read it
+    // directly instead of gating on the loaded-function discriminator; otherwise a
+    // terminal skip row blanks these fields and overwrites the running row.
+    const globals = (invocation.state as CyclotronJobInvocationHogFunction['state'] | null)?.globals
+    return {
+        event_uuid: globals?.event?.uuid ?? '',
+        distinct_id: globals?.event?.distinct_id ?? '',
+        person_id: globals?.person?.id ?? '',
+    }
 }
 
 // Strip every `inputs` blob we can find on a globals/state tree. `inputs`
@@ -231,16 +232,22 @@ const stripInputs = <T>(value: T): T => {
 // everything from the event against the latest config. `inputs` must be
 // dropped anyway for security (resolved secrets — see `stripInputs`).
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
-    if (isHogFunctionInvocation(invocation)) {
-        const { groups: _groups, person: _person, ...globals } = invocation.state.globals
-        return JSON.stringify(stripInputs(globals))
-    }
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
         // — `stripInputs` walks the tree and removes those too.
         return JSON.stringify(stripInputs(invocation.state ?? {}))
     }
-    return '{}'
+    // Hog function invocation — either loaded, or a skipped one (disabled/missing
+    // function) that reaches the service before `hogFunction` is attached. The
+    // globals live on `state.globals` either way; reading them directly keeps a
+    // terminal skip row from overwriting the running row's globals with `{}`,
+    // which would otherwise make the rerun paginator reject the row.
+    const globals = (invocation.state as CyclotronJobInvocationHogFunction['state'] | null)?.globals
+    if (!globals) {
+        return '{}'
+    }
+    const { groups: _groups, person: _person, ...rest } = globals
+    return JSON.stringify(stripInputs(rest))
 }
 
 const gzipAsync = promisify(gzip)
@@ -367,15 +374,12 @@ export class HogInvocationResultsService {
             startedAt && finishedAt
                 ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
                 : sumDurationMs(invocation)
-        // Both hog function and hog flow state carry a `rerunAttempts`
-        // counter that the rerun paginator increments on rehydration. Read
-        // from whichever shape this invocation is so the `max_attempts` guard
-        // applies uniformly.
-        const rerunAttempts = isHogFunctionInvocation(invocation)
-            ? (invocation.state?.rerunAttempts ?? 0)
-            : isHogFlowInvocation(invocation)
-              ? (invocation.state?.rerunAttempts ?? 0)
-              : 0
+        // Both hog function and hog flow state carry a `rerunAttempts` counter
+        // that the rerun paginator increments on rehydration. Read it straight
+        // off `state` so the `max_attempts` guard applies uniformly — including
+        // skip-path terminal rows, whose invocation reaches the service before
+        // the worker attaches `hogFunction`.
+        const rerunAttempts = (invocation.state as { rerunAttempts?: number } | null)?.rerunAttempts ?? 0
 
         // `firstScheduledAt` records the original cyclotron-scheduled time. The
         // rerun paginator sets it on rehydration; here we also stamp it onto the
@@ -385,11 +389,7 @@ export class HogInvocationResultsService {
         // so the value carries forward in the serialized state. Without this the
         // terminal row — written after a retry — would record the retry time and
         // win the ReplacingMergeTree argMax, mislabeling the run's start time.
-        let firstScheduledAt = isHogFunctionInvocation(invocation)
-            ? invocation.state?.firstScheduledAt
-            : isHogFlowInvocation(invocation)
-              ? invocation.state?.firstScheduledAt
-              : undefined
+        let firstScheduledAt = (invocation.state as { firstScheduledAt?: string } | null)?.firstScheduledAt
         const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
         if (status === 'running' && firstScheduledAt === undefined) {
             firstScheduledAt = scheduledAtIso

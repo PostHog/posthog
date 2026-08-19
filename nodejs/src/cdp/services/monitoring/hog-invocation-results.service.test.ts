@@ -216,6 +216,45 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].distinct_id).toBe('distinct-456')
             expect(rows[0].person_id).toBe('person-789')
         })
+
+        it('preserves globals, promoted columns, and first_scheduled_at for a skip-path invocation without hogFunction', async () => {
+            // The worker queues the terminal row for a disabled or missing destination
+            // from the bare queue invocation, before it attaches `hogFunction`. The row
+            // must still carry the trigger context — a blank row would overwrite the
+            // running row and make the rerun paginator skip the invocation.
+            const loaded = createExampleInvocation({}, {
+                event: {
+                    uuid: 'event-uuid-skip',
+                    event: 'test',
+                    elements_chain: '',
+                    distinct_id: 'distinct-skip',
+                    url: 'http://localhost',
+                    properties: {},
+                    timestamp: '2026-05-01T00:00:00Z',
+                },
+                person: { id: 'person-skip', name: 'x', url: 'http://localhost', properties: {} },
+            } as any)
+            const { hogFunction: _hogFunction, ...bare } = loaded
+            bare.state = { ...loaded.state, firstScheduledAt: '2025-01-01T00:00:00.000000Z' }
+
+            service.queueLifecycleRow(bare, 'failed', { errorKind: 'function_disabled' })
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            expect(rows).toHaveLength(1)
+            const row = rows[0]
+            expect(row.status).toBe('failed')
+            expect(row.function_kind).toBe('hog_function')
+            expect(row.function_id).toBe(bare.functionId)
+            expect(row.event_uuid).toBe('event-uuid-skip')
+            expect(row.distinct_id).toBe('distinct-skip')
+            expect(row.person_id).toBe('person-skip')
+            // Preserved from state, not reset to the current schedule time.
+            expect(row.first_scheduled_at).toBe('2025-01-01T00:00:00.000000Z')
+            const globals = (await decodeInvocationGlobals(row.invocation_globals)) as Record<string, any>
+            expect(globals.event?.uuid).toBe('event-uuid-skip')
+            expect(globals.project?.id).toBeDefined()
+        })
     })
 
     describe('queueInvocationResults', () => {
