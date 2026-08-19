@@ -1725,11 +1725,6 @@ def _handle_assistant_dm_message(
         _notify_missing_slack_scopes(slack, event, missing)
         return ROUTE_HANDLED_LOCALLY
 
-    try:
-        slack.client.assistant_threads_setStatus(channel_id=channel_id, thread_ts=thread_ts, status="Working on it…")
-    except Exception:
-        logger.warning("assistant_set_status_failed", exc_info=True)
-
     # Carry the channel the user was viewing (from assistant_thread_context_changed) so the agent
     # can ground a "look into this" DM in that channel's context.
     viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
