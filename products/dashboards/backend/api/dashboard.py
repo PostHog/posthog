@@ -2806,9 +2806,12 @@ class DashboardsViewSet(
             raise exceptions.ValidationError("Destination must be a different dashboard than the source.")
 
         source_dashboard = get_object_or_404(Dashboard, id=from_dashboard_id, team__project_id=self.team.project_id)
-        user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
-        if not user_access_control.check_access_level_for_object(source_dashboard, "viewer"):
-            raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+        self.access_control.require(
+            "view", source_dashboard, message="You don't have permission to view the source dashboard."
+        )
+        # Widget and shared-dashboard helpers still take the resolver directly; they move to the
+        # facade with the rest of this file.
+        user_access_control = self.user_access_control
 
         tile = get_object_or_404(
             DashboardTile.objects.select_related("widget"),
@@ -2840,8 +2843,7 @@ class DashboardsViewSet(
             raise exceptions.ValidationError("Only insight, text, and widget tiles can be copied between dashboards.")
 
         if tile.insight is not None:
-            if not user_access_control.check_access_level_for_object(tile.insight, "viewer"):
-                raise exceptions.PermissionDenied("You don't have permission to view this insight.")
+            self.access_control.require("view", tile.insight, message="You don't have permission to view this insight.")
 
             if DashboardTile.objects.filter(dashboard=destination, insight=tile.insight).exists():
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")

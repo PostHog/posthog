@@ -1539,24 +1539,29 @@ class UserAccessControl:
         parent = RESOURCE_FALLBACK_MAP.get(resource)
         return fallback_parent_object_id(obj, parent) if parent else None
 
-    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+    def resolve_object_access(self, obj: Model, explicit: bool = False) -> Optional[ResolvedAccess]:
+        """Object access with provenance: the level plus which rule supplied it. The access-control
+        facade builds its decisions from this; `get_user_access_level` is the level-only view."""
         resource = model_to_resource(obj)
         if not resource:
             return None
 
         resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj), explicit=explicit)
         if resolved:
-            return access.access_level if access else None
+            return access
 
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        access = self._object_access_level_from_rows(
+        return self._object_access_level_from_rows(
             resource,
             object_access_controls,
             explicit=explicit,
             fallback_parent_id=self._fallback_parent_id(obj, resource),
         )
+
+    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+        access = self.resolve_object_access(obj, explicit=explicit)
         return access.access_level if access else None
 
     def bulk_object_access_levels(

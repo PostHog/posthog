@@ -181,6 +181,7 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
+    from products.access_control.backend.facade.access import ProjectAccess
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -535,8 +536,10 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
+    from posthog.rbac.user_access_control import UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
+
+    from products.access_control.backend.facade.access import ProjectAccess  # noqa: PLC0415
 
     scoped_tables = _scoped_system_tables()
     # Applies to every principal below, admins included - an entitlement the organization does not
@@ -560,13 +563,13 @@ def _compute_system_table_access_decision(
     # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
     # table stays queryable here instead of disappearing (see build_access_control_guard).
     allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
+    project_access = ProjectAccess.from_user_access_control(user_access_control)
 
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
         access_scope = cast(APIScopeObject, table.access_scope)
-        access = user_access_control.access_level_for_resource(access_scope)
-        if access and access.access_level != NO_ACCESS_LEVEL:
-            continue  # User has access, keep it
+        if project_access.check("view", access_scope):
+            continue
         # Keep the table only when the guard can actually narrow its rows to the grant, so a table
         # whose ids don't key those grants (resource_level_access_only) still fails closed.
         if access_scope in allowlisted_scopes and table.access_control_id is not None:
@@ -879,15 +882,23 @@ class Database(BaseModel):
 
         self._denied_tables = {f"system.{name}" for name in removed}
 
+    def _project_access(self) -> ProjectAccess | None:
+        """Facade over the warmed `user_access_control`, so the object-level checks below ask the
+        same question every other call site asks. Userless context returns None and fails closed."""
+        if self.user_access_control is None:
+            return None
+        # Imported here like the other ORM-backed modules in this file, to keep Django off its import path.
+        from products.access_control.backend.facade.access import ProjectAccess  # noqa: PLC0415
+
+        return ProjectAccess.from_user_access_control(self.user_access_control)
+
     def _is_warehouse_table_denied(self, table: DataWarehouseTable) -> bool:
         """
         Returns True if the user can't query this warehouse table.
         Userless context (no UserAccessControl) fails closed - every table is denied.
         """
-        uac = self.user_access_control
-        if uac is not None and (
-            uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
-        ):
+        access = self._project_access()
+        if access is not None and access.check("view", table):
             return False
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
@@ -904,10 +915,8 @@ class Database(BaseModel):
         through a non-materialized view that references it.
         Userless context (no UserAccessControl) fails closed - every view is denied.
         """
-        uac = self.user_access_control
-        if uac is not None and (
-            uac.is_organization_admin or uac.check_access_level_for_object(saved_query, required_level="viewer")
-        ):
+        access = self._project_access()
+        if access is not None and access.check("view", saved_query):
             return False
 
         # Add view names to denied tables so the query raises "You don't have access" instead of "Unknown table"
@@ -920,11 +929,8 @@ class Database(BaseModel):
         expression doesn't get its virtual field injected, so their queries see "Field not found".
         Userless context (no UserAccessControl) fails closed - every expression is denied.
         """
-        uac = self.user_access_control
-        return not (
-            uac is not None
-            and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
-        )
+        access = self._project_access()
+        return not (access is not None and access.check("view", expression))
 
     def serialize(
         self,

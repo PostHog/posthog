@@ -42,6 +42,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.access import ProjectAccess
+
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
@@ -645,3 +647,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             pass
 
         return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+
+    @cached_property
+    def access_control(self) -> ProjectAccess:
+        """The access-control facade for this request. Shares the warmed `user_access_control`
+        so a viewset mixing old and new call sites never resolves rules twice."""
+        return ProjectAccess.from_user_access_control(self.user_access_control)

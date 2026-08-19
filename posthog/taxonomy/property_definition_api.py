@@ -789,8 +789,6 @@ class PropertyDefinitionViewSet(
 
     def _get_restricted_property_names(self, prop_type: str) -> set[str]:
         """Returns the set of property names that are restricted for the current user and property type."""
-        from products.access_control.backend.property_access_control import get_restricted_property_names
-
         type_map = {
             "event": PropertyDefinition.Type.EVENT,
             "person": PropertyDefinition.Type.PERSON,
@@ -800,8 +798,7 @@ class PropertyDefinitionViewSet(
         pd_type = type_map.get(prop_type)
         if pd_type is None:
             return set()
-        user = self.request.user if self.request.user.is_authenticated else None
-        return get_restricted_property_names(team_id=self.team_id, user=user, property_type=pd_type)
+        return self.access_control.restricted_property_names(pd_type)
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
