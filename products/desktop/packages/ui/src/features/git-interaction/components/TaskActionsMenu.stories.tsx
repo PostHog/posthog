@@ -44,7 +44,7 @@ function ControlFor({ state }: { state: GitState }) {
       <div className="text-(--gray-10) text-[12px]">
         actions: {computed.actions.map((a) => a.id).join(", ")}
         {computed.createPrDisabledReason
-          ? ` · create-pr reason (not surfaced): ${computed.createPrDisabledReason}`
+          ? ` · create-pr reason: ${computed.createPrDisabledReason}`
           : ""}
       </div>
     </div>
@@ -66,8 +66,8 @@ export const Ready: Story = {
 
 /**
  * GitHub CLI missing (e.g. onboarding skipped install-cli because GitHub was
- * connected, then the user runs a local task). Create PR is dropped from the
- * menu entirely; its disabled reason is computed but rendered nowhere.
+ * connected, then the user runs a local task). Create PR stays in the menu,
+ * disabled, with the install command in its tooltip.
  */
 export const GhCliMissing: Story = {
   render: () => (
@@ -80,7 +80,7 @@ export const GhCliMissing: Story = {
   ),
 };
 
-/** GitHub CLI installed but not authenticated: same silent drop. */
+/** GitHub CLI installed but not authenticated: disabled with the login command. */
 export const GhCliUnauthenticated: Story = {
   render: () => (
     <ControlFor
