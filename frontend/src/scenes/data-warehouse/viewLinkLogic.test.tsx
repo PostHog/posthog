@@ -16,11 +16,11 @@ describe('viewLinkLogic', () => {
         validateHandler = jest.fn(() => [200, { is_valid: true, msg: null, hogql: null, results: [] }])
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_view_link': { results: [] },
+                '/api/projects/:team_id/warehouse_view_link': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/HogQLQuery': { results: [], columns: [] },
-                '/api/environments/:team_id/warehouse_view_link/validate': () => validateHandler(),
+                '/api/projects/:team_id/warehouse_view_link/validate': () => validateHandler(),
             },
         })
         initKeaTests()

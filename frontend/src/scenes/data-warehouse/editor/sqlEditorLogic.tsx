@@ -32,7 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api, { ApiConfig, ApiError } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -89,8 +89,15 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
+import { generatedDataModelingDags, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
+import { warehouseSavedQueryFoldersCreate } from 'products/data_warehouse/frontend/generated/api'
+import {
+    warehouseSavedQueriesCheckIncrementalCreate,
+    warehouseSavedQueriesRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
+import { endpointsCreate } from 'products/endpoints/frontend/generated/api'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { PaginatedResponse } from '../../../lib/api'
@@ -1506,8 +1513,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    // nosemgrep: prefer-codegen-api
-                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    return await generatedDataModelingNodes.lineage({ savedQueryId: payload.modelId })
                 },
             },
         ],
@@ -2145,10 +2151,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
                 if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                            query: selectedRef.current ?? values.queryInput ?? '',
-                        })
+                        incrementalCheck = await warehouseSavedQueriesCheckIncrementalCreate(
+                            String(ApiConfig.getCurrentProjectId()),
+                            {
+                                query: selectedRef.current ?? values.queryInput ?? '',
+                            }
+                        )
                     } catch {
                         incrementalCheck = null
                     }
@@ -2174,8 +2182,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined),
                         },
                         onSubmit: async ({ folderName }) => {
-                            // nosemgrep: prefer-codegen-api
-                            const folder = await api.dataWarehouseSavedQueryFolders.create({ name: folderName.trim() })
+                            const folder = await warehouseSavedQueryFoldersCreate(
+                                String(ApiConfig.getCurrentProjectId()),
+                                { name: folderName.trim() }
+                            )
                             folderOptions.splice(folderOptions.length - 1, 0, {
                                 value: folder.id,
                                 label: folder.name,
@@ -2263,8 +2273,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                             onSubmit: async (dagData) => {
                                                                 try {
                                                                     const newDag =
-                                                                        // nosemgrep: prefer-codegen-api
-                                                                        await api.dataModelingDags.create(dagData)
+                                                                        await generatedDataModelingDags.create(dagData)
                                                                     await dataModelingLogic.asyncActions.loadDags()
                                                                     onSelect(newDag.id)
                                                                     lemonToast.success('DAG created')
@@ -2466,8 +2475,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     let nextView = view
 
                     if (!nextView.query) {
-                        // nosemgrep: prefer-codegen-api
-                        nextView = await api.dataWarehouseSavedQueries.get(view.id)
+                        nextView = (await warehouseSavedQueriesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            view.id
+                        )) as unknown as DataWarehouseSavedQuery
                     }
 
                     await breakpoint(100)
@@ -2656,8 +2667,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    const endpoint = await api.endpoint.create({
+                    const endpoint = await endpointsCreate(String(ApiConfig.getCurrentProjectId()), {
                         name: slugify(name),
                         description: description || undefined,
                         query: normalizeRawQuerySource({
@@ -2961,8 +2971,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
-                // nosemgrep: prefer-codegen-api
-                const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+                const latestView = (await warehouseSavedQueriesRetrieve(
+                    String(ApiConfig.getCurrentProjectId()),
+                    view.id
+                )) as unknown as DataWarehouseSavedQuery
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
                 // started from (the tab's saved query) — not against the user's edited query, which
@@ -3019,8 +3031,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // check — both the frontend guard and the backend's edited_history_id check — keys off
                     // this head; without re-basing, reverting the query and saving again is misread as a
                     // foreign edit and wrongly raises "View has been edited by another user".
-                    // nosemgrep: prefer-codegen-api
-                    const refreshedView = await api.dataWarehouseSavedQueries.get(view.id)
+                    const refreshedView = (await warehouseSavedQueriesRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        view.id
+                    )) as unknown as DataWarehouseSavedQuery
                     if (refreshedView?.latest_history_id && values.activeTab?.view?.id === view.id) {
                         actions.updateTab({
                             ...values.activeTab,
@@ -3503,14 +3517,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Fetch the full view with query if not already loaded
                     if (!view.query) {
                         try {
-                            // nosemgrep: prefer-codegen-api
-                            view = await api.dataWarehouseSavedQueries.get(viewId)
+                            view = (await warehouseSavedQueriesRetrieve(
+                                String(ApiConfig.getCurrentProjectId()),
+                                viewId
+                            )) as unknown as DataWarehouseSavedQuery
                         } catch {
                             lemonToast.error('Failed to load view details')
                             actions.setViewLoading(false)
                             actions.setViewQueryLoading(false)
                             return
                         }
+                    }
+
+                    if (!view) {
+                        return
                     }
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')

@@ -5,7 +5,6 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
@@ -18,6 +17,12 @@ import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '~/queries/schem
 import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
+import {
+    columnConfigurationsCreate,
+    columnConfigurationsDestroy,
+    columnConfigurationsList,
+    columnConfigurationsPartialUpdate,
+} from 'products/product_analytics/frontend/generated/api'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../types'
@@ -50,7 +55,7 @@ function getViewData(
     props: TableViewLogicProps,
     name?: string,
     visibility?: 'private' | 'shared'
-): Partial<ColumnConfigurationApi> {
+): Parameters<typeof columnConfigurationsCreate>[1] {
     if (!isEventsQuery(props.query)) {
         return {
             context_key: props.contextKey,
@@ -369,18 +374,17 @@ export const tableViewLogic = kea<tableViewLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.list({
+                    const response = await columnConfigurationsList(String(getCurrentTeamId()), {
                         context_key: props.contextKey,
                     })
                     return response.results
                 },
 
                 saveCurrentAsView: async ({ name, visibility }) => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.create({
-                        data: getViewData(props, name, visibility),
-                    })
+                    const response = await columnConfigurationsCreate(
+                        String(getCurrentTeamId()),
+                        getViewData(props, name, visibility)
+                    )
                     return [...values.views, response]
                 },
 
@@ -390,18 +394,13 @@ export const tableViewLogic = kea<tableViewLogicType>([
                         updates = getViewData(props)
                     }
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.update({
-                        id,
-                        data: updates,
-                    })
+                    const response = await columnConfigurationsPartialUpdate(String(getCurrentTeamId()), id, updates)
 
                     return values.views.map((v) => (v.id === id ? response : v))
                 },
 
                 deleteView: async ({ id }) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.columnConfigurations.delete({ id })
+                    await columnConfigurationsDestroy(String(getCurrentTeamId()), id)
                     return values.views.filter((v) => v.id !== id)
                 },
             },
@@ -483,10 +482,10 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async ({ name, visibility }) => {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.columnConfigurations.create({
-                    data: getViewData(props, name, visibility),
-                })
+                const response = await columnConfigurationsCreate(
+                    String(getCurrentTeamId()),
+                    getViewData(props, name, visibility)
+                )
 
                 actions.loadViews()
                 actions.applyView(response)

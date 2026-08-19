@@ -14,7 +14,6 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import type { RefObject } from 'react'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import {
@@ -25,6 +24,13 @@ import {
     DataModelingNode,
     DataModelingNodeType,
 } from '~/types'
+
+import {
+    generatedDataModelingDags,
+    generatedDataModelingEdges,
+    generatedDataModelingJobs,
+    generatedDataModelingNodes,
+} from 'products/data_modeling/frontend/dataModelingApi'
 
 import { getFormattedNodes } from './modeling/autolayout'
 import { PAGE_SIZE } from './modeling/constants'
@@ -481,8 +487,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             [] as DataModelingDAG[],
             {
                 loadDags: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.dataModelingDags.list()
+                    const response = await generatedDataModelingDags.list()
                     return response.results
                 },
             },
@@ -492,8 +497,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingNodes: async () => {
                     const dagId = values.selectedDagId ?? undefined
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.dataModelingNodes.list(dagId)
+                    const response = await generatedDataModelingNodes.list(dagId)
                     return response.results
                 },
             },
@@ -503,8 +507,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             {
                 loadDataModelingEdges: async () => {
                     const dagId = values.selectedDagId ?? undefined
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.dataModelingEdges.list(dagId)
+                    const response = await generatedDataModelingEdges.list(dagId)
                     return response.results
                 },
             },
@@ -1099,8 +1102,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             actions.setRunningNodeIds(new Set([...values.runningNodeIds, ...optimisticIds]))
 
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.dataModelingNodes.run(nodeId, direction)
+                const response = await generatedDataModelingNodes.run(nodeId, direction)
                 actions.runNodeSuccess(nodeId, direction, response.node_ids)
                 actions.startPollingRunningJobs()
             } catch (e) {
@@ -1109,8 +1111,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         materializeNode: async ({ nodeId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.dataModelingNodes.materialize(nodeId)
+                await generatedDataModelingNodes.materialize(nodeId)
                 actions.materializeNodeSuccess(nodeId)
                 actions.startPollingRunningJobs()
             } catch (e) {
@@ -1120,8 +1121,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         pollRunningJobs: async () => {
             actions.loadRecentJobs()
             try {
-                // nosemgrep: prefer-codegen-api
-                const running = await api.dataModelingJobs.listRunning()
+                const running = await generatedDataModelingJobs.listRunning()
                 actions.pollRunningJobsSuccess(running)
             } catch {
                 // keep stale data during transient failures
@@ -1151,8 +1151,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         },
         loadRecentJobs: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
-                const recent = await api.dataModelingJobs.listRecent()
+                const recent = await generatedDataModelingJobs.listRecent()
                 actions.loadRecentJobsSuccess(recent)
             } catch {
                 // silent failure

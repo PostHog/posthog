@@ -6,13 +6,13 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
+import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
 export interface TableLogicProps {
@@ -251,20 +251,17 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         table: {
             loadTable: async () => {
                 if (props.id && props.id !== 'new') {
-                    // nosemgrep: prefer-codegen-api
-                    return await api.dataWarehouseTables.get(props.id)
+                    return await generatedWarehouseTablesApi.get(props.id)
                 }
                 return { ...NEW_WAREHOUSE_TABLE }
             },
             createTable: async (tablePayload) => {
-                // nosemgrep: prefer-codegen-api
-                return await api.dataWarehouseTables.create({
+                return await generatedWarehouseTablesApi.create({
                     ...tablePayload,
                 })
             },
             updateTable: async (tablePayload) => {
-                // nosemgrep: prefer-codegen-api
-                return await api.dataWarehouseTables.update(props.id, tablePayload)
+                return await generatedWarehouseTablesApi.update(props.id, tablePayload)
             },
         },
     })),
