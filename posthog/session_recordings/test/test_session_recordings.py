@@ -1428,6 +1428,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
+    def test_snapshots_500_carries_the_exception_class(self):
+        with patch(
+            "posthog.session_recordings.session_recording_api.list_blocks",
+            side_effect=ValueError("boom"),
+        ):
+            session_id = str(uuid7())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert response.json()["code"] == "ValueError"
+
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],

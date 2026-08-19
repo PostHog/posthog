@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -118,6 +119,41 @@ describe('snapshotDataLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+    })
+
+    describe('reporting the exhausted failure', () => {
+        it('reports a server error once, grouped by the backend cause', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const error = new ApiError('Server error', 500, undefined, { code: 'SomeBackendError' })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Server error', error)
+                logic.actions.loadSnapshotsForSourceFailure('Server error', error)
+                logic.actions.loadSnapshotsForSourceFailure('Server error', error)
+                logic.actions.loadSnapshotsForSourceFailure('Server error', error)
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+            expect(posthog.captureException).toHaveBeenCalledTimes(1)
+            expect(posthog.captureException).toHaveBeenCalledWith(error, {
+                $exception_fingerprint: 'session_recording_snapshots_load_failed.SomeBackendError',
+            })
+            consoleError.mockRestore()
+        })
+
+        it('does not report an exhausted unauthorized failure', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const error = new ApiError('Unauthorized', 401)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+            expect(posthog.captureException).not.toHaveBeenCalled()
             consoleError.mockRestore()
         })
     })

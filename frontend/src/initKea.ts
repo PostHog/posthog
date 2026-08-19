@@ -70,6 +70,14 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
+/*
+Load actions that retry with backoff and report only their terminal failure themselves. Their
+per-attempt failure must not reach error tracking here — otherwise one broken source files a fresh
+exception on every retry, all sharing this file's stack. snapshotDataLogic reports the exhausted
+failure once in its snapshotSourceLoadExhausted listener.
+*/
+const SELF_REPORTED_LOAD_FAILURES = new Set(['loadSnapshotsForSource'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -203,7 +211,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                if (shouldReportApiFailure(error) && !SELF_REPORTED_LOAD_FAILURES.has(String(actionKey))) {
                     posthog.captureException(error)
                 }
             },

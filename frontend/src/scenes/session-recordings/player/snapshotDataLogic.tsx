@@ -21,6 +21,7 @@ import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
 import api, { ApiError, RecordingDeletedError } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -605,6 +606,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
             await breakpoint(cache.loadFailureCount * 2000)
             actions.loadNextSnapshotSource()
+        },
+
+        snapshotSourceLoadExhausted: () => {
+            // Report the failure once per playback attempt. Per-attempt failures are held back in
+            // initKea, so a single broken source no longer files one exception per retry. Group by
+            // the backend cause the response carries, so the issue title names the failure.
+            const error = values.snapshotLoadError
+            if (error && shouldReportApiFailure(error)) {
+                const cause = error instanceof ApiError ? error.code : null
+                posthog.captureException(
+                    error,
+                    cause ? { $exception_fingerprint: `session_recording_snapshots_load_failed.${cause}` } : undefined
+                )
+            }
         },
 
         maybeStartPolling: () => {

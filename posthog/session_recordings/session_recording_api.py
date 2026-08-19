@@ -1433,7 +1433,9 @@ class SessionRecordingViewSet(
                 status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-            return Response({"error": message}, status=response_status)
+            # Carry the exception class so the client can group the failure by cause, instead of by
+            # the generic message. It is the same class the server-side capture above fingerprints on.
+            return Response({"error": message, "code": e.__class__.__name__}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
