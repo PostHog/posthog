@@ -86,7 +86,15 @@ export class CdpCyclotronWorker<
                     })
 
                     failedInvocations.push({
-                        invocation: item,
+                        // Attach the loaded function so the terminal 'failed' row serializes the
+                        // real invocation globals instead of '{}'. The row wins the
+                        // ReplacingMergeTree argMax over the earlier 'running' row, so without
+                        // its globals the rerun paginator can't rehydrate the invocation and a
+                        // re-run after re-enabling would silently skip. Fall back to the raw item
+                        // when state globals are absent (nothing to preserve).
+                        invocation: item.state?.globals
+                            ? { ...item, state: item.state as CyclotronJobInvocationHogFunction['state'], hogFunction }
+                            : item,
                         errorKind: hogFunction.deleted ? 'function_deleted' : 'function_disabled',
                         error: hogFunction.deleted
                             ? 'The function was deleted, so this invocation was skipped.'

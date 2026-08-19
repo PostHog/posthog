@@ -296,7 +296,7 @@ describe('CdpCyclotronWorker', () => {
             }
         )
 
-        it('should skip a loaded function if it is disabled', async () => {
+        it('should skip a loaded function if it is disabled and record the terminal row with real globals', async () => {
             const dequeueInvocationsSpy = jest
                 .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
                 .mockResolvedValue(undefined)
@@ -316,14 +316,24 @@ describe('CdpCyclotronWorker', () => {
                     enabled: false,
                 })
             )
-            const invocation2 = createExampleInvocation(fn2, globals)
+            // Simulate a job as it arrives off the queue: state + globals present, but the
+            // hogFunction not yet loaded — loadHogFunctions is what attaches it. The fixture
+            // pre-attaches it, which would otherwise mask the lost-globals regression.
+            const { hogFunction: _unloaded, ...queued } = createExampleInvocation(fn2, globals)
 
-            const results = await processor['loadHogFunctions']([invocation2])
+            const results = await processor['loadHogFunctions']([queued as CyclotronJobInvocationHogFunction])
             expect(results).toEqual([])
-            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation2])
-            // A rerun of a disabled function would otherwise be silently dropped and stuck 'running'
+            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([expect.objectContaining({ id: queued.id })])
+            // The terminal row must be built from a fully-shaped hog function invocation so its
+            // globals serialize to the real payload, not '{}'. Otherwise the row wins the
+            // ReplacingMergeTree argMax and the rerun paginator can't rehydrate it — the re-run
+            // after re-enabling the function would silently skip.
             expect(recordTerminalFailureSpy).toHaveBeenCalledWith(
-                invocation2,
+                expect.objectContaining({
+                    id: queued.id,
+                    hogFunction: expect.objectContaining({ id: fn2.id }),
+                    state: expect.objectContaining({ globals: queued.state.globals }),
+                }),
                 expect.objectContaining({ errorKind: 'function_disabled' })
             )
         })
