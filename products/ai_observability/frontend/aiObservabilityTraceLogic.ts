@@ -877,6 +877,10 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     parsedDate.subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString(),
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
+            } else {
+                // This logic is a singleton, so a client-side move to another trace keeps the previous
+                // trace's range. Clear it so a timestamp-less URL falls back to the bounded lookback.
+                actions.setDateRange(null)
             }
             // Set search from URL param if provided, otherwise clear it.
             // Mark it as URL-driven so the listener doesn't write it straight back to the URL.
