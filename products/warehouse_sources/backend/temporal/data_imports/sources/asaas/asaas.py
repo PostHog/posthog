@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     INCREMENTAL_DATE_PARAM,
@@ -26,7 +27,7 @@ API_PATH = "/v3"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@frozen
 class AsaasResumeConfig:
     offset: int
 
