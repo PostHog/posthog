@@ -41,6 +41,7 @@ pnpm run check:write       # Linting & typecheck
 - `⌘R` - Refresh task list
 - `⌘⇧[/]` - Switch between tabs
 - `⌘W` - Close current tab
+- `⌘⌥P` / `Ctrl+Alt+P` - Open Quick ask
 
 ### Screen recording permission in development
 
