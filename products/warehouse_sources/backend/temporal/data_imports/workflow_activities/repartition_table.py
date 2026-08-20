@@ -262,7 +262,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Log the rollout-flag verdict (and the recorded/budget sizes) so it's clear from the Syncs UI why a
     # table does or doesn't repartition — a disabled flag is the most common reason for a no-op. Note
-    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate no longer trusts
+    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate does not trust
     # it, the live size is read below. Evaluate the flag once and thread the result into the
     # pre-extraction detection path so it isn't re-evaluated inside maybe_flag_for_repartition.
     enabled = is_auto_repartition_enabled(schema)
@@ -531,14 +531,24 @@ def _handle_budget_exceeded(
     appended nothing this run is stuck; that one falls through to `_handle_failure` so a rewrite which
     genuinely can't advance in one budget still gives up.
 
-    Progress is judged from the rows this attempt wrote (`error.rows_written`), not the checkpoint's
-    cumulative temp size against a stored high-water mark: the rewrite restarts from row 0 whenever its
-    checkpoint is discarded (the source's Delta version moved between runs), so the cumulative size is
-    not monotonic across attempts, and a genuinely progressing fresh rebuild that read back below an
-    earlier, longer attempt's mark was charged a spurious failure.
+    Progress means this attempt left the rewrite further along than it found it. Neither row count
+    alone can say that. A cumulative temp size against a stored high-water mark is not monotonic,
+    because the rewrite restarts from row 0 whenever its checkpoint is discarded (the source's Delta
+    version moved between runs), so a fresh rebuild reading back below an earlier attempt's mark was
+    charged a spurious failure. But the rows written this attempt cannot say it either: a rewrite that
+    restarts every run writes hundreds of millions of rows each time, clears any `> 0` test, and ends
+    exactly where it began. Three schemas sat in that loop for six weeks, each burning a full budget per
+    run and finishing nothing, because the cap could never count to three.
+
+    Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
+    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
+    keeps that first attempt apart from a restart that inherited nothing because it discarded an
+    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
+    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
-    the rewrite advanced, otherwise whatever `_handle_failure` returns.
+    the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
     """
     schema.refresh_from_db(fields=["sync_type_config"])
     claim = schema.repartition_claim
@@ -547,20 +557,34 @@ def _handle_budget_exceeded(
         return "superseded"
 
     pending = schema.repartition_pending or pending or {}
-    if error.rows_written > 0:
+    resumed_and_advanced = error.resumed_from > 0 and error.rows_written > 0
+    # A first attempt inherits nothing, so `resumed_from` is 0, but saving a fresh checkpoint the next
+    # run resumes from is still forward progress. Only a restart that discarded an existing checkpoint
+    # (`had_prior_checkpoint`) re-covered ground already covered — that one is the treadmill to stop.
+    fresh_and_checkpointed = not error.had_prior_checkpoint and error.checkpoint_saved
+    if resumed_and_advanced or fresh_and_checkpointed:
         # Forward progress this attempt: keep the checkpoint and reset the failure counter — a rewrite
         # still advancing is not the doomed one the cap exists to stop. The next run resumes from the
-        # checkpoint (or rebuilds fresh if it was invalidated) rather than giving up.
+        # checkpoint rather than giving up.
         schema.set_repartition_pending({**pending, "attempts": 0})
         logger.info(
-            f"repartition: over budget but rewrite advanced {error.rows_written} rows this attempt, resuming next run",
+            f"repartition: over budget but rewrite advanced {error.rows_written} rows past the "
+            f"{error.resumed_from} it inherited, resuming next run",
             rows_written=error.rows_written,
+            resumed_from=error.resumed_from,
         )
         _capture_stood_down(schema, inputs, trigger_reason, "rewrite_progressing", logger)
         return "progressing"
 
-    # Nothing appended this attempt: the rewrite can't make headway inside one budget, so count it as a
-    # real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
+    # Either this attempt inherited nothing (so it re-streamed ground already covered) or it inherited
+    # a checkpoint and appended nothing. Both mean the rewrite can't converge on the budget it has, so
+    # count a real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
+    logger.info(
+        f"repartition: over budget without converging (resumed_from={error.resumed_from} "
+        f"rows_written={error.rows_written})",
+        rows_written=error.rows_written,
+        resumed_from=error.resumed_from,
+    )
     return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger)
 
 

@@ -69,7 +69,7 @@ from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -1527,7 +1527,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            f"multivariate.variants: Variant rollout percentages must sum to 100, got {float(75 + third_variant_rollout)}.",
+            f"multivariate.variants: Variant rollout percentages must sum to 100, got {75 + third_variant_rollout}.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
@@ -1574,7 +1574,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.0.",
+            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.",
         )
 
         # Verify flag wasn't updated
@@ -4060,6 +4060,120 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         assert flag.deleted is True
         assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
+
+    EXPERIMENT_FLAG_FILTERS = {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+            "variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        },
+    }
+
+    def test_remove_variants_blocked_with_running_experiment(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-variants-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        exp = Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        # The flag editor serializes a boolean flag as "multivariate": null.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {**self.EXPERIMENT_FLAG_FILTERS, "multivariate": None}},
+        )
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == f"Cannot remove variant(s) 'control', 'test' from a feature flag that is linked to running experiment(s): \"My experiment\" (ID: {exp.id}). Please stop the experiment(s) before removing variants."
+        )
+        flag.refresh_from_db()
+        assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
+
+    def test_rename_variant_blocked_with_running_experiment(self):
+        # A rename is a drop plus an add of a variant key, so it must be blocked too.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rename-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        renamed = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "treatment", "rollout_percentage": 50},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": renamed})
+        assert response.status_code == 400
+        assert "Cannot remove variant(s) 'test'" in response.json()["detail"]
+
+    def test_add_variant_and_change_rollout_allowed_with_running_experiment(self):
+        # Shipping a winner rewrites rollouts to 100/0 and keeps every key — additions
+        # and rollout changes must pass.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rollout-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        reshaped = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 0},
+                    {"key": "test", "rollout_percentage": 100},
+                    {"key": "extra", "rollout_percentage": 0},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": reshaped})
+        assert response.status_code == 200, response.content
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_remove_variants_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=f"{_name}-variants-flag",
+            filters=self.EXPERIMENT_FLAG_FILTERS,
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, start_date=start_date, end_date=end_date
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {**self.EXPERIMENT_FLAG_FILTERS, "multivariate": None}},
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.filters.get("multivariate") is None
+
+    def test_partial_update_keeps_variants_with_running_experiment(self):
+        # Updates that don't touch multivariate merge the stored variants back in and
+        # must pass — the experiments service flips flags through this serializer.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-partial-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}, "active": True},
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")

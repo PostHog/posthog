@@ -1,4 +1,7 @@
-import type { SignalReportStatus } from "@posthog/shared/types";
+import type {
+  SignalReportActionability,
+  SignalReportStatus,
+} from "@posthog/shared/types";
 
 const MAX_HEADLINE_LENGTH = 140;
 
@@ -44,6 +47,26 @@ export function deriveHeadline(
   }
 
   return headline;
+}
+
+/**
+ * Whether the status badge should be hidden because the actionability badge
+ * already tells the same story: "ready" is the default terminal state (the
+ * actionability verdict is the more specific fact), and "pending_input" next
+ * to a requires_human_input verdict would render two identical "Needs input"
+ * badges.
+ */
+export function isStatusRedundantWithActionability(
+  status: SignalReportStatus,
+  actionability: SignalReportActionability | null | undefined,
+): boolean {
+  if (!actionability) {
+    return false;
+  }
+  return (
+    status === "ready" ||
+    (status === "pending_input" && actionability === "requires_human_input")
+  );
 }
 
 export function inboxStatusLabel(status: SignalReportStatus): string {

@@ -93,6 +93,7 @@ from posthog.hogql.database.schema.hog_invocation_results import HogInvocationRe
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
     disable_data_catalog,
+    disable_data_quality,
 )
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
@@ -207,7 +208,7 @@ class SerializedField:
     description: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HogQLDatabaseSources:
     """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
     build phase runs without any queries."""
@@ -219,6 +220,7 @@ class HogQLDatabaseSources:
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
     is_data_catalog_enabled: bool
+    is_data_quality_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -1362,10 +1364,12 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
-            # Function-local + facade-only: keeps the data_catalog product off the django.setup() path.
+            # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
             data_catalog_enabled = is_data_catalog_enabled(team)
+            data_quality_enabled = is_data_quality_checks_enabled(team)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -1610,6 +1614,7 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_catalog_enabled=data_catalog_enabled,
+            is_data_quality_enabled=data_quality_enabled,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -1672,7 +1677,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_catalog_enabled:
+            if not sources.is_data_catalog_enabled or not sources.is_data_quality_enabled:
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1680,7 +1685,10 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_catalog(info_schema)
+                    if not sources.is_data_catalog_enabled:
+                        disable_data_catalog(info_schema)
+                    if not sources.is_data_quality_enabled:
+                        disable_data_quality(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():

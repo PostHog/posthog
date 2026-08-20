@@ -169,6 +169,18 @@ const WORKFLOW_CONTENT_FIELDS = [
     'variables',
 ] as const
 
+// The fields the editor writes through the form. Edits that land while a save is in flight are
+// re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+
+function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = {}
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        result[field] = workflow[field]
+    }
+    return result as Partial<HogFlow>
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -227,6 +239,7 @@ export interface workflowLogicValues {
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
     workflowChanged: boolean
+    workflowEditVersion: number
     workflowErrors: DeepPartialMap<HogFlow, ValidationErrorType>
     workflowHasActionErrors: boolean
     workflowHasErrors: boolean
@@ -3066,6 +3079,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Bumped on every form write. A save records the version it captured, so its response can
+        // tell whether the user kept editing while the request was in flight.
+        workflowEditVersion: [
+            0,
+            {
+                setWorkflowValue: (state) => state + 1,
+                setWorkflowValues: (state) => state + 1,
+            },
+        ],
         // Gates when per-field step messages become visible: the action ids that were present at
         // the last save/enable attempt. Every step is validated the whole time (so the node badge
         // and enable-gate work), but a step only shows its messages once the user has tried to
@@ -3441,7 +3463,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -3635,6 +3657,9 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        saveWorkflow: () => {
+            cache.saveEditVersion = values.workflowEditVersion
+        },
         saveWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
@@ -3745,8 +3770,18 @@ export const workflowLogic = kea<workflowLogicType>([
 
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
+            const editedDuringSave =
+                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
+            if (editsDuringSave) {
+                // The response only reflects the payload that was sent. Anything typed while it was
+                // in flight (the live email editor writes on every pause) must survive the reset and
+                // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
+                actions.setWorkflowValues(editsDuringSave)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
         },
         discardChanges: () => {

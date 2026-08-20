@@ -1380,7 +1380,7 @@ async fn test_remote_config_token_without_auth_returns_401() {
 #[tokio::test]
 async fn test_remote_config_personal_key_no_decryptor_returns_500() {
     // With no FLAGS_SECRET_KEYS/SECRET_KEY the decryptor is None; an encrypted-flag decrypt
-    // request must 500 (FlagError::Internal), never leak ciphertext.
+    // request must 500 (FlagError::RemoteConfigDecryptFailed), never leak ciphertext.
     let mut config = Config::default_test_config();
     config.flags_secret_keys = String::new();
     config.secret_key = String::new();
