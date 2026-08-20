@@ -171,7 +171,11 @@ def create_system_oauth_access_token(task: Task) -> str:
     try:
         return create_signals_report_canvas_oauth_access_token(team_id=task.team_id, task_id=task.id)
     except RuntimeError as error:
-        raise OAuthTokenError(f"Unable to mint system OAuth for task {task.id}") from error
+        raise OAuthTokenError(
+            f"Unable to mint system OAuth for task {task.id}",
+            {"task_id": task.id, "team_id": task.team_id},
+            cause=error,
+        ) from error
 
 
 def create_oauth_access_token_for_run(
