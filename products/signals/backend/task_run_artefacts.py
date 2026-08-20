@@ -220,8 +220,11 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     one is deliberately unlimited.
 
     Must be called inside an open transaction: it locks the report row, the same lock creation
-    and auto-start take, so a concurrent create cannot pass its count check against a slot this
-    run is about to claim.
+    and auto-start take. That lock only serializes for as long as the caller's transaction stays
+    open, and a live run is what marks the slot taken, so a caller that goes on to start the run
+    has to insert the run row in this same transaction. Releasing the lock first would leave the
+    task looking released for the whole span before the insert, which is long enough for a
+    concurrent create to pass its own count check.
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError(

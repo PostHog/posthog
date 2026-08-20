@@ -5501,6 +5501,9 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this.
     """
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        enforce_report_implementation_rerun_cap,
+    )
     from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
@@ -5514,16 +5517,19 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
-    if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-        from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
-            enforce_report_implementation_rerun_cap,
-        )
-
+    report_id_for_slot_check = (
+        str(task.signal_report_id)
+        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if report_id_for_slot_check is not None:
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
-        # its runs all failed, so another implementation may hold it by now.
+        # its runs all failed, so another implementation may hold it by now. Refusing here also
+        # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
+        # check that actually holds the slot is the one wrapping `create_run` below.
         with transaction.atomic():
             enforce_report_implementation_rerun_cap(
-                team_id=team_id, report_id=str(task.signal_report_id), task_id=str(task.id)
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
             )
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
@@ -5827,7 +5833,18 @@ def run_task(
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
-    task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    with transaction.atomic():
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+        if report_id_for_slot_check is not None:
+            # A live run is what marks the report's implementation slot taken, so the slot is only
+            # really claimed once this row exists. Inserting first and locking the report second
+            # keeps the row lock off `create_run`, which evaluates a feature flag, and still
+            # serializes against a concurrent create: that create either takes the report lock
+            # first, so this check sees the task it added and rolls the run back, or takes it
+            # second, by which point this run is committed and its own count check refuses.
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+            )
     if is_pi_task and resume_from_run_id:
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
