@@ -489,11 +489,22 @@ export class ApiClient {
                         if (experimentMatch) {
                             const experimentId = experimentMatch[1]
                             console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
-                            throw new Error(
-                                `Experiment ${experimentId} not found in this project. ` +
+                            // Carry the recovery guidance on a typed 404 so
+                            // handleToolError classifies a wrong or cross-project
+                            // experiment id as recoverable agent input (returned
+                            // for self-correction) instead of capturing it as an
+                            // engineering exception.
+                            throw new PostHogApiError({
+                                status: response.status,
+                                statusText: response.statusText,
+                                body: errorText,
+                                url,
+                                method,
+                                message:
+                                    `Experiment ${experimentId} not found in this project. ` +
                                     `If the id is correct, the experiment may belong to a different project — ` +
-                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
-                            )
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`,
+                            })
                         }
                     }
 

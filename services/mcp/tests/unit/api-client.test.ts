@@ -344,4 +344,29 @@ describe('ApiClient', () => {
             vi.unstubAllGlobals()
         })
     })
+
+    describe('experiments().get() — 404 handling', () => {
+        it('returns a typed 404 PostHogApiError carrying the recovery guidance', async () => {
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Not found.' }), { status: 404 }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client.experiments({ projectId: '1' }).get({ experimentId: 999 })
+
+            // A plain Error here defeats handleToolError's 4xx short-circuit, so a
+            // wrong or cross-project experiment id gets filed as an engineering exception.
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the experiment 404 lookup to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('Experiment 999 not found in this project')
+            expect(result.error.message).toContain('experiment-list')
+
+            vi.unstubAllGlobals()
+        })
+    })
 })
