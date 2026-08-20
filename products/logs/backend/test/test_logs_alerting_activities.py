@@ -36,6 +36,7 @@ from products.logs.backend.temporal.activities import (
     _DispatchedAlert,
     _evaluate_single_alert,
     _finalize_alert,
+    _load_alerts_for_batch,
     _save_cohort_outcomes,
     emit_alert_signals_activity,
 )
@@ -192,6 +193,25 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
     def test_empty_input_is_noop(self):
         count = asyncio.run(emit_alert_signals_activity(EmitAlertSignalsInput(notified=[])))
         assert count == 0
+
+
+class TestLoadAlertsForBatch(APIBaseTest):
+    def test_prefetches_team_organization(self):
+        # The batch query feeds each team into the HogQL database build, which reads
+        # team.organization. Loading the org here keeps that access from firing an
+        # extra Postgres query per alert.
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Test Alert",
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            filters={"serviceNames": ["test-service"]},
+        )
+        alerts = _load_alerts_for_batch({str(alert.id)})
+        loaded = alerts[str(alert.id)]
+        with self.assertNumQueries(0):
+            _ = loaded.team.organization
 
 
 class TestSaveCohortOutcomesFallback(APIBaseTest):

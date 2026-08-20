@@ -427,7 +427,12 @@ def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -
 
     rescheduled_alert_ids: set[UUID] = set()
     with transaction.atomic():
-        alerts = _due_alerts_qs(now).select_for_update(of=("self",)).select_related("team").filter(id__in=alert_ids)
+        alerts = (
+            _due_alerts_qs(now)
+            .select_for_update(of=("self",))
+            .select_related("team__organization")
+            .filter(id__in=alert_ids)
+        )
         for alert in alerts:
             try:
                 next_check_at = next_allowed_check_at(
@@ -870,7 +875,8 @@ def _load_alerts_for_batch(alert_ids: set[str]) -> dict[str, LogsAlertConfigurat
     slower than per-team scoping — and saves one round-trip per team.
     """
     return {
-        str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team")
+        str(alert.id): alert
+        for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team__organization")
     }
 
 
@@ -1024,7 +1030,7 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
     with transaction.atomic():
         current_alert = (
             LogsAlertConfiguration.objects.select_for_update(of=("self",))
-            .select_related("team")
+            .select_related("team__organization")
             .get(id=evaluation.alert.id)
         )
         try:
