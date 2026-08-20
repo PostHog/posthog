@@ -56,7 +56,8 @@ class EvaluationConfigSetActiveKeyRequestSerializer(serializers.Serializer):
 class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
-    scope_object = "evaluation"
+    # Shared by evaluations, taggers, and the playground model picker.
+    scope_object = "llm_analytics"
     requires_resource_level_access = True
     # `set_active_key` is a custom @action and `list` lives on a plain ViewSet, so neither maps to
     # ScopeBasePermission's default action lists. Spell them out explicitly — without this, every

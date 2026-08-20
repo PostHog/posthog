@@ -14,6 +14,7 @@ import { EvaluationReportViewer, summarizeEvaluationReportResults } from './Eval
 
 interface EvaluationReportsTabProps {
     evaluationId: string
+    userAccessLevel?: AccessControlLevel
     /** Called when the user clicks the "Set up scheduled reports" CTA in the empty state. */
     onConfigureClick: () => void
 }
@@ -29,7 +30,11 @@ const STATUS_STYLES: Record<
     failed: { label: 'Failed', type: 'danger' },
 }
 
-export function EvaluationReportsTab({ evaluationId, onConfigureClick }: EvaluationReportsTabProps): JSX.Element {
+export function EvaluationReportsTab({
+    evaluationId,
+    userAccessLevel,
+    onConfigureClick,
+}: EvaluationReportsTabProps): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
     const { reportRuns, reportRunsLoading, reportsLoading, activeReport, generateResultLoading } = useValues(logic)
     const { generateReport, loadReportRuns } = useActions(logic)
@@ -74,6 +79,7 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={userAccessLevel}
                         >
                             <LemonButton
                                 type="primary"

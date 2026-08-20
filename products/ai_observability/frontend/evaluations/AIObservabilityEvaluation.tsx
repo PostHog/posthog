@@ -451,6 +451,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />
                             ),

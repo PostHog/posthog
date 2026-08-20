@@ -14,6 +14,8 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -568,14 +570,23 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
 
 
 class EvaluationReportAccessControlPermission(AccessControlPermission):
-    def has_object_permission(self, request: Request, view: Any, obj: EvaluationReport | Evaluation) -> bool:
-        if is_service_auth(request):
-            return True
-        required_level = self._get_required_access_level(request, view)
-        if required_level is None:
-            return True
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        report_view = cast(GenericViewSet, view)
+        if report_view.action != "create":
+            return super().has_permission(request, view)
+
+        # Report creation targets an existing evaluation, so specific evaluation grants apply.
+        report_view.action = "partial_update"
+        try:
+            return super().has_permission(request, view)
+        finally:
+            report_view.action = "create"
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if not isinstance(obj, (EvaluationReport, Evaluation)):
+            return False
         evaluation = obj.evaluation if isinstance(obj, EvaluationReport) else obj
-        return view.user_access_control.check_access_level_for_object(evaluation, required_level)
+        return super().has_object_permission(request, view, evaluation)
 
 
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

@@ -963,3 +963,23 @@ class TestEvaluationReportAccessControl(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self.report.refresh_from_db()
         assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_can_upsert_its_report(self) -> None:
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(self.evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "editor@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "editor@example.com"}]
