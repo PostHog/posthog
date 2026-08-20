@@ -1516,7 +1516,7 @@ export const TasksHandoffCreateBody = /* @__PURE__ */ zod
             .number()
             .min(1)
             .describe(
-                "ID of the user taking over the task. Must be a member of this project's organization and not the task's current owner."
+                "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
             ),
     })
     .describe('Request body for handing a task off to a colleague: they become its owner.')
