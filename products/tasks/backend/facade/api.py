@@ -892,8 +892,9 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
-    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
+def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``,
+    narrowed by any extra ``Q`` ``conditions`` on the run.
 
     For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
     *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
@@ -904,7 +905,7 @@ def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
     team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
     """
     return (
-        TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, team_id=team_id, output__pr_url__isnull=False)
         .exclude(output__pr_url="")
         .values("task_id")
     )
@@ -4749,6 +4750,10 @@ def _list_tasks_queryset(
     origin_product = filters.get("origin_product")
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
+
+    exclude_origin_product = filters.get("exclude_origin_product")
+    if exclude_origin_product:
+        qs = qs.exclude(origin_product=exclude_origin_product)
 
     stage = filters.get("stage")
     if stage:
