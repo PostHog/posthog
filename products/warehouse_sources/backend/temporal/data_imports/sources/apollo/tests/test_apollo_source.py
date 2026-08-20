@@ -92,7 +92,12 @@ class TestApolloSource:
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),
-            (False, False, "Invalid Apollo API key"),
+            (
+                False,
+                False,
+                "Apollo rejected this API key. Create a key in Apollo under Settings > Integrations > API. "
+                "API access requires a paid Apollo plan.",
+            ),
         ],
     )
     @mock.patch(
