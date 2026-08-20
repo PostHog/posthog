@@ -14,6 +14,15 @@
         box-shadow: var(--shadow-md);
     }
 
+    /* The card is unselectable so a drag across it reads as a swipe-to-dismiss. The message itself
+       opts back in, and carries data-base-ui-swipe-ignore so a drag there starts a selection
+       instead of a swipe. */
+    .quill-toast-card__title,
+    .quill-toast-card__description {
+        cursor: text;
+        user-select: text;
+    }
+
     .quill-toast-card__title {
         font-size: var(--text-xs, 0.75rem);
         font-weight: 500;
