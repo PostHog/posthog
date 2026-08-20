@@ -146,6 +146,12 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}
+          // Cloud tasks filed into a space can span several repositories, so the
+          // composer offers the multi-repository chip there. In local mode
+          // TaskInput falls back to the repo + branch pickers a worktree needs.
+          allowNoRepo
+          channelRepositories={channel?.repositories}
+          channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
           initialPrompt={view.initialPrompt}
           initialPromptKey={view.taskInputRequestId}

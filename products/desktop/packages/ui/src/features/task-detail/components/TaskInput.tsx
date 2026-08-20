@@ -142,9 +142,10 @@ interface TaskInputProps {
    */
   channelContextId?: string;
   /**
-   * Channels "generic chat box" mode: hide the repo/branch pickers and let the
-   * task be submitted without a repo. The agent decides at runtime whether it
-   * needs a repo and attaches one lazily.
+   * Channels "generic chat box" mode: in cloud mode, swap the repo/branch
+   * pickers for the multi-repository chip and let the task be submitted without
+   * a repo. The agent decides at runtime whether it needs a repo and attaches
+   * one lazily. Local mode keeps the repo + branch pickers a worktree needs.
    */
   allowNoRepo?: boolean;
   channelRepositories?: string[];
@@ -795,6 +796,12 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
 
+  // Only cloud runs can span several repositories, so that's where the
+  // multi-repository chip belongs. A worktree run still needs one concrete
+  // checkout and a base branch, so it keeps the repo + branch pickers even on
+  // surfaces that opt into repo-optional mode.
+  const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
+
   // Get current values from preview config options for task creation.
   // Defaults ensure values are always passed even before the preview config loads.
   const currentModel =
@@ -862,11 +869,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    repositories: allowNoRepo ? taskRepositories : undefined,
-    githubIntegrationId: allowNoRepo
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
-    allowNoRepo,
+    allowNoRepo: repoOptional,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -984,14 +991,12 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
+    selectedDirectory: repoOptional ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
-    repositories:
-      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
-    githubIntegrationId:
-      allowNoRepo && workspaceMode === "cloud"
-        ? (taskGithubIntegration ?? undefined)
-        : undefined,
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
+      ? (taskGithubIntegration ?? undefined)
+      : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1019,7 +1024,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
-    allowNoRepo,
+    allowNoRepo: repoOptional,
   });
 
   // Wraps the prompt in the autoresearch kickoff: protocol preamble first,
@@ -1293,7 +1298,7 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
-                {allowNoRepo && (
+                {repoOptional && (
                   <TaskRepositoryChip
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
@@ -1302,7 +1307,7 @@ export function TaskInput({
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
-                {!allowNoRepo && workspaceMode === "worktree" && (
+                {!repoOptional && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
                     value={selectedEnvironment}
@@ -1315,7 +1320,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!allowNoRepo && (
+                {!repoOptional && (
                   <ButtonGroup
                     ref={buttonGroupRef}
                     data-tour="folder-picker"
@@ -1405,7 +1410,7 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!allowNoRepo && workspaceMode !== "cloud" && (
+                {!repoOptional && workspaceMode !== "cloud" && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1656,7 +1661,7 @@ export function TaskInput({
         </Box>
       </Flex>
 
-      {allowNoRepo && (
+      {repoOptional && (
         <TaskRepositoryDialog
           open={repositoryDialogOpen}
           onOpenChange={setRepositoryDialogOpen}
