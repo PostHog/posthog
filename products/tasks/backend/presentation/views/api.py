@@ -46,7 +46,12 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_mcp_built_in_agent_oauth_request,
+)
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
@@ -113,6 +118,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskCommentsQuerySerializer,
     TaskCommentsResponseSerializer,
     TaskCreateSerializer,
+    TaskHandoffRequestSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
@@ -206,6 +212,10 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+
+# Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
+# matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
+UUID_LOOKUP_REGEX = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
@@ -561,15 +571,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
-            # `code` distinguishes this from the compute-quota 429 for frontend handling.
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail}
-                ).data,
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+            return self._report_task_cap_response(error.detail)
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _report_task_cap_response(self, detail: str) -> Response:
+        """429 for a report that has spent its task allowance, on both create and run.
+
+        `code` distinguishes this from the compute-quota 429 for frontend handling.
+        """
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {"type": "rate_limit", "code": "signal_report_task_cap", "error": detail}
+            ).data,
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
     def _forward_signals_discussion_note(
         self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
@@ -679,6 +695,40 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pinned is None:
             raise NotFound()
         return Response({"task_id": pk, "pinned": pinned})
+
+    @extend_schema(
+        request=TaskHandoffRequestSerializer,
+        responses={
+            200: TaskSerializer,
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Only a user may hand off a task.",
+            ),
+        },
+        summary="Hand a task off to a colleague",
+        description=(
+            "Transfer ownership of a task to another member of the project: they take over driving it "
+            "(steering, archiving, running), and future runs resolve GitHub authorship and notification "
+            "recipients from them. Only the task's current owner can hand it off. Every run must be "
+            "finished or canceled, and every sandbox must be shut down first. A task in a private space "
+            "moves into the recipient's private space; a task in a shared space stays there."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskHandoffRequestSerializer)
+    def handoff(self, request, pk=None, **kwargs):
+        if is_sandbox_oauth_request(request) or is_mcp_built_in_agent_oauth_request(request):
+            raise PermissionDenied("Only a user can hand off a task. Sign in to continue.")
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        try:
+            task = tasks_facade.handoff_task(pk, self.team_id, user_id, target_user_id=request.validated_data["user"])
+        except tasks_facade.TaskHandoffError as e:
+            raise ValidationError({"user": str(e)}) from e
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
 
     @extend_schema(
         responses={
@@ -932,7 +982,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             404: OpenApiResponse(description="Task not found"),
             429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "Team is over its posthog_code usage limit, or the task's signal report has "
+                    "reached its task limit (code `signal_report_task_cap`)"
+                ),
             ),
         },
         summary="Run task",
@@ -959,7 +1013,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
-        result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            ReportTaskCapExceeded,
+        )
+
+        try:
+            result = tasks_facade.run_task(
+                pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
+            )
+        except ReportTaskCapExceeded as error:
+            return self._report_task_cap_response(error.detail)
         if result is None:
             raise NotFound()
         if result.error is not None:
@@ -1102,16 +1165,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=["task-runs", "tasks"])
-def is_sandbox_agent_request(request, task_id: str) -> bool:
-    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+def is_sandbox_oauth_request(request) -> bool:
     authenticator = request.successful_authenticator
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
         return False
-    access_token = authenticator.access_token
-    application = access_token.application
-    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
-        return False
-    return access_token.sandbox_task_id == UUID(task_id)
+    application = authenticator.access_token.application
+    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+
+def _sandbox_bound_task_id(request) -> UUID | None:
+    if not is_sandbox_oauth_request(request):
+        return None
+    return request.successful_authenticator.access_token.sandbox_task_id
+
+
+def is_sandbox_agent_request(request, task_id: str) -> bool:
+    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+    return _sandbox_bound_task_id(request) == UUID(task_id)
 
 
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -1183,6 +1253,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for_control=not is_read_only,
         ):
             raise NotFound("Task not found")
+        run_id = self.kwargs.get("pk")
+        if (
+            not is_read_only
+            and run_id is not None
+            and not tasks_facade.task_run_matches_current_ownership(run_id, task_id, self.team_id)
+        ):
+            raise NotFound("Task run not found")
         return task_id
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
@@ -1334,6 +1411,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "detail": "Some pending_user_artifact_ids are invalid for this run",
                     "missing_artifact_ids": missing,
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "ownership_changed":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run belongs to a previous task owner. Start a new run instead."}
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2647,6 +2731,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "ownership_changed":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run belongs to a previous task owner. Start a new run instead."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if outcome.startswith("auth_error:"):
             detail = outcome.split(":", 1)[1]
             return Response(
@@ -2911,6 +3002,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             for_control=not is_read,
         ):
             raise NotFound("Task not found")
+        if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):
+            raise NotFound("Task run not found")
         return task_id
 
     @validated_request(
@@ -3275,6 +3368,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    lookup_value_regex = UUID_LOOKUP_REGEX
 
     @extend_schema(responses={200: SandboxEnvironmentListSerializer(many=True)})
     def list(self, request, **kwargs):
@@ -3338,6 +3432,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    lookup_value_regex = UUID_LOOKUP_REGEX
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)

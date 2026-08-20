@@ -11,6 +11,7 @@ policy re-runs it in this run (the workflow swallows the failure if retries exha
 
 import time
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
@@ -26,6 +27,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
@@ -58,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
 
 LOGGER = get_logger(__name__)
 
@@ -371,7 +374,22 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
         # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
-        with HeartbeaterSync(logger=logger):
+        # The workload reporter makes the rewrite visible to pod co-tenant accounting (see
+        # `workload_report.py`): without it a rewrite-heavy pod looks idle to the OOM classifier's
+        # culprit rule. The run_id is prefixed because the sync's import activity reports under the
+        # bare job id on this same pod, and sharing its key would let a death during that import
+        # read this rewrite's report as its own last words.
+        with (
+            HeartbeaterSync(logger=logger),
+            workload_reporting(
+                team_id=inputs.team_id,
+                schema_id=inputs.schema_id,
+                run_id=f"repartition:{inputs.job_id}",
+                host=socket.gethostname(),
+                initial_phase="repartition",
+                attempt=current_activity_attempt(),
+            ),
+        ):
             result = async_to_sync(repartition_table_in_place)(
                 table_ref=table_ref,
                 schema=schema,
