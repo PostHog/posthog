@@ -39546,6 +39546,7 @@ export namespace Schemas {
     /**
      * * `events` - events
      * * `person-updates` - person-updates
+     * * `group-updates` - group-updates
      * * `data-warehouse-table` - data-warehouse-table
      */
     export type HogFunctionFiltersSourceEnum = typeof HogFunctionFiltersSourceEnum[keyof typeof HogFunctionFiltersSourceEnum];
@@ -39554,6 +39555,7 @@ export namespace Schemas {
     export const HogFunctionFiltersSourceEnum = {
       Events: 'events',
       PersonUpdates: 'person-updates',
+      GroupUpdates: 'group-updates',
       DataWarehouseTable: 'data-warehouse-table',
     } as const;
 

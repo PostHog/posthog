@@ -139,9 +139,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'group-updates', 'data-warehouse-table'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `group-updates` - group-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsCreateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -234,9 +234,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'group-updates', 'data-warehouse-table'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `group-updates` - group-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsCreateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -377,9 +377,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'group-updates', 'data-warehouse-table'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `group-updates` - group-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsPartialUpdateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -472,9 +472,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'group-updates', 'data-warehouse-table'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `group-updates` - group-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),

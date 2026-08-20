@@ -12,6 +12,7 @@ import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } 
 export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpProcessedEvents: true,
     cdpPersonUpdates: true,
+    cdpGroupUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
@@ -114,6 +115,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_person_updates:
             return {
                 cdpPersonUpdates: true,
+            }
+        case PluginServerMode.cdp_group_updates:
+            return {
+                cdpGroupUpdates: true,
             }
         case PluginServerMode.cdp_internal_events:
             return {
