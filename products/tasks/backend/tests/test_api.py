@@ -66,6 +66,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
+    AgentPeerMessage,
     Channel,
     CodeInvite,
     CodeInviteRedemption,
@@ -7988,7 +7989,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_called_once_with(str(run.id), False)
         run.refresh_from_db()
@@ -8021,7 +8027,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_not_called()
         run.refresh_from_db()
@@ -8053,7 +8064,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         self.assertEqual(publish_complete.call_count, 2)
         run.refresh_from_db()
@@ -12404,3 +12420,166 @@ class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
         reread = TaskSerializer(data=response.json())
         self.assertTrue(reread.is_valid(), reread.errors)
         self.assertEqual(reread.validated_data.runtime, task.runtime)
+
+
+class TestTaskRunPeersAPI(BaseTaskAPITest):
+    def _enable_peer_messaging_flag(self) -> None:
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "pi-harness", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+
+    def _make_pi_task_and_run(self, title: str = "peer task") -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title=title,
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        return task, run
+
+    def _sandbox_client_for(self, task_id: uuid.UUID) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Peer test sandbox app",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_peer_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_sandbox_token_bound_to_other_task_cannot_use_peer_endpoints(self):
+        # The token's user (the run owner) controls BOTH tasks, so the ordinary
+        # task-access gate passes — only the sandbox_task_id binding check stands
+        # between a compromised sandbox for task A and sending as task B's run.
+        self._enable_peer_messaging_flag()
+        task_a, _run_a = self._make_pi_task_and_run("task a")
+        task_b, run_b = self._make_pi_task_and_run("task b")
+        client = self._sandbox_client_for(task_a.id)
+
+        list_response = client.get(f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        send_response = client.post(
+            f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_flag_and_runtime_are_enforced_server_side(self):
+        _task, run = self._make_pi_task_and_run()
+        # Flag off (default mock): 403 despite full task access.
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Flag on but ACP runtime: still 403 — v1 is Pi-only.
+        self._enable_peer_messaging_flag()
+        acp_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="acp task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.ACP,
+        )
+        acp_run = TaskRun.objects.create(
+            task=acp_task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        response = self.client.get(f"/api/projects/@current/tasks/{acp_task.id}/runs/{acp_run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_pi_harness_rollback_fails_peer_messaging_closed(self):
+        # Pulling the Pi kill switch must close peer messaging even though the
+        # task row still says runtime=PI and the peer flag itself stays on.
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+        _task, run = self._make_pi_task_and_run()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_teammate_cannot_use_peer_endpoints_on_team_visible_task(self):
+        # Team-visible origins (signal reports etc.) are team-drivable, but peer
+        # visibility and message attribution derive entirely from the task creator —
+        # a teammate must not enumerate the creator's other runs or send messages
+        # attributed to them.
+        self._enable_peer_messaging_flag()
+        creator = self.create_organization_user("peer-report-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="signal report task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+
+        list_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        send_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_list_and_send_round_trip(self):
+        # Wiring guard through viewset → facade → service: discovery shows the
+        # peer with its sendable flag, and a send returns the accepted contract
+        # with a signaled audit row.
+        self._enable_peer_messaging_flag()
+        _sender_task, sender_run = self._make_pi_task_and_run("sender")
+        _target_task, target_run = self._make_pi_task_and_run("target")
+
+        list_response = self.client.get(
+            f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/"
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        peers = list_response.json()["peers"]
+        self.assertEqual([p["run_id"] for p in peers], [str(target_run.id)])
+        self.assertTrue(peers[0]["sendable"])
+
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message") as mock_signal:
+            send_response = self.client.post(
+                f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/{target_run.id}/message/",
+                {"content": "heads up: schema changed"},
+                format="json",
+            )
+        self.assertEqual(send_response.status_code, status.HTTP_200_OK)
+        body = send_response.json()
+        self.assertEqual(body["result"], "accepted")
+        row = AgentPeerMessage.objects.unscoped().get()
+        self.assertEqual(body["message_id"], str(row.id))
+        self.assertEqual(row.outcome, AgentPeerMessage.Outcome.SIGNALED)
+        mock_signal.assert_called_once()

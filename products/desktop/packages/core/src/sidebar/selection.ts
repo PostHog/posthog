@@ -19,16 +19,6 @@ export function computeOrderedVisibleTaskIds(
   return ids;
 }
 
-export function computeEffectiveBulkIds(
-  selectedTaskIds: string[],
-  activeTaskId: string | null,
-): string[] {
-  if (selectedTaskIds.length === 0) return [];
-  if (!activeTaskId) return selectedTaskIds;
-  if (selectedTaskIds.includes(activeTaskId)) return selectedTaskIds;
-  return [activeTaskId, ...selectedTaskIds];
-}
-
 export interface RangeSelection {
   selectedTaskIds: string[];
   lastClickedId: string;

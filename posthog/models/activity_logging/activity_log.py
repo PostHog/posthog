@@ -99,6 +99,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
     "TableCertification",
@@ -356,6 +357,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "emit": "emit findings",
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
+    },
+    # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
+    "SignalTeamConfig": {
+        "autostart_enabled": "PR generation",
+        "default_autostart_priority": "project PR threshold",
+        "default_slack_notification_channel": "team Slack channel",
+        "autostart_base_branches": "base branch overrides",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",

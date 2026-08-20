@@ -1362,6 +1362,10 @@ export interface AttributionHealthEntryApi {
     matched_pct: number
     /** Sample of likely-yours unmatched utm_source values */
     sample_unmatched_utm_sources: UnmatchedUtmSampleApi[]
+    /** Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or a gclid/gad_source click id. */
+    events_matched_paid_last_7d: number
+    /** Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing. */
+    events_matched_tagged_medium_last_7d: number
 }
 
 export interface RecommendedActionApi {
