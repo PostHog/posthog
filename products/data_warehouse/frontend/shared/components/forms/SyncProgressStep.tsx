@@ -62,7 +62,7 @@ export const SyncProgressStep = (): JSX.Element => {
         if (!schema.status || schema.status === 'Running') {
             return {
                 status: 'Syncing...',
-                tagType: 'primary',
+                tagType: 'completion',
             }
         }
 
