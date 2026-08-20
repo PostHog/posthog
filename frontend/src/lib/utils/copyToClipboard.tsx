@@ -4,7 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 export async function copyToClipboard(
     value: string,
     description: string = 'text',
-    { silent = false }: { silent?: boolean } = {}
+    { silent = false, html }: { silent?: boolean; html?: string } = {}
 ): Promise<boolean> {
     if (!navigator.clipboard) {
         lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
@@ -18,6 +18,25 @@ export async function copyToClipboard(
         lemonToast.info(`Copied ${description} to clipboard`, {
             icon: <IconCopy />,
         })
+    }
+
+    // Writing both formats lets a paste target that understands HTML keep the formatting, while
+    // plain-text targets still receive `value`. Browser support for `text/html` in a ClipboardItem
+    // is not universal, so a failure here falls through to the plain-text write below rather than
+    // failing the copy.
+    if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+        try {
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                    'text/plain': new Blob([value], { type: 'text/plain' }),
+                }),
+            ])
+            notifySuccess()
+            return true
+        } catch {
+            // Fall through to the plain-text paths.
+        }
     }
 
     try {
