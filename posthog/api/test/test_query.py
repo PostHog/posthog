@@ -87,7 +87,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     )
     def test_user_query_errors_are_not_captured_at_api_boundary(self, _name, error, served_from_cache, expect_capture):
         if served_from_cache:
-            error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+            error.served_from_query_failure_cache = True
         with (
             patch("posthog.api.query.process_query_model", side_effect=error),
             patch("posthog.api.query.capture_exception") as mock_capture,
