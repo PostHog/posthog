@@ -2106,8 +2106,9 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
 def _resolve_run_defaults_state(integration: Integration, slack_user_id: str) -> RunDefaultsState:
     """The PostHog default this person's Slack runs fall back to, plus where to change it.
 
-    Resolved against the linked PostHog user so a personal default is reflected; an
-    unlinked Slack identity still sees the project default, which is what their runs get.
+    Resolves the viewer through the same cascade the run path uses (`_resolve_home_user`),
+    so an unlinked but email-matched identity reflects its own personal default rather than
+    dropping to the project rung, matching the model a mention of theirs would actually run.
     """
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
         ai_run_defaults,
@@ -2116,13 +2117,9 @@ def _resolve_run_defaults_state(integration: Integration, slack_user_id: str) ->
     site_url = (settings.SITE_URL or "").rstrip("/")
     settings_url = f"{site_url}/project/{integration.team_id}/settings/environment-task-agents" if site_url else None
 
-    linked_user = find_linked_posthog_user(
-        slack_user_id=slack_user_id,
-        slack_team_id=integration.integration_id,
-        candidate_org_ids=_workspace_org_ids(integration.integration_id),
-    )
     try:
-        resolved = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, linked_user.id if linked_user else None)
+        home_user = _resolve_home_user(integration, slack_user_id)
+        resolved = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, home_user.id if home_user else None)
     except Exception:
         # The card is informational; a lookup failure must not cost the whole Home tab.
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
