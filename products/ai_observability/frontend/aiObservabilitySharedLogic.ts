@@ -76,8 +76,11 @@ export interface SortState {
     direction: SortDirection
 }
 
-// Cadence of the setup-detection re-check while the team has no AI events yet.
+// Cadence of the setup-detection re-check while the team has no AI events yet. It starts fast so
+// a team that just sent its first event flips to the product quickly, then backs off toward a
+// ceiling so a tab left open behind a broken connection stops re-checking every few seconds.
 const SETUP_POLL_INTERVAL_MS = 20000
+const SETUP_POLL_MAX_INTERVAL_MS = 160000
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
@@ -743,11 +746,22 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         detectAIEventsIfProjectKnown()
         // While the empty state (or its post-skip reminder banner) is up, re-check on a
-        // timer so the page flips to the real product on its own once events land.
-        // Disposed as soon as data is detected; paused automatically on hidden tabs.
+        // timer so the page flips to the real product on its own once events land. The delay
+        // doubles each tick up to a ceiling, so a tab left open behind a broken connection
+        // stops polling every few seconds. Disposed as soon as data is detected; paused
+        // automatically on hidden tabs, which resets the delay when the tab regains focus.
         cache.disposables.add(() => {
-            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
-            return () => clearInterval(id)
+            let delay = SETUP_POLL_INTERVAL_MS
+            let timer: number
+            const scheduleNext = (): void => {
+                timer = window.setTimeout(() => {
+                    detectAIEventsIfProjectKnown()
+                    delay = Math.min(delay * 2, SETUP_POLL_MAX_INTERVAL_MS)
+                    scheduleNext()
+                }, delay)
+            }
+            scheduleNext()
+            return () => clearTimeout(timer)
         }, 'setupPoll')
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 

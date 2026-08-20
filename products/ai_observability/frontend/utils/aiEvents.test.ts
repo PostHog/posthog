@@ -1,4 +1,4 @@
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
@@ -204,6 +204,22 @@ describe('aiEventsUtils', () => {
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(false)
+        })
+
+        // Guards the setup-poll amplifier: a connectivity failure must read as "no events yet",
+        // not reject, or the poll files an error tracking issue on every tick.
+        it('resolves false when the request cannot reach the API', async () => {
+            jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new NetworkError('network'))
+
+            const result = await hasRecentAIEvents()
+
+            expect(result).toBe(false)
+        })
+
+        it('rethrows a genuine backend error so the scene gate can fail open', async () => {
+            jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new Error('boom'))
+
+            await expect(hasRecentAIEvents()).rejects.toThrow('boom')
         })
     })
 

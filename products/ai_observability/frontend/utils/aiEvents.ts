@@ -1,4 +1,4 @@
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -21,31 +21,43 @@ const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
  * 2. Fallback: Query ClickHouse directly for recent events (for new users)
  */
 export async function hasRecentAIEvents(): Promise<boolean> {
-    // Fast path: check EventDefinition (works for most existing users)
-    const aiEventDefinitions = await api.eventDefinitions.list({
-        event_type: EventDefinitionType.Event,
-        search: '$ai_',
-    })
+    try {
+        // Fast path: check EventDefinition (works for most existing users)
+        const aiEventDefinitions = await api.eventDefinitions.list({
+            event_type: EventDefinitionType.Event,
+            search: '$ai_',
+        })
 
-    const validDefinition = aiEventDefinitions?.results?.find(
-        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
-    )
+        const validDefinition = aiEventDefinitions?.results?.find(
+            (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
+        )
 
-    if (validDefinition) {
-        return true
+        if (validDefinition) {
+            return true
+        }
+
+        // Fallback: query ClickHouse directly for recent events (new users)
+        const response = await api.query<HogQLQuery>(
+            {
+                kind: NodeKind.HogQLQuery,
+                query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
+                tags: { productKey: ProductKey.AI_OBSERVABILITY },
+            },
+            { refresh: 'force_blocking' }
+        )
+
+        return (response.results?.length ?? 0) > 0
+    } catch (error) {
+        // A browser that cannot reach the API (offline, ad blocker, proxy, DNS) throws a
+        // NetworkError with no HTTP status. Detection is best-effort, so read that as "no events
+        // yet": the setup poll retries on its next tick. Rejecting instead makes the poll file one
+        // error tracking issue per tick. A genuine backend error still propagates, so the scene
+        // gate can fail open to the real product.
+        if (error instanceof NetworkError) {
+            return false
+        }
+        throw error
     }
-
-    // Fallback: query ClickHouse directly for recent events (new users)
-    const response = await api.query<HogQLQuery>(
-        {
-            kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
-            tags: { productKey: ProductKey.AI_OBSERVABILITY },
-        },
-        { refresh: 'force_blocking' }
-    )
-
-    return (response.results?.length ?? 0) > 0
 }
 
 let seenAiEvents = false
