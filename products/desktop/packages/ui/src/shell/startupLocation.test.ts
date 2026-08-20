@@ -116,11 +116,13 @@ describe("startup location", () => {
   it("consumes a primed provisioning result exactly once", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = { provisionDefaultTaskChannels: vi.fn() };
-    primeStartupProvision({
-      channels: [personal, general],
-      personal_created: true,
-      general_created: false,
-    });
+    primeStartupProvision(
+      Promise.resolve({
+        channels: [personal, general],
+        personal_created: true,
+        general_created: false,
+      }),
+    );
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
       href: "/website/general-id",

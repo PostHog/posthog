@@ -19,15 +19,35 @@ interface StartupLocation {
   firstRun: { generalChannelId: string } | null;
 }
 
-let primedProvision: ProvisionedTaskChannels | null = null;
+let primedProvision: Promise<ProvisionedTaskChannels> | null = null;
 
 /**
  * Whoever provisions first consumes the created flags, so a flow that provisions
  * before the app mounts has to hand its result over rather than let startup
- * provision again and read false flags.
+ * provision again and read false flags. The in-flight promise is handed over
+ * (not the resolved value) so the hand-off wins the race synchronously, before
+ * the caller mounts the app, even while the network call is still pending.
  */
-export function primeStartupProvision(result: ProvisionedTaskChannels): void {
+export function primeStartupProvision(
+  result: Promise<ProvisionedTaskChannels>,
+): void {
   primedProvision = result;
+}
+
+async function consumePrimedProvision(
+  client: StartupLocationClient,
+): Promise<ProvisionedTaskChannels> {
+  const primed = primedProvision;
+  primedProvision = null;
+  if (primed) {
+    try {
+      return await primed;
+    } catch {
+      // A failed hand-off must not cost the user their provisioning, so fall
+      // back to provisioning here as if nothing had been primed.
+    }
+  }
+  return client.provisionDefaultTaskChannels();
 }
 
 export async function resolveStartupLocation(
@@ -48,9 +68,7 @@ export async function resolveStartupLocation(
     return { href: legacy, firstRun: null };
   }
 
-  const provisioned =
-    primedProvision ?? (await client.provisionDefaultTaskChannels());
-  primedProvision = null;
+  const provisioned = await consumePrimedProvision(client);
   const general = provisioned.channels.find((channel) =>
     isGeneralChannel(channel),
   );

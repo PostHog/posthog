@@ -90,9 +90,14 @@ export function OnboardingFlow() {
   // landing reads moments later.
   const assignRepoToSpaces = async (): Promise<void> => {
     if (!apiClient) return;
-    const provisioned = await apiClient.provisionDefaultTaskChannels();
+    // Prime the in-flight promise before the first await so startup consumes
+    // this result instead of provisioning again and reading false created
+    // flags. This runs synchronously before completeOnboarding mounts the main
+    // app, which is what wins the race against startup's own provisioning.
+    const provisionPromise = apiClient.provisionDefaultTaskChannels();
+    primeStartupProvision(provisionPromise);
+    const provisioned = await provisionPromise;
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
-    primeStartupProvision(provisioned);
     // Cloud-only hosts keep the picked GitHub repo in selectedDirectory (they
     // never set selectedCloudRepo). On local-workspace hosts selectedDirectory
     // can be a filesystem path, so only the explicit cloud pick is a valid
