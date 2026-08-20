@@ -12,6 +12,10 @@ describe("loadWatchdogConfig", () => {
     expect(config.heapSnapshots).toBe(false);
   });
 
+  it("keeps only the last three reports by default", () => {
+    expect(loadWatchdogConfig({}, 16 * GB).config.maxReports).toBe(3);
+  });
+
   it.each([
     ["scales to half of system memory", 32 * GB, 16 * GB],
     ["clamps on very large machines", 512 * GB, 24 * GB],

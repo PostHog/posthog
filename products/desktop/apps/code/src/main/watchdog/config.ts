@@ -22,7 +22,10 @@ export interface WatchdogConfig {
   cooldownMs: number;
   /** Samples kept in memory, and copied into each report. */
   ringSize: number;
-  /** Report directories kept on disk before the oldest are pruned. */
+  /**
+   * Report directories kept on disk before the oldest are pruned. Deliberately
+   * small: these sit in the log folder and can hold heap snapshots.
+   */
   maxReports: number;
   /**
    * Whether to write V8 heap snapshots. Off by default: a snapshot is roughly
@@ -110,7 +113,7 @@ export function loadWatchdogConfig(
         24 * 60 * 60_000,
       ),
       ringSize: readInt("POSTHOG_CODE_WATCHDOG_RING_SIZE", 120, 10, 5_000),
-      maxReports: readInt("POSTHOG_CODE_WATCHDOG_MAX_REPORTS", 10, 1, 200),
+      maxReports: readInt("POSTHOG_CODE_WATCHDOG_MAX_REPORTS", 3, 1, 200),
       heapSnapshots: readFlag("POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS", env),
       breadcrumbMaxBytes:
         readInt("POSTHOG_CODE_WATCHDOG_BREADCRUMB_MB", 16, 1, 1024) * MB,

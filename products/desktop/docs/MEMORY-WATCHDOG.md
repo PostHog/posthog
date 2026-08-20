@@ -16,8 +16,10 @@ keyed by pid.
 
 ## What it captures
 
-A report directory under
-`<userData>/diagnostics/reports/<timestamp>-<trigger>/` containing:
+Reports live next to `main.log` and `network.log`, in `~/.posthog-code/logs`
+(`logs-dev` for a dev build), so collecting logs collects them too.
+
+A report directory under `<logs>/reports/<timestamp>-<trigger>/` containing:
 
 - `report.json` — the triggering sample, the samples leading up to it, V8 heap
   statistics, and app/config metadata
@@ -41,9 +43,9 @@ Triggers:
 Nothing runs on `SIGKILL`, which is what a force quit and the OOM killer send.
 Two mechanisms cover that gap:
 
-1. **Breadcrumbs.** A trimmed sample is appended to
-   `<userData>/diagnostics/breadcrumbs.jsonl` on every tick, so the run-up to a
-   hard kill is already on disk when it happens.
+1. **Breadcrumbs.** A trimmed sample is appended to `<logs>/breadcrumbs.jsonl`
+   on every tick, so the run-up to a hard kill is already on disk when it
+   happens.
 2. **Session sentinel.** A file is written at startup and removed on a clean
    quit. If it is still there on the next launch, the previous session died
    without warning, and its breadcrumbs are promoted into an `unclean-shutdown`
@@ -63,7 +65,7 @@ All optional, all environment variables:
 | `POSTHOG_CODE_WATCHDOG_INTERVAL_MS`     | `15000`                                | Sample interval                              |
 | `POSTHOG_CODE_WATCHDOG_SUSTAINED_SAMPLES` | `3`                                  | Consecutive breaches before capturing        |
 | `POSTHOG_CODE_WATCHDOG_COOLDOWN_MS`     | `600000`                               | One report per plateau, not one per sample   |
-| `POSTHOG_CODE_WATCHDOG_MAX_REPORTS`     | `10`                                   | Older report directories are pruned          |
+| `POSTHOG_CODE_WATCHDOG_MAX_REPORTS`     | `3`                                    | Older report directories are pruned          |
 | `POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS`  | unset (off)                            | See below                                    |
 | `POSTHOG_CODE_WATCHDOG_BREADCRUMB_MB`   | `16`                                   | Breadcrumb log size before rotation          |
 

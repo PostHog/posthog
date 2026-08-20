@@ -203,7 +203,9 @@ function crashDiagnostics() {
 // Constructed at module scope so the crash handlers below can reach it — they
 // fire before `whenReady` resolves during an early-boot crash.
 const memoryWatchdog = new MemoryWatchdog({
-  diagnosticsDirectory: path.join(app.getPath("userData"), "diagnostics"),
+  // Alongside main.log and network.log, so a user grabbing their logs picks up
+  // the memory reports in the same folder.
+  diagnosticsDirectory: path.dirname(getLogFilePath()),
   getAppMetrics: () => app.getAppMetrics(),
   logger: log.scope("memory-watchdog"),
   appInfo: () => ({
