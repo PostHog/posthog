@@ -751,6 +751,7 @@ the row lists both.
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| xero                             | HTTP                        | requests                                                        | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
 | yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
@@ -1453,7 +1454,6 @@ doesn't conflict with concurrent PRs.
 - workflowmax
 - workramp
 - wufoo
-- xero
 - xsolla
 - yahoo_finance
 - yandex_metrica

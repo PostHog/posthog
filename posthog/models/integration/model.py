@@ -168,6 +168,7 @@ class Integration(models.Model):
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"
+        XERO = "xero"
         YOUTUBE_ANALYTICS = "youtube-analytics"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)

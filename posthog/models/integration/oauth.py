@@ -255,6 +255,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        "xero",
     ]
     integration: model.Integration
 
@@ -739,6 +740,33 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind == "xero":
+            if not settings.XERO_APP_CLIENT_ID or not settings.XERO_APP_CLIENT_SECRET:
+                raise NotImplementedError("Xero app not configured")
+
+            # Xero only issues a refresh token when `offline_access` is requested, and its access
+            # tokens live 30 minutes, so the periodic refresh sweep does the renewing. The read
+            # scopes cover the Accounting API resources the warehouse source syncs; Journals has
+            # its own scope. The token response carries no organisation, so the id/name come from
+            # GET /connections (a list) — see the xero branch in integration_from_oauth_response.
+            return OauthConfig(
+                authorize_url="https://login.xero.com/identity/connect/authorize",
+                token_url="https://identity.xero.com/connect/token",
+                token_info_url="https://api.xero.com/connections",
+                token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
+                client_id=settings.XERO_APP_CLIENT_ID,
+                client_secret=settings.XERO_APP_CLIENT_SECRET,
+                scope=(
+                    "offline_access accounting.transactions.read accounting.contacts.read "
+                    "accounting.settings.read accounting.journals.read"
+                ),
+                # Xero's identity server accepts (and validates) PKCE on the authorization code
+                # flow, so bind the grant to the browser session that started consent rather than
+                # relying on the redirect alone — these tokens read a whole accounting ledger.
+                pkce=True,
+                id_path="xero_tenant_id",
+                name_path="xero_tenant_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -1008,6 +1036,22 @@ class OauthIntegration:
                         raise ValidationError(
                             "No accessible Jira sites found. Please ensure your Atlassian account has access to at least one Jira site."
                         )
+                # Xero returns the list of organisations the login connected, and every Accounting
+                # API call has to name one. The first organisation labels the integration; the
+                # source lets the user pick which one to sync from the live list.
+                elif kind == "xero" and isinstance(data, list):
+                    organisations = [
+                        connection
+                        for connection in data
+                        if connection.get("tenantType", "ORGANISATION") == "ORGANISATION" and connection.get("tenantId")
+                    ]
+                    if not organisations:
+                        logger.error("Xero OAuth returned no connected organisations", kind=kind)
+                        raise ValidationError(
+                            "No Xero organizations are connected. Please authorize at least one organization."
+                        )
+                    config["xero_tenant_id"] = organisations[0]["tenantId"]
+                    config["xero_tenant_name"] = organisations[0].get("tenantName") or organisations[0]["tenantId"]
                 elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = common.dot_get(data, field)

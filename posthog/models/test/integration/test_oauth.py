@@ -1582,3 +1582,117 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(XERO_APP_CLIENT_ID="xero-client-id", XERO_APP_CLIENT_SECRET="xero-client-secret")
+class TestXeroIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("xero")
+        assert config.authorize_url == "https://login.xero.com/identity/connect/authorize"
+        assert config.token_url == "https://identity.xero.com/connect/token"
+        assert config.token_info_url == "https://api.xero.com/connections"
+        assert config.client_id == "xero-client-id"
+        assert config.client_secret == "xero-client-secret"
+        # Xero only issues a refresh token when offline_access is granted.
+        assert "offline_access" in config.scope.split()
+        assert config.pkce is True
+        assert config.id_path == "xero_tenant_id"
+
+    def test_authorize_url_binds_the_grant_with_pkce(self):
+        url = OauthIntegration.authorize_url("xero", token="xero_state_token", next="/projects/test")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+        assert params["code_challenge_method"] == "S256"
+        verifier = cache.get("oauth_pkce_verifier/xero_state_token")
+        assert verifier
+        assert (
+            params["code_challenge"]
+            == base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        )
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_sends_the_pkce_verifier(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 1800,
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"id": "conn-1", "tenantId": "tenant-a", "tenantName": "Acme", "tenantType": "ORGANISATION"}
+        ]
+
+        # authorize_url caches the verifier; the exchange must send that exact value and consume it.
+        url = OauthIntegration.authorize_url("xero", token="xero_exchange_token", next="/projects/test")
+        challenge = parse_qs(url.partition("?")[2])["code_challenge"][0]
+        verifier = cache.get("oauth_pkce_verifier/xero_exchange_token")
+
+        OauthIntegration.integration_from_oauth_response(
+            "xero",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "next=%2Fprojects%2Ftest&token=xero_exchange_token"},
+        )
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["code_verifier"] == verifier
+        assert (
+            base64.urlsafe_b64encode(hashlib.sha256(sent["code_verifier"].encode()).digest()).rstrip(b"=").decode()
+            == challenge
+        )
+        assert cache.get("oauth_pkce_verifier/xero_exchange_token") is None
+
+    @override_settings(XERO_APP_CLIENT_ID="", XERO_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Xero app not configured"):
+            OauthIntegration.oauth_config_for_kind("xero")
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_labels_with_the_first_organisation(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 1800,
+        }
+        # The token response carries no organisation, so /connections (a list) supplies it.
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"id": "conn-1", "tenantId": "tenant-a", "tenantName": "Acme", "tenantType": "ORGANISATION"},
+            {"id": "conn-2", "tenantId": "tenant-b", "tenantName": "Beta", "tenantType": "ORGANISATION"},
+        ]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "xero",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.kind == "xero"
+        assert integration.integration_id == "tenant-a"
+        assert integration.config["xero_tenant_name"] == "Acme"
+        assert integration.sensitive_config["access_token"] == "at_1"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_without_an_organisation_raises(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1", "expires_in": 1800}
+        # A login that only reaches a practice tenant can't be used with the Accounting API.
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"id": "conn-1", "tenantId": "practice-1", "tenantName": "Practice", "tenantType": "PRACTICE"}
+        ]
+
+        with pytest.raises(ValidationError, match="No Xero organizations are connected"):
+            OauthIntegration.integration_from_oauth_response(
+                "xero",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )

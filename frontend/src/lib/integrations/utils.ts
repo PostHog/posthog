@@ -40,6 +40,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
+import IconXero from 'public/services/xero.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
 
 /**
@@ -108,6 +109,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    xero: IconXero,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
