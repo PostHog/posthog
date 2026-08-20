@@ -516,6 +516,17 @@ def is_dependency_manifest(path: str) -> bool:
     return _ecosystem_for_manifest(Path(path).name.lower()) is not None
 
 
+def manifest_basenames(paths: list[str]) -> list[str]:
+    """Deduplicated basenames of matched manifest paths, for prompt and gate text.
+
+    Every path here matched a fixed manifest name to get into the list, so the
+    basenames are a closed vocabulary; the directory part is author-chosen and
+    must not reach the trusted prompt block. Full paths stay in the untrusted
+    changed-files list.
+    """
+    return sorted({Path(p).name for p in paths})
+
+
 def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     """Manifest files changed without their own ecosystem's lockfile.
 
