@@ -53,9 +53,14 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     session.headers = {}
     snapshots: list[dict[str, Any]] = []
 
-    def _prepare(request: Any) -> mock.MagicMock:
+    def _prepare(request: Any) -> Any:
         snapshots.append({"url": request.url, "params": request.params, "auth": request.auth})
-        return mock.MagicMock()
+        # Return the request itself rather than a bare MagicMock: RESTClient now checks
+        # `prepared.url` against the allowed-hosts pin before sending (see select_star.py's
+        # `allowed_hosts`), and `urlsplit()` on an unconfigured MagicMock attribute raises
+        # TypeError. A real `Request` carries a real `.url` string, matching the pattern used
+        # by ably/conekta's tests for the same allowed-hosts-pinned client.
+        return request
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
