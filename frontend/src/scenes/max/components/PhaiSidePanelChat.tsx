@@ -1,5 +1,6 @@
 import { useMountedLogic } from 'kea'
 
+import { OnboardingReplayButton } from 'products/posthog_ai/frontend/api/onboarding'
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { phaiSidePanelComposerSeedLogic } from '../phaiSidePanelComposerSeedLogic'
@@ -27,7 +28,13 @@ export function PhaiSidePanelChat(): JSX.Element {
         // Taking remaining flex space instead (zero min-content contribution) keeps the panel clamped
         // to the viewport so the thread/history scroll internally as designed.
         <div className="flex flex-col flex-1 min-h-0">
-            <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
+            {/* Temporary migration affordance, to be deleted with the rest of the onboarding takeover
+                once everyone is on the new PostHog AI. Passed from here for the same reason as on `/ai`:
+                the takeover mounts only on the new view, so only the new view offers the button. */}
+            <SidePanelRunner
+                panelId={MAX_SIDE_PANEL_ID}
+                welcomeAction={<OnboardingReplayButton panelId={MAX_SIDE_PANEL_ID} />}
+            />
         </div>
     )
 }
