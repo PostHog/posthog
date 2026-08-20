@@ -23,6 +23,7 @@ from products.business_knowledge.backend.logic import (
     create_text_source,
     get_always_on_context,
     has_maintained_sources,
+    is_maintained_for_team,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
@@ -334,3 +335,12 @@ class TestHasMaintainedSources(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._create_source(live_chunks=50)
         assert has_maintained_sources(other_team.id) is False
+
+    @patch("products.business_knowledge.backend.logic.has_feature_flag", return_value=True)
+    def test_child_team_resolves_to_canonical_parent(self, _flag: object) -> None:
+        # A scout can run against a child environment, but knowledge rows are project-scoped under
+        # the canonical parent — the facade must resolve the child before reading them, or a child
+        # run sees an empty base and drops the section despite a maintained one on the parent.
+        self._create_source(live_chunks=50)  # on self.team, the canonical parent
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        assert is_maintained_for_team(child) is True

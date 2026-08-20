@@ -1694,8 +1694,13 @@ def has_feature_flag(team: Team) -> bool:
 
 
 def is_available_for_team(team: Team) -> bool:
-    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
-    return has_feature_flag(team) and has_ready_sources(team.id)
+    """Feature flag + ready sources — the full "should agents use BK?" predicate.
+
+    Accepts a child-environment team: knowledge rows are project-scoped under the canonical
+    parent, and `has_ready_sources` is `canonical=True` (it does not resolve the parent itself),
+    so a child id is resolved here. The flag is org-keyed, and a child shares its parent's org.
+    """
+    return has_feature_flag(team) and has_ready_sources(team.parent_team_id or team.id)
 
 
 def is_maintained_for_team(team: Team) -> bool:
@@ -1705,8 +1710,12 @@ def is_maintained_for_team(team: Team) -> bool:
     it can serve a search (availability); a prompt section decides whether every run on this
     project should carry a description of the knowledge base (upkeep, per
     `has_maintained_sources`). Reach for availability when the caller only searches on demand.
+
+    Like `is_available_for_team`, resolves a child-environment team to its canonical parent
+    before reading the (canonical-scoped) source rows — the scout runner passes the run's team,
+    which may be a child env.
     """
-    return has_feature_flag(team) and has_maintained_sources(team.id)
+    return has_feature_flag(team) and has_maintained_sources(team.parent_team_id or team.id)
 
 
 _SEARCH_LIMIT_CAP = 20
