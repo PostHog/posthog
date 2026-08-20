@@ -678,62 +678,6 @@ class TestResourceAccessControlsViaProjectId(BaseAccessControlTest):
         assert res.status_code == status.HTTP_204_NO_CONTENT
         assert not AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=None).exists()
 
-    def test_llm_analytics_rule_keeps_untouched_evaluation_compatibility_rule_in_sync(self):
-        self._org_membership(OrganizationMembership.Level.ADMIN)
-        url = self._project_url("resource_access_controls")
-
-        create_response = self.client.put(url, {"resource": "llm_analytics", "access_level": "viewer"})
-        assert create_response.status_code == status.HTTP_200_OK, create_response.json()
-        evaluation_rule = AccessControl.objects.get(
-            team=self.team,
-            resource="evaluation",
-            resource_id=None,
-            organization_member=None,
-            role=None,
-        )
-        assert evaluation_rule.access_level == "viewer"
-
-        update_response = self.client.put(url, {"resource": "llm_analytics", "access_level": "editor"})
-        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
-        evaluation_rule.refresh_from_db()
-        assert evaluation_rule.access_level == "editor"
-
-        delete_response = self.client.put(url, {"resource": "llm_analytics", "access_level": None})
-        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
-        assert not AccessControl.objects.filter(
-            team=self.team,
-            resource="evaluation",
-            resource_id=None,
-            organization_member=None,
-            role=None,
-        ).exists()
-
-    def test_llm_analytics_rule_does_not_overwrite_independent_evaluation_rule(self):
-        self._org_membership(OrganizationMembership.Level.ADMIN)
-        url = self._project_url("resource_access_controls")
-        AccessControl.objects.create(
-            team=self.team,
-            resource="evaluation",
-            resource_id=None,
-            access_level="none",
-            organization_member=None,
-            role=None,
-        )
-
-        response = self.client.put(url, {"resource": "llm_analytics", "access_level": "viewer"})
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (
-            AccessControl.objects.get(
-                team=self.team,
-                resource="evaluation",
-                resource_id=None,
-                organization_member=None,
-                role=None,
-            ).access_level
-            == "none"
-        )
-
 
 class TestUsersWithAccessAPI(BaseAccessControlTest):
     """Test the new users_with_access endpoint"""

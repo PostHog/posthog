@@ -2,7 +2,6 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db import transaction
 from django.db.models import Model
 
 from rest_framework import exceptions, serializers, status
@@ -31,11 +30,6 @@ from posthog.rbac.user_access_control import (
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
-
-# These resources were split out of llm_analytics after customers had already configured
-# resource-wide access there. Keep untouched compatibility copies in sync, while allowing an
-# explicitly different child rule to remain independent.
-LLM_ANALYTICS_COMPATIBILITY_RESOURCES = ("evaluation",)
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -277,83 +271,22 @@ def upsert_access_control(
         role=params.get("role"),
     ).first()
 
-    old_access_level = instance.access_level if instance else None
-
-    with transaction.atomic():
-        if params["access_level"] is None:
-            if instance:
-                instance.delete()
-                _sync_llm_analytics_compatibility_rule(
-                    team=team,
-                    params=params,
-                    old_access_level=old_access_level,
-                    new_access_level=None,
-                )
-                # Drop the preloaded access-control snapshot so later reads this request are fresh.
-                user_access_control._clear_cache()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
+    if params["access_level"] is None:
         if instance:
-            serializer = build_serializer(instance)
-            serializer.is_valid(raise_exception=True)
-        serializer.validated_data["team"] = team
-        saved_instance = serializer.save()
-        _sync_llm_analytics_compatibility_rule(
-            team=team,
-            params=params,
-            old_access_level=old_access_level,
-            new_access_level=saved_instance.access_level,
-        )
+            instance.delete()
+            # Drop the preloaded access-control snapshot so later reads this request are fresh.
+            user_access_control._clear_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    if instance:
+        serializer = build_serializer(instance)
+        serializer.is_valid(raise_exception=True)
+    serializer.validated_data["team"] = team
+    serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
     return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-def _sync_llm_analytics_compatibility_rule(
-    *,
-    team: Team,
-    params: dict[str, Any],
-    old_access_level: str | None,
-    new_access_level: str | None,
-) -> None:
-    if params["resource"] != "llm_analytics" or params.get("resource_id") is not None:
-        return
-
-    subject = {
-        "organization_member": params.get("organization_member"),
-        "role": params.get("role"),
-    }
-    for resource in LLM_ANALYTICS_COMPATIBILITY_RESOURCES:
-        compatibility_rule = AccessControl.objects.filter(
-            team=team,
-            resource=resource,
-            resource_id=None,
-            **subject,
-        ).first()
-
-        # A different value means an admin customized the now-independent resource. Never
-        # overwrite that explicit choice. Equal values are the untouched compatibility copy.
-        if compatibility_rule and compatibility_rule.access_level != old_access_level:
-            continue
-
-        if new_access_level is None:
-            if compatibility_rule:
-                compatibility_rule.delete()
-            continue
-
-        if compatibility_rule:
-            compatibility_rule.access_level = new_access_level
-            compatibility_rule.save(update_fields=["access_level", "updated_at"])
-        else:
-            AccessControl.objects.create(
-                team=team,
-                resource=resource,
-                resource_id=None,
-                access_level=new_access_level,
-                created_by=params.get("created_by"),
-                **subject,
-            )
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
