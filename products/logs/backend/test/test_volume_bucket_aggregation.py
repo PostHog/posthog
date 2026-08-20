@@ -12,7 +12,6 @@ from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV
 from products.logs.backend.temporal.volume_tick.aggregation import (
     _ENVIRONMENT_KEYS,
     _NAMESPACE_KEYS,
-    _SERVICE_FALLBACK_KEYS,
     RollupPreview,
     _rollup_parameters,
     _rollup_sql,
@@ -184,21 +183,6 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([row[3] for row in self._rollup()], [expected])
 
-    @parameterized.expand(
-        [
-            ("column_wins", "checkout", {"k8s.deployment.name": "deploy"}, "checkout"),
-            ("deployment", "", {"k8s.deployment.name": "deploy", "k8s.container.name": "ctr"}, "deploy"),
-            ("container", "", {"k8s.container.name": "ctr"}, "ctr"),
-            ("absent", "", {}, ""),
-        ]
-    )
-    def test_service_name_falls_back_through_the_key_chain(
-        self, _name: str, service: str, resource_attributes: dict[str, str], expected: str
-    ) -> None:
-        self._insert_logs([self._log(_START, service=service, resource_attributes=resource_attributes)])
-
-        self.assertEqual([row[2] for row in self._rollup()], [expected])
-
     def test_severity_casing_merges_into_one_series(self) -> None:
         self._insert_logs([self._log(_START, severity="ERROR"), self._log(_START, severity="error")])
 
@@ -230,6 +214,6 @@ def test_mv_matches_the_detector_grid_and_dimension_keys() -> None:
 
     assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
     assert "lower(severity_text)" in sql
-    for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS, _SERVICE_FALLBACK_KEYS):
+    for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS):
         first_seen = [sql.index(f"'{key}'") for key in chain]
         assert first_seen == sorted(first_seen)
