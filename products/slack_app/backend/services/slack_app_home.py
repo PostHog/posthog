@@ -34,7 +34,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
-from products.slack_app.backend.services.integration_resolver import load_integrations
+from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
@@ -1527,7 +1527,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         effective=effective,
         user_row=user_row,
         is_admin=is_admin,
-        run_defaults=_resolve_run_defaults_state(integration, slack_user_id),
+        run_defaults=_resolve_run_defaults_state(integration, slack_user_id, accessible=accessible),
         account_state=account_state,
         github_state=github_state,
         project_state=project_state,
@@ -1915,7 +1915,7 @@ def _republish_home(
         effective=effective,
         user_row=user_row,
         is_admin=is_admin,
-        run_defaults=_resolve_run_defaults_state(integration, slack_user_id),
+        run_defaults=_resolve_run_defaults_state(integration, slack_user_id, accessible=accessible),
         account_state=account_state,
         github_state=github_state,
         project_state=project_state,
@@ -2103,23 +2103,44 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     return when.strftime("%b %d")
 
 
-def _resolve_run_defaults_state(integration: Integration, slack_user_id: str) -> RunDefaultsState:
+def _resolve_run_defaults_state(
+    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+) -> RunDefaultsState:
     """The PostHog default this person's Slack runs fall back to, plus where to change it.
 
     Resolves the viewer through the same cascade the run path uses (`_resolve_home_user`),
     so an unlinked but email-matched identity reflects its own personal default rather than
     dropping to the project rung, matching the model a mention of theirs would actually run.
+
+    Routed and access-filtered like a run, too: the card reads the default for the
+    project this person's mentions would actually launch in — their saved project
+    default, else the workspace's, else the oldest install, all within `accessible`.
+    Reading `integration.team_id` directly both exposed a project the viewer may not
+    reach and described a default their runs would not use.
     """
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
         ai_run_defaults,
     )
 
+    try:
+        target = resolve_from_candidates(
+            accessible,
+            slack_team_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        ).resolved_or_first()
+    except Exception:
+        logger.exception("slack_app_home_run_defaults_routing_failed", slack_user_id=slack_user_id)
+        target = None
+    if target is None:
+        # No reachable project: nothing to describe and no settings page to offer.
+        return RunDefaultsState()
+
     site_url = (settings.SITE_URL or "").rstrip("/")
-    settings_url = f"{site_url}/project/{integration.team_id}/settings/environment-task-agents" if site_url else None
+    settings_url = f"{site_url}/project/{target.team_id}/settings/environment-task-agents" if site_url else None
 
     try:
         home_user = _resolve_home_user(integration, slack_user_id)
-        resolved = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, home_user.id if home_user else None)
+        resolved = ai_run_defaults.resolve_ai_run_defaults(target.team_id, home_user.id if home_user else None)
     except Exception:
         # The card is informational; a lookup failure must not cost the whole Home tab.
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
