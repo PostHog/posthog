@@ -5,6 +5,11 @@ from its file while ``__init__.py`` exists, so two files whose walk-up lands on 
 same dotted name are the same module as far as ``sys.modules`` is concerned. pytest
 refuses the second one with ``import file mismatch`` and drops it from the run.
 
+The walk-up is ``_pytest.pathlib.resolve_package_path``: "the last directory upwards
+which still contains an __init__.py". This repo overrides neither ``--import-mode``
+(default ``prepend``) nor ``consider_namespace_packages`` (default false), so that
+naming is what a session here actually does.
+
 Nothing in CI notices: the Core backend lane collects ``posthog``/``ee`` while
 ``products/*`` run under separate turbo lanes, so no single session spans both trees
 and each lane looks green while silently missing files.
@@ -15,6 +20,7 @@ Regenerate the baseline (only to ratchet DOWN, after fixing a collision):
 """
 
 import re
+from fnmatch import fnmatch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -24,7 +30,9 @@ BASELINE = Path(__file__).with_name("pytest_module_collisions_baseline.txt")
 # pytest's default `python_files`; this repo does not override it.
 TEST_FILE_GLOBS = ("test_*.py", "*_test.py")
 
-NEVER_WALK = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"}
+# pytest's `norecursedirs` default, which this repo does not override. Matching it keeps the
+# scan to directories a real session actually descends into.
+NORECURSEDIRS = ("*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}")
 
 
 def _ignored_roots() -> set[Path]:
@@ -49,7 +57,7 @@ def _collect() -> dict[str, list[str]]:
     for path in REPO_ROOT.rglob("*.py"):
         if not any(path.match(glob) for glob in TEST_FILE_GLOBS):
             continue
-        if NEVER_WALK.intersection(path.parts):
+        if any(fnmatch(part, pattern) for part in path.parts for pattern in NORECURSEDIRS):
             continue
         if any(root in path.parents for root in ignored):
             continue
