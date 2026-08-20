@@ -251,6 +251,12 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         run = self._task(internal=True).create_run()
         assert "model" not in run.state
 
+    def test_pi_runtime_task_never_inherits_defaults(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        run = self._task(runtime=Task.Runtime.PI).create_run()
+        assert "model" not in run.state
+        assert "ai_defaults_source" not in run.state
+
     # The composer states the launch mode even when it pins no runtime, deferring the
     # model to the stored default — the mode must then be clamped to whichever
     # runtime's vocabulary the default resolves to, not fail the run downstream.
