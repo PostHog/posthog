@@ -116,6 +116,13 @@ def _uses_v5_engagement(config: SimilarwebEndpointConfig, api_version: str) -> b
     return api_version == API_VERSION_V5 and config.v5_metric is not None
 
 
+@frozen
+class _PreparedRequest:
+    url: str
+    params: dict[str, Any]
+    headers: dict[str, str]
+
+
 def _prepare_request(
     api_key: str,
     api_version: str,
@@ -126,8 +133,8 @@ def _prepare_request(
     start_month: Optional[str],
     end_month: Optional[str],
     offset: Optional[int] = None,
-) -> tuple[str, dict[str, Any], dict[str, str]]:
-    """Build the `(url, params, headers)` for one request, dispatching on the resolved API version.
+) -> _PreparedRequest:
+    """Build the request for one call, dispatching on the resolved API version.
 
     V5 serves the engagement metrics from one `/v5/website-analysis` endpoint with `api-key` header
     auth and a `metrics` selector; every other table — and every table under the legacy pin — keeps
@@ -142,10 +149,11 @@ def _prepare_request(
         if start_month and end_month:
             params["start_date"] = start_month
             params["end_date"] = end_month
-        return f"{BASE_URL}{V5_ENGAGEMENT_PATH}", params, {"api-key": api_key}
+        return _PreparedRequest(url=f"{BASE_URL}{V5_ENGAGEMENT_PATH}", params=params, headers={"api-key": api_key})
 
     url = f"{BASE_URL}{config.path.format(domain=quote(domain, safe=''))}"
-    return url, _build_params(api_key, config, country, granularity, start_month, end_month, offset=offset), {}
+    legacy_params = _build_params(api_key, config, country, granularity, start_month, end_month, offset=offset)
+    return _PreparedRequest(url=url, params=legacy_params, headers={})
 
 
 def _build_params(
@@ -175,15 +183,16 @@ def _build_params(
 
 def _request(
     session: requests.Session,
+    prepared: _PreparedRequest,
     config: SimilarwebEndpointConfig,
     domain: str,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
+    url = prepared.url
     try:
-        response = session.get(url, params=params, headers=headers or None, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(
+            url, params=prepared.params, headers=prepared.headers or None, timeout=REQUEST_TIMEOUT_SECONDS
+        )
     except requests.RequestException as exc:
         # Connection/timeout exceptions carry the prepared URL — including the api_key query param —
         # and str(exc) is persisted as the import's error, so re-raise with the param-free url only.
@@ -341,10 +350,10 @@ def _paginated_rows(
         offset = start_offset if index == start_index else 0
 
         while True:
-            url, params, headers = _prepare_request(
+            prepared = _prepare_request(
                 api_key, api_version, config, domain, country, granularity, start_month, end_month, offset=offset
             )
-            rows = _record_rows(_request(session, config, domain, url, params, headers, logger), config, domain)
+            rows = _record_rows(_request(session, prepared, config, domain, logger), config, domain)
             if rows:
                 yield rows
             if len(rows) < PAGE_LIMIT:
@@ -382,10 +391,8 @@ def _series_chunks(
     """
     rows: list[dict[str, Any]] = []
     for domain in domains:
-        url, params, headers = _prepare_request(
-            api_key, api_version, config, domain, country, granularity, start_month, end_month
-        )
-        body = _request(session, config, domain, url, params, headers, logger)
+        prepared = _prepare_request(api_key, api_version, config, domain, country, granularity, start_month, end_month)
+        body = _request(session, prepared, config, domain, logger)
         if config.name == TRAFFIC_SOURCES:
             rows.extend(_traffic_sources_rows(body, config, domain, country, granularity, logger))
         else:
