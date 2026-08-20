@@ -1368,6 +1368,28 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
 
 
+def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | None = None) -> bool:
+    """Whether this run was meant to carry a human git identity but couldn't.
+
+    True exactly when the run's origin is user-authorable and it still resolved to bot
+    authorship, which happens when the creator had no usable personal GitHub installation
+    at creation time. Runs that are bot-authored by design (signal reports) and runs pinned
+    to a caller-supplied token are excluded: neither would be fixed by anyone connecting
+    their own GitHub.
+
+    Selects the same population `upgrade_run_to_user_authorship` promotes, so a surface can
+    tell someone their pull request went out under the bot's name and know that connecting
+    is what changes it.
+    """
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return False
+    if parse_run_state(state).run_source == RunSource.SIGNAL_REPORT:
+        return False
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return False
+    return not is_caller_token_run(run_id, state)
+
+
 def upgrade_run_to_user_authorship(
     task_run: TaskRun, actor_user: User | None, state: dict[str, Any] | None
 ) -> dict[str, Any] | None:
