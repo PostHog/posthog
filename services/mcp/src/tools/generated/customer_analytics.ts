@@ -1342,6 +1342,9 @@ const featureRequestsAddEvidenceCreate = (): ToolBase<
         if (params.requested_on !== undefined) {
             body['requested_on'] = params.requested_on
         }
+        if (params.image_ids !== undefined) {
+            body['image_ids'] = params.image_ids
+        }
         if (params.expected_version !== undefined) {
             body['expected_version'] = params.expected_version
         }
@@ -1637,6 +1640,9 @@ const featureRequestsUpdateEvidenceCreate = (): ToolBase<
         }
         if (params.requested_on !== undefined) {
             body['requested_on'] = params.requested_on
+        }
+        if (params.image_ids !== undefined) {
+            body['image_ids'] = params.image_ids
         }
         if (params.expected_version !== undefined) {
             body['expected_version'] = params.expected_version

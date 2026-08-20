@@ -7248,6 +7248,16 @@
                   "table": null,
                   "type": "date"
               },
+              "image_ids": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "image_ids",
+                  "id": null,
+                  "name": "image_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
+              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -18060,6 +18070,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "date"
+              },
+              "image_ids": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "image_ids",
+                  "id": null,
+                  "name": "image_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               },
               "created_by_id": {
                   "chain": null,

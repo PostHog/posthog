@@ -9,7 +9,7 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import UploadedMedia, User
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import (
@@ -53,6 +53,7 @@ class _ValidatedEvidence:
     customer_quote: str
     source: str
     source_url: str
+    image_ids: tuple[UUID, ...]
 
 
 def _to_product_area_view(product_area: FeatureRequestProductArea) -> contracts.FeatureRequestProductAreaView:
@@ -74,6 +75,7 @@ def _to_evidence_view(evidence: FeatureRequestEvidence) -> contracts.FeatureRequ
         evidence_source=evidence.source,
         source_url=evidence.source_url,
         requested_on=evidence.requested_on,
+        image_ids=list(evidence.image_ids),
         created_by=evidence.created_by_id,
         updated_by=evidence.updated_by_id,
         created_at=evidence.created_at,
@@ -340,6 +342,7 @@ def _evidence_snapshot(evidence: FeatureRequestEvidence, *, account: Account | N
         "source": evidence.source,
         "source_url": evidence.source_url,
         "requested_on": evidence.requested_on.isoformat() if evidence.requested_on else None,
+        "image_ids": [str(image_id) for image_id in evidence.image_ids],
     }
 
 
@@ -790,18 +793,42 @@ def update_feature_request(
     )
 
 
+def _validate_image_ids(*, team_id: int, image_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+    unique_image_ids = tuple(dict.fromkeys(image_ids))
+    valid_image_ids = set(
+        UploadedMedia.objects.filter(
+            team_id=team_id,
+            id__in=unique_image_ids,
+            content_type__startswith="image/",
+            media_location__isnull=False,
+        ).values_list("id", flat=True)
+    )
+    if len(valid_image_ids) != len(unique_image_ids):
+        raise FeatureRequestValidationError("image_ids", "Select images uploaded to this project.")
+    return unique_image_ids
+
+
 def _validate_evidence(
+    *,
+    team_id: int,
     input: (
         contracts.FeatureRequestEvidenceInput
         | contracts.CreateFeatureRequestEvidenceInput
         | contracts.UpdateFeatureRequestEvidenceInput
     ),
+    current_image_ids: tuple[UUID, ...] = (),
 ) -> _ValidatedEvidence:
     summary = input.summary.strip()
     customer_quote = input.customer_quote.strip()
     source_url = input.source_url.strip()
-    if not summary and not customer_quote and not source_url:
-        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, or source URL.")
+    requested_image_ids = input.image_ids
+    image_ids = (
+        current_image_ids
+        if requested_image_ids is None
+        else _validate_image_ids(team_id=team_id, image_ids=requested_image_ids)
+    )
+    if not summary and not customer_quote and not source_url and not image_ids:
+        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, source URL, or image.")
     if source_url:
         parsed_url = urlparse(source_url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -813,6 +840,7 @@ def _validate_evidence(
         customer_quote=customer_quote,
         source=input.evidence_source,
         source_url=source_url,
+        image_ids=image_ids,
     )
 
 
@@ -895,7 +923,9 @@ def add_feature_request_account(
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
     evidence_input = input.evidence
-    validated_evidence = _validate_evidence(evidence_input) if evidence_input is not None else None
+    validated_evidence = (
+        _validate_evidence(team_id=team_id, input=evidence_input) if evidence_input is not None else None
+    )
     with transaction.atomic():
         feature_request = _get_accessible_feature_request_for_update(
             team_id=team_id,
@@ -951,6 +981,7 @@ def add_feature_request_account(
                 source=validated_evidence.source,
                 source_url=validated_evidence.source_url,
                 requested_on=evidence_input.requested_on,
+                image_ids=list(validated_evidence.image_ids),
                 created_by_id=actor_id,
                 updated_by_id=actor_id,
             )
@@ -982,7 +1013,7 @@ def create_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    validated_evidence = _validate_evidence(input)
+    validated_evidence = _validate_evidence(team_id=team_id, input=input)
     with transaction.atomic():
         result = _get_evidence_account_link(
             team_id=team_id,
@@ -1002,6 +1033,7 @@ def create_feature_request_evidence(
             source=validated_evidence.source,
             source_url=validated_evidence.source_url,
             requested_on=input.requested_on,
+            image_ids=list(validated_evidence.image_ids),
             created_by_id=actor_id,
             updated_by_id=actor_id,
         )
@@ -1026,7 +1058,6 @@ def update_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    validated_evidence = _validate_evidence(input)
     with transaction.atomic():
         evidence = (
             FeatureRequestEvidence.objects.for_team(team_id)
@@ -1046,12 +1077,18 @@ def update_feature_request_evidence(
         if result is None:
             return None
         feature_request, account_link = result
+        validated_evidence = _validate_evidence(
+            team_id=team_id,
+            input=input,
+            current_image_ids=tuple(evidence.image_ids),
+        )
         before = _evidence_snapshot(evidence, account=account_link.account)
         evidence.summary = validated_evidence.summary
         evidence.customer_quote = validated_evidence.customer_quote
         evidence.source = validated_evidence.source
         evidence.source_url = validated_evidence.source_url
         evidence.requested_on = input.requested_on
+        evidence.image_ids = list(validated_evidence.image_ids)
         after = _evidence_snapshot(evidence, account=account_link.account)
         if before != after:
             evidence.updated_by_id = actor_id
@@ -1062,6 +1099,7 @@ def update_feature_request_evidence(
                     "source",
                     "source_url",
                     "requested_on",
+                    "image_ids",
                     "updated_by_id",
                     "updated_at",
                 ]

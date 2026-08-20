@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
@@ -153,6 +154,7 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
     source = models.CharField(max_length=200)
     source_url = models.URLField(max_length=2000, blank=True, default="")
     requested_on = models.DateField(null=True, blank=True)
+    image_ids = ArrayField(models.UUIDField(), default=list, blank=True)
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

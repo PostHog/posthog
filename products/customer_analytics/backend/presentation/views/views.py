@@ -427,6 +427,7 @@ class FeatureRequestViewSet(
                 evidence_source=evidence_data["evidence_source"],
                 source_url=evidence_data["source_url"],
                 requested_on=evidence_data["requested_on"],
+                image_ids=tuple(evidence_data.get("image_ids", ())),
             )
             if evidence_data is not None
             else None
@@ -469,6 +470,7 @@ class FeatureRequestViewSet(
                     evidence_source=data["evidence_source"],
                     source_url=data["source_url"],
                     requested_on=data["requested_on"],
+                    image_ids=tuple(data.get("image_ids", ())),
                 ),
                 actor_id=cast(User, request.user).id,
                 user_access_control=self.user_access_control,
@@ -499,6 +501,7 @@ class FeatureRequestViewSet(
                     evidence_source=data["evidence_source"],
                     source_url=data["source_url"],
                     requested_on=data["requested_on"],
+                    image_ids=tuple(data["image_ids"]) if "image_ids" in request.data else None,
                 ),
                 actor_id=cast(User, request.user).id,
                 user_access_control=self.user_access_control,

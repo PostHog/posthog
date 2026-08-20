@@ -121,6 +121,7 @@ const featureRequestStoryItem = {
                     evidence_source: 'conversation',
                     source_url: '',
                     requested_on: '2024-01-08',
+                    image_ids: ['018f47de-7e12-7000-8000-000000000030'],
                     created_by: 1,
                     updated_by: 1,
                     created_at: '2024-01-12T10:00:00Z',
@@ -133,6 +134,7 @@ const featureRequestStoryItem = {
                     evidence_source: 'meeting',
                     source_url: '',
                     requested_on: `2024-01-${String(index + 9).padStart(2, '0')}`,
+                    image_ids: [],
                     created_by: 1,
                     updated_by: 1,
                     created_at: `2024-01-${String(index + 13).padStart(2, '0')}T10:00:00Z`,
@@ -178,6 +180,11 @@ export const FeatureRequests: Story = {
     render: () => {
         useStorybookMocks({
             get: {
+                '/uploaded_media/:id': () =>
+                    new Response(
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" fill="#f0f0eb"/><rect x="80" y="70" width="480" height="220" rx="8" fill="#fff" stroke="#bbb"/><text x="320" y="185" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#444">Retention export preview</text></svg>',
+                        { headers: { 'Content-Type': 'image/svg+xml' } }
+                    ),
                 'api/projects/:team_id/feature_requests/': {
                     count: 1,
                     next: null,

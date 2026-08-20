@@ -37612,6 +37612,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly requested_on: string | null;
+      /** Uploaded image IDs attached to this evidence item, in display order. */
+      readonly image_ids: readonly string[];
       /**
          * ID of the user who added the evidence.
          * @nullable
@@ -37752,6 +37754,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
     }
 
     export interface FeatureRequestAddAccount {
@@ -37802,6 +37806,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37841,6 +37847,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37892,6 +37900,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     /**
@@ -37916,6 +37925,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     export interface FeatureRequestHistoryChange {

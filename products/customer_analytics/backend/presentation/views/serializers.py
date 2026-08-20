@@ -189,6 +189,11 @@ class FeatureRequestEvidenceSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Date the account made the request, or null when unknown.",
     )
+    image_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="Uploaded image IDs attached to this evidence item, in display order.",
+    )
     created_by = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="ID of the user who added the evidence."
     )
@@ -208,6 +213,7 @@ class FeatureRequestEvidenceSerializer(DataclassSerializer):
             "evidence_source",
             "source_url",
             "requested_on",
+            "image_ids",
             "created_by",
             "updated_by",
             "created_at",
@@ -372,6 +378,10 @@ _FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
                 "source": {"type": "string"},
                 "source_url": {"type": "string"},
                 "requested_on": {"type": "string", "format": "date", "nullable": True},
+                "image_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "format": "uuid"},
+                },
             },
         },
     ],
@@ -642,6 +652,11 @@ class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="Date the account made the request, or null when unknown.",
+    )
+    image_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Uploaded image IDs from this project to attach in display order.",
     )
 
 

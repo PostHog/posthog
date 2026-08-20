@@ -972,8 +972,8 @@ tools:
         description: >
             Add evidence to an active account link on a Customer analytics feature request. Pass the request `id`, its
             current `expected_version`, the `account_link_id`, a free-form `evidence_source`, and at least one of
-            `summary`, `customer_quote`, or `source_url`. The response contains the updated request and its next
-            version.
+            `summary`, `customer_quote`, `source_url`, or `image_ids`. Image IDs must refer to uploaded images in the
+            current project. The response contains the updated request and its next version.
         feature_flag: customer-analytics-feature-requests
     feature-requests-archive-create:
         operation: feature_requests_archive_create
@@ -1142,8 +1142,9 @@ tools:
         description: >
             Replace the editable fields of one feature request evidence item. Pass the request `id`, its current
             `expected_version`, the `evidence_id`, a free-form `evidence_source`, and the complete values for `summary`,
-            `customer_quote`, `source_url`, and `requested_on`. The response contains the updated request and its next
-            version.
+            `customer_quote`, `source_url`, and `requested_on`. Pass `image_ids` to replace attached images, or omit it
+            to preserve them. Image IDs must refer to uploaded images in the current project. The response contains the
+            updated request and its next version.
         feature_flag: customer-analytics-feature-requests
     usage-metrics-create:
         operation: groups_types_metrics_create
