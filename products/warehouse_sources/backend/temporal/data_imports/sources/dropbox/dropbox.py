@@ -1,6 +1,5 @@
 import json
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, Optional
@@ -11,6 +10,7 @@ from requests.exceptions import HTTPError
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -54,14 +54,14 @@ class DropboxCursorReset(Exception):
     """The pagination cursor expired or was invalidated by Dropbox."""
 
 
-@dataclasses.dataclass
+@frozen
 class DropboxResumeConfig:
     # The cursor is the whole resume position: Dropbox encodes the listing args (folder path,
     # recursion, audit-log time window) into it server-side.
     cursor: str
 
 
-@dataclasses.dataclass
+@frozen
 class DropboxCredentials:
     # Short-lived access token from the PostHog Dropbox OAuth integration. Renewing it is the
     # integration's job (`OauthIntegration.refresh_access_token` plus the scheduled sweep), not
