@@ -21,6 +21,10 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+# Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
+# runtime, so the effective audience is teams with both this flag and
+# PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
+AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
