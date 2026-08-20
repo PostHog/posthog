@@ -394,14 +394,15 @@ export function TaskArtifactsList({
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
   const completedUploads = useCompletedArtifactUploads(events ?? []);
-  const referenceCount = useSessionSelector(
-    task.id,
-    (session) =>
-      session?.cloudArtifacts?.filter((artifact) =>
-        getPostHogObjectArtifactMetadata(artifact),
-      ).length ?? 0,
+  // Occurrence counts move without changing the entry count when a turn
+  // re-cites an already registered object, so the key sums them too.
+  const referenceRefreshKey = useSessionSelector(task.id, (session) =>
+    (session?.cloudArtifacts ?? []).reduce((sum, artifact) => {
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      return reference ? sum + 1 + reference.occurrence_count : sum;
+    }, 0),
   );
-  const { runs } = useTaskRuns(task.id, completedUploads + referenceCount);
+  const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
   const rows = useMemo(
     () => buildRows(task, timeline, runs),

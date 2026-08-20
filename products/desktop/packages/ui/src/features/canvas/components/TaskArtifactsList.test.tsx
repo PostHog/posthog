@@ -573,7 +573,26 @@ describe("TaskArtifactsList", () => {
 
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
-    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(1);
+    // Entry plus its occurrence count, so an in-place update re-keys too.
+    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(2);
+
+    mocks.sessionArtifacts = [
+      {
+        id: "phref-1",
+        name: "Checkout funnel",
+        type: "reference",
+        source: "posthog_object",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1", "turn-2"],
+          occurrence_count: 2,
+        },
+      },
+    ];
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(3);
   });
 
   it.each([
