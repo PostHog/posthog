@@ -2570,6 +2570,7 @@ class ExternalDataSourceType(StrEnum):
     PROFOUND = "Profound"
     AIRWALLEX = "Airwallex"
     POLYMARKET = "Polymarket"
+    KALSHI = "Kalshi"
 
 
 class ExternalQueryErrorCode(StrEnum):

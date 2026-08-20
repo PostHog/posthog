@@ -114,7 +114,11 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
-from products.feature_flags.backend.session_recording_links import teams_linking_flag
+from products.feature_flags.backend.session_recording_links import (
+    REPLAY_LINKED_FLAG_DELETE_ERROR,
+    replay_linked_flag_ids,
+    teams_linking_flag,
+)
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.feature_flags.backend.version_history import (
@@ -2057,9 +2061,7 @@ class FeatureFlagSerializer(
 
             # Check if flag is used in session replay settings
             if teams_linking_flag(instance).exists():
-                raise exceptions.ValidationError(
-                    "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
-                )
+                raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
             # Append ID to the key when soft-deleting to prevent key conflicts.
@@ -3752,6 +3754,8 @@ class FeatureFlagViewSet(
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
+        replay_linked_ids = replay_linked_flag_ids(self.project_id, [flag.id for flag in flags_list])
+
         deleted = []
         errors = []
 
@@ -3816,6 +3820,18 @@ class FeatureFlagViewSet(
                         "id": flag_id,
                         "key": flag.key,
                         "reason": f"Cannot delete because other flags depend on it: {', '.join(dependent_flag_names)}",
+                    }
+                )
+                continue
+
+            # Deleting a flag a team gates recording on stops that team recording, and the
+            # tombstone rename below fires no signal to relink them.
+            if flag_id in replay_linked_ids:
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": REPLAY_LINKED_FLAG_DELETE_ERROR,
                     }
                 )
                 continue
