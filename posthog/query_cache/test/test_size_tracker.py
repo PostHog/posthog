@@ -286,6 +286,13 @@ class TestGetTeamCacheLimit(BaseTest):
         self.assertEqual(limit, 750_000_000)
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
+    def test_get_team_cache_limit_ignores_malformed_instance_setting(self):
+        # Django admin edits the raw value without type validation
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", "not-a-number"):
+            limit = get_team_cache_limit(self.team.pk)
+        self.assertEqual(limit, 500_000_000)
+
+    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_returns_default_for_nonexistent_team(self):
         limit = get_team_cache_limit(999999)
         self.assertEqual(limit, 500_000_000)

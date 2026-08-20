@@ -146,7 +146,9 @@ def get_team_cache_limit(team_id: int) -> int:
         # Fleet-wide value every writing pool (web, celery, temporal, dagster) must agree on:
         # a pool enforcing a different limit refills what the others evict.
         return int(get_instance_setting("TEAM_CACHE_SIZE_LIMIT_BYTES"))
-    except DatabaseError:
+    except (DatabaseError, TypeError, ValueError):
+        # TypeError/ValueError: Django admin edits the raw value without type validation,
+        # and a malformed setting must not stop cache writes.
         logger.warning("query_cache_limit_setting_lookup_failed", team_id=team_id, exc_info=True)
     return settings.TEAM_CACHE_SIZE_LIMIT_BYTES
 
