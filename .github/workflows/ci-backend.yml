@@ -2470,10 +2470,10 @@ jobs:
                       # of running to the job timeout in one. No counts means one shard per
                       # segment.
                       segment_shards="${SEGMENT_SHARDS:-}"
-                      [[ -z "$segment_shards" ]] && segment_shards='{}'
+                      [[ -z "$segment_shards" ]] && segment_shards='{"core": 1, "poe": 1, "temporal": 1}'
 
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core // 1' <<< "$segment_shards")
+                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core' <<< "$segment_shards")
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2501,7 +2501,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe // 1' <<< "$segment_shards")
+                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2529,7 +2529,7 @@ jobs:
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal // 1' <<< "$segment_shards")
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal' <<< "$segment_shards")
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",

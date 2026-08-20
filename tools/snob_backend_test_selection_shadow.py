@@ -644,15 +644,10 @@ def selected_seconds_by_segment(test_files: list[str], durations: dict[str, floa
     sizing, so a narrowed run gets the same per-shard budget as a full one instead of a
     fixed single shard. POE files count in both core and poe, matching the two matrix
     legs that run them."""
-    test_file_set = set(test_files)
-    totals = {"core": 0.0, "poe": 0.0, "temporal": 0.0}
-    for test_id, duration in durations.items():
-        file_part = test_id.split("::", 1)[0]
-        if file_part not in test_file_set:
-            continue
-        for segment in segments_for_test_file(file_part):
-            totals[segment] += duration
-    return {segment: round(seconds) for segment, seconds in totals.items()}
+    return {
+        segment: round(estimate_duration([f for f in test_files if segment in segments_for_test_file(f)], durations))
+        for segment in ("core", "poe", "temporal")
+    }
 
 
 def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
