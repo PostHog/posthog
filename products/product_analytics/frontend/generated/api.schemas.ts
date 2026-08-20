@@ -3422,6 +3422,8 @@ export interface WebOverviewQueryApi {
 
 export interface ActionsPieApi {
     disableHoverOffset?: boolean | null
+    /** Render the pie with a hollow center (donut). */
+    donut?: boolean | null
     hideAggregation?: boolean | null
 }
 
