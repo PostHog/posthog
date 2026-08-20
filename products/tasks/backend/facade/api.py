@@ -61,6 +61,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
@@ -4122,9 +4123,6 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
-    expected_created_by_id = task.created_by_id
-    expected_ownership_version = task.ownership_version
-
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")
@@ -4240,15 +4238,7 @@ def bootstrap_task_run(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
-        run = task.create_run(
-            environment=environment,
-            mode=mode,
-            branch=branch,
-            extra_state=extra_state,
-            expected_created_by_id=expected_created_by_id,
-            expected_ownership_version=expected_ownership_version,
-            validate_task_ownership=True,
-        )
+        run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
     except TaskOwnershipChangedError:
         return None
 
@@ -5441,6 +5431,8 @@ def handoff_task(
         OAuthRefreshToken.objects.filter(access_token__in=bound_tokens).delete()
         bound_tokens.delete()
 
+        detach_conversations_for_task_handoff(locked.id, target.id)
+
         channel = locked.channel
         if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
             # Never widen: a task in one private space moves to the other private
@@ -6012,8 +6004,6 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
-    expected_created_by_id = task.created_by_id
-    expected_ownership_version = task.ownership_version
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
@@ -6324,14 +6314,7 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     try:
-        task_run = task.create_run(
-            mode=mode,
-            branch=branch,
-            extra_state=extra_state,
-            expected_created_by_id=expected_created_by_id,
-            expected_ownership_version=expected_ownership_version,
-            validate_task_ownership=True,
-        )
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:

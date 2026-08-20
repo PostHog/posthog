@@ -37,6 +37,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -9198,6 +9199,14 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         task = self.create_task(created_by=self.user)
         task.github_user_integration = integration
         task.save()
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+            sandbox_task_id=task.id,
+            sandbox_run_id=uuid.uuid4(),
+        )
 
         response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
@@ -9207,6 +9216,10 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         self.assertEqual(task.created_by_id, recipient.id)
         self.assertIsNone(task.github_user_integration_id)
         self.assertIsInstance((task.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY), str)
+        conversation.refresh_from_db()
+        self.assertIsNone(conversation.task_id)
+        self.assertIsNone(conversation.sandbox_task_id)
+        self.assertIsNone(conversation.sandbox_run_id)
         with team_scope(self.team.id):
             announcement = task.thread_messages.get(event="task_handed_off")
         self.assertEqual(announcement.author_kind, "system")
@@ -9255,6 +9268,14 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         self.assertEqual(recipient_client.get(run_url).status_code, status.HTTP_200_OK)
         self.assertEqual(
             recipient_client.patch(run_url, {"stage": "build"}, format="json").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            recipient_client.post(
+                f"{run_url}living_artifacts/",
+                {"name": "old-run.md", "artifact_type": "document", "content": "old"},
+                format="json",
+            ).status_code,
             status.HTTP_404_NOT_FOUND,
         )
 

@@ -780,15 +780,15 @@ class TestTaskRun(TestCase):
             team=self.team,
             title="Owned task",
             created_by=original_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "old-version"},
+        )
+        Task.objects.filter(id=task.id).update(
+            created_by=new_owner,
             state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-version"},
         )
 
         with self.assertRaises(TaskOwnershipChangedError):
-            task.create_run(
-                expected_created_by_id=new_owner.id,
-                expected_ownership_version="old-version",
-                validate_task_ownership=True,
-            )
+            task.create_run()
 
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
