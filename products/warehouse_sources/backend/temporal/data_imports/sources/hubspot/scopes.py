@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import HUBSPOT_ENDPOINTS
@@ -82,8 +83,14 @@ def missing_scope_for_endpoint(endpoint: str, integration_config: Mapping[str, A
     return None if scope in scopes else scope
 
 
-def scope_gated_object_for_url(url: str) -> tuple[str, str] | None:
-    """(object, scope) when `url` targets a scope-gated object, else None.
+@frozen
+class ScopeGatedObject:
+    endpoint: str
+    scope: str
+
+
+def scope_gated_object_for_url(url: str) -> ScopeGatedObject | None:
+    """The scope-gated object `url` targets, else None.
 
     Matches on a whole path segment so both the object endpoints (`/crm/objects/2026-03/leads`)
     and the property-discovery endpoint (`/crm/properties/2026-03/leads`) resolve, across API
@@ -92,5 +99,5 @@ def scope_gated_object_for_url(url: str) -> tuple[str, str] | None:
     segments = urlsplit(url).path.strip("/").split("/")
     for name, scope in SCOPE_GATED_OBJECTS.items():
         if name in segments:
-            return name, scope
+            return ScopeGatedObject(endpoint=name, scope=scope)
     return None

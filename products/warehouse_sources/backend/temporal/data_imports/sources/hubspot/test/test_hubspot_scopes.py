@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import (
     HubspotForbiddenError,
     HubspotMissingScopeError,
+    ScopeGatedObject,
     missing_scope_for_endpoint,
     missing_scope_message,
     scope_gated_object_for_url,
@@ -63,19 +64,22 @@ class TestMissingScopeForEndpoint:
         assert missing_scope_for_endpoint("deals", {"scopes": []}) is None
 
 
+_GATED_LEADS = ScopeGatedObject(endpoint="leads", scope=LEADS_SCOPE)
+
+
 class TestScopeGatedObjectForUrl:
     @parameterized.expand(
         [
-            ("properties_v3", "https://api.hubapi.com/crm/v3/properties/leads", ("leads", LEADS_SCOPE)),
-            ("properties_dated", "https://api.hubapi.com/crm/properties/2026-03/leads", ("leads", LEADS_SCOPE)),
-            ("objects_dated", "https://api.hubapi.com/crm/objects/2026-03/leads?limit=100", ("leads", LEADS_SCOPE)),
-            ("search", "https://api.hubapi.com/crm/v3/objects/leads/search", ("leads", LEADS_SCOPE)),
+            ("properties_v3", "https://api.hubapi.com/crm/v3/properties/leads", _GATED_LEADS),
+            ("properties_dated", "https://api.hubapi.com/crm/properties/2026-03/leads", _GATED_LEADS),
+            ("objects_dated", "https://api.hubapi.com/crm/objects/2026-03/leads?limit=100", _GATED_LEADS),
+            ("search", "https://api.hubapi.com/crm/v3/objects/leads/search", _GATED_LEADS),
             ("other_object", "https://api.hubapi.com/crm/v3/properties/deals", None),
             # "leads" only counts as a whole path segment, not as part of another object's name.
             ("substring_only", "https://api.hubapi.com/crm/v3/objects/leadsources", None),
         ]
     )
-    def test_url_attribution(self, _name: str, url: str, expected: tuple[str, str] | None) -> None:
+    def test_url_attribution(self, _name: str, url: str, expected: ScopeGatedObject | None) -> None:
         assert scope_gated_object_for_url(url) == expected
 
 

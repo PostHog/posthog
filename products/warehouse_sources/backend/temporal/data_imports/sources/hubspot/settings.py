@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 STARTDATE = datetime(year=2000, month=1, day=1)
@@ -252,7 +254,7 @@ def _incremental_field(name: str) -> IncrementalField:
     )
 
 
-@dataclass
+@frozen
 class HubspotEndpointConfig:
     name: str
     path: str

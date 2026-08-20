@@ -50,7 +50,7 @@ def raise_for_hubspot_status(response: requests.Response, url: str) -> None:
     if response.status_code == HTTPStatus.FORBIDDEN:
         gated = scope_gated_object_for_url(url)
         if gated is not None:
-            raise missing_scope_error(*gated)
+            raise missing_scope_error(gated.endpoint, gated.scope)
         # Keep requests' own wording: `get_non_retryable_errors` matches on it.
         raise HubspotForbiddenError(f"403 Client Error: Forbidden for url: {url}")
 
