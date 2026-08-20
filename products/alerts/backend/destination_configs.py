@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
+from urllib.parse import urlsplit
 
 from django.db import models
 
@@ -29,6 +30,25 @@ DESTINATION_REQUIRED_FIELDS: dict[DestinationType, tuple[str, ...]] = {
     DestinationType.WEBHOOK: ("webhook_url",),
     DestinationType.TEAMS: ("webhook_url",),
 }
+
+# A webhook URL's path is the channel credential (Slack/Discord/Teams webhook secret), and
+# alert-owned rows are readable through the generic hog function API. These inputs are
+# therefore stored secret (encrypted at rest, masked on read), unlike the same inputs on
+# user-created destinations, which stay editable in the destination form.
+DESTINATION_SECRET_INPUT_KEYS: dict[DestinationType, tuple[str, ...]] = {
+    DestinationType.SLACK: (),
+    DestinationType.DISCORD: ("webhookUrl",),
+    DestinationType.WEBHOOK: ("url",),
+    DestinationType.TEAMS: ("webhookUrl",),
+}
+
+
+def webhook_url_host(url: str) -> str:
+    # hostname, not the raw authority: it drops any user:password@ prefix.
+    try:
+        return urlsplit(url).hostname or "destination"
+    except ValueError:
+        return "destination"
 
 
 class AlertDestinationData(TypedDict):
@@ -196,7 +216,7 @@ def build_alert_destination_config(
             "channel": {"value": data["slack_channel_id"]},
         }
     elif destination_type == DestinationType.WEBHOOK:
-        destination_name = f"Webhook {data['webhook_url']}"
+        destination_name = f"Webhook {webhook_url_host(data['webhook_url'])}"
         inputs = {
             "body": {"value": spec.webhook_body},
             "url": {"value": data["webhook_url"]},

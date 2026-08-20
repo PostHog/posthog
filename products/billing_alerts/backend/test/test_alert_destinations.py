@@ -3,6 +3,7 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
@@ -65,15 +66,18 @@ class TestBillingAlertDestinations(APIBaseTest):
         )
 
     def _sync_webhook_template(self) -> None:
+        self._sync_template("template-webhook", [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}])
+
+    def _sync_template(self, template_id: str, inputs_schema: list[dict]) -> None:
         HogFunctionTemplate.objects.get_or_create(
-            template_id="template-webhook",
+            template_id=template_id,
             defaults={
                 "sha": "1.0.0",
                 "name": "Webhook",
                 "description": "Generic webhook template",
                 "code": "return event",
                 "code_language": "hog",
-                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "inputs_schema": inputs_schema,
                 "type": "destination",
                 "status": "stable",
                 "category": ["Integrations"],
@@ -114,6 +118,44 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert alert_response.json()["destinations"] == [
             {"type": "webhook", "hog_function_ids": sorted(hog_function_ids)}
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "webhook",
+                "template-webhook",
+                "url",
+                [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "https://hooks.example.com/T123/secret-path",
+            ),
+            (
+                "teams",
+                "template-microsoft-teams",
+                "webhookUrl",
+                [{"key": "webhookUrl", "type": "string"}, {"key": "text", "type": "string"}],
+                "https://example.webhook.office.com/webhookb2/secret-path/IncomingWebhook/abc/def",
+            ),
+        ]
+    )
+    def test_created_destination_stores_webhook_url_as_secret_input(
+        self, destination_type: str, template_id: str, url_key: str, inputs_schema: list[dict], webhook_url: str
+    ) -> None:
+        self._sync_template(template_id, inputs_schema)
+        alert = self._alert()
+
+        response = self.client.post(
+            f"{self.url}{alert.id}/destinations/",
+            {"type": destination_type, "webhook_url": webhook_url},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        for hog_function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"]):
+            assert url_key not in (hog_function.inputs or {})
+            assert (hog_function.encrypted_inputs or {})[url_key]["value"] == webhook_url
+            assert "secret-path" not in hog_function.name
+            schema_by_key = {schema["key"]: schema for schema in hog_function.inputs_schema}
+            assert schema_by_key[url_key]["secret"] is True
 
     def test_configuration_and_destination_changes_commit_atomically(self) -> None:
         self._sync_webhook_template()

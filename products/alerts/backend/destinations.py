@@ -22,8 +22,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
+from products.alerts.backend.destination_configs import (
+    DESTINATION_SECRET_INPUT_KEYS,
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationConfig,
+    DestinationType,
+)
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -79,14 +85,39 @@ def _active_alert_destinations_qs(
     )
 
 
+def _secret_inputs_schema(template_id: str | None) -> list[dict[str, Any]] | None:
+    """The template's inputs schema with credential-bearing inputs flipped to secret, or None
+    when the template has none. Passing this on the create payload overrides the template
+    default, so the URL lands in encrypted inputs instead of the readable inputs field."""
+    if not template_id:
+        return None
+    destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id)
+    if destination_type_value is None:
+        return None
+    secret_keys = DESTINATION_SECRET_INPUT_KEYS.get(DestinationType(destination_type_value), ())
+    if not secret_keys:
+        return None
+    template = HogFunctionTemplate.get_template(template_id)
+    if template is None or not template.inputs_schema:
+        return None
+    return [
+        {**schema, "secret": True} if schema.get("key") in secret_keys else dict(schema)
+        for schema in template.inputs_schema
+    ]
+
+
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
     created: list[HogFunction] = []
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
     with transaction.atomic():
         for config in configs:
             team = config.team
+            payload = config.payload
+            inputs_schema = _secret_inputs_schema(payload.get("template_id"))
+            if inputs_schema is not None:
+                payload = {**payload, "inputs_schema": inputs_schema}
             serializer = HogFunctionSerializer(
-                data=config.payload,
+                data=payload,
                 context={
                     "request": request,
                     "get_team": lambda team=team: team,

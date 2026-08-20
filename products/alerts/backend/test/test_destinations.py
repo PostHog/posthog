@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -319,3 +321,49 @@ class TestSerializeDeliveries(APIBaseTest):
                 "at": "2026-08-11T01:00:00+00:00",
             }
         ]
+
+
+class TestHardenAlertDestinationSecrets(APIBaseTest):
+    def _legacy_row(self, *, event_id: str, name: str) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=name,
+            type="internal_destination",
+            template_id="template-webhook",
+            enabled=True,
+            hog="return event",
+            inputs_schema=[{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+            inputs={"url": {"value": "https://hooks.example.com/T123/secret"}, "body": {"value": {}}},
+            filters={
+                "events": [{"id": event_id, "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "alert-1"}],
+            },
+        )
+
+    def test_backfill_moves_url_to_encrypted_inputs_and_strips_names(self) -> None:
+        managed = self._legacy_row(
+            event_id="$billing_alert_firing",
+            name="Billing alert (firing) → Webhook https://hooks.example.com/T123/secret",
+        )
+        legacy_insight = self._legacy_row(
+            event_id="$insight_alert_firing",
+            name="Webhook https://hooks.example.com/T123/secret",
+        )
+
+        call_command("harden_alert_destination_secrets")
+        managed.refresh_from_db()
+        assert (managed.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert managed.name.endswith("Webhook https://hooks.example.com/T123/secret")
+
+        call_command("harden_alert_destination_secrets", "--live")
+
+        managed.refresh_from_db()
+        assert managed.name == "Billing alert (firing) → Webhook hooks.example.com"
+        assert "url" not in (managed.inputs or {})
+        assert (managed.encrypted_inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert (managed.inputs or {})["body"] == {"value": {}}
+        assert managed.enabled is True
+
+        legacy_insight.refresh_from_db()
+        assert (legacy_insight.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert legacy_insight.name == "Webhook https://hooks.example.com/T123/secret"
