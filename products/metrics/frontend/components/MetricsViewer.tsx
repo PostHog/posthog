@@ -501,6 +501,10 @@ const MetricsGroupByButton = ({ disabledReason }: { disabledReason: string | nul
                 }}
                 disabledReason={disabledReason ?? undefined}
                 data-attr="metrics-viewer-group-by-button"
+                // Attribute keys can be long, so cap the trigger rather than let it push the row wide
+                truncate
+                className="max-w-[16rem]"
+                tooltip={groupByKeys.length > 0 ? groupByKeys.join(', ') : undefined}
             >
                 {label}
             </LemonButton>
