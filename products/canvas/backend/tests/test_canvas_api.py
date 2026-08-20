@@ -1740,6 +1740,33 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.channel_id == self.channel.id
         assert task.title == "Follow up"
 
+    def test_signals_report_create_pr_uses_trusted_canvas_provenance(self):
+        canvas_id = self._actions_canvas(verbs=("signals.report.create_pr",))
+        report_id = uuid4()
+        Canvas.objects.unscoped().filter(id=canvas_id).update(
+            source_product="signal_report",
+            source_resource_id=str(report_id),
+        )
+        task_id = uuid4()
+
+        with patch(
+            "products.signals.backend.facade.api.start_report_implementation_from_canvas",
+            return_value=str(task_id),
+        ) as start:
+            response = self._invoke(canvas_id, "signals.report.create_pr", {})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["result"] == {"task_id": str(task_id)}
+        start.assert_called_once_with(team_id=self.team.id, report_id=str(report_id), user_id=self.user.id)
+
+    def test_signals_report_create_pr_rejects_an_unrelated_canvas(self):
+        canvas_id = self._actions_canvas(verbs=("signals.report.create_pr",))
+
+        response = self._invoke(canvas_id, "signals.report.create_pr", {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "This action is only available on a Signals report canvas."
+
     def test_annotations_create_attributes_the_viewer(self):
         canvas_id = self._actions_canvas()
 

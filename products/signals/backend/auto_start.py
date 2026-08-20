@@ -26,6 +26,7 @@ from products.signals.backend.billing import (
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -424,6 +425,96 @@ def _create_implementation_task_if_absent(
         # best-effort ClickHouse lookup, so it must not run under the lock).
         _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
     return True
+
+
+def start_report_implementation_as_user(*, team_id: int, report_id: str, user_id: int) -> str:
+    """Start or return the report's implementation task as the viewer who requested it."""
+    report = (
+        SignalReport.objects.filter(id=report_id, team_id=team_id)
+        .exclude(status=SignalReport.Status.DELETED)
+        .only("id", "title", "summary")
+        .first()
+    )
+    if report is None:
+        raise ValueError("Signals report not found in this project.")
+    team = Team.objects.select_related("organization").get(id=team_id)
+    if not team.all_users_with_access().filter(id=user_id).exists():
+        raise ValueError("You no longer have access to this project.")
+
+    existing = (
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
+        .exclude(task__deleted=True)
+        .order_by("created_at")
+        .values_list("task_id", flat=True)
+        .first()
+    )
+    if existing is not None:
+        return str(existing)
+
+    repo_artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    try:
+        repo_selection = RepoSelectionResult.model_validate_json(repo_artefact.content) if repo_artefact else None
+    except ValidationError:
+        repo_selection = None
+    if repo_selection is None or not repo_selection.repository:
+        raise ValueError("This report does not have a repository yet. Add one before starting implementation.")
+
+    priority_artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    try:
+        priority = PriorityAssessment.model_validate_json(priority_artefact.content) if priority_artefact else None
+    except ValidationError:
+        priority = None
+    team_config = SignalTeamConfig.objects.filter(team_id=team_id).first()
+    repository = repo_selection.repository
+    created = _create_implementation_task_if_absent(
+        team_id=team_id,
+        report_id=report_id,
+        title=report.title or "Signals report",
+        description=_build_autostart_task_description(
+            report_id=report_id,
+            team_id=team_id,
+            summary=report.summary or "Investigate and address this Signals report.",
+            repository=repository,
+            priority=priority,
+            source_references=_fetch_source_references(team_id, report_id),
+        ),
+        user_id=user_id,
+        repository=repository,
+        base_branch=team_config.base_branch_for(repository) if team_config else None,
+    )
+    task_id = (
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
+        .exclude(task__deleted=True)
+        .order_by("created_at")
+        .values_list("task_id", flat=True)
+        .first()
+    )
+    if task_id is None:
+        outcome = "created" if created else "reused"
+        raise RuntimeError(f"Implementation task was {outcome} but could not be resolved")
+    return str(task_id)
 
 
 def _resolve_autostart_assignee(

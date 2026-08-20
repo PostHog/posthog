@@ -24,6 +24,7 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
     maybe_autostart_implementation_task,
+    start_report_implementation_as_user,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -327,6 +328,95 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
     assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(created_tasks[0].id)]
+
+
+@pytest.mark.django_db
+def test_start_report_implementation_as_user_uses_report_repository_and_viewer(organization, team):
+    Task = apps.get_model("tasks", "Task")
+    user = _create_org_member_with_github("viewer@example.com", organization, "Viewer")
+    report = SignalReport.objects.create(
+        team=team,
+        status=SignalReport.Status.READY,
+        title="Fix checkout",
+        summary="Checkout is failing.",
+        signal_count=1,
+        total_weight=1.0,
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        content='{"repository":"posthog/example","reason":"The evidence points here."}',
+    )
+
+    def _record_task(**kwargs):
+        task = Task.objects.create(
+            team=team,
+            title="Implementation: Fix checkout",
+            description="Implement the report",
+            created_by=user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportTask.objects.create(
+            team=team,
+            report=report,
+            task=task,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
+        return True
+
+    with (
+        patch(
+            "products.signals.backend.auto_start._create_implementation_task_if_absent", side_effect=_record_task
+        ) as create,
+        patch("products.signals.backend.auto_start._fetch_source_references", return_value=[]),
+    ):
+        task_id = start_report_implementation_as_user(
+            team_id=team.id,
+            report_id=str(report.id),
+            user_id=user.id,
+        )
+
+    assert task_id == str(SignalReportTask.objects.get(report=report).task_id)
+    assert create.call_args.kwargs["repository"] == "posthog/example"
+    assert create.call_args.kwargs["user_id"] == user.id
+
+
+@pytest.mark.django_db
+def test_start_report_implementation_as_user_reuses_existing_task(organization, team):
+    Task = apps.get_model("tasks", "Task")
+    user = _create_org_member_with_github("viewer@example.com", organization, "Viewer")
+    report = SignalReport.objects.create(
+        team=team,
+        status=SignalReport.Status.READY,
+        title="Fix checkout",
+        summary="Checkout is failing.",
+        signal_count=1,
+        total_weight=1.0,
+    )
+    task = Task.objects.create(
+        team=team,
+        title="Implementation: Fix checkout",
+        description="Implement the report",
+        created_by=user,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
+    SignalReportTask.objects.create(
+        team=team,
+        report=report,
+        task=task,
+        relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+    )
+
+    with patch("products.signals.backend.auto_start._create_implementation_task_if_absent") as create:
+        task_id = start_report_implementation_as_user(
+            team_id=team.id,
+            report_id=str(report.id),
+            user_id=user.id,
+        )
+
+    assert task_id == str(task.id)
+    create.assert_not_called()
 
 
 @pytest.mark.django_db

@@ -643,3 +643,11 @@ def get_outcomes_for_signal_source_slice(
         pr_count=len(pr_urls),
         merged_pr_count=len(merged_pr_urls),
     )
+
+
+def start_report_implementation_from_canvas(*, team_id: int, report_id: str, user_id: int) -> str:
+    from products.signals.backend.auto_start import (  # noqa: PLC0415 — keep Tasks imports off facade startup
+        start_report_implementation_as_user,
+    )
+
+    return start_report_implementation_as_user(team_id=team_id, report_id=report_id, user_id=user_id)

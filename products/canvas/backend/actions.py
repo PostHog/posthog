@@ -70,6 +70,10 @@ class TaskCreatePayloadSerializer(serializers.Serializer):
     )
 
 
+class SignalReportCreatePRPayloadSerializer(serializers.Serializer):
+    """The report and repository come from the canvas's trusted provenance."""
+
+
 def _create_annotation(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
     from products.annotations.backend.facade import api as annotations_facade  # noqa: PLC0415 — load on execute
 
@@ -86,6 +90,19 @@ def _create_task(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str
         team_id, user_id, canvas.channel_id, title=payload["title"], description=payload["description"]
     )
     return {"task_id": str(task_id)}
+
+
+def _create_signal_report_pr(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
+    from products.signals.backend.facade import api as signals_facade  # noqa: PLC0415 — load on execute
+
+    if canvas.source_product != "signal_report" or not canvas.source_resource_id:
+        raise ValueError("This action is only available on a Signals report canvas.")
+    task_id = signals_facade.start_report_implementation_from_canvas(
+        team_id=team_id,
+        report_id=canvas.source_resource_id,
+        user_id=user_id,
+    )
+    return {"task_id": task_id}
 
 
 @frozen
@@ -125,6 +142,23 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 "graphs and listed under Data management → Annotations. Pass `date_marker` (ISO "
                 "timestamp) when the moment is not now — e.g. when an incident started, not when "
                 "it was written down. `content` is capped at 1024 characters."
+            ),
+        ),
+        CanvasAction(
+            verb="signals.report.create_pr",
+            summary="Start a task to create a pull request for this Signals report.",
+            destructive=True,
+            payload_serializer=SignalReportCreatePRPayloadSerializer,
+            execute=_create_signal_report_pr,
+            required_scopes=("task:write",),
+            usage=(
+                "Payload `{}` → result `{task_id}`. Available only on a canvas created from a Signals report. "
+                "Starts the report's implementation task as the viewer, using the repository selected by the "
+                "report. The task investigates the finding and opens a pull request when appropriate. The action "
+                "is idempotent: if implementation work already exists, it returns that task instead of starting "
+                "another. Confirm with the viewer before invoking because starting implementation work may be "
+                "billable. After success, say 'Implementation task started' and offer to open the returned task. "
+                "Do not claim a pull request exists until the task creates one."
             ),
         ),
         CanvasAction(
