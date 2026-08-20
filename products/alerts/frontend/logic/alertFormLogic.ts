@@ -659,6 +659,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 posthog.capture('alert wizard completed', {
                     action: isNewAlert ? 'created' : 'updated',
+                    alert_type: 'insight',
                 })
 
                 // The alert is already persisted — any error from the local side-effects below is a
