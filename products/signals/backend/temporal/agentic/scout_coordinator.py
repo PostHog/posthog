@@ -16,6 +16,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -82,13 +83,13 @@ class FetchEnabledRunsInput:
     pass
 
 
-@dataclass
+@frozen
 class FetchEnabledRunsOutput:
     planned_runs: list[PlannedRun]
     dispatch_smear_seconds: int = 0
 
 
-@dataclass
+@frozen
 class StampDispatchedRunsInput:
     """The (team, skill) runs whose child workflow was dispatched this tick, and the tick's own
     start time to anchor their stamps on (`None` falls back to the wall clock)."""
