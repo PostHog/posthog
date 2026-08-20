@@ -71,6 +71,7 @@ export function RepoOverviewScene(): JSX.Element {
 
     const perMerge = (cost: number | null | undefined, merges: number | null | undefined): number | null =>
         cost != null && merges ? cost / merges : null
+    const asMinutes = (seconds: number | null | undefined): number | null => (seconds != null ? seconds / 60 : null)
 
     // Cycle time is ready→merge wherever the backend can observe the draft/ready transitions. Without
     // them it falls back to the coarse created→merged span and says so, rather than labelling one
@@ -128,7 +129,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 title="CI runs that passed"
                                 value={overview?.success_rate}
                                 previousValue={overview?.success_rate_prev}
-                                formatValue={(value) => percent(value)}
+                                formatValue={percent}
                                 share
                                 deltaUnit="pt"
                                 loading={overviewPending}
@@ -138,16 +139,8 @@ export function RepoOverviewScene(): JSX.Element {
 
                             <WindowComparisonCard
                                 title="Median time from push to all checks green"
-                                value={
-                                    overview?.median_time_to_green_seconds != null
-                                        ? overview.median_time_to_green_seconds / 60
-                                        : null
-                                }
-                                previousValue={
-                                    overview?.median_time_to_green_seconds_prev != null
-                                        ? overview.median_time_to_green_seconds_prev / 60
-                                        : null
-                                }
+                                value={asMinutes(overview?.median_time_to_green_seconds)}
+                                previousValue={asMinutes(overview?.median_time_to_green_seconds_prev)}
                                 formatValue={formatAxisMinutes}
                                 goodWhenDown
                                 loading={overviewPending}
@@ -181,63 +174,62 @@ export function RepoOverviewScene(): JSX.Element {
                                 goodWhenDown
                                 loading={overviewPending}
                                 emptyText={
-                                    jobsAvailable
-                                        ? 'No costable jobs in the window.'
-                                        : 'Cost appears once the job-level source is synced.'
+                                    !jobsAvailable
+                                        ? 'Cost appears once the job-level source is synced.'
+                                        : overview?.merged_pr_count === 0
+                                          ? 'Nothing merged in the window.'
+                                          : 'No costable jobs in the window.'
                                 }
                                 tooltip="Estimated Depot CI cost per merged PR. Per-workflow spend is in Workflows below."
                             />
                         </div>
                     </Section>
 
-                    {overview && (
-                        <Section id="merge-queue" title="Merge queue" busy={overviewLoading}>
-                            {overview.merge_queue_merged_pr_count === 0 &&
-                            overview.merge_queue_merged_pr_count_prev === 0 ? (
-                                <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                                    No merge queue activity in the window.
-                                </LemonCard>
-                            ) : (
-                                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                                    <WindowComparisonCard
-                                        title="Median time in the merge queue"
-                                        tooltip="From a PR's first merge queue gate run starting to the PR merging. Waiting before gate testing starts is not included. The tick marks the p90."
-                                        value={overview.merge_queue_median_gate_to_merge_seconds}
-                                        previousValue={overview.merge_queue_median_gate_to_merge_seconds_prev}
-                                        formatValue={compactAgeLabel}
-                                        goodWhenDown
-                                        marker={overview.merge_queue_p90_gate_to_merge_seconds}
-                                        markerPrevious={overview.merge_queue_p90_gate_to_merge_seconds_prev}
-                                        markerLabel="p90"
-                                        loading={overviewPending}
-                                        emptyText="No queue-landed merges in the window."
-                                    />
-                                    <WindowComparisonCard
-                                        title="Merges retried in the queue"
-                                        tooltip="Share of queue-landed merges that needed more than one gate attempt. Bisection branches count toward the attempt they investigate."
-                                        value={overview.merge_queue_multi_attempt_merge_share}
-                                        previousValue={overview.merge_queue_multi_attempt_merge_share_prev}
-                                        formatValue={(v) => percent(v)}
-                                        deltaUnit="pt"
-                                        goodWhenDown
-                                        loading={overviewPending}
-                                        emptyText="No queue-landed merges in the window."
-                                    />
-                                    <WindowComparisonCard
-                                        title="Merges with a failed queue run"
-                                        tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
-                                        value={overview.merge_queue_failed_gate_merge_share}
-                                        previousValue={overview.merge_queue_failed_gate_merge_share_prev}
-                                        formatValue={(v) => percent(v)}
-                                        deltaUnit="pt"
-                                        goodWhenDown
-                                        loading={overviewPending}
-                                        emptyText="No queue-landed merges in the window."
-                                    />
-                                </div>
-                            )}
-                        </Section>
-                    )}
+                    <Section id="merge-queue" title="Merge queue" busy={overviewLoading}>
+                        {overview && overview.merge_queue_merged_pr_count === 0 ? (
+                            <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                                No merge queue activity in the window.
+                            </LemonCard>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                                <WindowComparisonCard
+                                    title="Median time in the merge queue"
+                                    tooltip="From a PR's first merge queue gate run starting to the PR merging. Waiting before gate testing starts is not included. The tick marks the p90."
+                                    value={overview?.merge_queue_median_gate_to_merge_seconds}
+                                    previousValue={overview?.merge_queue_median_gate_to_merge_seconds_prev}
+                                    formatValue={compactAgeLabel}
+                                    goodWhenDown
+                                    marker={overview?.merge_queue_p90_gate_to_merge_seconds}
+                                    markerPrevious={overview?.merge_queue_p90_gate_to_merge_seconds_prev}
+                                    markerLabel="p90"
+                                    loading={overviewPending}
+                                    emptyText="No queue-landed merges in the window."
+                                />
+                                <WindowComparisonCard
+                                    title="Merges retried in the queue"
+                                    tooltip="Share of queue-landed merges that needed more than one gate attempt. Bisection branches count toward the attempt they investigate."
+                                    value={overview?.merge_queue_multi_attempt_merge_share}
+                                    previousValue={overview?.merge_queue_multi_attempt_merge_share_prev}
+                                    formatValue={percent}
+                                    deltaUnit="pt"
+                                    goodWhenDown
+                                    loading={overviewPending}
+                                    emptyText="No queue-landed merges in the window."
+                                />
+                                <WindowComparisonCard
+                                    title="Merges with a failed queue run"
+                                    tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
+                                    value={overview?.merge_queue_failed_gate_merge_share}
+                                    previousValue={overview?.merge_queue_failed_gate_merge_share_prev}
+                                    formatValue={percent}
+                                    deltaUnit="pt"
+                                    goodWhenDown
+                                    loading={overviewPending}
+                                    emptyText="No queue-landed merges in the window."
+                                />
+                            </div>
+                        )}
+                    </Section>
 
                     <Section
                         id="master"
