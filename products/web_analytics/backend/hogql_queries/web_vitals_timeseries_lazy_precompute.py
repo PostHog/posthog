@@ -322,7 +322,13 @@ def execute_lazy_precomputed_vitals_timeseries(runner: "WebVitalsQueryRunner") -
         inner_query = _build_inner_path_breakdown_query(
             runner.vitals_query, runner.query, _MATH_TO_PERCENTILE[shared_math]
         )
-        inner_runner = WebVitalsPathBreakdownQueryRunner(query=inner_query, team=team, modifiers=runner.modifiers)
+        # The shared gate already rejects teams with property access rules, so no
+        # user-scoped restriction can reach a bucket read; the user is threaded
+        # through anyway so the inner runner is never more privileged than the
+        # request that spawned it.
+        inner_runner = WebVitalsPathBreakdownQueryRunner(
+            query=inner_query, team=team, modifiers=runner.modifiers, user=runner.user
+        )
         if not can_use_vitals_paths_lazy_precompute(inner_runner):
             return None
 
