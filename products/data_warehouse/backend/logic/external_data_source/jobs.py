@@ -167,6 +167,16 @@ def update_external_job_status(
     return model
 
 
+def _is_cancellation(error: BaseException) -> bool:
+    """Whether `error` is an activity cancellation, however it surfaced.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into the
+    thread this runs on when the calling activity is cancelled mid-sweep — match on the type name too
+    so it isn't mistaken for a genuine queue-DB failure.
+    """
+    return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
+
+
 def _apply_failure_streak(
     schema: ExternalDataSchema,
     *,
@@ -199,16 +209,6 @@ def _apply_failure_streak(
         return []
 
     return ["consecutive_failures", "last_failed_at"]
-
-
-def _is_cancellation(error: BaseException) -> bool:
-    """Whether `error` is an activity cancellation, however it surfaced.
-
-    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into the
-    thread this runs on when the calling activity is cancelled mid-sweep — match on the type name too
-    so it isn't mistaken for a genuine queue-DB failure.
-    """
-    return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
 
 
 def _sweep_v3_queue_batches_swallowing_errors(
