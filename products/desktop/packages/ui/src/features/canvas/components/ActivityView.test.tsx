@@ -7,7 +7,6 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -17,11 +16,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { ActivityRow, activityHeadline } from "./ActivityView";
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
-}));
+import { ActivityRow } from "./ActivityView";
+import { activityHeadline } from "./activityHeadline";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -35,6 +31,8 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
     snippet: "Hello!",
     author: null,
     messageId: "message-1",
+    targetScope: null,
+    targetId: null,
     isUnread: true,
     ...overrides,
   };
@@ -44,7 +42,6 @@ const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
 
 describe("activityHeadline", () => {
   beforeEach(() => {
-    commentsFlag.enabled = true;
     navigation.toChannelTask.mockReset();
     navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
@@ -107,16 +104,19 @@ describe("activityHeadline", () => {
     expect(getByText(expected)).toBeInTheDocument();
   });
 
-  it("prefixes channel names with a hash", () => {
+  it.each([
+    ["shared channel", "engineering", "#engineering"],
+    ["personal channel", "personal", "your personal space"],
+  ])("formats the %s label", (_name, channelName, expected) => {
     const { getByText } = render(
       <div>
         {activityHeadline(
-          item({ activityKind: "completed", channelName: "me" }),
+          item({ activityKind: "completed", channelName }),
           "me@posthog.com",
         )}
       </div>,
     );
-    expect(getByText("#me")).toBeInTheDocument();
+    expect(getByText(expected)).toBeInTheDocument();
   });
 
   it("opens an activity mention at its exact comment thread", () => {
@@ -160,13 +160,12 @@ describe("activityHeadline", () => {
     });
   });
 
-  it("does not open comment navigation while comments are disabled", () => {
-    commentsFlag.enabled = false;
+  it("opens report activity at its generated canvas", () => {
     const activity = item({
-      activityKind: "owned_item_comment",
+      activityKind: "completed",
       channelId: "channel-1",
-      commentId: "comment-1",
-      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+      targetScope: "desktop_canvas",
+      targetId: "canvas-1",
     });
 
     render(
@@ -178,17 +177,12 @@ describe("activityHeadline", () => {
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
-    const activityButton = screen
-      .getByText("commented on your canvas")
-      .closest("button");
-    if (!activityButton) throw new Error("Expected activity row button");
-    fireEvent.click(activityButton);
+    fireEvent.click(screen.getByText("A report canvas is ready"));
 
-    expect(navigation.toChannelTask).toHaveBeenCalledWith(
+    expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
       "channel-1",
-      "task-1",
+      "canvas-1",
     );
-    expect(navigation.toChannelDashboard).not.toHaveBeenCalled();
-    expect(useCommentNavigationStore.getState().focusByTask).toEqual({});
+    expect(navigation.toChannelTask).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@ from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Q, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -29,6 +29,7 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
+from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -41,6 +42,8 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.tag import tagify
+from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -55,6 +58,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -71,7 +75,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -214,10 +218,47 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+def _destination_deliveries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Only Slack names its own channel; the rest repeat a bare type name, so carry the hog
+    # function id to tell two apart — never the webhook URL, which is the credential.
+    labelled = []
+    for row in rows:
+        label = row.get("target") or "Destination"
+        target_id = row.get("target_id")
+        if target_id and row.get("template") != DestinationType.SLACK.value:
+            label = f"{label} · {target_id[-4:]}"
+        labelled.append({**row, "display_label": label})
+    return labelled
+
+
+class AlertDeliverySerializer(serializers.Serializer):
+    channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
+    target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
+    target_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Hog function ID, for destination deliveries. Null for email."
+    )
+    template = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
+    )
+    status = serializers.CharField(help_text="Delivery status. Always 'accepted', for a confirmed send.")
+    at = serializers.DateTimeField(allow_null=True, help_text="When the delivery was recorded.")
+    display_label = serializers.CharField(
+        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'."
+    )
+
+
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
+    deliveries = serializers.SerializerMethodField(
+        allow_null=True,
+        help_text="Destinations that accepted this check's notification, one record per destination "
+        "(channel, target, status, at). Null when no delivery receipt was recorded, which covers "
+        "checks that notified nobody and checks predating delivery receipts.",
     )
 
     class Meta:
@@ -239,6 +280,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_notebook_short_id",
             "notification_sent_at",
             "notification_suppressed_by_agent",
+            "deliveries",
         ]
         read_only_fields = fields
 
@@ -248,6 +290,24 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    @extend_schema_field(AlertDeliverySerializer(many=True))
+    def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
+        if not instance.has_delivery_receipts:
+            return None
+        notified = instance.targets_notified or {}
+        accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
+        emails = [
+            {
+                "channel": "email",
+                "target": email,
+                "status": "accepted",
+                "at": accepted_at,
+                "display_label": f"Email: {email}",
+            }
+            for email in notified.get("users") or []
+        ]
+        return emails + _destination_deliveries(notified.get("destinations") or [])
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -322,6 +382,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    insight_short_id = serializers.CharField(
+        source="insight.short_id",
+        read_only=True,
+        help_text="Short ID of the insight monitored by this alert.",
+    )
+    insight_display_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Display name of the insight monitored by this alert.",
+    )
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -387,6 +456,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_checks_total(self, obj: AlertConfiguration) -> int | None:
         return getattr(obj, "checks_total", None)
 
+    def get_insight_display_name(self, obj: AlertConfiguration) -> str:
+        return obj.insight.name or obj.insight.derived_name or "Untitled insight"
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -394,6 +466,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "created_by",
             "created_at",
             "insight",
+            "insight_short_id",
+            "insight_display_name",
             "name",
             "subscribed_users",
             "threshold",
@@ -430,7 +504,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # Deferred: the insight API serializer drags the product-analytics query-runner chain;
         # keeping it out of module scope lets this module connect its delete receivers at
         # AppConfig.ready() without pulling that chain onto startup.
-        from products.product_analytics.backend.api.insight import InsightBasicSerializer  # noqa: PLC0415
+        from products.product_analytics.backend.presentation.insight import InsightBasicSerializer  # noqa: PLC0415
 
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
@@ -912,6 +986,11 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertListFiltersSerializer(serializers.Serializer):
+    insight_tag = serializers.CharField(required=False, max_length=255)
+    has_detector = OptionalBooleanField(required=False)
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -937,6 +1016,18 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Restrict results to alerts on this insight ID.",
             ),
+            OpenApiParameter(
+                "insight_tag",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts whose insight has this tag.",
+            ),
+            OpenApiParameter(
+                "has_detector",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+            ),
         ],
     ),
 )
@@ -944,19 +1035,40 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
         AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
-        .prefetch_related("subscribed_users")
+        .prefetch_related(
+            "subscribed_users",
+            Prefetch(
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            ),
+        )
         .order_by("-created_at")
     )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.query_params
+        list_filters = AlertListFiltersSerializer(data=filters)
+        list_filters.is_valid(raise_exception=True)
+
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
 
         insight_id = filters.get("insight_id")
         if insight_id is not None:
             queryset = queryset.filter(insight_id=insight_id)
+
+        insight_tag = list_filters.validated_data.get("insight_tag")
+        if insight_tag:
+            queryset = queryset.filter(
+                insight__tagged_items__tag__name=tagify(insight_tag),
+                insight__tagged_items__tag__team_id=self.team_id,
+            )
+
+        has_detector = list_filters.validated_data.get("has_detector")
+        if has_detector is not None:
+            queryset = queryset.filter(detector_config__isnull=not has_detector)
 
         created_by = filters.get("created_by")
         if created_by:

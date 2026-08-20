@@ -465,27 +465,45 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 clearTimeout(cache.conversationsRetryTimer)
                 cache.conversationsRetryTimer = null
             }
-            if (!posthog.conversations) {
+            // Not just a truthiness check: posthog-js creates the `conversations` facade at init,
+            // but its methods resolve null until the lazily loaded manager is ready — a cold page
+            // load would otherwise render an empty list once and never retry
+            if (!posthog.conversations?.isAvailable()) {
                 // Conversations extension loads lazily — retry until it's ready
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
                     cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
-                } else if (!cache.conversationsUnavailableWarned) {
-                    // Out of retries. Kept separate from the send-failure event because nothing was
-                    // submitted here, and recorded even when we stay quiet so the rate is measurable.
-                    cache.conversationsUnavailableWarned = true
+                    return
+                }
+                // Out of retries. Kept separate from the send-failure event because nothing was
+                // submitted here, and recorded even when we stay quiet so the rate is measurable.
+                if (!cache.conversationsUnavailableCaptured) {
+                    cache.conversationsUnavailableCaptured = true
                     captureSupportWidgetLoadFailed({
                         surface: 'side_panel_tickets',
                         reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
                     })
-                    // Only warn people who could act on it. A free plan has no email fallback, and the
-                    // panel already shows them the community and upgrade options, so a toast offering
-                    // to email us would promise a channel they don't get. Warn while entitlement is
-                    // still unresolved, matching how the composer opens rather than drop a message.
-                    if (values.canCreateTicket || !values.isBillingResolved) {
-                        warnSupportWidgetUnavailable()
-                    }
+                }
+                // This logic also mounts from the panel bar's unread badge, which renders on every
+                // page, so an unavailable widget (an ad blocker is enough) would otherwise raise a
+                // persistent error toast on surfaces that have nothing to do with support and block
+                // clicks on whatever sits under the toast container. Only warn while the person is
+                // actually on a support surface; opening one later re-runs loadTickets and warns then.
+                const onSupportSurface =
+                    (values.sidePanelOpen && values.selectedTab === SidePanelTab.Support) ||
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.myTickets()
+                // Only warn people who could act on it. A free plan has no email fallback, and the
+                // panel already shows them the community and upgrade options, so a toast offering
+                // to email us would promise a channel they don't get. Warn while entitlement is
+                // still unresolved, matching how the composer opens rather than drop a message.
+                if (
+                    !cache.conversationsUnavailableWarned &&
+                    onSupportSurface &&
+                    (values.canCreateTicket || !values.isBillingResolved)
+                ) {
+                    cache.conversationsUnavailableWarned = true
+                    warnSupportWidgetUnavailable()
                 }
                 return
             }
@@ -808,7 +826,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
         restoreFromUrlToken: async ({ token }) => {
             const conversations = posthog.conversations as any
-            if (!conversations?.restoreFromToken) {
+            // isAvailable rather than method presence: the facade and its methods exist from
+            // posthog-js init, but resolve null until the manager loads — which would consume
+            // the one-shot restore token without restoring anything
+            if (!posthog.conversations?.isAvailable()) {
                 if ((cache.restoreRetries ?? 0) < 20) {
                     cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)

@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
@@ -37,6 +36,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -194,7 +194,7 @@ def anchor_url_pattern(value: str) -> str:
     return validated_value
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ResolvedUrlFilter:
     url_exact: str | None
     url_pattern: str | None

@@ -177,7 +177,11 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
+            if (
+                trigger.type !== 'event' &&
+                trigger.type !== 'data-warehouse-table' &&
+                trigger.type !== 'slack-message'
+            ) {
                 continue
             }
 
@@ -530,8 +534,9 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.finished) {
                     result.finished = true
-                    // Special case for exit - we just track a success metric
-                    this.trackActionMetric(result, currentAction, 'succeeded')
+                    result.skipped = handlerResult.skipped
+                    // A non-matching trigger is filtered, while an exit is a successful finish.
+                    this.trackActionMetric(result, currentAction, handlerResult.skipped ? 'filtered' : 'succeeded')
                 }
 
                 if (handlerResult.scheduledAt) {

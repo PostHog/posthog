@@ -49,6 +49,8 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 # the field in facade/loops.py::update_loop either way.
 DISABLED_REASON_USAGE_LIMITED = "usage_limited"
 DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
+COMPUTE_BILLING_LIMIT_ERROR_TYPE = "ComputeBillingLimitError"
+LOOP_TERMINAL_BOOKKEEPING_STATE_KEY = "loop_terminal_bookkeeping_complete"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -742,6 +744,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # A repo-less loop still needs `gh` for evidence gathering (PR digests, commit
+    # history), so provisioning mints the team-scoped read-only GitHub token for it
+    # (see get_readonly_github_token; a team with no usable integration skips the
+    # mint). Repo-pinned loops get the repository integration's token instead.
+    if not loop.repositories:
+        extra_state["github_read_access"] = True
     # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
     # so nothing sends a follow-up. CI-watching loops keep the default window so the
     # sandbox survives the orchestrator's CI follow-up cadence.
@@ -775,18 +783,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
-    team_id = loop.team_id
-    user_id = loop.created_by_id
-    task_id = str(task.id)
-    run_id = str(task_run.id)
-
     transaction.on_commit(
         lambda: _seed_skill_bundles_and_dispatch(
             task_run=task_run,
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            run_id=run_id,
+            team_id=loop.team_id,
+            user_id=loop.created_by_id,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
         )
@@ -850,24 +853,30 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, d
         )
 
 
-def handle_loop_run_terminal(task_run: TaskRun) -> None:
+def handle_loop_run_terminal(task_run: TaskRun, *, error_type: str | None = None) -> None:
     """Update loop bookkeeping when one of its runs reaches a terminal status.
 
     Resets `consecutive_failures` on success, increments it on failure/cancellation,
     auto-pausing the loop (and its schedules) at `LOOP_AUTO_PAUSE_THRESHOLD`. No-op
     for runs that aren't loop-spawned or aren't yet terminal.
     """
-    state = task_run.state if isinstance(task_run.state, dict) else {}
-    loop_id = state.get("loop_id")
-    if not loop_id:
-        return
-    if task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
-        return
-
-    is_success = task_run.status == TaskRun.Status.COMPLETED
     should_pause = False
 
     with transaction.atomic():
+        locked_task_run = TaskRun.objects.select_for_update().filter(id=task_run.id).first()
+        if locked_task_run is None or locked_task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
+            return
+        state = locked_task_run.state if isinstance(locked_task_run.state, dict) else {}
+        if state.get(LOOP_TERMINAL_BOOKKEEPING_STATE_KEY):
+            return
+        loop_id = state.get("loop_id")
+        if not loop_id:
+            return
+
+        task_run = locked_task_run
+        is_success = task_run.status == TaskRun.Status.COMPLETED
+        is_billing_denial = error_type == COMPUTE_BILLING_LIMIT_ERROR_TYPE
+
         # Scope the loop to the run's own team. `loop_id` lives in run state, which is
         # writable through the run-update endpoint; without this a caller in team B could
         # set their run's state loop_id to a team A loop and steer its bookkeeping,
@@ -880,15 +889,28 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
 
         loop.last_run_at = task_run.completed_at or django_timezone.now()
         loop.last_run_status = task_run.status
-        loop.last_error = None if is_success else task_run.error_message
+        loop.last_error = (
+            None
+            if is_success
+            else "Your organization has reached its PostHog Desktop credit limit."
+            if is_billing_denial
+            else task_run.error_message
+        )
         loop.consecutive_failures = 0 if is_success else loop.consecutive_failures + 1
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
-        if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
+        if is_billing_denial and loop.enabled:
+            loop.enabled = False
+            loop.disabled_reason = DISABLED_REASON_USAGE_LIMITED
+            update_fields.extend(["enabled", "disabled_reason"])
+            should_pause = True
+        elif not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
             loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
             update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
+        task_run.state = {**state, LOOP_TERMINAL_BOOKKEEPING_STATE_KEY: True}
+        task_run.save(update_fields=["state", "updated_at"])
 
     if should_pause:
         pause_loop_schedules(loop)

@@ -114,7 +114,7 @@ describe("SidebarNavSection", () => {
     ["inbox", "Inbox"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
-    ["configure", "Configure"],
+    ["configure", "Settings"],
     ["loops", "Loops"],
   ] as const)("removes %s from the sidebar when hidden", (id, label) => {
     useSidebarStore.setState({ navItemOverrides: { [id]: false } });

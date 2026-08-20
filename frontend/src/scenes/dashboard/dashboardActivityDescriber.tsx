@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'
+import { DASHBOARD_TILE_SPACING_LABELS } from '@posthog/products-dashboards/frontend/dashboardCustomization'
 
 import {
     ActivityChange,
@@ -149,6 +150,8 @@ const dashboardActionsMapping: Record<
     data_color_theme_id: () => null,
     last_accessed_at: () => null,
     folder: () => null,
+    file_system_id: () => null,
+    file_system_path: () => null,
     is_shared: () => null,
     creation_mode: () => null,
     user_access_level: () => null,
@@ -157,6 +160,19 @@ const dashboardActionsMapping: Record<
     tiles: () => null,
     last_viewed_at: () => null,
     quick_filter_ids: () => null,
+    customization: function onChangedCustomization(change) {
+        const customization = change?.after as DashboardType['customization']
+        if (!customization?.tile_spacing) {
+            return null
+        }
+        return {
+            description: [
+                <>
+                    changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[customization.tile_spacing]}</strong>
+                </>,
+            ],
+        }
+    },
 }
 
 export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

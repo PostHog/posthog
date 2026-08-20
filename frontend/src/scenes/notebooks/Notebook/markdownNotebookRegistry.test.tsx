@@ -6,18 +6,24 @@ import {
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
+import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
+import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.json'
 
 import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import {
     NOTEBOOK_MARKDOWN_REGISTRY,
     RealNotebookNodeEdit,
+    RealNotebookNodeIdentityAndViewEdit,
     getEditableNodeAttributeKeys,
     getHiddenInsertCommandKeysForFeatureFlags,
     getMarkdownNodeAttributeLabel,
     getMarkdownRegistryForFeatureFlags,
+    getNodeAttributes,
     getQueryTitle,
     getSerializableAttributeInputValue,
     getSerializableProps,
@@ -75,6 +81,33 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
+
+        // An inserted code cell holds no code and no result, so a closed editor panel leaves the
+        // user an empty box. Resolving through getInsertedComponentPanelVisibility rather than
+        // reading the prop keeps this honest if the panel prop is renamed again.
+        it.each([
+            ['SQL', 'component-SQLV2'],
+            ['Python', 'component-PythonV2'],
+        ])('inserts a %s cell with its code editor open', (_label, commandKey) => {
+            const insertedNodes: NotebookComponentBlockNode[] = []
+            const noop = (): void => {}
+            const commands = buildInsertCommands(
+                mergeMarkdownNotebookRegistries(
+                    getMarkdownNotebookDefaultRegistry(),
+                    getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+                ),
+                (_nodeId, node) => insertedNodes.push(node),
+                noop,
+                noop,
+                noop,
+                noop
+            )
+
+            commands.find((command) => command.key === commandKey)?.run('target-node')
+
+            expect(insertedNodes).toHaveLength(1)
+            expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+        })
     })
 
     describe('insert menu SQL commands', () => {
@@ -111,11 +144,44 @@ describe('markdownNotebookRegistry', () => {
         'Experiment',
         'EarlyAccessFeature',
         'Cohort',
+        'Insight',
         'Person',
         'Group',
         'Recording',
+        'RecordingPlaylist',
+        'ErrorTrackingIssue',
+        'LLMTrace',
+        'Dashboard',
+        'Action',
+        'Workflow',
     ])('uses the resource-derived title for %s nodes', (tagName) => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components[tagName].editableTitle).toBe(false)
+    })
+
+    it.each([
+        ['FeatureFlag', NotebookNodeType.FeatureFlag],
+        ['Survey', NotebookNodeType.Survey],
+        ['Experiment', NotebookNodeType.Experiment],
+        ['EarlyAccessFeature', NotebookNodeType.EarlyAccessFeature],
+        ['Cohort', NotebookNodeType.Cohort],
+        ['Insight', NotebookNodeType.Query],
+        ['Recording', NotebookNodeType.Recording],
+        ['RecordingPlaylist', NotebookNodeType.RecordingPlaylist],
+        ['Person', NotebookNodeType.Person],
+        ['Group', NotebookNodeType.Group],
+        ['ErrorTrackingIssue', NotebookNodeType.ErrorTrackingIssue],
+        ['LLMTrace', NotebookNodeType.LLMTrace],
+        ['Dashboard', NotebookNodeType.Dashboard],
+        ['Action', NotebookNodeType.Action],
+        ['Workflow', NotebookNodeType.Workflow],
+    ])('registers every catalog view for %s', (tagName, nodeType) => {
+        const widget = notebookWidgetCatalog.widgets[tagName as keyof typeof notebookWidgetCatalog.widgets]
+        const registeredViewNames = [
+            KNOWN_NODES[nodeType].defaultView?.key,
+            ...Object.keys(KNOWN_NODES[nodeType].views ?? {}),
+        ]
+
+        expect(registeredViewNames).toEqual([widget.defaultView.name, ...Object.keys(widget.views)])
     })
 
     it.each([
@@ -205,6 +271,28 @@ describe('markdownNotebookRegistry', () => {
         }
     )
 
+    it('keeps the resource ID before the view for nodes with product settings', () => {
+        const { container } = render(
+            <RealNotebookNodeIdentityAndViewEdit
+                node={{
+                    id: 'recording-node',
+                    type: 'component',
+                    tagName: 'Recording',
+                    props: { id: 'recording-id' },
+                }}
+                mode="edit"
+                updateProps={jest.fn()}
+                deleteNode={jest.fn()}
+                notebookNodeType={NotebookNodeType.Recording}
+                options={KNOWN_NODES[NotebookNodeType.Recording]}
+            />
+        )
+        const fields = Array.from(container.querySelectorAll('.MarkdownNotebook__component-form > label'))
+
+        expect(fields[0].textContent).toContain('Session recording ID')
+        expect(fields[1].textContent).toContain('View')
+    })
+
     it('selects a referenced object from the same picker used by notebook insertion', () => {
         const updateProps = jest.fn()
         const { container } = render(
@@ -266,6 +354,27 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it('renders a SQL cell whose query arrived as a query prop', () => {
+        // Regression: a `<SQLV2 query={…} />` cell (the shape AI-authored notebooks use) has no
+        // `code` prop, so the editor rendered blank with no way to see or run the query.
+        const attributes = getNodeAttributes(
+            {
+                query: {
+                    kind: 'DataVisualizationNode',
+                    source: { kind: 'HogQLQuery', query: 'select event from events' },
+                    display: 'ActionsBar',
+                },
+            },
+            'block-1',
+            KNOWN_NODES[NotebookNodeType.SQLV2],
+            NotebookNodeType.SQLV2,
+            false
+        )
+
+        expect(attributes.code).toEqual('select event from events')
+        expect(attributes.vizQuery).toMatchObject({ display: 'ActionsBar' })
     })
 
     describe('getQueryTitle', () => {

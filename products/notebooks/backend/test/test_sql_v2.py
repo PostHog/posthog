@@ -17,6 +17,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -47,6 +48,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 )
 from products.notebooks.backend.sql_v2 import (
     RESULT_CACHE_ROWS,
+    DataPlaneClaims,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -569,12 +571,22 @@ class TestSQLV2Run(APIBaseTest):
         self.assertIn("new_col", run.code)
         self.assertNotIn("old_col", run.code)
 
+    @parameterized.expand(
+        [
+            ("sql_consumer", "hogql", "select * from sql_df", NotebookNodeRun.NodeType.DUCKDB),
+            ("python_consumer", "python", "print(sql_df)", NotebookNodeRun.NodeType.PYTHON),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_hogql_ref_whose_latest_run_was_duckdb_is_treated_as_not_run(self, _mock_enabled, mock_start):
-        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming
-        # kernel frames, so inlining it as a CTE would ship it to ClickHouse. The stale older
-        # hogql run must not be used either — the node's latest result is a local frame.
+    def test_ref_whose_latest_run_was_duckdb_reads_it_as_a_kernel_frame(
+        self, _name, consumer_node_type, code, expected_node_type, _mock_enabled, mock_start
+    ):
+        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming kernel
+        # frames, so inlining it as a CTE would ship it to ClickHouse, and the stale older hogql
+        # run must not be used either. But the run did happen: a duckdb run binds its result into
+        # the kernel namespace under its dataframe name, so downstream cells read it as a local
+        # frame instead of being told the node never ran.
         with freeze_time("2026-07-04T00:00:00Z"):
             self._record_done_run("node-c", "select id from events")
         with freeze_time("2026-07-04T00:01:00Z"):
@@ -589,12 +601,20 @@ class TestSQLV2Run(APIBaseTest):
                 )
         response = self.client.post(
             self.run_url,
-            data={"node_id": "d", "code": "select * from sql_df", "refs": {"sql_df": {"node_id": "node-c"}}},
+            data={
+                "node_id": "d",
+                "code": code,
+                "node_type": consumer_node_type,
+                "refs": {"sql_df": {"node_id": "node-c"}},
+            },
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("has not been run", response.json()["detail"])
-        mock_start.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.node_type, expected_node_type)
+        self.assertEqual(run.code, code)  # never CTE-rewritten: the upstream result is a frame
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual([(i["name"], i["kind"]) for i in dispatched.inputs], [("sql_df", "local")])
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -878,36 +898,57 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         run.refresh_from_db()
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
+    @parameterized.expand([("python_frame", False), ("duckdb_node_frame", True)])
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    def test_local_frame_reference_never_reroutes_a_connection_run_to_the_sandbox(
-        self, mock_enqueue, mock_start, _mock_enabled
+    def test_a_local_frame_never_reroutes_a_connection_run_to_the_sandbox(
+        self, _name, from_duckdb_run, mock_enqueue, mock_start, _mock_enabled
     ):
-        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run
-        # the query against a kernel frame instead of the warehouse the user picked.
-        response = self._post(
-            code="select * from new_events",
-            refs={"new_events": {"node_id": "node-py", "kind": "local"}},
-            connection_id=str(self.source_id),
-        )
+        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run the
+        # query against a kernel frame instead of the warehouse the user picked. A SQL node whose
+        # last run was duckdb left its result in that same namespace, so it takes the same guard.
+        if from_duckdb_run:
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-duck",
+                    code="select * from new_events",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+            refs = {"sql_df": {"node_id": "node-duck"}}
+            code = "select * from sql_df"
+        else:
+            refs = {"new_events": {"node_id": "node-py", "kind": "local"}}
+            code = "select * from new_events"
+        response = self._post(code=code, refs=refs, connection_id=str(self.source_id))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Python dataframe", response.json()["detail"])
+        self.assertIn("local dataframe", response.json()["detail"])
         mock_start.assert_not_called()
         mock_enqueue.assert_not_called()
 
 
 class _RecordingSandbox:
-    """Stands in for the docker/Modal sandbox: records control-plane calls."""
+    """Stands in for the docker/Modal sandbox: records control-plane calls.
 
-    def __init__(self):
+    `baked_version` stands in for the stamp the image carries. It defaults to None,
+    which is an image with no baked package at all, so the probe reports nothing and
+    the deploy falls back to the tarball.
+    """
+
+    def __init__(self, baked_version: str | None = None):
         self.files: dict[str, bytes] = {}
         self.commands: list[str] = []
+        self.baked_version = baked_version
 
     def write_file(self, path: str, payload: bytes) -> None:
         self.files[path] = payload
 
-    def execute(self, command: str, timeout_seconds: int | None = None) -> None:
+    def execute(self, command: str, timeout_seconds: int | None = None):
         self.commands.append(command)
+        launched_baked = self.baked_version is not None and f'= "{self.baked_version}"' in command
+        return SimpleNamespace(stdout="nb_kernel_baked_ok\n" if launched_baked else "", exit_code=0)
 
     def get_connect_credentials(self):
         return SimpleNamespace(url="http://localhost:45678", token="connect-tok")
@@ -955,21 +996,46 @@ class TestSQLV2EnsureServer(APIBaseTest):
         package, _version = kernel_package_bytes_and_hash()
         self.assertEqual(self.sandbox.files["/tmp/nb_kernel.tar.gz"], package)
         self.assertEqual(self.sandbox.files["/tmp/nb_sql_v2_secret"], kernel_server_secret(str(runtime.id)).encode())
-        self.assertEqual(len(self.sandbox.commands), 1)
         self.assertEqual(result.server_url, "http://localhost:45678")
         self.assertEqual(result.server_connect_token, "connect-tok")
 
-    def test_launch_command_shape_regressions(self):
+    def test_image_without_the_current_package_still_gets_a_server(self):
+        # The baked probe stops the old server before it reads the stamp, so a miss that
+        # skipped the tarball would leave the sandbox with no server running at all.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = "an-older-image"
+        self._ensure(reported_version="some-old-version")
+        self.assertIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertIn("PYTHONPATH=/tmp/nb_kernel_pkg", self.sandbox.commands[-1])
+
+    def test_matching_image_launches_in_place_without_the_tarball(self):
+        # The upload and the tar extract are what baking the package removes. Losing the
+        # short-circuit costs a control-plane round trip on every cold start, and nothing
+        # at runtime shows it: both paths start an identical server.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = kernel_package_bytes_and_hash()[1]
+        self._ensure(reported_version="some-old-version")
+        self.assertNotIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertEqual(len(self.sandbox.commands), 1)
+        launch = self.sandbox.commands[0]
+        self.assertIn("PYTHONPATH=/opt/nb_kernel_pkg", launch)
+        self.assertNotIn("tar -xzf", launch)
+
+    @parameterized.expand([("baked", kernel_package_bytes_and_hash()[1]), ("tarball", None)])
+    def test_launch_command_shape_regressions(self, _name: str, baked_version: str | None):
         # Two bugs shipped from this one string: pkill -f of our own module name matches
         # the launch command's shell and kills the deploy; and backgrounding a compound
         # command records a wrapper subshell PID so later redeploys kill nothing.
         self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = baked_version
         self._ensure(reported_version="some-old-version")
-        launch = self.sandbox.commands[0]
+        launch = self.sandbox.commands[-1]
         self.assertNotRegex(launch, r"pkill[^;&]*[^\[]nb_kernel")
         self.assertIn("echo $! > /tmp/nb_kernel_server.pid", launch)
         # The backgrounded segment must be a single simple command (no cd &&-chain).
-        backgrounded = launch.rsplit(";", 1)[-1].split("&")[0]
+        nohup_segments = [segment for segment in launch.split(";") if "nohup" in segment]
+        self.assertEqual(len(nohup_segments), 1)
+        backgrounded = nohup_segments[0].split("&")[0]
         self.assertNotIn("&&", backgrounded)
         self.assertIn("nb_kernel.server", backgrounded)
 
@@ -1551,8 +1617,8 @@ class TestSQLV2Activities(APIBaseTest):
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
         self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
-        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
-        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        claims = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
@@ -1586,7 +1652,9 @@ class TestSQLV2CommandToken(SimpleTestCase):
 class TestSQLV2DataPlaneToken(SimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
-        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+        self.assertEqual(
+            verify_data_plane_token(token), DataPlaneClaims(notebook_short_id="nb123", team_id=7, user_id=42)
+        )
 
     @parameterized.expand(
         [
@@ -1697,7 +1765,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, dropping the cached storage
+        # client so the override applies — see test_frame_store.py for why both halves matter.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", object_storage.UnavailableStorage()),
+        ):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {

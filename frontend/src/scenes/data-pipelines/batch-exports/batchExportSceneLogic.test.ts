@@ -53,17 +53,23 @@ describe('batchExportSceneLogic', () => {
         expect(logic.values.currentTab).toBe('configuration')
     })
 
-    it.each(['runs', 'backfills', 'logs', 'metrics'] as const)('switches to %s tab via setCurrentTab', async (tab) => {
-        await initLogic()
+    it.each(['runs', 'backfills', 'logs', 'metrics', 'notifications'] as const)(
+        'switches to %s tab via setCurrentTab',
+        async (tab) => {
+            await initLogic()
 
-        logic.actions.setCurrentTab(tab)
-        expect(logic.values.currentTab).toBe(tab)
-    })
+            logic.actions.setCurrentTab(tab)
+            expect(logic.values.currentTab).toBe(tab)
+        }
+    )
 
-    it.each(['runs', 'backfills', 'logs', 'metrics'] as const)('syncs %s tab to URL search params', async (tab) => {
-        await initLogic()
+    it.each(['runs', 'backfills', 'logs', 'metrics', 'notifications'] as const)(
+        'syncs %s tab to URL search params',
+        async (tab) => {
+            await initLogic()
 
-        logic.actions.setCurrentTab(tab)
-        expect(router.values.searchParams).toEqual(expect.objectContaining({ tab }))
-    })
+            logic.actions.setCurrentTab(tab)
+            expect(router.values.searchParams).toEqual(expect.objectContaining({ tab }))
+        }
+    )
 })

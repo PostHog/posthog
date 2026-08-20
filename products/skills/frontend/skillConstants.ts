@@ -4,10 +4,10 @@ export const SKILL_DESCRIPTION_MAX_LENGTH = 4096
 export const SKILL_FILE_MAX_BYTES = 1_000_000
 export const SKILL_FILE_MAX_COUNT = 200
 
-// Names that collide with reserved /skills routes: 'new' (the create form) and the category-tab
-// slugs registered under /skills/<slug> in manifest.tsx. A skill with one of these names would be
+// Names that collide with reserved /skills routes: 'new' (the create form) and the tab slugs
+// registered under /skills/<slug> in manifest.tsx. A skill with one of these names would be
 // shadowed by its route. Kept in sync with RESERVED_SKILL_NAMES in the backend skill_serializers.
-const RESERVED_SKILL_NAMES = new Set(['new', 'scouts', 'review-hog'])
+const RESERVED_SKILL_NAMES = new Set(['new', 'scouts', 'review-hog', 'community'])
 
 export function validateSkillName(name: string): string | undefined {
     if (!name?.trim()) {

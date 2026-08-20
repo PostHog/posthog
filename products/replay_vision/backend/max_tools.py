@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_action import ActionMode, Visi
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -63,6 +64,7 @@ from products.replay_vision.backend.scanning import (
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
@@ -765,6 +767,11 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
         parts.append(f"{counts['already_running']} were already being scanned.")
     if counts.get("skipped_quota"):
         parts.append(f"{counts['skipped_quota']} were skipped: the monthly credit budget is used up.")
+    if counts.get("skipped_scanner_limit"):
+        parts.append(
+            f"{counts['skipped_scanner_limit']} were skipped: this scanner reached its own credit limit. "
+            "Scanning resumes when its billing period resets."
+        )
     if counts.get("skipped_limit"):
         parts.append(f"{counts['skipped_limit']} were skipped: too many scans already running.")
     if counts.get("failed"):
@@ -880,6 +887,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
+                record_scanner_limit_reached("max_tool")
             return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
 
         if not prompt or not prompt.strip():
@@ -1219,7 +1228,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
         # which a scanner silently never scans, the unique-name race, the estimate refresh, the built-in
-        # daily digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
+        # featured digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
         serializer = ReplayScannerSerializer(
             data={
                 "name": name.strip(),
@@ -1701,6 +1710,7 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     query=scanner.recordings_query(),
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
+                    budget=PREVIEW_ESTIMATE_BUDGET,
                 )
             except Exception:
                 logger.exception("replay_vision.max_tools.estimate_failed", scanner_id=scanner_id)
@@ -2228,7 +2238,7 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
         # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
         # executor would queue every other database operation behind it. Still connection-managed,
         # because the suggestion path reads observations and event definitions.

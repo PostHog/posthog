@@ -17,6 +17,10 @@ import requests
 
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 
+# Must stay under the tightest calling activity's 10s start_to_close, or Temporal kills the
+# activity before the request times out and a slow Cloudflare looks like an opaque timeout.
+CLOUDFLARE_API_TIMEOUT_S = 8.0
+
 
 class CloudflareAPIError(Exception):
     """Exception raised when Cloudflare API returns an error."""
@@ -190,7 +194,7 @@ def create_custom_hostname(domain: str) -> CustomHostname:
         },
     }
 
-    response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
+    response = requests.post(url, headers=_get_headers(), json=payload, timeout=CLOUDFLARE_API_TIMEOUT_S)
     data = _handle_response(response)
     return _parse_hostname(data["result"])
 
@@ -210,7 +214,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostname]:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}"
 
-    response = requests.get(url, headers=_get_headers(), timeout=30)
+    response = requests.get(url, headers=_get_headers(), timeout=CLOUDFLARE_API_TIMEOUT_S)
 
     if response.status_code == 404:
         return None
@@ -235,7 +239,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostname]:
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames"
     params = {"hostname": domain}
 
-    response = requests.get(url, headers=_get_headers(), params=params, timeout=30)
+    response = requests.get(url, headers=_get_headers(), params=params, timeout=CLOUDFLARE_API_TIMEOUT_S)
     data = _handle_response(response)
 
     results = data.get("result", [])
@@ -260,7 +264,7 @@ def delete_custom_hostname(hostname_id: str) -> bool:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}"
 
-    response = requests.delete(url, headers=_get_headers(), timeout=30)
+    response = requests.delete(url, headers=_get_headers(), timeout=CLOUDFLARE_API_TIMEOUT_S)
 
     if response.status_code == 404:
         # Resource already gone, treat as success (idempotent delete)

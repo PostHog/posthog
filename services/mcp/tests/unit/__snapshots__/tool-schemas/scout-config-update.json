@@ -17,6 +17,14 @@
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
         },
+        "mcp_gateway_server_ids": {
+            "description": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "model": {
             "anyOf": [
                 {

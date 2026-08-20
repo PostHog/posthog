@@ -10,6 +10,7 @@ use std::{
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
+    time::Duration,
 };
 use tracing::debug;
 use uuid::Uuid;
@@ -255,6 +256,18 @@ impl InvocationContext {
     pub fn build_http_client(&self) -> Result<Client> {
         let client = Client::builder()
             .danger_accept_invalid_certs(self.config.skip_ssl)
+            .build()?;
+        Ok(client)
+    }
+
+    /// Upload client: fails fast on unreachable hosts so retries can reroute to
+    /// the fallback endpoint quickly. Downloads keep the default timeouts
+    /// because they have no retry or fallback path, and a slow connect there is
+    /// better than a failed one.
+    pub fn build_upload_http_client(&self) -> Result<Client> {
+        let client = Client::builder()
+            .danger_accept_invalid_certs(self.config.skip_ssl)
+            .connect_timeout(Duration::from_secs(5))
             .build()?;
         Ok(client)
     }

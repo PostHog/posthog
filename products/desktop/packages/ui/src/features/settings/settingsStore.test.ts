@@ -1,3 +1,4 @@
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import {
   flushRendererStateWrites,
   registerRendererStateStorage,
@@ -5,6 +6,8 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CompletionSound,
+  countRetiredHints,
+  DEFAULT_HINT_MAX,
   DEFAULT_WORKSPACE_MODE,
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -573,6 +576,77 @@ describe("feature settingsStore terminal font", () => {
     expect(useSettingsStore.getState().terminalCustomFontFamily).toBe(
       "Cascadia Code",
     );
+  });
+});
+
+describe("feature settingsStore hints", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+
+    useSettingsStore.setState({ hints: {}, tipsEnabled: true });
+  });
+
+  it.each([
+    { label: "a lesson nobody has met", hint: undefined, expected: true },
+    {
+      label: "a lesson part-way through its showings",
+      hint: { count: DEFAULT_HINT_MAX - 1, learned: false },
+      expected: true,
+    },
+    {
+      label: "a lesson that has run out of showings",
+      hint: { count: DEFAULT_HINT_MAX, learned: false },
+      expected: false,
+    },
+    {
+      label: "a lesson already answered",
+      hint: { count: 0, learned: true },
+      expected: false,
+    },
+  ])("shouldShowHint is $expected for $label", ({ hint, expected }) => {
+    if (hint) useSettingsStore.setState({ hints: { "a-lesson": hint } });
+
+    expect(useSettingsStore.getState().shouldShowHint("a-lesson")).toBe(
+      expected,
+    );
+  });
+
+  // The switch has to reach the toast hints too, not only the anchored tips —
+  // they are the same lessons, and it is the only way to stop being taught.
+  it("shows no hint at all while tips are switched off", () => {
+    useSettingsStore.getState().setTipsEnabled(false);
+
+    expect(useSettingsStore.getState().shouldShowHint("a-lesson")).toBe(false);
+  });
+
+  // Reset clears both, so the count that gates it has to see both.
+  it.each([
+    { label: "answered", hint: { count: 0, learned: true }, expected: 1 },
+    {
+      label: "out of showings",
+      hint: { count: 1, learned: false },
+      expected: 1,
+    },
+    {
+      label: "part-way through its showings",
+      hint: { count: 0, learned: false },
+      expected: 0,
+    },
+  ])("counts a $label tip as retired: $expected", ({ hint, expected }) => {
+    // The steer lesson gets one showing, so a single offer retires it.
+    expect(countRetiredHints({ [TIP_KEYS.steerSafeBoundary]: hint })).toBe(
+      expected,
+    );
+  });
+
+  it("brings back a hint that had run out of showings", () => {
+    useSettingsStore.setState({
+      hints: { "a-lesson": { count: DEFAULT_HINT_MAX, learned: false } },
+    });
+
+    useSettingsStore.getState().resetHints();
+
+    expect(useSettingsStore.getState().shouldShowHint("a-lesson")).toBe(true);
   });
 });
 

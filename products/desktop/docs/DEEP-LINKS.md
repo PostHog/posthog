@@ -78,25 +78,31 @@ The link is rejected if `url` is missing, is not a `github.com` URL, or does not
 
 ### `posthog-code://task/<taskId>[/run/<taskRunId>]`
 
-Open an existing task. Optionally jump to a specific run.
+Open an existing task. Optionally jump to a specific run, or focus a comment thread inside the task.
 
-| Segment | Required | Description |
+| Segment / Parameter | Required | Description |
 |---|---|---|
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
+| `comment` | No | Comment thread (root comment id) to focus after the task opens |
+| `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
+| `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
 
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
+posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 ```
+
+An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
 ### `posthog-code://inbox/<reportId>`
 
-Open a specific inbox report.
+Open a report in Inbox. When `posthog-desktop-report-canvases` is enabled and the report has a generated canvas, open that canvas instead.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Inbox report ID |
+| `<reportId>` | Yes | Report ID |
 
 ```
 posthog-code://inbox/report_abc123

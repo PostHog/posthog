@@ -10,18 +10,23 @@ comment, so the two surfaces can never disagree.
 import logging
 import operator
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any
 
-from django.db.models import Func, IntegerField, JSONField, Q, QuerySet
+from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.utils import timezone
 
 from pydantic import ValidationError
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
     PerspectiveSelectionArtefact,
+    ResolutionRunArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
 )
@@ -36,6 +41,18 @@ from products.review_hog.backend.reviewer.skill_loader import (
 logger = logging.getLogger(__name__)
 
 REVIEW_STAGES = ["fetching", "chunking", "selecting", "reviewing", "deduplicating", "validating", "finalizing"]
+
+# An ACTIVE report only counts as running while its run is visibly moving (artefacts stream in
+# throughout a run); past this quiet window a review run stops rendering as live, and a resolution
+# run with no closing note starts rendering as died partway.
+IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
+
+RESOLUTION_RESOLVING = "resolving"
+RESOLUTION_STOPPED = "stopped"
+# The `author` the resolution stage stamps on its closing run `note` — the completion marker the
+# state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
+# can't drift apart.
+RESOLUTION_RUN_NOTE_AUTHOR = "review_hog_resolution"
 
 
 @dataclass
@@ -205,6 +222,123 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     return stats
 
 
+@frozen
+class ResolutionRunState:
+    """The report's latest resolution run, as the list row and the drawer render it."""
+
+    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED
+    done: int = 0
+    total: int = 0
+    fixed: int = 0
+    needs_attention: int = 0
+
+
+def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionRunState]:
+    """Each report's latest resolution run — resolving or died-partway — derived from artefacts.
+
+    The run's `resolution_run` artefact (written at prepare) anchors it: the run's progress is its
+    queued threads' `thread_verdict` rows written since, its completion is a closing run `note`
+    (author `review_hog_resolution`) written since, and its liveness is the report's overall
+    artefact activity against the staleness window — the same signal `_in_progress_report_ids`
+    uses for review turns, so the two can't disagree about "visibly moving".
+
+    A report is absent from the result when it has no resolution run, its latest run completed
+    (closing note present), or a newer review turn superseded it (a `pr_snapshot` written after the
+    run anchor — that turn's own progress takes over the row).
+    """
+    runs: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
+    run_rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(
+            report_id__in=[report.id for report in reports],
+            type=ReviewReportArtefact.ArtefactType.RESOLUTION_RUN,
+        )
+        .order_by("report_id", "-created_at", "-id")
+        .distinct("report_id")
+        .values("report_id", "content", "created_at")
+    )
+    for row in run_rows:
+        report_id = str(row["report_id"])
+        try:
+            run = ResolutionRunArtefact.model_validate_json(row["content"])
+        except ValidationError as e:
+            logger.warning("Skipping unparseable resolution_run for report %s: %s", report_id, e)
+            continue
+        if run.total > 0:
+            runs[report_id] = (run, row["created_at"])
+    if not runs:
+        return {}
+
+    def _latest_after(queryset: QuerySet) -> dict[str, datetime]:
+        rows = queryset.values_list("report_id").annotate(latest=Max("created_at")).values_list("report_id", "latest")
+        return {str(report_id): latest for report_id, latest in rows}
+
+    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=list(runs))
+    snapshot_latest = _latest_after(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
+    note_latest = _latest_after(
+        scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
+        .annotate(note_author=KeyTextTransform("author", _content_json()))
+        .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
+    )
+    activity_latest = _latest_after(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
+
+    live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
+    for report_id, (run, started_at) in runs.items():
+        superseded = snapshot_latest.get(report_id) is not None and snapshot_latest[report_id] > started_at
+        completed = note_latest.get(report_id) is not None and note_latest[report_id] >= started_at
+        if not superseded and not completed:
+            live[report_id] = (run, started_at)
+    if not live:
+        return {}
+
+    # Latest verdict per thread within each live run (rows come oldest-first, so later rows win) —
+    # scoped to the run's own queued threads, because redelivering a prior run's verdict also
+    # appends rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread
+    # whose GitHub writes failed has no reply yet, so it must not read as settled.
+    verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
+    verdict_rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(
+            report_id__in=list(live),
+            type=ReviewReportArtefact.ArtefactType.THREAD_VERDICT,
+            created_at__gte=min(started_at for _, started_at in live.values()),
+        )
+        .annotate(
+            thread_id=KeyTextTransform("thread_id", _content_json()),
+            outcome=KeyTextTransform("outcome", _content_json()),
+            reply_posted=KeyTextTransform("reply_posted", _content_json()),
+        )
+        .order_by("created_at", "id")
+        .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
+    )
+    for verdict_row in verdict_rows:
+        report_id = str(verdict_row["report_id"])
+        run, started_at = live[report_id]
+        if verdict_row["created_at"] < started_at or verdict_row["thread_id"] not in run.thread_ids:
+            continue
+        verdicts[report_id][verdict_row["thread_id"]] = (
+            verdict_row["outcome"],
+            verdict_row["reply_posted"] == "true",
+        )
+
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    reports_by_id = {str(report.id): report for report in reports}
+    states: dict[str, ResolutionRunState] = {}
+    for report_id, (run, _started_at) in live.items():
+        report = reports_by_id[report_id]
+        last_activity = max(filter(None, [report.updated_at, activity_latest.get(report_id)]), default=None)
+        fresh = last_activity is not None and last_activity >= cutoff
+        delivered = [outcome for outcome, reply_posted in verdicts[report_id].values() if reply_posted]
+        states[report_id] = ResolutionRunState(
+            status=RESOLUTION_RESOLVING if fresh else RESOLUTION_STOPPED,
+            done=len(delivered),
+            total=run.total,
+            fixed=sum(1 for outcome in delivered if outcome == "fixed"),
+            needs_attention=sum(1 for outcome in delivered if outcome == "escalate"),
+        )
+    return states
+
+
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
     """How many (pass, chunk) reviews this turn should produce.
 
@@ -246,6 +380,19 @@ def progress_payload(
         if judged >= len(current_pairs):
             return {"review_stage": "finalizing", "done": judged, "total": len(current_pairs)}
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
+    # The publish window: on publishing runs finalize defers the idle write to the publish stage,
+    # so the report is still ACTIVE with `run_count` already bumped and no in-flight findings, and
+    # the branches below would misread the finished turn's working state as "deduplicating".
+    # Scoped to the not-yet-published head so a resolution run's ACTIVE window (published head)
+    # keeps its current label; relabeling that window properly is its own change. Trade-off: an
+    # unpublished same-head re-run reads "finalizing" until dedup persists its first findings,
+    # a brief stretch because such a turn resumes its chunk and perspective state.
+    if (
+        report.completed_head_sha
+        and report.completed_head_sha == report.head_sha
+        and report.published_head_sha != report.head_sha
+    ):
+        return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
         # The selector runs between chunking and the fan-out; its persisted plan is the stage marker.

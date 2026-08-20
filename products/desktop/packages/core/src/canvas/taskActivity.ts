@@ -4,6 +4,7 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
+import { channelDisplayName } from "./channelName";
 
 /**
  * The Activity feed — tasks the current user is involved in (created, mentioned
@@ -28,6 +29,8 @@ export interface TaskActivityItem {
   messageId: string | null;
   commentId?: string | null;
   commentTarget?: CommentTarget | null;
+  targetScope: "desktop_canvas" | null;
+  targetId: string | null;
   isUnread: boolean;
 }
 
@@ -40,7 +43,7 @@ export function toTaskActivityItems(
     taskId: row.task_id,
     taskTitle: row.task_title || "Untitled task",
     channelId: row.channel_id ?? null,
-    channelName: row.channel_name ?? null,
+    channelName: channelDisplayName(row.channel_name ?? null),
     activityAt: row.activity_at,
     activityKind: row.activity_kind,
     snippet: row.snippet,
@@ -54,6 +57,8 @@ export function toTaskActivityItems(
             itemId: row.latest_comment_item_id,
           }
         : null,
+    targetScope: row.target_scope ?? null,
+    targetId: row.target_id ?? null,
     isUnread: row.is_unread,
   }));
 }

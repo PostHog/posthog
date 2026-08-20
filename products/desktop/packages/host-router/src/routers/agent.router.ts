@@ -90,19 +90,11 @@ export const agentRouter = router({
 
   onSessionEvent: publicProcedure
     .input(subscribeSessionInput)
-    .subscription(async function* (opts) {
-      const service = opts.ctx.container.get<AgentService>(AGENT_SERVICE);
-      const targetTaskRunId = opts.input.taskRunId;
-      const iterable = service.toIterable(AgentServiceEvent.SessionEvent, {
-        signal: opts.signal,
-      });
-
-      for await (const event of iterable) {
-        if (event.taskRunId === targetTaskRunId) {
-          yield event.payload;
-        }
-      }
-    }),
+    .subscription((opts) =>
+      opts.ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .subscribeSessionEvents(opts.input.taskRunId, opts.signal),
+    ),
 
   onPermissionRequest: publicProcedure
     .input(subscribeSessionInput)

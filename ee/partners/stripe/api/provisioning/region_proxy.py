@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -30,6 +29,7 @@ from django.http import HttpRequest, HttpResponse
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.utils import get_instance_region
@@ -69,7 +69,7 @@ PROXY_HEADER_ALLOWLIST = frozenset(
 _JSON_SEPARATORS = (",", ":")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RegionDomains:
     us: str
     eu: str

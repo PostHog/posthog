@@ -23,6 +23,7 @@ const config: SignalScoutConfigApi = {
     run_cron_schedule: null,
     output_destinations: {},
     structured_output_schema: null,
+    mcp_gateway_server_ids: [],
     network_access: 'trusted',
     model: null,
     last_run_at: null,

@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { isNotification, POSTHOG_NOTIFICATIONS } from "../../../acp-extensions";
 import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
 import type { PostHogAPIClient } from "../../../posthog-api";
 import type { StoredEntry } from "../../../types";
@@ -115,13 +116,22 @@ export function getSessionJsonlPath(sessionId: string, cwd: string): string {
 export function rebuildConversation(
   entries: StoredEntry[],
 ): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
+  let turns: ConversationTurn[] = [];
   let currentAssistantContent: ContentBlock[] = [];
   let currentToolCalls: ToolCallInfo[] = [];
 
   for (const entry of entries) {
     const method = entry.notification?.method;
     const params = entry.notification?.params as Record<string, unknown>;
+
+    // /clear starts an empty conversation: everything before the marker is
+    // gone from the model's context and must not be rehydrated.
+    if (isNotification(method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+      turns = [];
+      currentAssistantContent = [];
+      currentToolCalls = [];
+      continue;
+    }
 
     if (method === "session/update" && params?.update) {
       const update = params.update as SessionUpdate;

@@ -1,6 +1,7 @@
 import type { SignalReportChartSize } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+  chartHeadlineStat,
   planReportChart,
   type ReportChartData,
   type ReportChartPlan,
@@ -168,6 +169,52 @@ describe("reportCharts", () => {
     });
   });
 
+  it("sorts a descending-date HogQL grid so the headline reads the latest bucket", () => {
+    const data = shapeReportChartData(
+      {
+        columns: ["day", "errors"],
+        results: [
+          ["2026-08-03", 30],
+          ["2026-08-02", 20],
+          ["2026-08-01", 10],
+        ],
+      },
+      runPlan(hogqlNode({ display: "ActionsLineGraph" })),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      isTimeSeries: true,
+      labels: ["2026-08-01", "2026-08-02", "2026-08-03"],
+      series: [{ label: "errors", data: [10, 20, 30] }],
+    });
+    // The latest bucket is 30 (up from 20), not the first row's 10.
+    expect(chartHeadlineStat(data)).toMatchObject({
+      value: "30",
+      delta: { direction: "up" },
+    });
+  });
+
+  it("sorts an out-of-order breakdown grid before pivoting", () => {
+    const data = shapeReportChartData(
+      {
+        columns: ["day", "browser", "count"],
+        results: [
+          ["2026-08-02", "Chrome", 7],
+          ["2026-08-01", "Chrome", 5],
+          ["2026-08-01", "Safari", 2],
+        ],
+      },
+      runPlan(hogqlNode({ display: "ActionsBar" })),
+    );
+    expect(data).toMatchObject({
+      labels: ["2026-08-01", "2026-08-02"],
+      series: [
+        { label: "Chrome", data: [5, 7] },
+        { label: "Safari", data: [2, 0] },
+      ],
+    });
+  });
+
   it("keeps a categorical grid as a bar chart with string labels", () => {
     const data = shapeReportChartData(
       {
@@ -195,6 +242,39 @@ describe("reportCharts", () => {
       { type: "number", value: 42 },
     ],
     [
+      "a date-keyed grid becomes a line chart",
+      [
+        ["2026-08-08", 4957305],
+        ["2026-08-09", 5103586],
+      ],
+      ["day", "active_users"],
+      { type: "series", render: "line", isTimeSeries: true },
+    ],
+    [
+      "a short category-keyed grid becomes a bar chart",
+      [
+        ["$pageview", 7848625],
+        ["$autocapture", 11150213],
+      ],
+      ["event", "events"],
+      { type: "series", render: "bar", isTimeSeries: false },
+    ],
+    [
+      "a date+breakdown grid pivots into a multi-series line",
+      [
+        ["2026-08-01", "Chrome", 5],
+        ["2026-08-02", "Chrome", 7],
+      ],
+      ["day", "browser", "count"],
+      { type: "series", render: "line", isTimeSeries: true },
+    ],
+    [
+      "a single data row stays a table",
+      [["granted", 12]],
+      ["scope", "count"],
+      { type: "table" },
+    ],
+    [
       "non-numeric grid falls back to a table",
       [["a", "b"]],
       ["x", "y"],
@@ -204,6 +284,32 @@ describe("reportCharts", () => {
     expect(
       shapeReportChartData({ columns, results }, runPlan(hogqlNode())),
     ).toMatchObject(expected);
+  });
+
+  it("auto display: too many categories for a readable bar stays a table", () => {
+    const results = Array.from({ length: 31 }, (_, i) => [`cat-${i}`, i]);
+    expect(
+      shapeReportChartData(
+        { columns: ["name", "count"], results },
+        runPlan(hogqlNode()),
+      ),
+    ).toMatchObject({ type: "table" });
+  });
+
+  it("auto display: a numeric grid wider than the series cap stays a table", () => {
+    // 16 numeric metrics past the date key exceed the 15-series cap; plotting
+    // would silently drop columns, so keep the full grid as a table.
+    const columns = [
+      "day",
+      ...Array.from({ length: 16 }, (_, i) => `m${i + 1}`),
+    ];
+    const results = [
+      ["2026-08-01", ...Array.from({ length: 16 }, (_, i) => i)],
+      ["2026-08-02", ...Array.from({ length: 16 }, (_, i) => i + 1)],
+    ];
+    expect(
+      shapeReportChartData({ columns, results }, runPlan(hogqlNode())),
+    ).toMatchObject({ type: "table", columns });
   });
 
   it("returns empty for a response with no rows", () => {
@@ -288,5 +394,60 @@ describe("reportCharts", () => {
     ["URL past the request-line cap", hogqlNode({ padding: "x".repeat(9000) })],
   ])("returns null when there is nowhere to link: %s", (_name, query) => {
     expect(reportChartOpenTarget(query, OPEN_OPTS)).toBeNull();
+  });
+
+  const headlineSeries = (
+    points: number[][],
+    isTimeSeries = true,
+  ): ReportChartData => ({
+    type: "series",
+    render: "line",
+    labels: points[0].map((_, i) => `d${i}`),
+    series: points.map((data, i) => ({ key: `${i}`, label: `s${i}`, data })),
+    isTimeSeries,
+    interval: "day",
+  });
+
+  it("headlines a single series with its latest value and step change", () => {
+    expect(chartHeadlineStat(headlineSeries([[69650, 77400, 17100]]))).toEqual({
+      value: "17.1K",
+      delta: { label: "78%", direction: "down" },
+    });
+  });
+
+  it.each([
+    [0.04, "0.04"],
+    [0.004, "0.004"],
+    [-0.04, "-0.04"],
+    [999.96, "1K"],
+    [999999, "1M"],
+    [999999999, "1B"],
+  ])(
+    "keeps a small nonzero headline visible and promotes at the unit boundary (%d -> %s)",
+    (last, expected) => {
+      expect(chartHeadlineStat(headlineSeries([[last]]))?.value).toBe(expected);
+    },
+  );
+
+  it.each([
+    [
+      "a categorical chart has no latest value",
+      headlineSeries([[1, 2, 3]], false),
+    ],
+    [
+      "multiple series have no one honest headline",
+      headlineSeries([
+        [1, 2],
+        [3, 4],
+      ]),
+    ],
+    ["empty series", headlineSeries([[]])],
+    ["non-series data", { type: "number", value: 5 } as ReportChartData],
+  ])("returns no headline for %s", (_name, data) => {
+    expect(chartHeadlineStat(data)).toBeNull();
+  });
+
+  it("hides a step change too small to read as a trend", () => {
+    expect(chartHeadlineStat(headlineSeries([[1000, 1002]]))?.delta).toBeNull();
   });
 });

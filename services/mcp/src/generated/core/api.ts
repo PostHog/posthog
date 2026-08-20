@@ -522,6 +522,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'p99_count_per_actor',
                                             ]),
                                             zod.enum([
+                                                'unique_group',
+                                                'first_time_for_group',
+                                                'first_matching_event_for_group',
+                                            ]),
+                                            zod.enum([
                                                 'total',
                                                 'sum',
                                                 'unique_session',
@@ -533,7 +538,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'hogql',
                                             ]),
                                             zod.enum(['total', 'dau']),
-                                            zod.literal('unique_group'),
                                             zod.literal('hogql'),
                                             zod.null(),
                                         ])
@@ -1154,6 +1158,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'p99_count_per_actor',
                                             ]),
                                             zod.enum([
+                                                'unique_group',
+                                                'first_time_for_group',
+                                                'first_matching_event_for_group',
+                                            ]),
+                                            zod.enum([
                                                 'total',
                                                 'sum',
                                                 'unique_session',
@@ -1165,7 +1174,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'hogql',
                                             ]),
                                             zod.enum(['total', 'dau']),
-                                            zod.literal('unique_group'),
                                             zod.literal('hogql'),
                                             zod.null(),
                                         ])
@@ -1785,6 +1793,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'p99_count_per_actor',
                                             ]),
                                             zod.enum([
+                                                'unique_group',
+                                                'first_time_for_group',
+                                                'first_matching_event_for_group',
+                                            ]),
+                                            zod.enum([
                                                 'total',
                                                 'sum',
                                                 'unique_session',
@@ -1796,7 +1809,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'hogql',
                                             ]),
                                             zod.enum(['total', 'dau']),
-                                            zod.literal('unique_group'),
                                             zod.literal('hogql'),
                                             zod.null(),
                                         ])

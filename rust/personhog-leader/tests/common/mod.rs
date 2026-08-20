@@ -100,7 +100,11 @@ pub fn start_coordinator(
             name: "coordinator-0".to_string(),
             leader_lease_ttl: 10,
             keepalive_interval: Duration::from_secs(3),
-            election_retry_interval: Duration::from_secs(1),
+            // Short enough that a failover never waits on the leader-key
+            // watch alone.
+            standby_poll_interval: Duration::from_millis(500),
+            run_retry_backoff: Duration::from_millis(10),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
             // Effectively disabled: these tests park handoffs to assert
@@ -113,7 +117,10 @@ pub fn start_coordinator(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Router (for ack quorum) ─────────────────────────────────
@@ -564,7 +571,7 @@ pub fn test_cached_person() -> CachedPerson {
         id: 42,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         team_id: 1,
-        properties: serde_json::json!({"email": "test@example.com"}),
+        properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"})).unwrap(),
         created_at: 1700000000,
         version: 1,
         is_identified: false,
@@ -656,6 +663,7 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             commit_timeout: Duration::from_secs(10),
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
             window: Duration::from_millis(5),
+            window_max_writes: 32,
             settle_budget: Duration::from_secs(5),
         },
     )

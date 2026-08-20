@@ -33,7 +33,7 @@ from posthog.test.persons import create_person
 
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
-from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
@@ -1809,8 +1809,6 @@ class TestComposeTicketAPI(APIBaseTest):
         self.team.conversations_enabled = True
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
-        from products.conversations.backend.models import EmailChannel
-
         self.email_config = EmailChannel.objects.create(
             team=self.team,
             from_email="support@example.com",
@@ -1917,6 +1915,29 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+    def test_compose_rejects_customer_communication_channel(self, mock_on_commit) -> None:
+        customer_channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            from_email="csm@example.com",
+            from_name="Customer success",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="customer-channel-compose",
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(customer_channel.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Ticket.objects.filter(team=self.team).exists()
 
     def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
         # The team typed the recipient address; the recipient never proved they control it,

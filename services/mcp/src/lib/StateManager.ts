@@ -1,4 +1,5 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -11,7 +12,6 @@ import {
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
-import type { Schemas } from '@/api/generated'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
@@ -73,7 +73,14 @@ export class StateManager {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name, client_id } = introspectionResult.data
+
+        // Which OAuth application minted this token. Introspection is server-derived, so unlike
+        // the consumer header the caller cannot set it, which is what makes it usable as the
+        // first-party gate in `resolveEventSource`. Django gates on the same id set.
+        if (client_id) {
+            await this._cache.set('oauthClientId', client_id)
+        }
 
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {

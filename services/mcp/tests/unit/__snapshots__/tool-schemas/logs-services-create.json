@@ -88,6 +88,11 @@
                     },
                     "type": "array"
                 },
+                "serviceNameSearch": {
+                    "description": "Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.",
+                    "maxLength": 200,
+                    "type": "string"
+                },
                 "severityLevels": {
                     "description": "Filter by log severity levels.",
                     "items": {

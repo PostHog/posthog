@@ -40,6 +40,9 @@ def update_external_job_status(
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 
+        was_already_terminal = model.status in TERMINAL_JOB_STATUSES
+        existing_error = model.latest_error
+
         # The loader may finish a run after lock takeover force-failed its job; only the
         # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
         is_takeover_recovery = (
@@ -66,7 +69,16 @@ def update_external_job_status(
             )
 
         model.status = status
-        model.latest_error = latest_error
+
+        # Once a job records a terminal failure reason, a later write of the SAME terminal status
+        # must not overwrite it. When a schema auto-disables, its teardown force-fails every other
+        # still-running job of that schema with the real reason, then cancels their workflows;
+        # Temporal's cancellation re-finalizes each as FAILED with a bare "Cancelled", which would
+        # otherwise clobber the actionable error. Takeover recovery (Failed -> Completed) is exempt
+        # — it deliberately replaces the sentinel with the successful run's empty error.
+        preserve_existing_error = was_already_terminal and not is_takeover_recovery and existing_error is not None
+        error_to_persist = existing_error if preserve_existing_error else latest_error
+        model.latest_error = error_to_persist
 
         # Only stamp finished_at and emit metrics on the first terminal transition. Takeover
         # recovery re-stamps: the Failed stamp predates the load and never emitted success metrics.
@@ -104,7 +116,7 @@ def update_external_job_status(
             )
         else:
             schema.status = schema_status
-            schema.latest_error = latest_error
+            schema.latest_error = error_to_persist
             schema.save(update_fields=["status", "latest_error", "updated_at"])
 
         # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery

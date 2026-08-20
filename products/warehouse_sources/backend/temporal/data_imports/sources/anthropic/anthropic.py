@@ -8,6 +8,8 @@ from typing import Any, Optional
 from requests import Request, Response
 from requests.exceptions import HTTPError
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
     USAGE_GROUP_BY_FALLBACKS,
@@ -33,12 +35,18 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 # Entity list endpoints allow up to 1000 per page.
 ENTITY_PAGE_SIZE = 1000
-# Attempts per request before the client gives up and the activity retries. Above the client
-# default because the report endpoints are rate limited per organization and hand back a 429 with
-# no `Retry-After`: the client then falls back to exponential backoff, and five attempts spend the
-# budget in about fifteen seconds — far short of the window a per-minute limit needs to replenish.
-# Each wait stays capped, so this widens the budget without letting a sync stall indefinitely.
+# Attempts per request for the entity list endpoints (users, workspaces, api_keys, ...). They are
+# not organization-rate-limited, so a modest budget above the client default is enough to ride out
+# a transient blip without letting a genuinely broken endpoint retry for long.
 MAX_RETRY_ATTEMPTS = 8
+# The usage/cost/analytics report endpoints share one organization-level rate limit on Anthropic's
+# Admin API, which answers 429 with no `Retry-After`. The `anthropic-ratelimit-requests-reset`
+# instant is often already stale when we read it, so the client falls back to exponential backoff.
+# A per-minute limit needs a budget that outlasts the window, so give the report endpoints more
+# attempts and a higher backoff ceiling than the entity lists — each wait still stays capped, so a
+# sync never stalls indefinitely.
+REPORT_MAX_RETRY_ATTEMPTS = 12
+REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -336,25 +344,34 @@ def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
     return _parse_iso_date(str(value))
 
 
-def _claude_code_actor_dims(item: dict[str, Any]) -> tuple[Any, str | None, str | None, str | None, str | None]:
+@frozen
+class ClaudeCodeActor:
+    date: Any
+    actor_type: str | None
+    email: str | None
+    api_key_name: str | None
+    terminal_type: str | None
+
+
+def _claude_code_actor_dims(item: dict[str, Any]) -> ClaudeCodeActor:
     """Pull the shared (date, actor, terminal) dimensions every Claude Code row carries.
 
     `actor` is either a user (`email_address`) or an API actor (`api_key_name`); surface both as flat
     columns so the grain is queryable without unpacking a nested object.
     """
     actor = item.get("actor") or {}
-    return (
-        item.get("date"),
-        actor.get("type"),
-        actor.get("email_address"),
-        actor.get("api_key_name"),
-        item.get("terminal_type"),
+    return ClaudeCodeActor(
+        date=item.get("date"),
+        actor_type=actor.get("type"),
+        email=actor.get("email_address"),
+        api_key_name=actor.get("api_key_name"),
+        terminal_type=item.get("terminal_type"),
     )
 
 
 def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     """One row per (day, actor): Claude Code core productivity metrics and tool-action counts."""
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     core = item.get("core_metrics") or {}
     lines_of_code = core.get("lines_of_code") or {}
     tool_actions = item.get("tool_actions") or {}
@@ -369,14 +386,14 @@ def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     notebook_edit_accepted, notebook_edit_rejected = _tool("notebook_edit_tool")
 
     return {
-        "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type),
-        "date": date_value,
+        "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type),
+        "date": dims.date,
         "organization_id": item.get("organization_id"),
-        "actor_type": actor_type,
-        "actor_email_address": actor_email,
-        "actor_api_key_name": actor_api_key_name,
+        "actor_type": dims.actor_type,
+        "actor_email_address": dims.email,
+        "actor_api_key_name": dims.api_key_name,
         "customer_type": item.get("customer_type"),
-        "terminal_type": terminal_type,
+        "terminal_type": dims.terminal_type,
         "num_sessions": core.get("num_sessions"),
         "lines_of_code_added": lines_of_code.get("added"),
         "lines_of_code_removed": lines_of_code.get("removed"),
@@ -400,7 +417,7 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
     and commits (per day) — keeping them in one table would either duplicate the core metrics across a
     day's models or bury the per-model cost in a nested column.
     """
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     rows: list[dict[str, Any]] = []
     for entry in item.get("model_breakdown") or []:
         model = entry.get("model")
@@ -408,14 +425,14 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
         estimated_cost = entry.get("estimated_cost") or {}
         rows.append(
             {
-                "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type, model),
-                "date": date_value,
+                "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type, model),
+                "date": dims.date,
                 "organization_id": item.get("organization_id"),
-                "actor_type": actor_type,
-                "actor_email_address": actor_email,
-                "actor_api_key_name": actor_api_key_name,
+                "actor_type": dims.actor_type,
+                "actor_email_address": dims.email,
+                "actor_api_key_name": dims.api_key_name,
                 "customer_type": item.get("customer_type"),
-                "terminal_type": terminal_type,
+                "terminal_type": dims.terminal_type,
                 "model": model,
                 "input_tokens": tokens.get("input"),
                 "output_tokens": tokens.get("output"),
@@ -485,12 +502,17 @@ def anthropic_source(
     # Set only where the rows come from something other than iterating `resource` once.
     items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
 
+    # The report endpoints page the rate-limited Admin API; the entity lists do not. Give the reports
+    # a wider retry budget so it can outlast the organization rate-limit window.
+    is_report_endpoint = config.pagination == PaginationType.PAGE
     client_config: ClientConfig = {
         "base_url": ANTHROPIC_BASE_URL,
         "headers": _version_headers(),
         "auth": _auth_config(api_key),
-        "max_retries": MAX_RETRY_ATTEMPTS,
+        "max_retries": REPORT_MAX_RETRY_ATTEMPTS if is_report_endpoint else MAX_RETRY_ATTEMPTS,
     }
+    if is_report_endpoint:
+        client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -564,6 +586,11 @@ def anthropic_source(
                         },
                         "data_selector": "data",
                         "paginator": _entity_paginator(),
+                        # A workspace that does not serve this sub-resource (or was archived between
+                        # enumeration and the child fetch) answers 404 — skip it rather than fail the
+                        # whole schema. 429/5xx are retried by the client before hooks run, and any
+                        # other 4xx still raises.
+                        "response_actions": [{"status_code": 404, "action": "ignore"}],
                     },
                     "include_from_parent": ["id"],
                     "data_map": _stamp_workspace_id,

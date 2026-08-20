@@ -69,11 +69,11 @@ cp .env.example .env
 pnpm dev
 ```
 
-Starting fresh from the standalone repo instead:
+Starting fresh? Clone the monorepo. The standalone PostHog/code repo is archived and no longer receives changes.
 
 ```bash
-git clone https://github.com/PostHog/code.git
-cd code
+git clone https://github.com/PostHog/posthog.git
+cd posthog/products/desktop
 pnpm install
 cp .env.example .env
 pnpm dev
@@ -125,8 +125,8 @@ node scripts/use-local-posthog.mjs
 pnpm dev
 ```
 
-`node scripts/use-local-posthog.mjs` auto-reads the project API key from a
-sibling `../posthog` checkout (or pass it:
+`node scripts/use-local-posthog.mjs` auto-reads the project API key from the
+surrounding monorepo checkout (or pass it:
 `node scripts/use-local-posthog.mjs phc_xxx`, or set `POSTHOG_DIR`). This
 only affects the analytics/flags client — the data API still uses the **Dev**
 region you pick at login.

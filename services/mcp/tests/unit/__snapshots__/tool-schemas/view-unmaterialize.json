@@ -59,6 +59,44 @@
             "description": "A UUID string identifying this data warehouse saved query.",
             "type": "string"
         },
+        "incremental": {
+            "anyOf": [
+                {
+                    "description": "How a view updates its materialized table in place rather than rebuilding it.",
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "description": "Whether runs update the table incrementally instead of rebuilding it.",
+                            "type": "boolean"
+                        },
+                        "incremental_key": {
+                            "description": "Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full.",
+                            "type": "string"
+                        },
+                        "lookback_seconds": {
+                            "default": 0,
+                            "description": "How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.",
+                            "maximum": 2592000,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "unique_key": {
+                            "description": "Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["incremental_key", "unique_key"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table."
+        },
         "is_test": {
             "description": "Whether this view is for testing only and will auto-expire.",
             "type": "boolean"

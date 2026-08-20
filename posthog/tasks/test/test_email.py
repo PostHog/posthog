@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.models import Organization, Team, User
+from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
@@ -2059,6 +2059,28 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
+
+    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email=f"mentioned-{scope}@posthog.com", password=None
+        )
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Desktop comment",
+            scope=scope,
+            item_id="desktop-item",
+            created_by=self.user,
+        )
+
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert mocked_email_messages == []
 
     @parameterized.expand(
         [

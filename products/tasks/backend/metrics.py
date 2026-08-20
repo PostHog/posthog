@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 
 import structlog
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +71,32 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
     ],
 )
 
+WORKFLOW_DISPATCH_CREATED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_created_total", "Workflow dispatch rows created", labelnames=["kind"]
+)
+WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_attempt_total",
+    "Workflow dispatch attempt outcomes",
+    labelnames=["kind", "outcome"],
+)
+WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
+)
+WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
+WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
+    "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
+)
+WORKFLOW_DISPATCH_CLAIMED = Gauge("posthog_tasks_workflow_dispatch_claimed", "Claimed workflow dispatches")
+WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_lease_expired_total", "Expired workflow dispatch leases reclaimed"
+)
+WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_dead_total", "Dead workflow dispatches", labelnames=["kind", "reason"]
+)
+WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
+)
+
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
     "posthog_tasks_agent_otel_telemetry_stamped_total",
     "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
@@ -88,6 +114,12 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
     "posthog_tasks_run_log_mirror_otlp_batches_total",
     "Direct-OTLP mirror batch deliveries by outcome (the local-dev leg; unset in cloud).",
     labelnames=["outcome"],
+)
+
+LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
+    "posthog_tasks_log_append_unserialized_total",
+    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
+    "past the blocking timeout), where a concurrent append can still drop entries.",
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -221,12 +253,13 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
     "Loops auto-paused after exceeding the consecutive-failure threshold",
 )
 
-CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop).
+# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",
     "Cloud usage-gate check outcomes for PostHog Code runs",

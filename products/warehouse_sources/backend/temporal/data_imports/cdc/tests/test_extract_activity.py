@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
+    CDC_MAX_EXTRACTION_ATTEMPTS,
     CDC_ORPHAN_JOB_MIN_AGE,
     CDC_ORPHANED_JOB_MESSAGE,
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
@@ -28,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -670,12 +671,41 @@ class TestShadowBufferWrite:
         legacy_table = mock_s3.write_batch.call_args[0][0]
         assert legacy_table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
 
-    def _hook_activity(self):
+    def _hook_activity(self, trailing_column: bool = False):
         source = _make_source()
         act = _make_extract_activity(source)
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        table = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([256], type=pa.int64())})
+        table = pa.table({"id": pa.array([1], type=pa.int64())}).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE),
+            pa.array([256], type=pa.int64()),
+        )
+        if trailing_column:
+            table = table.append_column(pa.field("added_later", pa.string()), pa.array(["x"], type=pa.string()))
         return act, schema, table
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_writes_when_a_column_sits_after_the_seq_column(self, MockBufferWriter):
+        # The hook used to locate the position by index, assuming the batcher appended it last. A
+        # column added after it would silently stop buffering, or feed cleanup a restart floor read
+        # off the wrong column.
+        act, schema, table = self._hook_activity(trailing_column=True)
+        MockBufferWriter.return_value.write_batch.return_value = MagicMock(write_duration_seconds=0.01)
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", table)
+
+        MockBufferWriter.return_value.write_batch.assert_called_once()
+        assert MockBufferWriter.return_value.cleanup_superseded_files.call_args.kwargs["restart_seq"] == 256
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_skips_a_source_owned_seq_column(self, MockBufferWriter):
+        act, schema, _ = self._hook_activity()
+        unstamped = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([999], type=pa.int64())})
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", unstamped)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_shadow_file_index_increments_per_table_including_failures(self, MockBufferWriter):
@@ -2397,6 +2427,68 @@ class TestErrorClassification:
 
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
         mock_posthoganalytics.capture.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_terminal_unclassified_error_is_captured_for_triage(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        # An unclassified failure stays retryable and never pauses the schedule, so a deterministic one
+        # re-fails every scheduled run forever. Only the non-retryable path emits analytics, so without
+        # this capture these highest-volume retry loops stay invisible to error triage.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        # A non-psycopg error the adapter can't classify falls back to retryable UNKNOWN.
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = RuntimeError("arrow merge blew up")
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        # Retries exhausted: the failure is terminal, so the capture fires (unlike a mid-retry attempt).
+        mock_activity.info.return_value = MagicMock(
+            workflow_id="wf-1", workflow_run_id="run-1", attempt=CDC_MAX_EXTRACTION_ATTEMPTS
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
+            pytest.raises(RuntimeError, match="arrow merge blew up"),
+        ):
+            cdc_extract_activity(inputs)
+
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
+        mock_posthoganalytics.capture.assert_called_once()
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction unclassified error"
+        assert captured["properties"]["source_id"] == str(source.id)
+        # The exception type — not str(exc), which could embed customer host/table names — is what a
+        # human needs to teach the taxonomy to recognise this failure.
+        assert "RuntimeError" in captured["properties"]["exception_types"]
 
 
 class TestSlotInvalidationRecovery:

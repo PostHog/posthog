@@ -3,10 +3,11 @@
 // and scannerOverviewLogic (Overview tab: verdict mix / tag rankings / score distribution / coverage),
 // so the two tabs compute identical shapes from the same endpoint without duplicating the mapping.
 
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import type { ObservationStatsApi } from '../generated/api.schemas'
+import type { ReplayScanner } from './types'
 
 export interface ObservationStatusStats {
     total: number
@@ -111,6 +112,36 @@ export function daysFromDateRange(dateFrom: string | null, dateTo: string | null
     }
     const to = (dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null) ?? dayjs()
     return Math.max(1, to.diff(from, 'day'))
+}
+
+// Past this age a first sweep that never completed means something is stuck (throttled or stalled),
+// so the UI should fall back to the normal empty states instead of promising results indefinitely.
+const FIRST_RESULTS_MAX_AGE_MINUTES = 60
+
+/**
+ * True while a just-created scanner has no settled observations yet: its first sweep hasn't completed
+ * (last_swept_at is seeded before created_at and only advances when a sweep tick finishes) or its
+ * first observations are still processing.
+ */
+export function isAwaitingFirstResults(
+    stats: ObservationStatsApi | null,
+    scanner: Pick<ReplayScanner, 'enabled' | 'created_at' | 'last_swept_at'> | null,
+    now: Dayjs = dayjs()
+): boolean {
+    // The wizard's unsaved form lacks the timestamps, so it can never read as pending.
+    if (!stats || !scanner?.enabled || !scanner.created_at || !scanner.last_swept_at) {
+        return false
+    }
+    const counts = stats.status_counts
+    if (counts.succeeded + counts.failed + counts.ineligible > 0) {
+        return false
+    }
+    const createdAt = dayjs(scanner.created_at)
+    // Minutes rather than hours, since dayjs truncates diffs to whole units.
+    if (now.diff(createdAt, 'minute') >= FIRST_RESULTS_MAX_AGE_MINUTES) {
+        return false
+    }
+    return counts.in_flight > 0 || dayjs(scanner.last_swept_at).isBefore(createdAt)
 }
 
 export interface SummarizerFacetStats {

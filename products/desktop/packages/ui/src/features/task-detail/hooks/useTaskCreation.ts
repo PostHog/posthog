@@ -23,6 +23,7 @@ import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -115,6 +116,8 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
+  /** The task is on its way; the composer fades out before the chat replaces it. */
+  isExitingComposer: boolean;
   canSubmit: boolean;
   handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
   additionalDirectories: string[];
@@ -202,6 +205,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -343,6 +347,10 @@ export function useTaskCreation({
               label: a.label,
             })),
           });
+          // Fade the composer out before the chat fades in, so the phases
+          // hand over instead of cutting.
+          setIsExitingComposer(true);
+          await waitForComposerExit();
           navigateToTaskPending(pendingTaskKey);
           if (!contentOverride) {
             editor.clear();
@@ -554,6 +562,7 @@ export function useTaskCreation({
         }
       } finally {
         setIsCreatingTask(false);
+        setIsExitingComposer(false);
       }
     },
     [
@@ -603,6 +612,7 @@ export function useTaskCreation({
 
   return {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

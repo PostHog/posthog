@@ -127,10 +127,10 @@ const RUST = 'rust'
 // those files can reach.
 const PRODUCT_SURFACE = 'product-surface'
 
-// The three proto trees, named for their consumers for the same reason. Every
-// consumer generates stubs from them, so the set is enumerable: tonic builds
-// the rust ones on `cargo build`, and the personhog stubs are checked in for
-// both python and nodejs.
+// The proto trees, named for their consumers for the same reason. Every
+// consumer generates stubs, so the set is enumerable: tonic builds the rust
+// ones on `cargo build`, and the personhog stubs are checked in for both python
+// and nodejs. Resolved per tree rather than per file, against PROTO_TREES.
 const PROTO = 'proto'
 
 // Resolved per file from the rule's own `languages:` declaration rather than
@@ -339,6 +339,9 @@ const COMMON_FRONTEND = ['esbuilder', 'storybook', 'tailwind', 'replay-shared', 
 // spec and recorded by a Python script sitting beside them.
 const COMMON_FULLSTACK = ['fixtures']
 
+// The pr-approval-agent engine's home inside the stamphog product.
+const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
 // backend lanes, which keeps a newly added tool over-reporting until someone
@@ -352,7 +355,6 @@ const TOOLS_INDEPENDENT = [
     'hogbox-preview',
     'traffic-sim',
     'hedgebox-dummy',
-    'pr-approval-agent',
     'query-performance-ai',
     'infra-scripts',
 ]
@@ -1145,8 +1147,8 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the three binding packages
-// (@posthog/cyclotron, @posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the two binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
@@ -1208,8 +1210,8 @@ function addPythonLanes(targets, context) {
     for (const product of context.products) {
         targets.add(pyProduct(product))
     }
-    // pyproject.toml roots products, but Python also lives under tools/, and
-    // tools/pr-approval-agent holds a lane of its own through .stamphog.
+    // pyproject.toml roots products, but Python also lives under tools/, and the
+    // pr-approval-agent engine holds a lane of its own through .stamphog.
     for (const tool of TOOLS_INDEPENDENT) {
         targets.add(`tools:${tool}`)
     }
@@ -1288,18 +1290,61 @@ function addNodeLanes(targets) {
     return true
 }
 
-// proto/README.md's consumer table is the source for this set, and the stubs
-// themselves are the check on it: every consumer commits generated code, so a
-// tree that reads a proto without one would be reading nothing. The nodejs half
-// takes the node domain rather than the javascript one because the stubs land
-// only in nodejs/src/common/generated; no frontend or services package imports
-// them.
-function addProtoLanes(targets, context) {
-    if (!addRustLanes(targets, context)) {
+// Each proto tree and the consumers that generate from it. proto/README.md's
+// consumer table is the source, and the generated code is the check on it: a
+// consumer that read a proto without committing stubs would be reading nothing.
+// A test re-derives both halves from the tree — the crate from the build.rs
+// that compiles the tree, the stub directories from disk — so a renamed crate
+// or a fourth consumer fails there rather than going unclaimed here.
+//
+// The rust half names the crate that compiles the tree rather than every crate.
+// tonic turns the tree into that crate's generated module and nothing else, so
+// the crates a proto change can break are the ones that depend on it, which is
+// the reverse closure computeTargets already runs over every rust:crate: target
+// it holds. That is the same treatment a file inside the crate would get.
+//
+// The nodejs half takes the node domain rather than the javascript one because
+// the stubs land only in nodejs/src/common/generated; no frontend or services
+// package imports them. The python half cannot narrow below every python lane:
+// the stubs are checked into posthog/, which is py:core, and py:core covers
+// every product lane by construction.
+const PROTO_TREES = new Map([
+    ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
+    ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
+    ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
+])
+
+// A file directly under proto/ is treated as impacting all trees, since it's not
+// scoped to a single proto subdirectory. A subdirectory the table does not name
+// has unknown consumers and widens, which is what makes adding a tree without
+// declaring it here safe rather than silent.
+function addProtoLanes(targets, context, file) {
+    const segments = file.split('/')
+    const trees =
+        segments.length === 2 ? [...PROTO_TREES.keys()] : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
+    if (trees.length === 0 || !context.rustGraph) {
         return false
     }
-    addPythonLanes(targets, context)
-    return addNodeLanes(targets)
+    for (const tree of trees) {
+        const { crates, domains } = PROTO_TREES.get(tree)
+        // A crate renamed out from under the table would drop the rust half
+        // silently, which is the under-reporting direction.
+        if (crates.some((crate) => !context.rustGraph.dependsOn.has(crate))) {
+            console.error(
+                `No crate named for proto tree ${tree}; widening to every target until PROTO_TREES is updated`
+            )
+            return false
+        }
+        for (const crate of crates) {
+            targets.add(rustCrate(crate))
+        }
+        for (const domain of domains) {
+            if (!DOMAIN_LANES.get(domain)(targets, context)) {
+                return false
+            }
+        }
+    }
+    return true
 }
 
 const DOMAIN_LANES = new Map([
@@ -1316,7 +1361,7 @@ const DOMAIN_LANES = new Map([
 function applyTripwireDomain(domain, file, targets, context) {
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
     const addLanes = DOMAIN_LANES.get(resolved)
-    return addLanes ? addLanes(targets, context) : false
+    return addLanes ? addLanes(targets, context, file) : false
 }
 
 // Paths under rust/ that belong to no crate, and the domains that read them. A
@@ -1414,6 +1459,14 @@ function computeTargets(changedFiles, context) {
         // product lane its own directory rule would give it, a policy change and
         // a parser change would be free to merge in parallel.
         if (segments[segments.length - 1] === 'AGENT_APPROVALS.md') {
+            targets.add('tools:pr-approval-agent')
+            continue
+        }
+        // The engine sits inside the stamphog product, but no product suite imports it. ci-python
+        // runs its tests directly, and those are the same tests that .stamphog/ and every
+        // AGENT_APPROVALS.md feed into. All three share one lane, so a policy change and an engine
+        // change cannot merge in parallel against each other.
+        if (file.startsWith(`${PR_APPROVAL_AGENT_DIR}/`)) {
             targets.add('tools:pr-approval-agent')
             continue
         }
@@ -1750,6 +1803,8 @@ module.exports = {
     ALL,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
+    NODE,
+    PROTO_TREES,
     PYTHON,
     REPO_ROOT,
     RUNTIME_SPAWN_EDGES,

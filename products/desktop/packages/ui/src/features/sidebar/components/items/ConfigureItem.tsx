@@ -1,4 +1,4 @@
-import { SlidersHorizontal } from "@phosphor-icons/react";
+import { GearSix } from "@phosphor-icons/react";
 import { SidebarItem } from "../SidebarItem";
 
 interface ConfigureItemProps {
@@ -10,8 +10,8 @@ export function ConfigureItem({ onClick, depth = 0 }: ConfigureItemProps) {
   return (
     <SidebarItem
       depth={depth}
-      icon={<SlidersHorizontal size={16} />}
-      label="Configure"
+      icon={<GearSix size={16} />}
+      label="Settings"
       onClick={onClick}
     />
   );

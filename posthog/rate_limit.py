@@ -346,6 +346,19 @@ class WebAuthnSignupRegistrationThrottle(IPThrottle):
     rate = "10/minute"
 
 
+class LeakedKeyReportThrottle(IPThrottle):
+    """
+    Rate limit the public leaked-key revocation endpoint by IP address.
+
+    This isn't an authorization gate — guessing a valid high-entropy PostHog token
+    is computationally infeasible regardless of rate. It just bounds nuisance load
+    (hashing + DB lookups against garbage strings) from a single IP.
+    """
+
+    scope = "leaked_key_report"
+    rate = "10/minute"
+
+
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -556,6 +569,19 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -598,6 +624,18 @@ class SessionEventDeltasBurstRateThrottle(_TeamBucketRateThrottle):
 class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_event_deltas_sustained"
     rate = "100/hour"
+
+
+# The scanner volume estimate can run two ClickHouse queries per call, and its primary caller is
+# the session-authenticated editor, which the ClickHouse*RateThrottle pair does not cover.
+class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_burst"
+    rate = "20/minute"
+
+
+class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_sustained"
+    rate = "200/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -1492,6 +1530,11 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
+    rate = "6/minute"
+
+
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
     rate = "6/minute"
 
 

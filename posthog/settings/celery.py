@@ -26,6 +26,7 @@ CELERY_IMPORTS: list[str] = [
     # Not a `<app>/tasks.py`, so autodiscovery walks past it — the app package holds a `tasks/`
     # namespace package instead, and importing that doesn't reach the module inside.
     "products.tasks.backend.tasks.tasks",
+    "products.legal_documents.backend.tasks.tasks",
 ]
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

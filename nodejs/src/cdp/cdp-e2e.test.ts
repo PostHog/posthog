@@ -567,8 +567,10 @@ describe('CDP Consumer loop', () => {
             ).toEqual([
                 'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
                 expect.stringContaining('Function completed in '),
-                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying in '),
-                expect.stringContaining('HTTP fetch failed on attempt 2 with status code 500. Retrying in '),
+                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.'),
+                // CDP_FETCH_RETRIES is 2 here, so attempt 2 is the last one and no retry follows it.
+                // Matched exactly: a substring match would also accept the ' Retrying.' this guards against.
+                'HTTP fetch failed on attempt 2 with status code 500.',
             ])
         })
     })

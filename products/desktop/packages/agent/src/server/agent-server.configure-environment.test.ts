@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
-import { AgentServer } from "./agent-server";
+import { AgentServer, codexAuthFromGatewayEnv } from "./agent-server";
 
 interface TestableServer {
   configureEnvironment(args?: {
@@ -79,10 +79,9 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  // The Claude session builder reads posthogProjectId from GatewayEnv to emit
-  // the `x-posthog-property-team_id` attribution header (see
-  // adapters/claude/session/options.ts), so the cloud path must include it.
-  it("includes posthogProjectId for the team_id attribution header", () => {
+  // The Claude session builder reads posthogProjectId from GatewayEnv to scope
+  // the request to a project, so the cloud path must include it.
+  it("includes posthogProjectId for the gateway project scope", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: false,
     });
@@ -199,9 +198,8 @@ describe("AgentServer.configureEnvironment", () => {
 
   // The codex/OpenAI path sets provider http_headers rather than
   // ANTHROPIC_CUSTOM_HEADERS, so the same task metadata must be exposed as a
-  // record — including team_id, which the Claude path adds separately in
-  // buildEnvironment.
-  it("forwards task metadata (plus team_id) as openaiCustomHeaders", () => {
+  // record. It carries both the selected project scope and event attribution.
+  it("forwards task metadata and project scope as openaiCustomHeaders", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: true,
       originProduct: "signal_report",
@@ -389,8 +387,10 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     "POSTHOG_PROJECT_ID",
     "AI_GATEWAY_URL",
     "AI_GATEWAY_PRODUCTS",
+    "AI_GATEWAY_TOKEN",
   ];
   const GO_GATEWAY = "https://ai-gateway.us.posthog.com";
+  const SCOPED_TOKEN = "phe_test_scoped_token";
 
   beforeEach(() => {
     for (const key of ENV_KEYS) {
@@ -405,6 +405,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       "signals_repo_selection",
       "background_agents",
     ].join(",");
+    process.env.AI_GATEWAY_TOKEN = SCOPED_TOKEN;
   });
 
   afterEach(() => {
@@ -510,7 +511,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("emits attribution as one X-PostHog-Properties blob, not per-property headers", () => {
     // Asserts the gateway env this function produces. The Claude adapter's
-    // buildEnvironment later appends `x-posthog-property-team_id` and
+    // buildEnvironment later appends `X-PostHog-Project-Id` and
     // `x-posthog-use-bedrock-fallback` as separate header lines; the Go gateway
     // reads only the blob (team_id is already in it, and it does Bedrock
     // failover itself), so those extra lines are inert on this path.
@@ -532,5 +533,53 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(parseBlob(env.anthropicCustomHeaders ?? "").ai_product).toBe(
       "background_agents",
     );
+  });
+
+  it("authenticates with the scoped token on the Go path", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout:web-analytics",
+    });
+
+    expect(env.anthropicBaseUrl).toBe(GO_GATEWAY);
+    expect(env.anthropicAuthToken).toBe(SCOPED_TOKEN);
+    expect(env.openaiApiKey).toBe(SCOPED_TOKEN);
+  });
+
+  it("falls back to the Python gateway when no scoped token is present", () => {
+    delete process.env.AI_GATEWAY_TOKEN;
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout",
+    });
+
+    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicAuthToken).toBe("test-api-key");
+    expect(env.openaiApiKey).toBe("test-api-key");
+  });
+
+  it("feeds the codex session the gateway bearer, not the raw run credential", () => {
+    const routed = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout:web-analytics",
+    });
+    expect(codexAuthFromGatewayEnv(routed)).toEqual({
+      apiBaseUrl: `${GO_GATEWAY}/v1`,
+      apiKey: SCOPED_TOKEN,
+    });
+
+    delete process.env.AI_GATEWAY_TOKEN;
+    const unrouted = buildServer().configureEnvironment({ isInternal: false });
+    expect(codexAuthFromGatewayEnv(unrouted).apiKey).toBe("test-api-key");
+  });
+
+  it("keeps the OAuth token as bearer for unrouted products", () => {
+    const env = buildServer().configureEnvironment({ isInternal: false });
+
+    expect(env.anthropicBaseUrl).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+    expect(env.anthropicAuthToken).toBe("test-api-key");
+    expect(env.openaiApiKey).toBe("test-api-key");
   });
 });
