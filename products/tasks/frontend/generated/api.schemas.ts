@@ -4212,6 +4212,11 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
+     * Exclude tasks with this origin product from the results
+     * @minLength 1
+     */
+    exclude_origin_product?: string
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true

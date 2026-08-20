@@ -4507,6 +4507,10 @@ def _list_tasks_queryset(
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
 
+    exclude_origin_product = filters.get("exclude_origin_product")
+    if exclude_origin_product:
+        qs = qs.exclude(origin_product=exclude_origin_product)
+
     stage = filters.get("stage")
     if stage:
         stage_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id, stage=stage)

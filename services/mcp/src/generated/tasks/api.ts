@@ -887,6 +887,11 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter to tasks carrying a thread comment written by this user ID.'),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
+    exclude_origin_product: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Exclude tasks with this origin product from the results'),
     internal: zod
         .enum(['true', 'false', 'all'])
         .optional()

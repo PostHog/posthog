@@ -207,6 +207,12 @@ class TestTaskListFilterMatrix(TestCase):
         assert self._list(origin_product="signals_scout") == self._ids("scout_in_channel")
         assert self._list(origin_product="slack") == self._ids("peter_slack_mention_me")
 
+    def test_exclude_origin_product(self):
+        assert self._list(exclude_origin_product="signals_scout") == self.all_except("scout_in_channel")
+        assert self._list(created_by=self.peter.id, exclude_origin_product="slack") == self._ids(
+            "peter_mention_me", "peter_plain", "peter_i_commented", "peter_legacy_mention"
+        )
+
     @parameterized.expand(
         [
             ("failed", ["peter_mention_me"]),

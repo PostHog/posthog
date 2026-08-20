@@ -277,9 +277,11 @@ export const tasksLogic = kea<tasksLogicType>([
     selectors({
         // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
         isStaffUser: [(s) => [s.user], (user: null | import('~/types').UserType): boolean => !!user?.is_staff],
-        // Combined list filters: search term + the assignee toggle. "For you" scopes to the current
-        // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks; "all team" (staff
-        // only) lists every task on the team, letting the server bypass the per-user visibility filter.
+        // Combined list filters: search term + the assignee toggle. Scout runs are attributed to the
+        // human who owns the scout, so they'd otherwise crowd out that person's own work — "for you"
+        // leaves them out and "my scouts" is where they land. "Team scouts" is every scout task on the
+        // team; "all team" (staff only) lists every task, letting the server bypass the per-user
+        // visibility filter.
         taskListParams: [
             (s) => [s.searchQuery, s.assigneeFilter, s.user],
             (
@@ -296,7 +298,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (assigneeFilter === 'team_scouts') {
                     return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT }
                 }
-                return { ...base, created_by: user?.id }
+                if (assigneeFilter === 'my_scouts') {
+                    return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT, created_by: user?.id }
+                }
+                return { ...base, created_by: user?.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT }
             },
         ],
     }),

@@ -77,21 +77,23 @@ describe('tasksLogic', () => {
     })
 
     describe('taskListParams', () => {
-        it('defaults to "for you", scoping the list to the current user', () => {
+        it('defaults to "for you"', () => {
             expect(logic.values.assigneeFilter).toBe('for_you')
-            expect(logic.values.taskListParams).toEqual({
-                search: undefined,
-                created_by: userLogic.values.user?.id,
-            })
         })
 
-        it('scopes to the Signals Scout origin for team scouts', () => {
-            logic.actions.setAssigneeFilter('team_scouts')
+        // Scout runs are attributed to the human who owns the scout, so "for you" and "my scouts"
+        // have to split on origin as well as creator, otherwise both lists show the same rows.
+        it.each([
+            [
+                'for_you' as const,
+                { created_by: MOCK_DEFAULT_USER.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT },
+            ],
+            ['my_scouts' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SIGNALS_SCOUT }],
+            ['team_scouts' as const, { origin_product: OriginProduct.SIGNALS_SCOUT }],
+        ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
+            logic.actions.setAssigneeFilter(assigneeFilter)
 
-            expect(logic.values.taskListParams).toEqual({
-                search: undefined,
-                origin_product: OriginProduct.SIGNALS_SCOUT,
-            })
+            expect(logic.values.taskListParams).toEqual({ search: undefined, ...expected })
         })
 
         it('composes the search term with the active assignee filter', () => {
@@ -100,6 +102,7 @@ describe('tasksLogic', () => {
             expect(logic.values.taskListParams).toEqual({
                 search: 'checkout bug',
                 created_by: userLogic.values.user?.id,
+                exclude_origin_product: OriginProduct.SIGNALS_SCOUT,
             })
         })
     })
