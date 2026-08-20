@@ -307,4 +307,9 @@ export const lemonToast = {
         }
         toast.dismiss(id)
     },
+    // Dismiss a toast that is already on screen. Unlike dismiss, this leaves the ID free, so a later
+    // toast reusing it still shows. Use it for a toast created in an earlier tick, e.g. on unmount.
+    dismissShown(id: number | string): void {
+        toast.dismiss(id)
+    },
 }

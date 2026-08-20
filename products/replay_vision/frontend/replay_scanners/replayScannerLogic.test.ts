@@ -207,13 +207,14 @@ describe('replayScannerLogic', () => {
         it('dismisses the draft error toast when the wizard unmounts, so it cannot follow the user', async () => {
             draftSpy.mockReturnValue([503, { detail: 'model down' }])
             const errorSpy = jest.spyOn(lemonToast, 'error')
-            const dismissSpy = jest.spyOn(lemonToast, 'dismiss')
+            // dismissShown, not dismiss, which would flag the id and swallow the next draft toast.
+            const dismissSpy = jest.spyOn(lemonToast, 'dismissShown')
 
             await expectLogic(logic, () => logic.actions.draftScannerFromGoal('find rage clicks'))
                 .toDispatchActions(['draftScannerFromGoalFailure'])
                 .toFinishAllListeners()
 
-            const toastId = errorSpy.mock.calls.at(-1)?.[1]?.toastId
+            const toastId = errorSpy.mock.results.at(-1)?.value
             expect(toastId).toBeTruthy()
 
             logic.unmount()
