@@ -128,7 +128,7 @@ class OfflineExperimentItemsResponseSerializer(serializers.Serializer):
 
 
 class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "llm_analytics"
+    scope_object = "evaluation"
     scope_object_read_actions = ["experiment_items"]
     permission_classes = [AccessControlPermission]
 

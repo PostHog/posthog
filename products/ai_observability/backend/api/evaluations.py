@@ -28,6 +28,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_prope
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -268,7 +269,9 @@ class EvaluationConditionSerializer(serializers.Serializer):
     )
 
 
-class EvaluationSerializer(serializers.ModelSerializer):
+class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """An evaluation that scores LLM generations, traces, or sessions."""
+
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -354,6 +357,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "deleted",
+            "user_access_level",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
         # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.

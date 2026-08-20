@@ -99,6 +99,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability'
+    } else if (resource === AccessControlResourceType.Evaluation) {
+        return 'evaluations'
     } else if (resource === AccessControlResourceType.McpAnalytics) {
         return 'MCP analytics'
     } else if (resource === AccessControlResourceType.LlmSkill) {
@@ -171,6 +173,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability resource'
+    } else if (resourceType === AccessControlResourceType.Evaluation) {
+        return 'evaluation'
     } else if (resourceType === AccessControlResourceType.LlmSkill) {
         return 'skill'
     } else if (resourceType === AccessControlResourceType.LlmPlayground) {
@@ -363,6 +367,12 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     }
     if (resource === AccessControlResourceType.Metrics) {
         return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'
+    }
+    if (resource === AccessControlResourceType.LlmAnalytics) {
+        return 'Covers traces, datasets, and provider keys. It also controls the model picker API, which evaluations, taggers, and the playground all share, so viewer is needed to pick a model in any of them. Evaluations and taggers set their own rules for everything else.'
+    }
+    if (resource === AccessControlResourceType.Evaluation) {
+        return 'Covers evaluations, their directories, reports, and offline experiment results. Picking a model for an evaluation also needs viewer on AI observability.'
     }
     return null
 }

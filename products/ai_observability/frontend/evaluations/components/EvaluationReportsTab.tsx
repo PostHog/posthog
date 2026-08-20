@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportRun } from '../types'
@@ -68,14 +71,19 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         >
                             Refresh
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => generateReport(activeReport.id)}
-                            loading={generateResultLoading}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Evaluation}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Generate now
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => generateReport(activeReport.id)}
+                                loading={generateResultLoading}
+                            >
+                                Generate now
+                            </LemonButton>
+                        </AccessControlAction>
                     </div>
                 )}
             </div>

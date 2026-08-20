@@ -570,7 +570,7 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 
-    scope_object = "llm_analytics"
+    scope_object = "evaluation"
     permission_classes = [AccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
@@ -712,7 +712,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
     @extend_schema(responses=EvaluationReportRunSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["llm_analytics:read"])
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
     @llma_track_latency("llma_evaluation_report_runs_list")
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
@@ -726,7 +726,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return Response(serializer.data)
 
     @extend_schema(request=None, responses={202: None})
-    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["llm_analytics:write"])
+    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["evaluation:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
