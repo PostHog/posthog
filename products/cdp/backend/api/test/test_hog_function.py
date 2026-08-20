@@ -234,6 +234,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             hog="return event",
             type="internal_destination",
             enabled=True,
+            inputs_schema=[],
+            inputs={},
             filters={
                 "events": [{"id": "$billing_alert_firing", "type": "events"}],
                 "properties": [{"key": "alert_id", "value": "alert-1"}],
@@ -244,7 +246,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
-            data={"inputs": {"url": {"value": "https://attacker.example"}}},
+            data={"name": "Renamed alert destination"},
         )
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
