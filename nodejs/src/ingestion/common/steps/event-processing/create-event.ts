@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
-import { elementsToString, extractElements } from '~/common/utils/elements-chain'
+import { elementsToString, extractElements, isValidElementEntry } from '~/common/utils/elements-chain'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
@@ -14,11 +14,19 @@ const elementsOrElementsChainCounter = new Counter({
     labelNames: ['type'],
 })
 
-// `$elements` is only usable when it is an array. A truthy non-array value (a string, or an
-// object with a `length` key) used to slip past the old `elements.length` guard and throw.
+// `$elements` is only usable when it is an array of objects. A truthy non-array value (a string, or
+// an object with a `length` key) used to slip past the old `elements.length` guard and throw, and an
+// array holding a `null` or other non-object entry throws when read as a record. Both shapes now
+// surface the warning so the customer sees the bad client input.
 export function hasInvalidElements(properties: Properties): boolean {
     const elements = properties['$elements']
-    return !!elements && !Array.isArray(elements)
+    if (!elements) {
+        return false
+    }
+    if (!Array.isArray(elements)) {
+        return true
+    }
+    return elements.some((el) => !isValidElementEntry(el))
 }
 
 export function getElementsChain(properties: Properties): string {

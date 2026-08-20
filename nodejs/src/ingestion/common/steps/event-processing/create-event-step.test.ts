@@ -292,6 +292,7 @@ describe('create-event-step', () => {
             it.each([
                 ['a non-empty string', 'div'],
                 ['an object with a length key', { length: 3 }],
+                ['an array containing a null entry', [null]],
             ])('emits an invalid_elements warning when $elements is %s', async (_, elements) => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const result = await step({

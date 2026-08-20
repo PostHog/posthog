@@ -189,4 +189,17 @@ describe('extractElements()', () => {
     ])('returns an empty array for %s', (_label, input) => {
         expect(extractElements(input as any)).toEqual([])
     })
+
+    // An array entry that is `null`, a scalar, or a nested array also used to throw or produce a
+    // garbage element when read as a record; invalid entries are now skipped.
+    it('skips invalid entries while keeping the valid ones', () => {
+        const result = extractElements([null, 'div', 3, ['nested'], { tag_name: 'a', nth_child: 1 }] as any)
+
+        expect(result).toEqual([
+            expect.objectContaining({
+                tag_name: 'a',
+                nth_child: 1,
+            }),
+        ])
+    })
 })
