@@ -3276,6 +3276,7 @@ class NodeKind(StrEnum):
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
+    ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY = "ErrorTrackingFingerprintProjectionQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"

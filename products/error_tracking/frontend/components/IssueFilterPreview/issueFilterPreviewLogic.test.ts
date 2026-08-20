@@ -45,6 +45,12 @@ describe('issueFilterPreviewLogic', () => {
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
 
+        preview.actions.setActivePreview('fingerprints')
+        preview.actions.applyPropertyFilter('$exception_fingerprint', 'fingerprint-1')
+        expect(preview.values.canUndoActivePreview).toBe(true)
+        preview.actions.undoActivePreview()
+        expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
+
         preview.unmount()
         filters.unmount()
     })
