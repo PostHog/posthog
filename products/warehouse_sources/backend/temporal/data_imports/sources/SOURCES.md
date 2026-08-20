@@ -514,6 +514,7 @@ the row lists both.
 | ortto                            | HTTP                        | requests                                                        | ✅                          |
 | oura                             | HTTP                        | requests                                                        | ✅                          |
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
+| outreach                         | HTTP                        | requests                                                        | ✅                          |
 | ownerrez                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
@@ -1231,7 +1232,6 @@ doesn't conflict with concurrent PRs.
 - orbit
 - otto_market
 - outlook
-- outreach
 - oveit
 - pagbank
 - pagerduty

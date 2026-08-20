@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class OutreachSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    refresh_token: str

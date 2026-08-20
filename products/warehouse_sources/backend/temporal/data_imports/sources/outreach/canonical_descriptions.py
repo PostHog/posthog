@@ -1,0 +1,122 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+DOCS_URL = "https://developers.outreach.io/api/reference/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "prospects": {
+        "description": "A person a sales rep is engaging with through Outreach sequences, calls, and emails.",
+        "docs_url": f"{DOCS_URL}tag/Prospect/",
+        "columns": {
+            "id": "Unique identifier for the prospect.",
+            "firstName": "The prospect's first name.",
+            "lastName": "The prospect's last name.",
+            "emails": "Email addresses associated with the prospect.",
+            "title": "The prospect's job title.",
+            "company": "The name of the company the prospect works for.",
+            "stage": "The current stage name assigned to the prospect.",
+            "accountId": "ID of the account (company) this prospect belongs to.",
+            "ownerId": "ID of the user who owns this prospect.",
+            "createdAt": "When the prospect was created in Outreach.",
+            "updatedAt": "When the prospect was last updated.",
+        },
+    },
+    "accounts": {
+        "description": "A company (target account) that prospects and opportunities are associated with.",
+        "docs_url": f"{DOCS_URL}tag/Account/",
+        "columns": {
+            "id": "Unique identifier for the account.",
+            "name": "The account's name.",
+            "domain": "The account's primary web domain.",
+            "industry": "The industry the account operates in.",
+            "numberOfEmployees": "Number of employees at the account, if known.",
+            "ownerId": "ID of the user who owns this account.",
+            "createdAt": "When the account was created in Outreach.",
+            "updatedAt": "When the account was last updated.",
+        },
+    },
+    "sequences": {
+        "description": "An automated series of steps (emails, calls, tasks) used to engage prospects.",
+        "docs_url": f"{DOCS_URL}tag/Sequence/",
+        "columns": {
+            "id": "Unique identifier for the sequence.",
+            "name": "The sequence's name.",
+            "sequenceType": "Whether the sequence enrolls prospects individually or in bulk.",
+            "enabled": "Whether the sequence is currently active.",
+            "sequenceStepCount": "Number of steps configured in the sequence.",
+            "ownerId": "ID of the user who owns this sequence.",
+            "createdAt": "When the sequence was created.",
+            "updatedAt": "When the sequence was last updated.",
+        },
+    },
+    "sequenceStates": {
+        "description": "The progress of a single prospect through a single sequence.",
+        "docs_url": f"{DOCS_URL}tag/SequenceState/",
+        "columns": {
+            "id": "Unique identifier for the sequence state.",
+            "state": "Current status of the prospect's progress through the sequence (e.g. active, finished).",
+            "prospectId": "ID of the prospect enrolled in the sequence.",
+            "sequenceId": "ID of the sequence the prospect is enrolled in.",
+            "userId": "ID of the user who enrolled the prospect.",
+            "createdAt": "When the prospect was enrolled in the sequence.",
+            "updatedAt": "When the sequence state was last updated.",
+        },
+    },
+    "mailings": {
+        "description": "A single email sent (or scheduled to be sent) to a prospect, including engagement events.",
+        "docs_url": f"{DOCS_URL}tag/Mailing/",
+        "columns": {
+            "id": "Unique identifier for the mailing.",
+            "subject": "The email's subject line.",
+            "state": "Delivery state of the mailing (e.g. scheduled, delivered, bounced).",
+            "openCount": "Number of times the email was opened.",
+            "clickCount": "Number of times a link in the email was clicked.",
+            "prospectId": "ID of the prospect the email was sent to.",
+            "sequenceId": "ID of the sequence this mailing belongs to, if any.",
+            "userId": "ID of the user (rep) who sent the mailing.",
+            "createdAt": "When the mailing was created.",
+            "updatedAt": "When the mailing was last updated.",
+        },
+    },
+    "calls": {
+        "description": "A logged phone call between a user and a prospect.",
+        "docs_url": f"{DOCS_URL}tag/Call/",
+        "columns": {
+            "id": "Unique identifier for the call.",
+            "state": "Current status of the call (e.g. completed, queued).",
+            "outcome": "The outcome recorded for the call (e.g. connected, voicemail).",
+            "direction": "Whether the call was inbound or outbound.",
+            "prospectId": "ID of the prospect the call was with.",
+            "userId": "ID of the user who made or received the call.",
+            "sequenceId": "ID of the sequence this call belongs to, if any.",
+            "createdAt": "When the call was logged.",
+            "updatedAt": "When the call record was last updated.",
+        },
+    },
+    "users": {
+        "description": "A licensed Outreach user (sales rep or admin).",
+        "docs_url": f"{DOCS_URL}tag/User/",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "email": "The user's email address.",
+            "firstName": "The user's first name.",
+            "lastName": "The user's last name.",
+            "username": "The user's Outreach username.",
+            "createdAt": "When the user account was created.",
+            "updatedAt": "When the user account was last updated.",
+        },
+    },
+    "stages": {
+        "description": "A prospect lifecycle stage (e.g. new lead, qualified) that prospects can be assigned to.",
+        "docs_url": f"{DOCS_URL}tag/Stage/",
+        "columns": {
+            "id": "Unique identifier for the stage.",
+            "name": "The stage's name.",
+            "order": "The stage's position in the configured stage ordering.",
+            "color": "The color assigned to the stage in the Outreach UI.",
+            "createdAt": "When the stage was created.",
+            "updatedAt": "When the stage was last updated.",
+        },
+    },
+}
