@@ -86,9 +86,6 @@ export interface dataQualityChecksLogicActions {
     loadCheckRuns: (checkId: string) => {
         checkId: string
     }
-    openFailingRows: (checkId: string) => {
-        checkId: string
-    }
     loadChecks: () => any
     loadChecksFailure: (
         error: string,
@@ -136,6 +133,9 @@ export interface dataQualityChecksLogicActions {
     ) => {
         suiteRuns: DataQualitySuiteRunApi[]
         payload?: any
+    }
+    openFailingRows: (checkId: string) => {
+        checkId: string
     }
     pollActiveSuiteRun: () => {
         value: true

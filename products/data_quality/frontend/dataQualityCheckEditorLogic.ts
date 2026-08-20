@@ -529,9 +529,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 }),
             ],
             submit: async (form: CheckFormValues) => {
-                // A form can be submitted with Enter while the request is already in flight, which
-                // the button's loading state cannot prevent.
-                if (cache.savingCheck || !values.subject) {
+                // A form can be submitted with Enter while the request is already in flight, or
+                // while the check-type catalog is still arriving, neither of which the button's own
+                // disabled state can prevent. Without the catalog there is no column requirement to
+                // validate against, so the payload would omit column_name and be rejected.
+                // Only while it is in flight: a catalog that failed to load must not wedge the form.
+                const catalogPending = values.checkTypesLoading && !values.checkTypes.length
+                if (cache.savingCheck || !values.subject || catalogPending) {
                     return
                 }
                 cache.savingCheck = true

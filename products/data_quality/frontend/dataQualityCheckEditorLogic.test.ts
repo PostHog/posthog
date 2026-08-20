@@ -229,6 +229,22 @@ describe('dataQualityCheckEditorLogic', () => {
         })
     })
 
+    it('does not submit before the check-type catalog arrives', async () => {
+        // Enter can submit while the catalog request is still pending. Without it there is no column
+        // requirement to validate against, so the payload would omit column_name and be rejected.
+        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockReturnValueOnce(new Promise(() => {}))
+        await mountLogic()
+        logic.actions.openEditor(null, VIEW_SUBJECT, COLUMNS)
+
+        // Not toFinishAllListeners: the catalog request never settles, which is the point.
+        logic.actions.submitCheckForm()
+        for (let tick = 0; tick < 20; tick++) {
+            await Promise.resolve()
+        }
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+    })
+
     it('sends blank metadata on an edit so it can be cleared', async () => {
         // Create omits blank optional fields, which would leave an edit unable to remove a name.
         ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
