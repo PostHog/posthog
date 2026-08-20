@@ -196,22 +196,27 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
 TRUNK_MERGE_QUEUE_SCHEMA = "MergeQueuePullRequests"
 
 
-def resolve_trunk_merge_queue_table(team: Team) -> str | None:
+def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccessControl | None" = None) -> str | None:
     """The synced Trunk merge-queue table's warehouse name, or None.
 
     The TrunkIo source leaves its merge-queue endpoint unselected by default (it needs a target
     branch the flaky-tests endpoints don't), so absence is the normal state and every consumer
     degrades to the GitHub-derived proxy. Team-level: a Trunk source covers one merge queue, so
-    the first synced table wins rather than threading repo scope through a source that has none.
+    the first synced table (oldest source first, for determinism) wins rather than threading repo
+    scope through a source that has none. ``user_access_control`` applies the requesting user's
+    per-source warehouse RBAC through the same scope the GitHub resolver uses
+    (``_accessible_sources``): a user denied every TrunkIo source resolves None, degrading to the
+    proxy exactly like the unsynced state.
     """
     schemas = (
         ExternalDataSchema.objects.filter(
             team_id=team.pk,
-            source__source_type=ExternalDataSourceType.TRUNKIO,
+            source__in=_accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control),
             name=TRUNK_MERGE_QUEUE_SCHEMA,
             should_sync=True,
         )
         .exclude(deleted=True)
+        .order_by("source__created_at", "source__id")
         .select_related("table")
     )
     for schema in schemas:
@@ -303,16 +308,21 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
     """The team's non-deleted GitHub sources the caller may access, oldest first — the order
     ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
-
-    ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so neither the
-    resolver nor the picker can reach a source the user can't access; ``None`` (system/Temporal/CLI
-    contexts) skips it, leaving team scoping. This is the single place that access scope is decided.
+    Access scope comes from ``_accessible_sources``, shared with the Trunk resolver.
     """
-    sources = (
-        ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
-        .exclude(deleted=True)
-        .order_by("created_at", "id")
-    )
+    return _accessible_sources(team, ExternalDataSourceType.GITHUB, user_access_control).order_by("created_at", "id")
+
+
+def _accessible_sources(
+    team: Team, source_type: ExternalDataSourceType, user_access_control: "UserAccessControl | None"
+) -> QuerySet[ExternalDataSource]:
+    """The team's non-deleted sources of ``source_type`` the caller may access.
+
+    ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so no resolver
+    or picker can reach a source the user can't access; ``None`` (system/Temporal/CLI contexts)
+    skips it, leaving team scoping. This is the single place that access scope is decided.
+    """
+    sources = ExternalDataSource.objects.filter(team_id=team.pk, source_type=source_type).exclude(deleted=True)
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
         if not user_access_control.has_resource_access("external_data_source"):

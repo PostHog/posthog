@@ -71586,12 +71586,12 @@ export namespace Schemas {
          */
       merge_queue_ejected_share_prev: number | null;
       /**
-         * Queue entries prioritized past the queue order (urgent merges) in the window. Null when the Trunk source isn't synced.
+         * Queue entries flagged skip-the-line (prioritized past the queue order) in the window, whatever state they reached. Null when the Trunk source isn't synced.
          * @nullable
          */
       merge_queue_skip_the_line_count: number | null;
       /**
-         * Urgent merges over the previous window. Null when the Trunk source isn't synced.
+         * Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.
          * @nullable
          */
       merge_queue_skip_the_line_count_prev: number | null;

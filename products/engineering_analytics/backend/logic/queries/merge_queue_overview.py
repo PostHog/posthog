@@ -123,8 +123,8 @@ _EMPTY_STATS = MergeQueueWindowStats(
 
 
 # Trunk records each entry's terminal state directly, so eviction here is the queue's own verdict
-# rather than the CI-outcome proxy above. Windowed on the entry's last state change — Trunk keeps
-# no state history, so that approximates conclusion time.
+# rather than the CI-outcome proxy above. Windowed on the entry's last state change because Trunk
+# keeps no state history, so that approximates conclusion time.
 _TRUNK_OUTCOMES_SELECT = """
     SELECT
         countIf(ejected AND __CUR__) / nullIf(countIf(concluded AND __CUR__), 0) AS ejected_share_cur,
@@ -182,10 +182,7 @@ def query_merge_queue_trunk_outcomes(
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
     }
-    date_to_changed_clause = ""
-    if date_to is not None:
-        date_to_changed_clause = "AND state_changed_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    date_to_changed_clause = date_to_filter_clause(date_to, placeholders, column="state_changed_at")
     sql = (
         _TRUNK_OUTCOMES_SELECT.replace("__CUR__", cur)
         .replace("__PREV__", prev)
