@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { isManagedAlertInternalEvent } from '../managed-alert-events'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -57,7 +58,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             hogTypes: this.hogTypes,
             filterFn: () => true,
             invocationFilterFn: (fn, globals) => {
-                if (!/^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$/.test(globals.event.event)) {
+                if (!isManagedAlertInternalEvent(globals.event.event)) {
                     return true
                 }
                 const alertId = globals.event.properties?.alert_id
