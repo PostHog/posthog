@@ -93,6 +93,14 @@ worker matched, delivery attempted, and delivery outcome. Include a correlation 
 dimensions. Alert on a sustained mismatch between adjacent stages. This finds silent drops even when individual
 components report no errors.
 
+Name each SLO for the boundary it measures. An internal-event producer acknowledgement measures enqueue health. It
+does not measure destination delivery. Start a delivery SLO only when an alert has an eligible configured target. Mark
+it successful only after the worker accepts the target. Record external-provider acceptance as a later stage when the
+transport can report it. Treat an eligible configured target with no routing match as a delivery failure, not success.
+
+An SLO event does not create an alert by itself. Configure a PostHog alert for the delivery failure rate and the
+stage-to-stage mismatch. The alert must use the same source and destination dimensions as the SLO.
+
 Run isolated synthetic checks for high-value supported paths after deployment and at a regular interval. A synthetic
 check must prove the whole path, not only that a producer accepted an event.
 

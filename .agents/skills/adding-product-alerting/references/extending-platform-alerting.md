@@ -55,7 +55,13 @@ For an advanced option on an existing destination, decide whether it is transpor
 ### Delivery
 
 - Treat event creation, producer flush, and producer acknowledgement as separate phases.
-- Do not describe producer acknowledgement as final destination delivery. HogFunction execution and external destination delivery happen downstream.
+- Name producer acknowledgement as enqueue health. Do not call it destination delivery. HogFunction execution and
+  external destination delivery happen downstream.
+- Start a destination-delivery SLO only when an eligible target exists. Mark it successful only when the worker
+  accepts that target. Mark a configured target with no routing match as a failure.
+- Record provider acceptance as a separate final stage when the provider reports it. Do not claim external delivery
+  when the transport cannot report it.
+- Configure alerts for delivery failures and for sustained mismatches between enqueue, worker match, and delivery.
 - Keep batch flushing efficient and bounded.
 - Keep helpers non-throwing only where the caller can make an explicit rollback decision from the return value.
 - Add metrics and structured failure context for new dispatch phases.
