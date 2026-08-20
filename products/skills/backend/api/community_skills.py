@@ -7,7 +7,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -207,11 +207,8 @@ class CommunitySkillViewSet(
             UnknownSuppliedVariableError,
         ) as err:
             # All four are fixable by the caller (supply the value / shorter values / fix the key),
-            # so they're 400s.
-            return Response(
-                {"attr": "variables", "detail": str(err)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            # so they're 400s against the field that carried them.
+            raise ValidationError({"variables": str(err)}) from err
         except UnknownTemplatePlaceholderError as err:
             # The template body references a variable it never declared — a content-repo bug the
             # caller can't fix, so surface it as a server-side fault, not a bad request. Returning a
