@@ -29,16 +29,16 @@ function ServicesGrid(): JSX.Element {
 }
 
 export function LogsServicesV2(): JSX.Element {
-    const { sortedServices, services, totalServices, servicesDataLoading, searchTerm, dateFrom, viewMode } =
+    const { services, totalServices, hasMoreServices, servicesDataLoading, searchTerm, dateFrom, viewMode } =
         useValues(logsServicesLogic)
-    const { setDateFrom, setSearchTerm, setViewMode } = useActions(logsServicesLogic)
+    const { setDateFrom, setSearchTerm, setViewMode, loadMoreServices } = useActions(logsServicesLogic)
 
     return (
         <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-            {totalServices > services.length && (
+            {!hasMoreServices && totalServices > services.length && (
                 <LemonBanner type="info" className="mb-0">
-                    Showing the top {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
-                    {searchTerm ? 'matching services' : 'services'} by volume.{' '}
+                    Showing {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
+                    {searchTerm ? 'matching services' : 'services'}.{' '}
                     {searchTerm ? 'Refine your search to see the rest.' : 'Use search to find the rest.'}
                 </LemonBanner>
             )}
@@ -70,7 +70,14 @@ export function LogsServicesV2(): JSX.Element {
                 {viewMode === 'grid' ? (
                     <ServicesGrid />
                 ) : (
-                    <ServicesList services={sortedServices} loading={servicesDataLoading} searchTerm={searchTerm} />
+                    <ServicesList
+                        services={services}
+                        totalServices={totalServices}
+                        loading={servicesDataLoading}
+                        hasMore={hasMoreServices}
+                        onLoadMore={loadMoreServices}
+                        searchTerm={searchTerm}
+                    />
                 )}
             </div>
         </div>

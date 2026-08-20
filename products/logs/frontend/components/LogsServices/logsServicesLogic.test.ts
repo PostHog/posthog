@@ -46,6 +46,18 @@ const PAGE_2_SPARKLINE_RESPONSE: _LogsServicesResponseApi = {
     hasMore: false,
 }
 
+const NEXT_PAGE_RESPONSE: _LogsServicesResponseApi = {
+    services: Array.from({ length: 5 }, (_, i) => ({
+        service_name: `svc-extra-${i + 1}`,
+        log_count: 10,
+        error_count: 0,
+        error_rate: 0,
+    })),
+    sparkline: [],
+    total_services: 35,
+    hasMore: false,
+}
+
 describe('logsServicesLogic', () => {
     let logic: ReturnType<typeof logsServicesLogic.build>
 
@@ -96,5 +108,42 @@ describe('logsServicesLogic', () => {
         expect(logic.values.page).toBe(1)
         const lastCall = jest.mocked(logsServicesCreate).mock.calls.at(-1)
         expect(lastCall?.[1].query.serviceNameSearch).toBe('api')
+    })
+
+    it('appends the next page on loadMoreServices, keeping first-page sparklines', async () => {
+        logic.unmount()
+        jest.mocked(logsServicesCreate).mockReset()
+        jest.mocked(logsServicesCreate).mockResolvedValueOnce({ ...INITIAL_RESPONSE, hasMore: true })
+        jest.mocked(logsServicesCreate).mockResolvedValueOnce(NEXT_PAGE_RESPONSE)
+        logic = logsServicesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreServices()
+        }).toFinishAllListeners()
+
+        const lastCall = jest.mocked(logsServicesCreate).mock.calls.at(-1)
+        expect(lastCall?.[1].query.offset).toBe(30)
+        expect(logic.values.services).toHaveLength(35)
+        expect(logic.values.services.at(-1)?.service_name).toBe('svc-extra-5')
+        expect(logic.values.hasMoreServices).toBe(false)
+        expect(logic.values.totalServices).toBe(35)
+        expect(logic.values.sparklinePoints).toHaveLength(25)
+    })
+
+    it('sorting reloads from the server with order params and resets to page 1', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setPage(2)
+
+        await expectLogic(logic, () => {
+            logic.actions.setSorting({ columnKey: 'error_rate', order: 1 })
+        }).toDispatchActions(['setSorting', 'setPage', 'loadServicesData', 'loadServicesDataSuccess'])
+
+        expect(logic.values.page).toBe(1)
+        const lastCall = jest.mocked(logsServicesCreate).mock.calls.at(-1)
+        expect(lastCall?.[1].query.orderBy).toBe('error_rate')
+        expect(lastCall?.[1].query.orderDirection).toBe('ASC')
+        expect(lastCall?.[1].query.offset).toBe(0)
     })
 })

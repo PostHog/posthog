@@ -6,10 +6,12 @@ import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsServicesLogic, SERVICES_PAGE_SIZE, ServiceRow } from './logsServicesLogic'
 import { copyServiceDeepLink } from './serviceViewerUrl'
@@ -149,9 +151,11 @@ export function LogsServices(): JSX.Element {
         dateFrom,
         servicesSummary,
         totalServices,
+        hasMoreServices,
     } = useValues(logsServicesLogic)
     const { setDateFrom, setPage, setSearchTerm, setSorting } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
+    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
 
     const [rulesExpandAll, setRulesExpandAll] = useState(false)
     const [rulesExpandedByService, setRulesExpandedByService] = useState<Record<string, boolean>>({})
@@ -160,7 +164,7 @@ export function LogsServices(): JSX.Element {
         () => services.filter((s) => (s.active_rules?.length ?? 0) > RULES_PREVIEW_COUNT),
         [services]
     )
-    const showRulesBulkControls = servicesWithManyRules.length > 0
+    const showRulesBulkControls = samplingRulesUi && servicesWithManyRules.length > 0
 
     useEffect(() => {
         if (servicesWithManyRules.length === 0) {
@@ -229,39 +233,43 @@ export function LogsServices(): JSX.Element {
             sorter: true,
             align: 'right',
         },
-        {
-            title: showRulesBulkControls ? (
-                <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0">Rules</span>
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        onClick={() => {
-                            if (rulesExpandAll) {
-                                setRulesExpandAll(false)
-                                setRulesExpandedByService({})
-                            } else {
-                                setRulesExpandAll(true)
-                                setRulesExpandedByService({})
-                            }
-                        }}
-                    >
-                        {rulesExpandAll ? 'Collapse all' : 'Expand all'}
-                    </LemonButton>
-                </div>
-            ) : (
-                'Rules'
-            ),
-            key: 'active_rules',
-            render: (_, row) => (
-                <ServiceRulesCell
-                    row={row}
-                    rulesExpandAll={rulesExpandAll}
-                    rulesExpandedByService={rulesExpandedByService}
-                    onToggleRow={toggleServiceRulesExpanded}
-                />
-            ),
-        },
+        ...(samplingRulesUi
+            ? ([
+                  {
+                      title: showRulesBulkControls ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                              <span className="shrink-0">Rules</span>
+                              <LemonButton
+                                  size="xsmall"
+                                  type="secondary"
+                                  onClick={() => {
+                                      if (rulesExpandAll) {
+                                          setRulesExpandAll(false)
+                                          setRulesExpandedByService({})
+                                      } else {
+                                          setRulesExpandAll(true)
+                                          setRulesExpandedByService({})
+                                      }
+                                  }}
+                              >
+                                  {rulesExpandAll ? 'Collapse all' : 'Expand all'}
+                              </LemonButton>
+                          </div>
+                      ) : (
+                          'Rules'
+                      ),
+                      key: 'active_rules',
+                      render: (_: unknown, row: ServiceRow) => (
+                          <ServiceRulesCell
+                              row={row}
+                              rulesExpandAll={rulesExpandAll}
+                              rulesExpandedByService={rulesExpandedByService}
+                              onToggleRow={toggleServiceRulesExpanded}
+                          />
+                      ),
+                  },
+              ] as LemonTableColumns<ServiceRow>)
+            : []),
         {
             title: 'Volume trend',
             key: 'sparkline',
@@ -292,10 +300,10 @@ export function LogsServices(): JSX.Element {
                     {servicesSummary.top_services_volume_share_pct.toFixed(1)}% of traffic in this window.
                 </LemonBanner>
             )}
-            {totalServices > services.length && (
+            {!hasMoreServices && totalServices > services.length && (
                 <LemonBanner type="info" className="mb-0">
-                    Showing the top {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
-                    {searchTerm ? 'matching services' : 'services'} by volume.{' '}
+                    Showing {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
+                    {searchTerm ? 'matching services' : 'services'}.{' '}
                     {searchTerm ? 'Refine your search to see the rest.' : 'Use search to find the rest.'}
                 </LemonBanner>
             )}
@@ -320,8 +328,8 @@ export function LogsServices(): JSX.Element {
             {/* The scene container is a fixed height, so this region scrolls. Without it the
                 table is squeezed and clips its own last rows and the pagination control. */}
             <div className="flex-1 min-h-0 overflow-y-auto">
-                {/* Pagination and sorting are controlled by the logic (which passes in the
-                    pre-sorted page slice) so it knows which rows are visible and can lazy-load
+                {/* Pagination and sorting are controlled by the logic (the server sorts and the
+                    logic accumulates pages) so it knows which rows are visible and can lazy-load
                     their sparklines; the backend only sparklines the top rows per request. */}
                 <LemonTable
                     columns={columns}

@@ -1,4 +1,4 @@
-import { CSSProperties, useMemo } from 'react'
+import { CSSProperties, useCallback, useMemo } from 'react'
 import { List } from 'react-window'
 
 import { IconShare } from '@posthog/icons'
@@ -17,23 +17,45 @@ const ROW_HEIGHT = 30
 // `h-7` classes that actually size the subtitle and the header.
 const SUBTITLE_HEIGHT = 24
 const HEADER_HEIGHT = 28
+// Must stay below SERVICES_REQUEST_LIMIT, or every page-load immediately
+// triggers the next fetch regardless of scroll position.
+const SCROLL_THRESHOLD = 25
 
 /** Shared by the header and every row so the columns line up either side of the scroller. */
 const COLUMN_TEMPLATE = 'grid grid-cols-[minmax(0,1fr)_6rem_5rem_12rem] items-center gap-2'
 
 interface ServicesListProps {
     services: ServiceRow[]
+    /** True distinct-service count for the window, ahead of what has loaded so far. */
+    totalServices: number
     loading: boolean
+    hasMore: boolean
+    onLoadMore: () => void
     /** Both the empty state and the subtitle read differently for a search result than for the whole project. */
     searchTerm: string
 }
 
 /**
- * Every service in the project, in one scroller. The aggregates query costs the same whether
- * it returns 25 rows or all of them, because the LIMIT lands after the GROUP BY.
+ * One scroller over the project's services, loading rows in pages as the user
+ * approaches the end of what has loaded so far.
  */
-export function ServicesList({ services, loading, searchTerm }: ServicesListProps): JSX.Element {
+export function ServicesList({
+    services,
+    totalServices,
+    loading,
+    hasMore,
+    onLoadMore,
+    searchTerm,
+}: ServicesListProps): JSX.Element {
     const rowProps = useMemo(() => ({ services }), [services])
+    const handleRowsRendered = useCallback(
+        (_: { startIndex: number; stopIndex: number }, allRows: { startIndex: number; stopIndex: number }): void => {
+            if (hasMore && !loading && allRows.stopIndex >= services.length - SCROLL_THRESHOLD) {
+                onLoadMore()
+            }
+        },
+        [services.length, hasMore, loading, onLoadMore]
+    )
 
     if (loading && services.length === 0) {
         return (
@@ -65,7 +87,7 @@ export function ServicesList({ services, loading, searchTerm }: ServicesListProp
                         style={{ width }}
                     >
                         <div className="h-6 shrink-0 text-xs text-muted px-2">
-                            {densitySubtitle(services.length, screenCount(services.length, listHeight), !!searchTerm)}
+                            {densitySubtitle(totalServices, screenCount(totalServices, listHeight), !!searchTerm)}
                         </div>
                         <ServicesListHeader />
                         <List<ServicesListRowProps>
@@ -76,6 +98,7 @@ export function ServicesList({ services, loading, searchTerm }: ServicesListProp
                             overscanCount={5}
                             rowComponent={ServicesListRow}
                             rowProps={rowProps}
+                            onRowsRendered={handleRowsRendered}
                         />
                     </div>
                 )

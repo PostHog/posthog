@@ -31,8 +31,21 @@ describe('ServicesList', () => {
         initKeaTests()
     })
 
-    const renderList = (services: ServiceRow[] = SERVICES): HTMLElement =>
-        render(<ServicesList services={services} loading={false} searchTerm="" />).container
+    const renderList = (
+        services: ServiceRow[] = SERVICES,
+        props: Partial<Parameters<typeof ServicesList>[0]> = {}
+    ): HTMLElement =>
+        render(
+            <ServicesList
+                services={services}
+                totalServices={services.length}
+                loading={false}
+                hasMore={false}
+                onLoadMore={() => {}}
+                searchTerm=""
+                {...props}
+            />
+        ).container
 
     it('keeps the DOM bounded by the viewport, not by the number of services', () => {
         const rows = renderList().querySelectorAll('[data-attr="logs-services-row"]')
@@ -63,5 +76,21 @@ describe('ServicesList', () => {
 
     it('states how many services matched and how far they scroll', () => {
         expect(renderList().textContent).toContain('2,400 services, about 134 screens')
+    })
+
+    it('requests the next page only near the end of the loaded rows, and only when more exist', () => {
+        // 30 rows: the ~20 rows rendered at the top reach within the 25-row
+        // threshold of the end. 2400 rows: they do not.
+        const onLoadMore = jest.fn()
+        renderList(SERVICES.slice(0, 30), { hasMore: true, onLoadMore })
+        expect(onLoadMore).toHaveBeenCalled()
+
+        onLoadMore.mockClear()
+        renderList(SERVICES.slice(0, 30), { hasMore: false, onLoadMore })
+        expect(onLoadMore).not.toHaveBeenCalled()
+
+        onLoadMore.mockClear()
+        renderList(SERVICES, { hasMore: true, onLoadMore })
+        expect(onLoadMore).not.toHaveBeenCalled()
     })
 })
