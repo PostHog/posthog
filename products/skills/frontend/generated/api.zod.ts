@@ -17,6 +17,12 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
         .max(communitySkillsInstallCreateBodyNewNameMax)
         .optional()
         .describe("Name for the installed skill in your team. Defaults to the community skill's slug."),
+    variables: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
 })
 
 export const llmSkillsCreateBodyNameMax = 64
