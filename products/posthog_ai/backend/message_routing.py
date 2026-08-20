@@ -34,6 +34,7 @@ from products.posthog_ai.backend.helpers import BaseSandboxService
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
+from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.facade import (
     api as tasks_facade,
@@ -126,6 +127,14 @@ class SandboxSession(BaseSandboxService):
         convert_to_acp: bool = False,
         repository: str | None = None,
     ) -> SandboxRouteResult | None:
+        task = self.conversation.task
+        if task is not None and (task.created_by_id != self.conversation.user_id or task.created_by_id != self.user.id):
+            detach_conversations_for_task_handoff(task.id, task.created_by_id)
+            self.conversation.task = None
+            self.conversation.sandbox_task_id = None
+            self.conversation.sandbox_run_id = None
+            raise exceptions.PermissionDenied("This task belongs to another user. Start a new conversation.")
+
         initial_permission_mode = self._initial_permission_mode(data.get("initial_permission_mode"))
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
