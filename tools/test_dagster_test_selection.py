@@ -224,7 +224,7 @@ class TestDagsterTestSelection(unittest.TestCase):
     def test_renamed_module_reports_both_the_old_and_new_path(self) -> None:
         repo = self.root / "repo"
         (repo / "posthog" / "dags").mkdir(parents=True)
-        self.module.REPO_ROOT = repo
+        self.module.__dict__["REPO_ROOT"] = repo
 
         def git(*args: str) -> str:
             return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
