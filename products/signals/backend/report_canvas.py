@@ -277,6 +277,12 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             task_id=session.discussion_task_id,
             internal=True,
         )
+        if session.generation_task_id is not None:
+            tasks_facade.set_task_internal(
+                team_id=team_id,
+                task_id=session.generation_task_id,
+                internal=False,
+            )
         title = report.title or "Report"
         tasks_facade.update_shared_task_context(
             team_id=team_id,

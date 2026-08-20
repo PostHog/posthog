@@ -128,12 +128,19 @@ class TestReportCanvasGeneration(APIBaseTest):
         with team_scope(self.team.id):
             channel = self.channel_model.objects.create(team=self.team, name="general")
             discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
+            generation_task = self.task_model.objects.create(
+                team=self.team,
+                channel=channel,
+                title="Canvas: Report",
+                internal=True,
+            )
             canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
             SignalReportCanvas.objects.create(
                 team=self.team,
                 report=report,
                 canvas_id=canvas.id,
                 discussion_task_id=discussion.id,
+                generation_task_id=generation_task.id,
                 generated_fingerprint="stable",
                 generation_status=SignalReportCanvas.GenerationStatus.READY,
             )
@@ -152,9 +159,11 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert generation.skipped is True
         canvas.refresh_from_db()
         discussion.refresh_from_db()
+        generation_task.refresh_from_db()
         assert canvas.source_product == "signal_report"
         assert canvas.source_resource_id == str(report.id)
         assert discussion.internal is True
+        assert generation_task.internal is False
 
     def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
         report = self._report()
