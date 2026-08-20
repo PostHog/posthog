@@ -62,14 +62,15 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # The read API already retries a 503 five times (`APPLE_SEARCH_ADS_RETRY`), but with
-        # `raise_on_status=False` the final 503 returns as a response and `request_json` turns it
-        # into an HTTPError. Apple returns 503 during brief outages, and Temporal retries the whole
-        # activity, so the import self-recovers — keep it out of tracked exception noise. Matched on
-        # the 503 status and reason phrase plus the read host, so a real 4xx on the same endpoints
-        # stays loud.
+        # Both the read API and the token exchange retry a 503 five times (`APPLE_SEARCH_ADS_RETRY`),
+        # but with `raise_on_status=False` the final 503 comes back as a response and is turned into
+        # an HTTPError. Apple returns 503 during brief outages, and Temporal retries the whole
+        # activity, so the import self-recovers. Keep these out of tracked exception noise. Matched on
+        # the 503 status and reason phrase plus the host, so a real 4xx on the same endpoints stays
+        # loud.
         return {
             "503 Server Error: Service Unavailable for url: https://api.searchads.apple.com",
+            "503 Server Error: Service Unavailable for url: https://appleid.apple.com/auth/oauth2/token",
         }
 
     @property
