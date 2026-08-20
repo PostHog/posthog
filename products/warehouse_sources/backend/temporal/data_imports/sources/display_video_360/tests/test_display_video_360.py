@@ -654,7 +654,10 @@ class TestReportPipeline:
         poll_responses: list[FakeResponse],
         manager: FakeResumeManager | None = None,
         csv_body: str | None = None,
-    ) -> tuple[list[list[dict[str, Any]]], FakeSession, FakeSession]:
+    ):
+        # Deliberately untyped return (batches, session, download): a 3-tuple return
+        # annotation trips the tuple-return-prefer-dataclass devex rule, and this is a
+        # private test helper, not a public API worth a dedicated result dataclass.
         session = FakeSession(
             get_responses=poll_responses,
             post_responses=[
