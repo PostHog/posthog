@@ -14,6 +14,9 @@ class LemlistEndpointConfig:
     paginate: bool = True
     # lemlist's newer response shapes require `version=v2` on a couple of list endpoints.
     requires_version_v2: bool = False
+    # `version=v2` is optional here but enriches the response (e.g. /team gains a `users` array), so
+    # it's sent only when the source is pinned to v2 — v1 pins keep the leaner shape byte-for-byte.
+    version_v2_enriches: bool = False
     # `/team` returns a single object rather than an array; wrap it into a one-row table.
     single_object: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["_id"])
@@ -67,6 +70,7 @@ LEMLIST_ENDPOINTS: dict[str, LemlistEndpointConfig] = {
         paginate=False,
         single_object=True,
         partition_key="createdAt",
+        version_v2_enriches=True,
     ),
     "team_senders": LemlistEndpointConfig(
         name="team_senders",
