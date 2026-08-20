@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -114,6 +115,30 @@ describe('customPropertyDefinitionsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadDefinitions', 'loadDefinitionsSuccess'])
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'ARR' })] })
+    })
+
+    it.each([
+        ['a 500 carries the Error object to error tracking', 500, true],
+        ['a 401 the app already recovers from is not reported', 401, false],
+    ])('reports a load failure only when it is worth triaging: %s', async (_name, status, shouldReport) => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
+        const captureException = jest.spyOn(posthog, 'captureException').mockReturnValue(undefined as any)
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [DEFINITIONS_URL]: () => [status, { detail: 'nope' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsFailure'])
+
+        if (shouldReport) {
+            // kea-loaders hands the listener the message string; the real Error lives in errorObject.
+            expect(captureException).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ scope: 'customPropertyDefinitionsLogic.load' })
+            )
+        } else {
+            expect(captureException).not.toHaveBeenCalled()
+        }
     })
 
     it('filters definitions by target type combined with search', async () => {
