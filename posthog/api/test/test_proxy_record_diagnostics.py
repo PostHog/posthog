@@ -121,8 +121,8 @@ class TestCheckCloudflare(TestCase):
 
     @parameterized.expand(
         [
-            ("blocked", CustomHostnameStatus.BLOCKED, "release"),
-            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED, "release"),
+            ("blocked", CustomHostnameStatus.BLOCKED, "zone hold"),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED, "zone hold"),
             ("moved", CustomHostnameStatus.MOVED, "restore"),
             ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION, "restore"),
         ]

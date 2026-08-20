@@ -394,7 +394,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
                     type="config",
                     summary="Contact support to restore this domain."
                     if moved
-                    else "Contact support to release this domain.",
+                    else "Release the Cloudflare zone hold on this domain, or contact support.",
                 ),
             ),
             info,
@@ -638,7 +638,10 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
                 name="Live event probe",
                 status="failed",
                 detail=describe_cross_user_banned(record.domain),
-                remediation=Remediation(type="config", summary="Contact support to re-authorize this domain."),
+                remediation=Remediation(
+                    type="config",
+                    summary="Check the domain's Cloudflare zone for a hold, or contact support.",
+                ),
             )
         return CheckResult(
             id="live_event",

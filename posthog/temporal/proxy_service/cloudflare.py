@@ -95,9 +95,10 @@ class CustomHostnameStatus(CloudflareStatus):
 
 # Custom Hostname statuses where Cloudflare stops serving traffic for the hostname, even when
 # the SSL certificate itself reads active. `blocked`/`pending_blocked`: the edge rejects requests
-# (a common cause is a cross-user CNAME ban, error 1014, where the domain resolves to a hostname
-# owned by another account). `moved`: the hostname no longer points at our zone. `pending_migration`:
-# the hostname is mid-migration and not yet serving. All four fail the certificate check.
+# with a cross-user ban, error 1014 — commonly a zone hold on the customer's own Cloudflare zone,
+# which forbids other accounts from activating the domain. `moved`: the hostname no longer
+# points at our zone. `pending_migration`: the hostname is mid-migration and not yet serving.
+# All four fail the certificate check.
 BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
     {
         CustomHostnameStatus.BLOCKED,
@@ -131,26 +132,26 @@ def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:
 
 
 def describe_blocked_hostname_status(status: CustomHostnameStatus, domain: str) -> str:
-    """Customer-facing sentence for a Custom Hostname stuck in a blocked or moved state.
-
-    Keeps the vendor unnamed to match the copy convention in proxy_record_diagnostics.
-    """
+    """Customer-facing sentence for a Custom Hostname stuck in a blocked or moved state."""
     if status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION):
         return (
             f"`{domain}` is no longer served by the proxy. Its hostname was moved or is "
             "mid-migration. Contact support to restore it."
         )
     return (
-        f"`{domain}` is blocked at the edge. This usually means the domain is already active "
-        "on another account, or its CNAME points at a banned target. Contact support to release it."
+        f"`{domain}` is blocked from activating on the proxy. This usually means its Cloudflare "
+        "zone has a hold that also covers subdomains. Release the hold on the zone's overview page "
+        'in Cloudflare, or turn off "Also prevent subdomains", then run diagnostics again. '
+        "If the domain is not on Cloudflare, contact support."
     )
 
 
 def describe_cross_user_banned(domain: str) -> str:
     """Customer-facing sentence for a 403 carrying Cloudflare error 1014."""
     return (
-        f"`{domain}` is not authorized at the edge (error 1014). Its CNAME resolves to a "
-        "hostname registered to another account. Contact support to re-authorize it."
+        f"`{domain}` is not authorized to serve traffic through the proxy (error 1014). "
+        "If the domain is on Cloudflare, check its zone for a hold that also covers subdomains "
+        "and release it, then run diagnostics again. Otherwise contact support."
     )
 
 
