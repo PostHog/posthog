@@ -496,6 +496,27 @@ describe('mcpClusteringLogic category scope', () => {
         expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
     })
 
+    // Tool names come from events, so a call named `__proto__` or `constructor` can reach the
+    // category map. A plain-object lookup resolves those to inherited values and throws on the
+    // `.includes` check, taking the whole view down; the map has to be prototype-free.
+    it('handles tool names that collide with object prototype keys', async () => {
+        logic.unmount()
+        mockQuery.mockResolvedValue({
+            results: [
+                { tool: '__proto__', category: 'Data' },
+                { tool: '__proto__', category: 'Insights' },
+                { tool: 'constructor', category: 'Data' },
+            ],
+        })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.categoriesByTool['__proto__']).toEqual(['Data', 'Insights'])
+        expect(logic.values.categoriesByTool['constructor']).toEqual(['Data'])
+    })
+
     // A single category comes back from the url as a bare string rather than an array,
     // which would otherwise scope to the individual characters of its name.
     it.each([

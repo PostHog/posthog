@@ -525,7 +525,10 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         categoriesByTool: [
             (s) => [s.categoryMap],
             (categoryMap: MCPToolCategoryMapItem[]): Record<string, string[]> => {
-                const byTool: Record<string, string[]> = {}
+                // Tool names come from events, so a call named `__proto__` or `constructor`
+                // would resolve `byTool[tool]` to an inherited value and throw on `.includes`.
+                // A prototype-free map keys those names as ordinary data.
+                const byTool: Record<string, string[]> = Object.create(null)
                 for (const { tool, category } of categoryMap) {
                     const existing = byTool[tool]
                     if (!existing) {
