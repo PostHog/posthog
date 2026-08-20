@@ -130,6 +130,7 @@ class OfflineExperimentItemsResponseSerializer(serializers.Serializer):
 class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "evaluation"
     scope_object_read_actions = ["experiment_items"]
+    requires_resource_level_access = True
     permission_classes = [AccessControlPermission]
 
     @extend_schema(

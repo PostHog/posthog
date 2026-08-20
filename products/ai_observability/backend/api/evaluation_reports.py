@@ -568,13 +568,14 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
 
 
 class EvaluationReportAccessControlPermission(AccessControlPermission):
-    def has_object_permission(self, request: Request, view: Any, obj: EvaluationReport) -> bool:
+    def has_object_permission(self, request: Request, view: Any, obj: EvaluationReport | Evaluation) -> bool:
         if is_service_auth(request):
             return True
         required_level = self._get_required_access_level(request, view)
         if required_level is None:
             return True
-        return view.user_access_control.check_access_level_for_object(obj.evaluation, required_level)
+        evaluation = obj.evaluation if isinstance(obj, EvaluationReport) else obj
+        return view.user_access_control.check_access_level_for_object(evaluation, required_level)
 
 
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -634,6 +635,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self.check_object_permissions(request, serializer.validated_data["evaluation"])
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         status_code = status.HTTP_201_CREATED if getattr(serializer, "created_instance", True) else status.HTTP_200_OK

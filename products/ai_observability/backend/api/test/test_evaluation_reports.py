@@ -935,3 +935,31 @@ class TestEvaluationReportAccessControl(APIBaseTest):
         assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
         self.report.refresh_from_db()
         assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_cannot_upsert_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "attacker@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
