@@ -1053,7 +1053,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
     def test_materialization_status_derives_last_materialized_at_from_jobs(self):
         """v2 DAG runs record success on DataModelingJob without touching saved_query.last_run_at;
         the status payload must report the real materialization time, not the frozen v1 field."""
-        job_time = timezone.now() - timedelta(minutes=5)
+        job_time = timezone.now() - timedelta(days=2)
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="status_freshness_endpoint",

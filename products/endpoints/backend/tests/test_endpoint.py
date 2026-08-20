@@ -1899,8 +1899,9 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
 
     def _create_endpoints(self, count: int) -> None:
         for i in range(count):
+            endpoint_name = f"list_perf_{count}_{i}"
             endpoint = create_endpoint_with_version(
-                name=f"list_perf_{i}",
+                name=endpoint_name,
                 team=self.team,
                 query={
                     "kind": "HogQLQuery",
@@ -1911,14 +1912,14 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
             )
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
-                name=f"list_perf_{i}",
+                name=endpoint_name,
                 query=endpoint.get_version().query,
                 is_materialized=True,
                 table=DataWarehouseTable.objects.create(
                     team=self.team,
-                    name=f"list_perf_{i}",
+                    name=endpoint_name,
                     format=DataWarehouseTable.TableFormat.Parquet,
-                    url_pattern=f"s3://test-bucket/list-perf-{i}",
+                    url_pattern=f"s3://test-bucket/{endpoint_name}",
                 ),
             )
             endpoint.versions.update(columns=[{"name": "c", "type": "integer"}], saved_query=saved_query)
@@ -1977,7 +1978,13 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("SELECT 3", result["query"]["query"])
 
     def test_list_survives_an_endpoint_whose_eligibility_check_raises(self):
-        self._create_endpoints(2)
+        for i in range(2):
+            create_endpoint_with_version(
+                name=f"eligibility_error_{i}",
+                team=self.team,
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                created_by=self.user,
+            )
 
         with mock.patch.object(EndpointVersion, "can_materialize", side_effect=RuntimeError("boom")):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
