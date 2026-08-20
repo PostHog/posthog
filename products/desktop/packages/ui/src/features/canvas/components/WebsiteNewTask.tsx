@@ -36,10 +36,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const channel = channels.find((c) => c.id === channelId);
   const channelName = channel?.name;
   const contextLayerEnabled = useContextLayerFlag();
-  const { data: wikiPage } = useChannelContextWikiPage(
-    channelId,
-    contextLayerEnabled,
-  );
+  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -58,7 +55,10 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   // The channel's CONTEXT.md, passed to the agent as optional background so
   // tasks created here start with the shared context. Absent/empty is fine.
   const { data: instructions } = useFolderInstructions(channelId);
-  const channelContext = instructions?.content;
+  const channelContext =
+    !contextLayerEnabled || (wikiPage.data === null && !wikiPage.error)
+      ? instructions?.content
+      : undefined;
 
   // Right-side preview of the CONTEXT.md, opened from the composer's chip so the
   // user can read what will be sent before submitting (mirrors the post-submit
@@ -150,7 +150,8 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
-          channelContextPath={wikiPage?.path}
+          channelContextPath={wikiPage.data?.path}
+          channelContextLoading={contextLayerEnabled && wikiPage.isLoading}
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}

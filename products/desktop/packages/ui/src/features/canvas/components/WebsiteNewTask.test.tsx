@@ -12,9 +12,17 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   } as unknown as typeof ResizeObserver;
 }
 
-const { track, useFolderInstructions, taskInputProps } = vi.hoisted(() => ({
+const {
+  track,
+  useFolderInstructions,
+  useContextLayerFlag,
+  useChannelContextWikiPage,
+  taskInputProps,
+} = vi.hoisted(() => ({
   track: vi.fn(),
   useFolderInstructions: vi.fn(),
+  useContextLayerFlag: vi.fn(),
+  useChannelContextWikiPage: vi.fn(),
   taskInputProps: vi.fn(),
 }));
 
@@ -74,10 +82,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFolderInstructions", () => ({
   useFolderInstructions,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useContextLayerFlag", () => ({
-  useContextLayerFlag: () => false,
+  useContextLayerFlag,
 }));
 vi.mock("@posthog/ui/features/context-wiki/hooks/useContextWiki", () => ({
-  useChannelContextWikiPage: () => ({ data: null }),
+  useChannelContextWikiPage,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@tanstack/react-query", () => ({
@@ -114,7 +122,48 @@ describe("WebsiteNewTask context panel", () => {
   beforeEach(() => {
     track.mockReset();
     useFolderInstructions.mockReset();
+    useContextLayerFlag.mockReturnValue(false);
+    useChannelContextWikiPage.mockReturnValue({ data: null });
     taskInputProps.mockReset();
+  });
+
+  it("blocks submission while the enabled wiki page is resolving", () => {
+    useContextLayerFlag.mockReturnValue(true);
+    useChannelContextWikiPage.mockReturnValue({
+      data: undefined,
+      error: null,
+      isLoading: true,
+    });
+    useFolderInstructions.mockReturnValue({
+      data: { content: "legacy body" },
+    });
+
+    renderNewTask();
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        channelContext: undefined,
+        channelContextLoading: true,
+      }),
+    );
+  });
+
+  it("does not expose legacy context when wiki resolution fails", () => {
+    useContextLayerFlag.mockReturnValue(true);
+    useChannelContextWikiPage.mockReturnValue({
+      data: undefined,
+      error: new Error("unavailable"),
+      isLoading: false,
+    });
+    useFolderInstructions.mockReturnValue({
+      data: { content: "legacy body" },
+    });
+
+    renderNewTask();
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ channelContext: undefined }),
+    );
   });
 
   it("creates the task in the channel's feed", () => {

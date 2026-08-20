@@ -51,6 +51,10 @@ def _page_cache_key(organization_id: uuid.UUID | str, head_sha: str, path: str) 
     return f"context_layer:page:{organization_id}:{head_sha}:{path}"
 
 
+def _channel_index_cache_key(organization_id: uuid.UUID | str, head_sha: str) -> str:
+    return f"context_layer:channel-index:{organization_id}:{head_sha}"
+
+
 def normalize_page_path(path: str) -> str:
     """Reject anything that could escape the checkout or point at a non-page.
 
@@ -105,6 +109,15 @@ def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
     return WikiPage(path=path, content=content, head_sha=head_sha)
 
 
+def resolve_channel_page(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str | None:
+    head_sha = store.get_config(organization_id).head_sha
+    index = get_safe_cache(_channel_index_cache_key(organization_id, head_sha))
+    if index is None:
+        warmed = _warm_cache(organization_id)
+        head_sha, index = warmed.head_sha, warmed.channel_paths
+    return index.get(str(channel_id))
+
+
 def write_page(
     organization_id: uuid.UUID | str,
     *,
@@ -139,12 +152,14 @@ class WarmedWiki:
     head_sha: str
     paths: list[str]
     pages: dict[str, str]
+    channel_paths: dict[str, str]
 
 
 def _warm_cache(organization_id: uuid.UUID | str) -> WarmedWiki:
     """One checkout warms the tree and every page for the checkout's head."""
     with store.checkout_repo(organization_id) as checkout:
         pages: dict[str, str] = {}
+        channel_paths: dict[str, str] = {}
         for file_path in sorted(checkout.path.rglob("*.md")):
             if ".git" in file_path.parts or file_path.is_symlink() or not file_path.is_file():
                 continue
@@ -152,8 +167,26 @@ def _warm_cache(organization_id: uuid.UUID | str) -> WarmedWiki:
             # The linter rejects non-UTF-8 pages at land time; replacement here
             # keeps one legacy file from turning every read into a 500.
             pages[relative] = file_path.read_text(encoding="utf-8", errors="replace")
+            if relative.startswith("channels/"):
+                channel_id = _frontmatter_value(pages[relative], "channel_id")
+                if channel_id:
+                    channel_paths[channel_id] = relative
         paths = sorted(pages)
         safe_cache_set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
         for relative, content in pages.items():
             safe_cache_set(_page_cache_key(organization_id, checkout.head_sha, relative), content, CACHE_TTL_SECONDS)
-        return WarmedWiki(head_sha=checkout.head_sha, paths=paths, pages=pages)
+        safe_cache_set(_channel_index_cache_key(organization_id, checkout.head_sha), channel_paths, CACHE_TTL_SECONDS)
+        return WarmedWiki(head_sha=checkout.head_sha, paths=paths, pages=pages, channel_paths=channel_paths)
+
+
+def _frontmatter_value(content: str, key: str) -> str | None:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return None
+        name, separator, value = line.partition(":")
+        if separator and name.strip() == key:
+            return value.strip() or None
+    return None

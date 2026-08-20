@@ -132,6 +132,8 @@ interface TaskInputProps {
   channelContext?: string;
   /** Repo-relative context wiki page used instead of injecting the legacy body. */
   channelContextPath?: string;
+  /** Prevent submission until the enabled wiki resolves to a page or confirmed fallback. */
+  channelContextLoading?: boolean;
   /** Display name of the channel the CONTEXT.md came from (for the chip). */
   channelName?: string;
   /** Backend channel UUID that owns the created task and feed entry. */
@@ -189,6 +191,7 @@ export function TaskInput({
   reportAssociation,
   channelContext,
   channelContextPath,
+  channelContextLoading = false,
   channelName,
   channelId,
   channelContextId,
@@ -871,6 +874,7 @@ export function TaskInput({
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
     allowNoRepo,
+    submissionBlocked: channelContextLoading,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -1459,6 +1463,7 @@ export function TaskInput({
                   submitDisabledExternal={
                     !canSubmit ||
                     isCreatingTask ||
+                    channelContextLoading ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
                     (runtime === "pi" && !currentPiModel)

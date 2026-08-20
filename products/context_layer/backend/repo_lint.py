@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import sys
+import uuid
 from pathlib import Path
 
 ALLOWED_ROOT_FILES = {"AGENTS.md", "CLAUDE.md"}
@@ -55,6 +56,7 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
 
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory))
+    errors.extend(_lint_channel_ids(root))
 
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
 
@@ -101,6 +103,29 @@ def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
         if directory == "channels" and not _frontmatter(path).get("channel_id"):
             errors.append(f"{relative}: channel pages need a non-empty `channel_id` in their frontmatter")
+    return errors
+
+
+def _lint_channel_ids(root: Path) -> list[str]:
+    channels = root / "channels"
+    if not channels.is_dir():
+        return []
+    errors: list[str] = []
+    paths_by_id: dict[str, list[Path]] = {}
+    for path in sorted(channels.rglob("*.md")):
+        channel_id = _frontmatter(path).get("channel_id")
+        if not channel_id:
+            continue
+        try:
+            uuid.UUID(channel_id)
+        except ValueError:
+            errors.append(f"{path.relative_to(root)}: `channel_id` must be a UUID")
+            continue
+        paths_by_id.setdefault(channel_id, []).append(path)
+    for channel_id, paths in paths_by_id.items():
+        if len(paths) > 1:
+            joined_paths = ", ".join(str(path.relative_to(root)) for path in paths)
+            errors.append(f"channel_id {channel_id} appears in more than one page: {joined_paths}")
     return errors
 
 

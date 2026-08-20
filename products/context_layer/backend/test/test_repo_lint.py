@@ -1,3 +1,4 @@
+import uuid
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -93,8 +94,21 @@ class TestRepoLint(SimpleTestCase):
         (self.root / "decisions").mkdir()
         (self.root / "decisions" / "2026-08-18-pricing-tiers.md").write_text("# pricing tiers")
         (self.root / "channels").mkdir()
-        (self.root / "channels" / "general.md").write_text("---\nchannel_id: abc123\n---\n# general")
+        (self.root / "channels" / "general.md").write_text(f"---\nchannel_id: {uuid.uuid4()}\n---\n# general")
         assert lint_repo(self.root) == []
+
+    def test_channel_ids_must_be_unique_uuids(self) -> None:
+        channels = self.root / "channels"
+        channels.mkdir()
+        channel_id = uuid.uuid4()
+        (channels / "one.md").write_text(f"---\nchannel_id: {channel_id}\n---\n# one")
+        (channels / "two.md").write_text(f"---\nchannel_id: {channel_id}\n---\n# two")
+        (channels / "invalid.md").write_text("---\nchannel_id: not-a-uuid\n---\n# invalid")
+
+        errors = lint_repo(self.root)
+
+        assert any("must be a UUID" in error for error in errors)
+        assert any("appears in more than one page" in error for error in errors)
 
     @parameterized.expand(
         [
