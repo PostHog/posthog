@@ -1,6 +1,9 @@
 import os
 import re
+import hmac
 import json
+import base64
+import hashlib
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -177,12 +180,24 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             )
 
 
+def email_webhook_token(integration_id: int) -> str:
+    """HMAC token authenticating provider webhook URLs (Postmark doesn't sign its webhooks).
+
+    Must produce the identical value to EmailTrackingCodeSigner.webhookToken in the Node email
+    worker (same first ENCRYPTION_SALT_KEYS key, payload `webhook:<id>`, HMAC-SHA256 truncated
+    to 16 bytes, unpadded base64url) — the Django side displays the URL, the Node side verifies it.
+    """
+    key = settings.ENCRYPTION_SALT_KEYS[0]
+    mac = hmac.new(key.encode("utf-8"), f"webhook:{integration_id}".encode(), hashlib.sha256).digest()[:16]
+    return base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
+
+
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField(help_text="From-address workflow emails are sent as.")
     name = serializers.CharField(help_text="From-name shown to recipients.")
     provider = serializers.ChoiceField(
-        choices=["ses", "smtp", "maildev"] if settings.DEBUG else ["ses", "smtp"],
-        help_text="Email delivery provider: 'ses' for PostHog-managed sending, 'smtp' for a custom SMTP relay.",
+        choices=["ses", "smtp", "postmark", "maildev"] if settings.DEBUG else ["ses", "smtp", "postmark"],
+        help_text="Email delivery provider: 'ses' for PostHog-managed sending, 'smtp' for a custom SMTP relay, 'postmark' for a Postmark server (SMTP sending plus delivery/bounce feedback via Postmark webhooks).",
     )
     mail_from_subdomain = serializers.CharField(
         required=False,
@@ -212,7 +227,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         return value.lower()
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("provider") == "smtp":
+        if attrs.get("provider") in ("smtp", "postmark"):
             for field in ("host", "port", "encryption"):
                 if not attrs.get(field):
                     raise serializers.ValidationError({field: f"{field} is required for the SMTP provider"})
@@ -438,8 +453,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # (it lives in sensitive_config); redact the username too so the secret can't be recovered
         # from it. Edit forms send it blank to keep the stored value (see _update_smtp_integration).
         config = data.get("config")
-        if isinstance(config, dict) and config.get("provider") == "smtp" and "username" in config:
+        if isinstance(config, dict) and config.get("provider") in ("smtp", "postmark") and "username" in config:
             data["config"] = {**config, "username": None}
+        if isinstance(config, dict) and config.get("provider") == "postmark":
+            # The path the customer registers as their Postmark server webhook (on the email
+            # tracking host, not the app host). The HMAC token gates the otherwise-unsigned
+            # Postmark webhook; the Node side verifies the identical value.
+            data["postmark_webhook_path"] = (
+                f"/public/m/postmark_webhook/{instance.id}?token={email_webhook_token(instance.id)}"
+            )
         return data
 
     def create(self, validated_data: Any) -> Any:

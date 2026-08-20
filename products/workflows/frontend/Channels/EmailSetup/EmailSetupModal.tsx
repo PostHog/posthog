@@ -38,12 +38,16 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
 
     const emailDomain = savedIntegration?.config?.domain || ''
     const isSmtp = emailSender.provider === 'smtp'
+    const isPostmark = emailSender.provider === 'postmark'
     const busyReason = verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
 
     const providerOptions = [
         { value: 'ses' as const, label: 'PostHog (recommended)' },
         ...(featureFlags[FEATURE_FLAGS.MESSAGING_CUSTOM_SMTP]
-            ? [{ value: 'smtp' as const, label: 'Custom SMTP' }]
+            ? [
+                  { value: 'smtp' as const, label: 'Custom SMTP' },
+                  { value: 'postmark' as const, label: 'Postmark' },
+              ]
             : []),
         ...(featureFlags[FEATURE_FLAGS.MESSAGING_SES] ? [{ value: 'maildev' as const, label: 'Maildev (dev)' }] : []),
     ]
@@ -129,6 +133,31 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                     <LemonInput type="password" disabledReason={busyReason} />
                                 </LemonField>
                             </>
+                        ) : isPostmark ? (
+                            <>
+                                <LemonField
+                                    name="username"
+                                    label="Server token (username)"
+                                    help={
+                                        savedIntegration
+                                            ? 'Leave blank to keep the existing token.'
+                                            : 'Your Postmark server token. Postmark uses it as both the SMTP username and password.'
+                                    }
+                                >
+                                    <LemonInput type="text" disabledReason={busyReason} />
+                                </LemonField>
+                                <LemonField
+                                    name="password"
+                                    label="Server token (password)"
+                                    help={
+                                        savedIntegration
+                                            ? 'Leave blank to keep the existing token.'
+                                            : 'The same server token again. Stored encrypted.'
+                                    }
+                                >
+                                    <LemonInput type="password" disabledReason={busyReason} />
+                                </LemonField>
+                            </>
                         ) : (
                             <LemonField
                                 name="mail_from_subdomain"
@@ -144,7 +173,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 />
                             </LemonField>
                         )}
-                        {(!savedIntegration || isSmtp) && (
+                        {(!savedIntegration || isSmtp || isPostmark) && (
                             <div className="flex justify-end">
                                 <LemonButton
                                     type="primary"

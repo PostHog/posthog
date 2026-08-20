@@ -33,7 +33,7 @@ export interface DnsRecord extends ApiDnsRecord {
 export interface EmailSenderFormType {
     email: string
     name: string
-    provider: 'ses' | 'smtp' | 'maildev'
+    provider: 'ses' | 'smtp' | 'postmark' | 'maildev'
     mail_from_subdomain?: string
     host?: string
     // Nullable rather than optional: kea-forms' DeepPartialMap only accepts a string validation
@@ -219,6 +219,22 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 if (!EMAIL_REGEX.test(email)) {
                     emailError = 'Invalid email format'
                 }
+                if (provider === 'postmark') {
+                    // Host, port and encryption are fixed for Postmark and filled in at submit
+                    return {
+                        email: emailError,
+                        name: !name ? 'Name is required' : undefined,
+                        provider: undefined,
+                        username:
+                            values.savedIntegration === null && !username
+                                ? 'Server token is required for new senders'
+                                : undefined,
+                        password:
+                            values.savedIntegration === null && !password
+                                ? 'Server token is required for new senders'
+                                : undefined,
+                    }
+                }
                 if (provider === 'smtp') {
                     return {
                         email: emailError,
@@ -258,7 +274,17 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 const config: Record<string, any> =
                     formValues.provider === 'smtp'
                         ? { ...base, host, port, encryption, username, ...(password ? { password } : {}) }
-                        : { ...base, mail_from_subdomain }
+                        : formValues.provider === 'postmark'
+                          ? {
+                                // Postmark's relay endpoint is fixed; only the server token varies
+                                ...base,
+                                host: 'smtp.postmarkapp.com',
+                                port: 587,
+                                encryption: 'starttls',
+                                username,
+                                ...(password ? { password } : {}),
+                            }
+                          : { ...base, mail_from_subdomain }
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {

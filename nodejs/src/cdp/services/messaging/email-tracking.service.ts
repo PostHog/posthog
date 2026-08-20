@@ -15,6 +15,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { PostmarkWebhookHandler } from './helpers/postmark'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, TrackingCodeFlags, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -140,6 +141,7 @@ export const addTrackingToEmail = (
 
 export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler
+    private postmarkWebhookHandler: PostmarkWebhookHandler
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
@@ -151,6 +153,7 @@ export class EmailTrackingService {
         private trackingCodeSigner: EmailTrackingCodeSigner
     ) {
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
+        this.postmarkWebhookHandler = new PostmarkWebhookHandler(this.trackingCodeSigner)
     }
 
     public async trackMetric({
@@ -170,7 +173,7 @@ export class EmailTrackingService {
         parentRunId?: string
         distinctId?: string
         metricName: MinimalAppMetric['metric_name']
-        source: 'direct' | 'ses'
+        source: 'direct' | 'ses' | 'postmark'
         properties?: Record<string, unknown>
         timestamp?: string
     }): Promise<void> {
@@ -385,6 +388,67 @@ export class EmailTrackingService {
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            throw error
+        }
+    }
+
+    // Postmark posts one event per request (no batching, no envelope) and does not sign payloads.
+    // Two auth layers instead: the per-integration HMAC token in the URL, and the HMAC-signed
+    // tracking code inside the echoed metadata (verified in the handler).
+    public async handlePostmarkWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
+        const integrationId = req.params.integrationId
+        const token = req.query.token
+        if (
+            !integrationId ||
+            typeof token !== 'string' ||
+            !this.trackingCodeSigner.verifyWebhookToken(integrationId, token)
+        ) {
+            return { status: 403, message: 'Invalid webhook token' }
+        }
+        if (!req.body) {
+            return { status: 403, message: 'Missing request body' }
+        }
+
+        try {
+            const { status, body, metrics, logEntries, optOutRecipients } = this.postmarkWebhookHandler.handleWebhook({
+                body: parseJSON(req.body),
+            })
+
+            for (const metric of metrics || []) {
+                await this.trackMetric({ ...metric, source: 'postmark' })
+            }
+
+            try {
+                await this.trackLogs(logEntries || [])
+            } catch (error) {
+                logger.error('[EmailTrackingService] handlePostmarkWebhook: Failed to track logs', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'postmark' })
+            }
+
+            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
+                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
+                if (!teamId || isNaN(teamId)) {
+                    continue
+                }
+                try {
+                    await this.recipientsManager.optOut(teamId, emailAddresses)
+                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
+                        teamId,
+                        emails: emailAddresses,
+                    })
+                } catch (error) {
+                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
+                        teamId,
+                        emails: emailAddresses,
+                        error,
+                    })
+                }
+            }
+
+            return { status, message: JSON.stringify(body) }
+        } catch (error) {
+            emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown', source: 'postmark' })
+            logger.error('[EmailTrackingService] handlePostmarkWebhook: Postmark webhook error', { error })
             throw error
         }
     }

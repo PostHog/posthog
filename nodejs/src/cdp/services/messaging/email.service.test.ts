@@ -772,6 +772,41 @@ describe('EmailService', () => {
             smtpTransportPool.closeAll()
         })
 
+        it('stamps the tracking code into chunked X-PM-Metadata headers for postmark senders', async () => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: 2,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'postmark',
+                    host: '127.0.0.1',
+                    port: SMTP_TEST_PORT,
+                    encryption: 'none',
+                    username: 'server-token',
+                },
+                sensitive_config: { password: 'server-token' },
+            })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 2 } })
+
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+
+            const headers = unfoldedHeaders(smtpServer.received[0].data)
+            const chunks: string[] = []
+            for (const match of headers.matchAll(/^X-PM-Metadata-posthog-(\d+):\s*(.+)$/gim)) {
+                chunks[parseInt(match[1], 10) - 1] = match[2].trim()
+            }
+            expect(chunks.length).toBeGreaterThan(0)
+            // The reassembled code must verify and identify this send — this is the whole
+            // delivery-feedback correlation contract with the webhook handler.
+            const parsed = signer.parse(chunks.join(''))
+            expect(parsed?.format).toBe('signed')
+            expect(parsed?.invocationId).toBe('invocation-1')
+        })
+
         it('delivers through a real SMTP transaction with tracking rewritten for direct recording', async () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },

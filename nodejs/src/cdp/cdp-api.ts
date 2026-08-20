@@ -280,6 +280,12 @@ export class CdpApi {
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
+        router.post(
+            '/public/m/postmark_webhook/:integrationId',
+            publicBodySizeLimit,
+            express.text({ type: '*/*' }),
+            asyncHandler(this.postPostmarkWebhook())
+        )
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -1090,6 +1096,17 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { status, message } = await this.emailTrackingService.handleSesWebhook(req)
+                return res.status(status).json({ message })
+            } catch {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private postPostmarkWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const { status, message } = await this.emailTrackingService.handlePostmarkWebhook(req)
                 return res.status(status).json({ message })
             } catch {
                 return res.status(500).json({ error: 'Internal error' })

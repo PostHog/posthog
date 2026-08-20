@@ -83,6 +83,11 @@ export function IntegrationEmailDomainView({
                                     <LemonTag type="highlight">Custom SMTP</LemonTag>
                                 </Tooltip>
                             )}
+                            {integration.config.provider === 'postmark' && (
+                                <Tooltip title="Sent through your Postmark server">
+                                    <LemonTag type="highlight">Postmark</LemonTag>
+                                </Tooltip>
+                            )}
                             {(integration.errors || integration.config.verified === false) && (
                                 <Tooltip
                                     title={
