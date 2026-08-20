@@ -9,6 +9,7 @@ import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/uti
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import * as featureFlagLib from 'lib/logic/featureFlagLogic'
@@ -3081,6 +3082,27 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+        })
+
+        it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
+            silenceKeaLoadersErrors()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(
+                new ApiError('forbidden', 403, undefined, { detail: 'You do not have permission' })
+            )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(WIDGET_TILE)
+            })
+                .toDispatchActions(['duplicateTileFailure'])
+                .toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledWith('You do not have permission')
+            resumeKeaLoadersErrors()
         })
 
         it('addWidgetTiles refreshes newly created widget tiles', async () => {

@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from products.error_tracking.backend.logic import (
+from products.error_tracking.backend.logic.rules import (
     compile_filter_bytecode,
     get_client_safe_filters,
     get_client_safe_suppression_rules,

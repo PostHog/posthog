@@ -217,6 +217,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.ERROR_TRACKING_QUERY
             | NodeKind.ERROR_TRACKING_ISSUE_CORRELATION_QUERY
             | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
+            | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}

@@ -132,7 +132,7 @@ Optionally, Trunk's MCP server (`https://mcp.trunk.io/mcp`, OAuth or bearer toke
 > Filter by author (`.user.login == "trunk-io[bot]" and .user.type == "Bot"`; GitHub forbids `[` and `]` in human usernames, so that login isn't registrable by a person) and never use `gh pr view <n> --comments`, which flattens every author into one unattributed blob.
 
 - If the failure is clearly caused by this PR **and** the fix is obvious, fix it, push (the `ci:preflight` pre-push hook must pass — never `--no-verify`), wait for the PR's own checks to go green, and re-enqueue **once** with `/trunk merge`.
-- If the failure looks like a flake or an unrelated master breakage, say so and hand back — `/debugging-ci-failures` and `/fixing-flaky-tests` cover the diagnosis; don't re-enqueue on a hunch.
+- If the failure looks like a flake or an unrelated master breakage, say so and hand back — `/debugging-ci-failures` and `/fixing-flaky-tests` cover the diagnosis; don't re-enqueue on a hunch. Two traps: the queue branch carries every PR ahead of this one, so a failure on it is not this PR's by default, and this PR's own green checks say nothing about a job that only ran in the queue. `/debugging-ci-failures` covers both, plus how to get a real failure rate for the job.
 - Otherwise stop and report the failure and the workflow link. Don't repeatedly re-enqueue a red PR.
 
 ## 5. Cancel

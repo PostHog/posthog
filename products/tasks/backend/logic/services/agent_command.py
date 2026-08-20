@@ -310,6 +310,30 @@ def send_user_message(
     )
 
 
+def send_set_config_option(
+    task_run: Any,
+    config_id: str,
+    value: str,
+    auth_token: str | None = None,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Change one option on the agent-server's live session (`model`, `effort`, `mode`).
+
+    The agent applies the change to the session it is already holding, so the run keeps
+    its conversation history and the new setting takes effect from the next turn. Only
+    options the session currently offers are accepted — a model belonging to a runtime
+    this sandbox isn't running comes back as an RPC error, since the harness is the
+    process the sandbox was started with.
+    """
+    return send_agent_command(
+        task_run,
+        method="set_config_option",
+        params={"configId": config_id, "value": value},
+        auth_token=auth_token,
+        timeout=timeout,
+    )
+
+
 def send_cancel(task_run: Any, auth_token: str | None = None) -> CommandResult:
     """Send a cancel command to the sandbox agent."""
     return send_agent_command(

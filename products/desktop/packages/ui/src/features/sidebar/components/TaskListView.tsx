@@ -15,11 +15,16 @@ import { cn, MenuLabel, Text } from "@posthog/quill";
 import { builderHog } from "@posthog/ui/assets/hedgehogs";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
 import { DraggableFolder } from "@posthog/ui/features/sidebar/components/DraggableFolder";
 import { GroupWorktreesSection } from "@posthog/ui/features/sidebar/components/GroupWorktreesSection";
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  dragSiblingCandidates,
+  taskDragSiblings,
+} from "@posthog/ui/features/sidebar/taskDrag";
 import {
   getPinnedInsertionIndex,
   type TaskTimestampKey,
@@ -51,6 +56,8 @@ interface TaskListViewProps {
   ) => void;
   onTaskArchive: (taskId: string) => void;
   onTaskTogglePin: (taskId: string) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  onTasksSetPinned: (taskIds: string[], pinned: boolean) => void;
   onTaskEditSubmit: (
     taskId: string,
     currentTitle: string,
@@ -77,6 +84,7 @@ export function TaskListView({
   onTaskContextMenu,
   onTaskArchive,
   onTaskTogglePin,
+  onTasksSetPinned,
   onTaskEditSubmit,
   onTaskEditCancel,
   onGroupContextMenu,
@@ -103,9 +111,29 @@ export function TaskListView({
   const isOnTaskInput =
     view.type === "task-input" || view.type === "task-pending";
   const prefersReducedMotion = useReducedMotion();
+  // A drag that starts on a selected row carries the whole selection, so a pin
+  // or an unpin applies to every row the user picked, not just the grabbed one.
+  const allTasks = useMemo(
+    () =>
+      dragSiblingCandidates(organizeMode, {
+        pinnedTasks,
+        flatTasks,
+        groupedTasks,
+      }),
+    [organizeMode, pinnedTasks, flatTasks, groupedTasks],
+  );
+  const dragSiblingsFor = useCallback(
+    (task: TaskData) => taskDragSiblings(task.id, allTasks, (t) => t.id),
+    [allTasks],
+  );
   const pinDrag = usePinDrag<TaskData>({
     isPinned: (task) => task.isPinned,
-    togglePin: (task) => onTaskTogglePin(task.id),
+    setPinned: (tasks, pinned) =>
+      onTasksSetPinned(
+        tasks.map((task) => task.id),
+        pinned,
+      ),
+    getDragSiblings: dragSiblingsFor,
   });
   const dragState = pinDrag.drag;
 
@@ -147,8 +175,13 @@ export function TaskListView({
         opacity: { duration: 0.1 },
       };
 
+  const draggedIdSet = useMemo(
+    () => new Set(dragState?.items.map((task) => task.id) ?? []),
+    [dragState],
+  );
+
   const renderTaskRow = (task: TaskData, depth = 0) => {
-    const isDragged = dragState?.item.id === task.id;
+    const isDragged = draggedIdSet.has(task.id);
     return (
       <motion.div
         key={task.id}
@@ -190,10 +223,10 @@ export function TaskListView({
   };
 
   const pinnedTasksWithoutSource = pinnedTasks.filter(
-    (task) => task.id !== dragState?.item.id,
+    (task) => !draggedIdSet.has(task.id),
   );
   const pinnedInsertionIndex = dragState
-    ? getPinnedInsertionIndex(pinnedTasks, dragState.item, timestampKey)
+    ? getPinnedInsertionIndex(pinnedTasks, dragState.items[0], timestampKey)
     : -1;
   const showPinnedPlaceholder = Boolean(dragState?.overPinned);
   const pinnedPlaceholderBeforeTaskId =
@@ -428,22 +461,26 @@ export function TaskListView({
                   : "border-gray-6",
               )}
             >
-              <TaskRow
-                task={dragState.item}
-                isActive={false}
-                isSelected={false}
-                hideHoverActions
-                isEditing={false}
-                onClick={() => undefined}
-                onDoubleClick={() => undefined}
-                onContextMenu={() => undefined}
-                onArchive={() => undefined}
-                onTogglePin={() => undefined}
-                onEditSubmit={() => undefined}
-                onEditCancel={() => undefined}
-                timestamp={dragState.item[timestampKey]}
-                withPrStatus={false}
-              />
+              {dragState.items.length > 1 ? (
+                <DragBatchLabel count={dragState.items.length} />
+              ) : (
+                <TaskRow
+                  task={dragState.items[0]}
+                  isActive={false}
+                  isSelected={false}
+                  hideHoverActions
+                  isEditing={false}
+                  onClick={() => undefined}
+                  onDoubleClick={() => undefined}
+                  onContextMenu={() => undefined}
+                  onArchive={() => undefined}
+                  onTogglePin={() => undefined}
+                  onEditSubmit={() => undefined}
+                  onEditCancel={() => undefined}
+                  timestamp={dragState.items[0][timestampKey]}
+                  withPrStatus={false}
+                />
+              )}
               <AnimatePresence>
                 {isUnpinIntent ? (
                   <motion.span

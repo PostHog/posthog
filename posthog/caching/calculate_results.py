@@ -18,7 +18,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight, generate_insight_filters_hash
+from products.product_analytics.backend.facade.models import Insight, generate_insight_filters_hash
 
 if TYPE_CHECKING:
     from posthog.caching.insight_result import InsightResult

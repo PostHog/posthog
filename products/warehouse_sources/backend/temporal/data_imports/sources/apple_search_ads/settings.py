@@ -29,10 +29,11 @@ REPORT_LOOKBACK_SECONDS = REPORT_WINDOW_DAYS * 24 * 60 * 60
 # How far back the first sync of a report table reaches when the user gives no start date.
 DEFAULT_INITIAL_LOOKBACK_DAYS = 365
 
-# The earliest a configured start date may reach. Apple Search Ads has held no reporting data
-# from before it launched, so a start date older than this is a typo — clamp it rather than fan
-# a report out over thousands of empty windows (one report request per window per campaign).
-MAX_INITIAL_LOOKBACK_DAYS = 11 * 365
+# The earliest a configured start date may reach. Apple's Reporting API rejects a DAILY-
+# granularity report (the only granularity this source requests) whose startTime is more than
+# 24 months in the past with a 400 — treating a month as 30 days keeps this clamp safely inside
+# that limit despite calendar-month variation.
+MAX_INITIAL_LOOKBACK_DAYS = 24 * 30
 
 
 @dataclass(frozen=True)
