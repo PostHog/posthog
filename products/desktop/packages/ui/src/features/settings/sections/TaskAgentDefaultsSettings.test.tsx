@@ -1,5 +1,11 @@
 import { Theme } from "@radix-ui/themes";
-import { configure, fireEvent, render, screen } from "@testing-library/react";
+import {
+  configure,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +17,15 @@ const saveMock = vi.hoisted(() => vi.fn());
 const previewState = vi.hoisted(() => ({
   lastAdapter: null as string | null,
   setConfigOption: vi.fn(),
+}));
+// The personal preference the mocked hook reports; a test flips it to simulate
+// a reset (which clears it to all-null) and re-renders.
+const defaultsState = vi.hoisted(() => ({
+  myPreferences: {
+    runtime_adapter: null as string | null,
+    model: null as string | null,
+    reasoning_effort: null as string | null,
+  },
 }));
 
 vi.mock("@posthog/ui/features/auth/store", () => ({
@@ -37,11 +52,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
       model: "claude-fable-5",
       reasoning_effort: "high",
     },
-    myPreferences: {
-      runtime_adapter: null,
-      model: null,
-      reasoning_effort: null,
-    },
+    myPreferences: defaultsState.myPreferences,
     resolved: {
       runtime_adapter: "claude",
       model: "claude-fable-5",
@@ -112,6 +123,11 @@ describe("TaskAgentDefaultsSettings", () => {
     saveMock.mockClear();
     previewState.setConfigOption.mockClear();
     previewState.lastAdapter = null;
+    defaultsState.myPreferences = {
+      runtime_adapter: null,
+      model: null,
+      reasoning_effort: null,
+    };
   });
 
   // Switching harness used to save {adapter, null, null}, which wiped a stored
@@ -187,5 +203,48 @@ describe("TaskAgentDefaultsSettings", () => {
       model: "gpt-5.6-sol",
       reasoning_effort: "max",
     });
+  });
+
+  // Switching harness then resetting an existing default used to leave the
+  // picker stuck on the previewed harness: reset clears the personal model, so
+  // the "stored adapter matches pending" clear never fires. The control must
+  // snap back to the inherited project harness instead.
+  it("drops a pending harness browse when the default is reset", async () => {
+    defaultsState.myPreferences = {
+      runtime_adapter: "claude",
+      model: "claude-fable-5",
+      reasoning_effort: "high",
+    };
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: /Model and reasoning/,
+    });
+    await user.click(trigger);
+    await openSub(user, /^Harness/);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
+    expect(previewState.lastAdapter).toBe("codex");
+
+    // Reset clears the personal default: myPreferences flips to all-null.
+    defaultsState.myPreferences = {
+      runtime_adapter: null,
+      model: null,
+      reasoning_effort: null,
+    };
+    rerender(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    // The pending browse is dropped, so the picker returns to the inherited
+    // (Claude) harness rather than staying on Codex.
+    await waitFor(() => expect(previewState.lastAdapter).toBe("claude"));
+    expect(trigger).toHaveTextContent("Default ·");
   });
 });

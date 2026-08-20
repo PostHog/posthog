@@ -67,6 +67,18 @@ function MyDefaultPicker({
       setPendingAdapter(null);
     }
   }, [pendingAdapter, storedAdapter]);
+  // Resetting the personal default (from the row below) flips the stored model
+  // from a value to null. That is not a harness switch, so the effect above
+  // won't match its adapter — drop any pending browse here too, or the control
+  // stays stuck on the previewed harness with no in-page way back, contradicting
+  // the summary line and losing the "Default ·" marker.
+  const prevPersonalModel = useRef(preferences.model);
+  useEffect(() => {
+    if (prevPersonalModel.current && !preferences.model) {
+      setPendingAdapter(null);
+    }
+    prevPersonalModel.current = preferences.model;
+  }, [preferences.model]);
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
