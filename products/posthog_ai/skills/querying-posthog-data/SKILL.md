@@ -28,9 +28,9 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 
 ### Answering a headline business number (semantic layer)
 
-When the user asks for a governed business number (MRR, activation rate, active users, ...), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
+When the user asks for a governed business number (MRR, activation rate, active users, ...), or asks how such a measure is defined ("what is our definition of an active org?"), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
 
-1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). Do this before the first `query-*` or `execute-sql` call that would produce the number. An empty result means no governed definition exists, and an unknown-table error means this project has no data catalog at all; either way, derive the number yourself and label it noncanonical.
+1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). Do this before the first `query-*` or `execute-sql` call that would answer the question — whether that call produces a number or reconstructs a definition (for example, reading a saved insight's stored query). An empty result means no governed definition exists. An unknown-table error means this project has no data catalog at all, so there is nothing to add a metric to. Either way, derive the answer yourself and label it noncanonical.
 
    ```sql
    SELECT name, description, status, is_drifted, definition_kind, unit
@@ -42,7 +42,12 @@ When the user asks for a governed business number (MRR, activation rate, active 
 
 3. If none fits, derive it yourself, but derive it well: prefer `certified` tables/views and avoid `deprecated` ones (the `certification` column on `system.information_schema.tables`), and use accepted joins from `system.information_schema.relationships` rather than guessing join keys.
 
-Curating the catalog — creating or approving metrics, certifying sources, reviewing the proposal queue — is a separate job covered by the `setting-up-data-catalog` skill. If a derivation is worth reusing, or you notice a clearly load-bearing or stale table while deriving, that skill covers proposing it. Everything an agent proposes lands unapproved for a human to promote, so never present a proposal as canonical.
+4. If the catalog query succeeded but returned no match, and you settled on a reusable definition — especially one you reconstructed from a saved insight — end your answer by saying it looks like a reusable metric that is not in the catalog yet, and ask whether to add it as a proposed metric.
+   Users don't know metric proposals exist, so they will not ask for one.
+   Create it only after the user says yes, with `posthog:data-catalog-metric-create`; when the definition came from a saved insight, pass that insight's `source_insight_short_id` instead of copying its query.
+   Never offer for a one-off exploration or debugging aggregate, and never after an unknown-table error: a project with no data catalog has no `posthog:data-catalog-metric-create` either.
+
+Curating the catalog — creating or approving metrics, certifying sources, reviewing the proposal queue — is a separate job covered by the `setting-up-data-catalog` skill. If you notice a clearly load-bearing or stale table while deriving, that skill covers proposing a trust mark on it. Everything an agent proposes lands unapproved for a human to promote, so never present a proposal as canonical.
 
 ## Data Schema
 
@@ -56,7 +61,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)
 - [Cohorts & Persons](./references/models-cohorts.md)
-- [Customer analytics accounts, relationships (CSM, account owner) & custom properties (`system.accounts`, `system.account_relationships`)](./references/models-customer-analytics.md)
+- [Customer analytics accounts, relationships, custom properties & feature requests (`system.accounts`, `system.feature_requests`)](./references/models-customer-analytics.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
 - [Data Modeling Endpoints](./references/models-endpoints.md)

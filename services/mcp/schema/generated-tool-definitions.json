@@ -2489,7 +2489,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed metric. Keep 'description' to 1-3 sentences saying what the metric means and what it serves - never a walkthrough of the query or calculation steps (the definition carries those); put rationale for the chosen definition in 'reasoning'. There is no list tool: discover existing metrics with execute-sql over system.information_schema.metrics. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-3 sentences saying what the metric means and what it serves - never a walkthrough of the query or calculation steps (the definition carries those); put rationale for the chosen definition in 'reasoning'. There is no list tool: discover existing metrics with execute-sql over system.information_schema.metrics. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Create or refine a catalog metric",
@@ -4753,6 +4753,231 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "feature-request-product-areas-create": {
+        "description": "Create a product area for categorizing Customer analytics feature requests. Manager access to Customer analytics is required. Provide a unique `name` and optional `display_order`. Lower display orders appear first. New areas are active by default.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create feature request product area",
+        "title": "Create feature request product area",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-request-product-areas-list": {
+        "description": "List active product areas used to categorize Customer analytics feature requests. Each area includes its `id`, `name`, `display_order`, and active state. Set `include_inactive` to true when editing an existing request or managing areas. The same data is queryable through `system.feature_request_product_areas`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List feature request product areas",
+        "title": "List feature request product areas",
+        "required_scopes": ["customer_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-request-product-areas-partial-update": {
+        "description": "Update a feature request product area by id. Manager access to Customer analytics is required. Accepts any subset of `name`, `display_order`, and `is_active`. Inactive areas remain on requests that already use them, but editors cannot add them to new requests.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update feature request product area",
+        "title": "Update feature request product area",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-add-account-create": {
+        "description": "Link another accessible account to a Customer analytics feature request. Pass the request `id`, its current `expected_version`, and the account id. You can also provide the account's first evidence item in the same atomic change. Relinking an account restores its preserved evidence. The response contains the updated request and its next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Link account to feature request",
+        "title": "Link account to feature request",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-add-evidence-create": {
+        "description": "Add evidence to an active account link on a Customer analytics feature request. Pass the request `id`, its current `expected_version`, the `account_link_id`, a free-form `evidence_source`, and at least one of `summary`, `customer_quote`, or `source_url`. The response contains the updated request and its next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Add feature request evidence",
+        "title": "Add feature request evidence",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-archive-create": {
+        "description": "Archive a Customer analytics feature request without deleting its account links, evidence, product areas, or history. Pass the request `id` and its current `expected_version`. Archived requests cannot be edited until restored.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Archive feature request",
+        "title": "Archive feature request",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-create": {
+        "description": "Create a Customer analytics feature request linked to one accessible account and one or more active product areas. Provide a client-generated UUID as `idempotency_key`. Retrying with the same key returns the original request. Use `accounts-list` and `feature-request-product-areas-list` to resolve the required IDs.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create feature request",
+        "title": "Create feature request",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-history-list": {
+        "description": "List the complete change history for a Customer analytics feature request, newest first. Entries group the status, priority, account, evidence, and product area changes from one successful save. Account snapshots the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry metadata and changed field names, but not before and after values.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List feature request history",
+        "title": "List feature request history",
+        "required_scopes": ["customer_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-list": {
+        "description": "List Customer analytics feature requests linked to accounts the caller can access. Filter by search text, lifecycle status, priority, product area, account, or archive state. Active requests are returned by default. Each request includes its active visible account links, account-specific evidence, product areas, and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List feature requests",
+        "title": "List feature requests",
+        "required_scopes": ["customer_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-partial-update": {
+        "description": "Update a Customer analytics feature request by id. Pass its current `expected_version` and any subset of `title`, `description`, `account_ids`, `product_area_ids`, `request_status`, and `request_priority`. Pass null as `request_priority` to remove the priority. Removing an account unlinks it but preserves its evidence for a later relink. The response contains the next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update feature request",
+        "title": "Update feature request",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-remove-evidence-create": {
+        "description": "Permanently delete one evidence item from a Customer analytics feature request. Pass the request `id`, its current `expected_version`, and the `evidence_id`. The request, account link, and other evidence remain. The response contains the updated request and its next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete feature request evidence",
+        "title": "Delete feature request evidence",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-restore-create": {
+        "description": "Restore an archived Customer analytics feature request so editors can change it again. Pass the request `id` and its current `expected_version`. Account links, evidence, product areas, and history remain attached.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Restore feature request",
+        "title": "Restore feature request",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-retrieve": {
+        "description": "Fetch one Customer analytics feature request by id. The response includes its lifecycle status, priority, archive state, version, active account links visible to the caller, account-specific evidence, and product areas. Use the returned `version` as `expected_version` for the next mutation.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get feature request",
+        "title": "Get feature request",
+        "required_scopes": ["customer_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-status-history-list": {
+        "description": "List status changes for one Customer analytics feature request, newest first. Each entry includes the previous status, resulting status, actor, source, and change time. HogQL `system.feature_request_history` exposes when changes occurred and which fields changed, but not status values.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List feature request status history",
+        "title": "List feature request status history",
+        "required_scopes": ["customer_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
+    "feature-requests-update-evidence-create": {
+        "description": "Replace the editable fields of one feature request evidence item. Pass the request `id`, its current `expected_version`, the `evidence_id`, a free-form `evidence_source`, and the complete values for `summary`, `customer_quote`, `source_url`, and `requested_on`. The response contains the updated request and its next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update feature request evidence",
+        "title": "Update feature request evidence",
+        "required_scopes": ["customer_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
     },
     "field-notes-get": {
         "description": "Get a single field note by id, including the full element context (selector, element chain, inferred selectors, attributes) needed to locate the element in code.",
