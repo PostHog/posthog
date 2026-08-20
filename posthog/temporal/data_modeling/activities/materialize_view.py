@@ -1018,40 +1018,53 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     )
     await cdp_sink.prepare()
 
-    async with Heartbeater():
-        hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
+    # Staged rows are only safe to leave in place once MaterializeViewResult is actually returned:
+    # that is the one signal the workflow's own cleanup keys off. Anything that leaves this block
+    # early - a write failure, a cancellation mid-write, or a cancellation during the logging,
+    # heartbeat teardown, or quality-audit lookup that follow it - must discard what was staged
+    # itself, because the workflow will never see a result to clean up after. CancelledError is a
+    # BaseException, not an Exception, so it has to be named explicitly to be caught here at all.
+    # cdp_sink.discard() only clears a non-empty prefix, so catching it at both this level and the
+    # inner write-loop level below is safe to double up on.
+    published = False
+    try:
+        async with Heartbeater():
+            hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
-        try:
-            if plan.incremental:
-                row_count, file_uris = await _materialize_incrementally(
-                    objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
-                )
-            else:
-                row_count, file_uris = await _materialize_fully(
-                    objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
-                )
-        except (Exception, asyncio.CancelledError):
-            # A retry stages from scratch and a terminal failure produces nothing, so whatever this
-            # attempt wrote is only ever waste. CancelledError is a BaseException, not an Exception -
-            # cancelling or preempting the activity mid-write would otherwise skip this cleanup
-            # entirely, and the workflow's own cleanup can't reach it either: it only runs once the
-            # activity has returned a MaterializeViewResult, which a mid-run cancellation never does.
+            try:
+                if plan.incremental:
+                    row_count, file_uris = await _materialize_incrementally(
+                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                    )
+                else:
+                    row_count, file_uris = await _materialize_fully(
+                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                    )
+            except (Exception, asyncio.CancelledError):
+                # A retry stages from scratch and a terminal failure produces nothing, so whatever
+                # this attempt wrote is only ever waste.
+                await cdp_sink.discard()
+                raise
+
+            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+        quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+            inputs.team_id, str(objects.saved_query.id)
+        )
+        result = MaterializeViewResult(
+            node_id=objects.node.id,
+            node_name=objects.node.name,
+            row_count=row_count,
+            table_uri=table_uri,
+            file_uris=file_uris,
+            saved_query_id=str(objects.saved_query.id),
+            quality_audit=quality_audit,
+            incremental=plan.incremental,
+            person_property_sync_enabled=person_property_sink is not None,
+            should_trigger_cdp_producer=cdp_sink.enabled,
+        )
+        published = True
+        return result
+    except (Exception, asyncio.CancelledError):
+        if not published:
             await cdp_sink.discard()
-            raise
-
-        await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
-    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
-        inputs.team_id, str(objects.saved_query.id)
-    )
-    return MaterializeViewResult(
-        node_id=objects.node.id,
-        node_name=objects.node.name,
-        row_count=row_count,
-        table_uri=table_uri,
-        file_uris=file_uris,
-        saved_query_id=str(objects.saved_query.id),
-        quality_audit=quality_audit,
-        incremental=plan.incremental,
-        person_property_sync_enabled=person_property_sink is not None,
-        should_trigger_cdp_producer=cdp_sink.enabled,
-    )
+        raise

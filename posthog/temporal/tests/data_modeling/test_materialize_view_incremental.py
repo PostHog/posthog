@@ -563,6 +563,28 @@ class TestCDPRowStaging:
         assert producer.staged == []
         assert producer.clears >= 2, "the prefix is cleared at the start of the run and again on cancellation"
 
+    async def test_a_cancellation_after_the_write_loop_discards_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # A cancellation doesn't only land mid-write. The logging, heartbeat teardown, and
+        # quality-audit lookup between the last write and the MaterializeViewResult being built are
+        # await points too, and the run hasn't handed back a result for the workflow to key its own
+        # cleanup off until it actually returns one. This simulates the audit lookup being the point
+        # that gets cancelled, after every row has already been staged successfully.
+        producer = _RecordingProducer()
+        await _configure(asaved_query)
+
+        with _settings(bucket_name), _patch_producer(producer):
+            with unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.data_quality_facade.quality_audit_mode",
+                side_effect=asyncio.CancelledError(),
+            ):
+                with pytest.raises(asyncio.CancelledError):
+                    await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+
+        assert producer.staged == []
+        assert producer.clears >= 2, "the prefix is cleared at the start of the run and again on cancellation"
+
     async def test_a_failed_run_stages_nothing(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
