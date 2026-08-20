@@ -5,13 +5,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import Integration, User
+from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.facade import api as facade
 from products.tasks.backend.logic.services.ai_run_defaults import (
+    get_team_ai_run_preferences,
     resolve_ai_run_defaults,
     resolve_ai_run_selection,
     update_team_ai_run_preferences,
@@ -89,6 +90,19 @@ class TestResolveAIRunDefaults(APIBaseTest):
         resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "team"
         assert resolved.model == "claude-galaxy-9"
+
+    # Config rows are keyed on the project root team, so an environment team must read and
+    # write the same row as the root — a CRUD path skipping the normalization would silently
+    # fork the project default per environment.
+    def test_environment_team_shares_the_project_root_config(self):
+        env_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="env"
+        )
+        update_team_ai_run_preferences(env_team.id, **TEAM_TRIPLE)
+        assert get_team_ai_run_preferences(self.team.id) == TEAM_TRIPLE
+        resolved = resolve_ai_run_defaults(env_team.id, self.user.id)
+        assert resolved.source == "team"
+        assert resolved.model == "claude-opus-4-8"
 
     @parameterized.expand(
         [
@@ -229,6 +243,7 @@ class TestTasksConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("model_without_adapter", {"model": "claude-opus-4-8"}),
+            ("unknown_effort", {"reasoning_effort": "extreme"}),
             ("unknown_adapter", {"runtime_adapter": "gemini", "model": "gemini-3"}),
             (
                 "unsupported_effort",
@@ -237,8 +252,36 @@ class TestTasksConfigAPI(APIBaseTest):
         ]
     )
     def test_invalid_triples_are_rejected(self, _name: str, payload: dict[str, Any]):
-        response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", payload)
-        assert response.status_code == 400
+        # Both endpoints share the validation path; asserting both keeps either from losing it.
+        for path in ("config", "@me/config"):
+            response = self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", payload)
+            assert response.status_code == 400, (path, response.content)
+
+    def test_clearing_the_team_default(self):
+        self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/config/",
+            {"runtime_adapter": None, "model": None, "reasoning_effort": None},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"ai_run_preferences": {}}
+        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {"ai_run_preferences": {}}
+
+    def test_unauthenticated_requests_are_rejected(self):
+        self.client.logout()
+        for path in ("config", "@me/config"):
+            url = f"/api/projects/{self.team.id}/tasks/{path}/"
+            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 403
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+
+    def test_an_outsider_cannot_reach_another_projects_config(self):
+        outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)
+        self.client.force_login(outsider)
+        for path in ("config", "@me/config"):
+            url = f"/api/projects/{self.team.id}/tasks/{path}/"
+            assert self.client.get(url).status_code == 403, path
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 403, path
 
     def test_me_config_resolved_defaults_reflect_precedence(self):
         self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
