@@ -507,7 +507,10 @@ A separate **blind-spots** skill (`skills/review-hog-blind-spots-general/SKILL.m
 it is pull-delivered the same way. The perspective / validation / blind-spot skills are all team-owned and
 customizable — see [DECISIONS.md](./DECISIONS.md) (the customizable-perspectives / per-user-enablement sections).
 The invariant that keeps this safe: **the output schema is fixed (code), only the skill body (logic) is editable**,
-so editing a skill can never change the output format the downstream pipeline depends on.
+so editing a skill can never change the output format the downstream pipeline depends on. Customs arrive two
+ways from the Code review scene: "Create your own" (an authoring agent task guided by the `review-hog-authoring`
+skill) and "Use an existing skill" — an **adopted skill**, a verbatim copy of any team skill duplicated under the
+kind's prefix and activated in one flow (copy-not-reference; see `adr/0002`).
 
 ---
 

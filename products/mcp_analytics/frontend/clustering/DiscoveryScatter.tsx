@@ -2,9 +2,11 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ScatterPoint, fitDomain, mcpClusteringLogic } from './mcpClusteringLogic'
+import { PRIMARY_SERIES, seriesColor } from './seriesColors'
 
 const WIDTH = 640
 const HEIGHT = 280
@@ -35,6 +37,7 @@ function radius(callCount: number, maxCalls: number): number {
  */
 export function DiscoveryScatter(): JSX.Element | null {
     const { scatterPoints, tools, fitMedian, discoveryMedian } = useValues(mcpClusteringLogic)
+    const theme = useChartTheme()
 
     if (scatterPoints.length === 0) {
         return (
@@ -54,6 +57,7 @@ export function DiscoveryScatter(): JSX.Element | null {
     const plotX: [number, number] = [PAD.left, WIDTH - PAD.right]
     const plotY: [number, number] = [HEIGHT - PAD.bottom, PAD.top]
     const unplotted = tools.length - scatterPoints.length
+    const bubbleColor = seriesColor(theme, PRIMARY_SERIES)
 
     return (
         <div className="bg-surface-primary border rounded p-4 flex flex-col gap-2">
@@ -148,9 +152,9 @@ export function DiscoveryScatter(): JSX.Element | null {
                             cx={scale(point.fit, xDomain, plotX)}
                             cy={scale(point.discoveryRatePct, [0, 100], plotY)}
                             r={radius(point.callCount, maxCalls)}
-                            fill="var(--accent)"
+                            fill={bubbleColor}
                             fillOpacity={0.55}
-                            stroke="var(--accent)"
+                            stroke={bubbleColor}
                             className="cursor-help"
                         />
                     </Tooltip>

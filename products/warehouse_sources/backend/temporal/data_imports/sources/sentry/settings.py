@@ -33,10 +33,14 @@ REQUIRED_SENTRY_SCOPES = (
 # carry a floor rather than the 1970 sentinel the issue endpoints tolerate.
 SENTRY_RETENTION_DAYS = 90
 
-# The issues API windows its listing while the synced `issues` table accumulates every issue
-# ever seen, so a warehouse fan-out must floor the scan or it fans out over issues the API
-# path never would. Same floor as the tag-values iterator's per-row cutoff.
-ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=SENTRY_RETENTION_DAYS))
+# The issues listing only returns issues whose events still exist in Sentry's event store,
+# and events are kept for the org's plan retention (30 or 90 days) — a per-customer bound
+# that is unqueryable and clamps any wider request. A snapshot scan cannot reproduce it, so
+# issue_events and issue_hashes stay on parent_source="api", and issue_tag_values reads the
+# warehouse only when an incremental watermark bounds the scan, with this window as the cap.
+SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=90)
+
+ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
 
 # `dataset` values accepted by /trace-items/attributes/.
 TRACE_ITEM_DATASETS = ("logs", "preprod", "processing_errors", "spans", "tracemetrics")
@@ -265,8 +269,9 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             parent_params={"query": "", "sort": "date"},
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
-            parent_source="warehouse",
-            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
+            # Not "warehouse": the issues listing is clamped by per-org event retention, which a
+            # snapshot scan cannot reproduce — see SENTRY_FANOUT_PARENT_WINDOW.
+            parent_source="api",
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -285,8 +290,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
             # it as "no hashes for this issue" instead of failing the whole schema.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
-            parent_source="warehouse",
-            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
+            # Not "warehouse": same per-org retention clamp as issue_events.
+            parent_source="api",
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(

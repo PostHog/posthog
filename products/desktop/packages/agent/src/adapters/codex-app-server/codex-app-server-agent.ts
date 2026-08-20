@@ -1542,6 +1542,16 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const turnId = (params as { turn?: { id?: string } })?.turn?.id;
       if (!this.turns.isPending && turnId) {
         this.nativeGoalTurnId = turnId;
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED, {
+            sessionId: this.sessionId,
+          })
+          .catch((error) =>
+            this.logger.warn(
+              "Background turn start notification failed",
+              error,
+            ),
+          );
       }
       this.turns.onStarted(turnId);
       this.interruptQueuedGoalTurn(turnId);
@@ -1587,8 +1597,20 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.commandOutputs.clear();
       const turn = (params as { turn?: { id?: string; status?: string } })
         ?.turn;
-      if (turn?.id === this.nativeGoalTurnId) {
+      const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
+      if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
+            sessionId: this.sessionId,
+            stopReason: mapTurnStopReason(turn?.status),
+          })
+          .catch((error) =>
+            this.logger.warn(
+              "Background turn completion notification failed",
+              error,
+            ),
+          );
       }
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;

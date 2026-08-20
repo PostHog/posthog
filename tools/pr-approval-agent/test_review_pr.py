@@ -29,7 +29,7 @@ def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_pr, "compute_familiarity", lambda **_k: None)
 
 
-def _fake_pr(head_sha: str) -> PRData:
+def _fake_pr(head_sha: str, base_ref: str = "master", default_branch: str = "master") -> PRData:
     return PRData(
         number=1,
         repo="PostHog/posthog",
@@ -39,12 +39,14 @@ def _fake_pr(head_sha: str) -> PRData:
         mergeable_state="clean",
         author="alice",
         labels=[],
+        base_ref=base_ref,
         base_sha="def456",
         head_sha=head_sha,
         files=[],
         reviews=[],
         review_comments=[],
         check_runs=[],
+        default_branch=default_branch,
     )
 
 
@@ -81,12 +83,14 @@ def test_summarize_assurance_excludes_author_self_review() -> None:
     assert assurance["head_commented_users"] == ["bob"]
 
 
-def test_to_dict_includes_head_sha() -> None:
-    """The post-review workflow step reads head_sha from the JSON output to
-    lock the resulting GitHub review to the sha the LLM actually saw — see
+def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
+    """The post-review workflow step reads base_sha/head_sha from the JSON output
+    to lock the resulting GitHub review to the sha the LLM actually saw and to
+    skip the approval if the PR's base or head changed after review — see
     `.github/workflows/pr-approval-agent.yml`'s "Post review" step."""
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="07dfeff14d95be1247e4c8c1065fd958a367389e")
+    pipeline.pr.base_sha = "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"
     pipeline.classification = {"tier": "T1-trivial", "breadth": "narrow"}
     pipeline.gate_results = []
     pipeline.reviewer_output = None
@@ -94,6 +98,7 @@ def test_to_dict_includes_head_sha() -> None:
 
     output = pipeline.to_dict()
 
+    assert output["base_sha"] == "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"
     assert output["head_sha"] == "07dfeff14d95be1247e4c8c1065fd958a367389e"
 
 
@@ -126,13 +131,16 @@ class _TurnLimitReviewer:
     ],
 )
 def test_backend_failure_yields_error_except_when_gates_deny(
-    monkeypatch: pytest.MonkeyPatch, gate_verdict: str, expected_final: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gate_verdict: str, expected_final: str
 ) -> None:
     """A failed LLM call must surface as ERROR (label retained) unless gates
     already DENIED — a deterministic denial outranks an unavailable reviewer."""
     monkeypatch.setattr(review_pr, "Reviewer", _RaisingReviewer)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # _llm_review is called directly, so run()'s diff cleanup never happens — keep the scratch
+    # diff out of the real checkout.
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="abc123")
@@ -157,7 +165,9 @@ def test_backend_failure_yields_error_except_when_gates_deny(
         ("DENIED", "REFUSED"),
     ],
 )
-def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verdict: str, expected_final: str) -> None:
+def test_turn_limit_error_not_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gate_verdict: str, expected_final: str
+) -> None:
     """A turn-limit error is non-retryable and should give a clear message
     about complexity rather than blaming infrastructure. When gates DENIED,
     the deterministic denial still outranks the error."""
@@ -173,6 +183,7 @@ def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verd
     monkeypatch.setattr(_TurnLimitReviewer, "review", counting_review)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="abc123")
@@ -440,6 +451,164 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
 
     assert verdict == "REFUSED"
     assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+
+
+class _FakeCompleted:
+    def __init__(self, returncode: int, stderr: str = "", stdout: str = "") -> None:
+        self.returncode = returncode
+        self.stderr = stderr
+        self.stdout = stdout
+
+
+def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On success (stacked PR) the context manager yields the worktree path and removes it on exit."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=42, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is not None
+        assert "pr-review-42-" in explore_root.name
+        add = next(c for c in calls if "add" in c)
+        assert "--detach" in add and "cafe123" in add
+
+    # Cleanup ran with --force after the block exited.
+    remove = next(c for c in calls if "remove" in c)
+    assert "--force" in remove
+
+
+def test_pr_head_worktree_fails_closed_on_creation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        if "ls-tree" in cmd:
+            return _FakeCompleted(0)
+        return _FakeCompleted(1, stderr="fatal: invalid reference")
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
+
+    with pytest.raises(review_pr.WorktreeUnavailableError, match="invalid reference"):
+        with pipeline._pr_head_worktree():
+            pass
+
+    # No worktree was created, so none is removed.
+    assert not any("remove" in c for c in calls)
+
+
+@pytest.mark.parametrize(
+    "head_links, trunk_links, expect_reject",
+    [
+        pytest.param("120000 blob abcdef\tlink\n", "", True, id="pr-adds-symlink"),
+        pytest.param(
+            "120000 blob abcdef\tCLAUDE.md\n", "120000 blob abcdef\tCLAUDE.md\n", False, id="trunk-symlink-kept"
+        ),
+        pytest.param(
+            "120000 blob 000000\tCLAUDE.md\n", "120000 blob abcdef\tCLAUDE.md\n", True, id="pr-retargets-symlink"
+        ),
+    ],
+)
+def test_pr_head_worktree_rejects_only_symlinks_the_pr_adds(
+    monkeypatch: pytest.MonkeyPatch, head_links: str, trunk_links: str, expect_reject: bool
+) -> None:
+    # The trunk carries tracked symlinks (CLAUDE.md -> AGENTS.md and friends); rejecting any symlink
+    # in the head would fail every stacked review closed. Only links the PR adds or repoints,
+    # relative to the default branch, are untrusted.
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        if "ls-tree" in cmd:
+            return _FakeCompleted(0, stdout=trunk_links if cmd[-1] == "origin/master" else head_links)
+        if expect_reject:
+            raise AssertionError(f"symlinked PR must not create a worktree: {cmd}")
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
+
+    if expect_reject:
+        with pytest.raises(review_pr.WorktreeUnavailableError, match="adds symbolic links"):
+            with pipeline._pr_head_worktree():
+                pass
+        assert len(calls) == 2
+    else:
+        with pipeline._pr_head_worktree() as explore_root:
+            assert explore_root is not None
+
+
+def test_pr_head_worktree_ignores_cleanup_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        if "remove" in cmd:
+            raise review_pr.subprocess.TimeoutExpired(cmd, timeout=30)
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is not None
+
+
+def test_stacked_worktree_failure_returns_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    @review_pr.contextmanager
+    def unavailable_worktree():
+        raise review_pr.WorktreeUnavailableError("checkout unavailable")
+        yield None
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
+    pipeline.gate_results = []
+    monkeypatch.setattr(pipeline, "_pr_head_worktree", unavailable_worktree)
+    monkeypatch.setattr(pipeline, "_ensure_diff_path", lambda: tmp_path / "diff.patch")
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline._llm_review("PENDING")
+
+    assert pipeline.final_verdict == "ERROR"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["issues"] == ["checkout unavailable"]
+
+
+@pytest.mark.parametrize(
+    "base_ref, default_branch, head_checkout",
+    [
+        pytest.param("master", "master", False, id="trunk-is-master"),
+        pytest.param("main", "main", False, id="trunk-is-main"),
+        pytest.param("feat/parent-branch", "master", True, id="hosted-checkout-already-at-head"),
+    ],
+)
+def test_pr_head_worktree_skipped_when_not_needed(
+    monkeypatch: pytest.MonkeyPatch, base_ref: str, default_branch: str, head_checkout: bool
+) -> None:
+    """No worktree — so git is never invoked and the full-tree checkout cost is
+    skipped — for a PR targeting the repo's trunk (whatever it is named), and
+    for a runtime whose checkout already is the PR head (the hosted sandbox)."""
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        raise AssertionError(f"must not touch git: {cmd}")
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog", head_checkout=head_checkout)
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref=base_ref, default_branch=default_branch)
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is None
 
 
 @pytest.mark.parametrize(
