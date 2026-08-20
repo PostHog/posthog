@@ -670,6 +670,36 @@ describe("mapHistoryItem", () => {
     ]);
   });
 
+  it("replays an MCP app result with its UI metadata", () => {
+    const rawOutput = {
+      content: [{ type: "text", text: "Review this loop" }],
+      structuredContent: { name: "Nightly review" },
+      _meta: { ui: { resourceUri: "ui://posthog/loops-review.html" } },
+    };
+
+    expect(
+      mapHistoryItem("s-1", {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "posthog",
+        tool: "exec",
+        status: "completed",
+        arguments: { command: "call loops-review {}" },
+        result: rawOutput,
+      }),
+    ).toEqual([
+      {
+        sessionId: "s-1",
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call",
+          toolCallId: "m1",
+          status: "completed",
+          rawOutput,
+        }),
+      },
+    ]);
+  });
+
   it("replays a fileChange as a tool_call with diff content", () => {
     const [update] = mapHistoryItem("s-1", {
       type: "fileChange",
@@ -709,7 +739,13 @@ describe("parseUnifiedDiff", () => {
 });
 
 describe("mcpToolCall result rendering", () => {
-  it("renders a completed mcpToolCall's result content as text", () => {
+  it("preserves a completed MCP app result while rendering its text", () => {
+    const rawOutput = {
+      content: [{ type: "text", text: "42 rows" }],
+      structuredContent: { results: [{ value: 42 }] },
+      _meta: { ui: { resourceUri: "ui://posthog/query.html" } },
+    };
+
     expect(
       mapAppServerNotification("s-1", APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED, {
         item: {
@@ -719,7 +755,7 @@ describe("mcpToolCall result rendering", () => {
           tool: "query",
           status: "completed",
           arguments: { sql: "SELECT 1" },
-          result: { content: [{ type: "text", text: "42 rows" }] },
+          result: rawOutput,
         },
       }),
     ).toEqual({
@@ -728,6 +764,7 @@ describe("mcpToolCall result rendering", () => {
         sessionUpdate: "tool_call_update",
         toolCallId: "m1",
         status: "completed",
+        rawOutput,
         content: [
           { type: "content", content: { type: "text", text: "42 rows" } },
         ],

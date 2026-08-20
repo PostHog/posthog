@@ -192,7 +192,11 @@ export type AppServerItem = {
   arguments?: unknown;
   aggregatedOutput?: string | null;
   changes?: Array<{ path?: string; diff?: string; kind?: unknown }>;
-  result?: { content?: unknown } | null;
+  result?: {
+    content?: unknown;
+    structuredContent?: unknown;
+    _meta?: unknown;
+  } | null;
   error?: { message?: string } | null;
   // Present on message/reasoning items replayed from thread history.
   text?: string;
@@ -304,6 +308,9 @@ export function mapHistoryItem(
             kind: tool.kind,
             status: mapStatus(item.status),
             ...(tool.rawInput !== undefined ? { rawInput: tool.rawInput } : {}),
+            ...(item.type === "mcpToolCall" && item.result != null
+              ? { rawOutput: item.result }
+              : {}),
             ...(tool.locations?.length ? { locations: tool.locations } : {}),
             ...(item.type === "collabAgentToolCall"
               ? {
@@ -554,6 +561,9 @@ function mapItem(
       sessionUpdate: "tool_call_update",
       toolCallId: item.id,
       status: mapStatus(item.status),
+      ...(item.type === "mcpToolCall" && item.result != null
+        ? { rawOutput: item.result }
+        : {}),
       ...(content ? { content } : {}),
     },
   };
