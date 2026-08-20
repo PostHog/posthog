@@ -7,6 +7,7 @@ import {
   DEFAULT_CHANNEL_ITEM_SORT,
   hasActiveChannelItemFilters,
 } from "@posthog/core/canvas/channelItems";
+import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { ChannelFilterMenu } from "./ChannelFilterMenu";
@@ -34,6 +35,7 @@ function Harness({
   const [grouping, setGrouping] = useState<ChannelItemGrouping>(
     DEFAULT_CHANNEL_ITEM_GROUPING,
   );
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   return (
     <div className="flex justify-end p-2">
       <ChannelFilterMenu
@@ -46,10 +48,18 @@ function Harness({
         onSortChange={setSort}
         grouping={grouping}
         onGroupingChange={setGrouping}
+        onEditAppearance={() => setAppearanceOpen(true)}
         sources={sources}
         showCreatedBy={showCreatedBy}
         showRunFilters={showRunFilters}
         active={hasActiveChannelItemFilters(filters)}
+      />
+      {/* The list owns the dialog and the menu only asks for it — so the
+          harness renders it too, the way the sidebar does. */}
+      <EditListItemAppearanceDialog
+        surface="space"
+        open={appearanceOpen}
+        onOpenChange={setAppearanceOpen}
       />
     </div>
   );
