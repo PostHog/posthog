@@ -27,7 +27,7 @@ _BASE_DATA = {
     "relative_delta_percentage": "{event.properties.relative_delta_percentage}",
     "evaluation_date": "{event.properties.evaluation_date}",
     "reason": "{event.properties.reason}",
-    "alert_url": "{project.url}/organization/billing",
+    "alert_url": "{event.properties.alert_url}",
 }
 
 
@@ -50,7 +50,7 @@ def _spec(
         display_kind=display_kind,
         header=header,
         details=details,
-        primary_action_url="{project.url}/organization/billing",
+        primary_action_url="{event.properties.alert_url}",
         primary_action_label="View billing alert",
         webhook_body={
             "id": "{event.uuid}",

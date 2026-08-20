@@ -1,4 +1,5 @@
 import dataclasses
+from dataclasses import field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
@@ -9,8 +10,15 @@ if TYPE_CHECKING:
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
+from posthog.dataclasses import frozen
 
-@dataclasses.dataclass
+
+@frozen
+class DirectQueryPrincipal:
+    value: str
+
+
+@dataclasses.dataclass(frozen=False)
 class DirectQueryRequest:
     source: "ExternalDataSource"
     team: "Team"
@@ -20,9 +28,11 @@ class DirectQueryRequest:
     timings: HogQLTimings
     query_type: str
     debug: bool
+    principal: DirectQueryPrincipal | None = field(default=None)
+    cancellation_token: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DirectQueryResult:
     results: list
     types: list[tuple[str, str]]
@@ -46,9 +56,9 @@ class DirectSQLAdapter(Protocol):
         ...
 
     def prepare_raw_sql(self, sql: str) -> str:
-        """Apply the engine's read-only / single-statement guard to user-supplied raw SQL."""
+        """Apply the engine's raw-statement guards to user-supplied SQL."""
         ...
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        """Connect, enforce read-only + timeout, run the SQL, and map results/types back."""
+        """Connect, apply engine execution controls, run the SQL, and map results/types back."""
         ...

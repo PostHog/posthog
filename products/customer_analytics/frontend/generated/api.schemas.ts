@@ -34,6 +34,11 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -277,6 +282,11 @@ export interface AccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -454,6 +464,11 @@ export interface PatchedAccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -983,21 +998,22 @@ export interface CustomPropertySyncRunApi {
 }
 
 /**
- * Binds a data-warehouse source to a custom property definition. Account sources read a
- * materialized view column and sync onto matching accounts; person and group sources read a
- * warehouse schema and sync onto matching persons or groups on each warehouse sync.
+ * Binds warehouse columns to a custom property definition. Account sources read a materialized
+ * view column and sync onto matching accounts; person and group sources read either an imported
+ * warehouse table or a materialized view, and sync onto matching persons or groups on every
+ * warehouse run of what they read.
  */
 export interface CustomPropertySourceApi {
     readonly id: string
     /** UUID of the custom property definition this source feeds. One source per definition. */
     definition: string
     /**
-     * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+     * UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.
      * @nullable
      */
     saved_query?: string | null
     /**
-     * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.
      * @nullable
      */
     external_data_schema?: string | null
@@ -1009,7 +1025,7 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
-    /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
     column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -1036,27 +1052,32 @@ export interface CustomPropertySourceApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.
      * @nullable
      */
     readonly sync_frequency_interval_seconds: number | null
     /**
-     * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.
      * @nullable
      */
     readonly next_sync_at: string | null
     /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
     readonly latest_run: CustomPropertySyncRunApi | null
     /**
-     * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+     * Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.
      * @nullable
      */
     readonly external_data_source: string | null
     /**
-     * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+     * Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.
      * @nullable
      */
     readonly table_name: string | null
+    /**
+     * View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
 }
 
 /**
@@ -1639,8 +1660,8 @@ export interface FeatureRequestCreateApi {
      * @maxLength 400
      */
     title: string
-    /** Required customer-facing request description in Markdown. */
-    description: string
+    /** Optional customer-facing request description in Markdown. */
+    description?: string
     /** ID of the affected Customer Analytics account. */
     account_id: string
     /** One or more active product area IDs. Duplicate IDs are ignored. */
@@ -1660,7 +1681,7 @@ export interface FeatureRequestUpdateApi {
      * @maxLength 400
      */
     title?: string
-    /** Updated customer-facing request description in Markdown. */
+    /** Updated optional customer-facing request description in Markdown. */
     description?: string
     /** Updated affected Customer Analytics account ID. */
     account_id?: string
@@ -1693,7 +1714,7 @@ export interface PatchedFeatureRequestUpdateApi {
      * @maxLength 400
      */
     title?: string
-    /** Updated customer-facing request description in Markdown. */
+    /** Updated optional customer-facing request description in Markdown. */
     description?: string
     /** Updated affected Customer Analytics account ID. */
     account_id?: string
@@ -2003,6 +2024,10 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      */
     cursor?: string
     /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
+    /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
@@ -2055,6 +2080,10 @@ export type AccountsListParams = {
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
     /**
      * Number of results to return per page.
      */

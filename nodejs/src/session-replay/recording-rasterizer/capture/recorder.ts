@@ -45,24 +45,45 @@ function estimateTotalFrames(
     return Math.max(0, Math.ceil(videoS * captureFps))
 }
 
+export interface RasterizeOptions {
+    progress?: RasterizationProgress | null
+    cfg?: typeof defaultConfig
+    log?: Logger
+    // Aborting closes the page, which unsticks a pending CDP send and makes the capture loop fail
+    // fast, so the browser-pool slot is reclaimed instead of riding out a doomed attempt.
+    signal?: AbortSignal
+}
+
 export async function rasterizeRecording(
     pool: BrowserPool,
     input: RasterizeRecordingInput,
     outputPath: string,
     playerHtml: string,
     onProgress: () => void,
-    progress: RasterizationProgress | null = null,
-    cfg: typeof defaultConfig = defaultConfig,
-    log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id })
+    options: RasterizeOptions = {}
 ): Promise<RecordingResult> {
+    const progress = options.progress ?? null
+    const cfg = options.cfg ?? defaultConfig
+    const log = options.log ?? createLogger({ session_id: input.session_id, team_id: input.team_id })
+    const signal = options.signal
+
     validateInput(input)
+    signal?.throwIfAborted()
 
     const setupStart = process.hrtime()
     const captureConfig = buildCaptureConfig(input)
 
     const rawPage = await pool.getPage()
+    const onAbort = (): void => {
+        log.warn('abort requested, closing page to stop capture')
+        rawPage.close().catch(() => {})
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
     let player: PlayerController | null = null
     try {
+        // An abort that fired while getPage was launching Chromium predates the listener above and
+        // would otherwise be silently missed; the finally below releases the page.
+        signal?.throwIfAborted()
         const viewport = {
             width: input.viewport_width || 1280,
             height: input.viewport_height || 720,
@@ -109,16 +130,15 @@ export async function rasterizeRecording(
         const captureResult = await capturePlayback(player, captureConfig, outputPath, onProgress, progress, log)
 
         return {
-            video_path: outputPath,
             playback_speed: captureConfig.playbackSpeed,
             capture_duration_s: captureResult.capture_duration_s,
             frame_count: captureResult.frame_count,
             truncated: captureResult.truncated,
             inactivity_periods: captureResult.inactivity_periods,
-            custom_fps: captureConfig.outputFps,
             timings: { setup_s: setupS, capture_s: captureResult.timings.capture_s },
         }
     } finally {
+        signal?.removeEventListener('abort', onAbort)
         player?.dispose()
         await pool.releasePage(rawPage)
     }

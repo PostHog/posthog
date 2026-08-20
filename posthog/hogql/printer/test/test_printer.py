@@ -9,6 +9,7 @@ from posthog.test.base import (
     APIBaseTest,
     BaseTest,
     ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
     _create_event,
     _create_person,
     clean_varying_query_parts,
@@ -197,7 +198,7 @@ class TestPrinter(BaseTest):
     def _schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_expr_error(
@@ -2167,8 +2168,17 @@ class TestPrinter(BaseTest):
     def test_case_when_case(self):
         self.assertEqual(
             self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
-            "transform(0, [1, 3], [2, 4], 5)",
+            "caseWithExpression(0, 1, 2, 3, 4, 5)",
         )
+
+    @parameterized.expand(
+        [
+            ("searched_case", "case when 1 then 2 end", "if(1, 2, NULL)"),
+            ("simple_case", "case 0 when 1 then 2 end", "caseWithExpression(0, 1, 2, NULL)"),
+        ]
+    )
+    def test_case_without_else(self, _name: str, expression: str, expected: str):
+        self.assertEqual(self._expr(expression), expected)
 
     def test_select(self):
         self.assertEqual(self._select("select 1"), f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}")
@@ -7750,6 +7760,11 @@ class TestPostgresPrinter(BaseTest):
                 "multiIf(1, 'a', 0, 'b', 'c')",
                 "CASE WHEN 1 THEN %(hogql_val_0)s WHEN 0 THEN %(hogql_val_1)s ELSE %(hogql_val_2)s END",
             ),
+            (
+                "simple_case",
+                "CASE event WHEN '$pageview' THEN event ELSE '' END",
+                "CASE events.event WHEN %(hogql_val_0)s THEN events.event ELSE %(hogql_val_1)s END",
+            ),
             # Null/empty
             ("empty", "empty('test')", "(%(hogql_val_0)s IS NULL OR %(hogql_val_0)s = '')"),
             ("notEmpty", "notEmpty('test')", "(%(hogql_val_0)s IS NOT NULL AND %(hogql_val_0)s != '')"),
@@ -8217,6 +8232,11 @@ class TestMySQLPrinter(BaseTest):
             ("if_null", "ifNull(event, 'a')", "IFNULL(events.event, %(hogql_val_0)s)"),
             ("if_", "if(1 = 1, 'a', 'b')", "CASE WHEN (1 = 1) THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
             (
+                "simple_case",
+                "CASE event WHEN '$pageview' THEN event ELSE '' END",
+                "CASE events.event WHEN %(hogql_val_0)s THEN events.event ELSE %(hogql_val_1)s END",
+            ),
+            (
                 "starts_with",
                 "startsWith(event, 'a')",
                 "(LEFT(events.event, CHAR_LENGTH(%(hogql_val_0)s)) = %(hogql_val_0)s)",
@@ -8328,6 +8348,11 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     ),
     # Conditional / null
     ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
+    (
+        "simple_case",
+        "CASE event WHEN '$pageview' THEN event ELSE '' END",
+        'CASE events."event" WHEN %(hogql_val_0)s THEN events."event" ELSE %(hogql_val_1)s END',
+    ),
     ("isNull", "isNull(1)", "(1 IS NULL)"),
     # Regex operators → REGEXP_INSTR (match()-style "found anywhere"); 'i' = case-insensitive
     ("regex_match", "'h' =~ 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) != 0)"),

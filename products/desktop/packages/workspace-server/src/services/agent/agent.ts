@@ -65,6 +65,7 @@ import {
 import {
   type AcpMessage,
   type Adapter,
+  type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
   type ExecutionMode,
@@ -74,6 +75,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -295,6 +297,8 @@ interface SessionConfig {
   rtkEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
+  /** Matched `bedrock-llm-gateway` variant at session start. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
 /** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
@@ -306,6 +310,9 @@ function extractSteeringCapability(init: unknown): string | undefined {
   )?.agentCapabilities?._meta?.posthog?.steering;
   return typeof steering === "string" ? steering : undefined;
 }
+
+/** A streaming turn emits many events a second; warn once a minute, not per event. */
+const NO_LISTENER_WARN_INTERVAL_MS = 60_000;
 
 interface ManagedSession {
   taskRunId: string;
@@ -392,6 +399,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private sessions = new Map<string, ManagedSession>();
   private pendingPermissions = new Map<string, PendingPermission>();
+  /** Live renderer session-event subscriptions per taskRunId. */
+  private sessionEventSubscribers = new Map<string, number>();
+  private lastNoListenerWarnAt = new Map<string, number>();
   private idleTimeouts = new Map<
     string,
     { handle: ReturnType<typeof setTimeout>; deadline: number }
@@ -616,10 +626,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
-    // A constrained surface (e.g. the canvas generator) supplies its own prompt
-    // and does NOT want the default coding/attribution guidance.
+    // Overrides replace coding guidance, but rich tags must stay available in every agent response.
     if (systemPromptOverride) {
-      return { append: systemPromptOverride };
+      return { append: appendRichOutputPrompt(systemPromptOverride) };
     }
 
     let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
@@ -664,12 +673,7 @@ Optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have.
 
-## Rich output in replies
-Embed the PostHog objects behind your conclusions as XML tags, the same convention as \`<file path="..."/>\` attachments. Every tag is a live reference the app resolves when shown - never restate the object's data in your text, and never put tags inside code fences.
-- Inline reference: \`<kind id="...">short human label</kind>\` inside a sentence, e.g. \`The <insight id="9pQx3">checkout funnel</insight> dropped after <flag id="42">new-checkout-flow</flag> rolled out.\` Kinds: insight, dashboard, error, replay, flag, experiment, survey, ticket, trace, eval, event, cohort, action, person. Use the object's id (insights: the short id; feature flags: the numeric id, falling back to the key; persons: the uuid). It renders as a chip with a live hover preview that opens the object in PostHog.
-- Inline SQL: \`<hogql label="signups today">SELECT count() FROM events WHERE ...</hogql>\` - the SQL is the tag body, the label is what the sentence shows. Hovering runs the query live; clicking opens the SQL editor.
-- Full-size chart, for any numeric or time-series answer (always prefer this over a markdown table): a saved insight \`<insight id="9pQx3" display="block"/>\` or a query \`<hogql display="block" title="Daily active users, last 7 days" caption="optional context">SELECT ...</hogql>\`. The chart executes live on every view. Include the time range in the title, and keep blank lines out of the SQL body.
-- Recording card: \`<replay id="<session_id>" display="block"/>\` renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
+`;
 
     if (channelMode) {
       prompt += `
@@ -697,7 +701,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
     }
 
-    return { append: prompt };
+    return { append: appendRichOutputPrompt(prompt) };
   }
 
   async startSession(params: StartSessionInput): Promise<SessionResponse> {
@@ -1032,6 +1036,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
               ...(config.spokenNarration !== undefined && {
                 spokenNarration: config.spokenNarration,
               }),
+              ...(config.bedrockGatewayVariant !== undefined && {
+                bedrockGatewayVariant: config.bedrockGatewayVariant,
+              }),
               mcpToolApprovals: toolApprovals,
               ...(permissionMode && { permissionMode }),
               ...(model != null && { model }),
@@ -1117,6 +1124,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
             }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
+            }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
             ...(model != null && { model }),
@@ -1147,6 +1157,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(channelMode && { channelMode }),
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
+            }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
             }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
@@ -1762,6 +1775,7 @@ For git operations while detached:
       );
 
       this.sessions.delete(taskRunId);
+      this.lastNoListenerWarnAt.delete(taskRunId);
 
       const timeout = this.idleTimeouts.get(taskRunId);
       if (timeout) {
@@ -1778,6 +1792,63 @@ For git operations while detached:
     }
   }
 
+  /**
+   * Streams a run's session events to one renderer subscriber. Tracks the
+   * subscriber count per run so a turn that streams with nobody listening
+   * (a dead renderer subscription) shows up in the log instead of only as a
+   * transcript that never updates.
+   */
+  async *subscribeSessionEvents(
+    taskRunId: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<unknown> {
+    this.sessionEventSubscribers.set(
+      taskRunId,
+      (this.sessionEventSubscribers.get(taskRunId) ?? 0) + 1,
+    );
+    const startedAt = Date.now();
+    let delivered = 0;
+    this.log.info("Renderer subscribed to session events", { taskRunId });
+    try {
+      for await (const event of this.toIterable(
+        AgentServiceEvent.SessionEvent,
+        { signal },
+      )) {
+        if (event.taskRunId !== taskRunId) continue;
+        delivered += 1;
+        yield event.payload;
+      }
+    } finally {
+      const remaining = (this.sessionEventSubscribers.get(taskRunId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.sessionEventSubscribers.set(taskRunId, remaining);
+      } else {
+        this.sessionEventSubscribers.delete(taskRunId);
+      }
+      this.log.info("Renderer session event subscription closed", {
+        taskRunId,
+        delivered,
+        durationMs: Date.now() - startedAt,
+        remainingSubscribers: Math.max(remaining, 0),
+        promptPending: this.sessions.get(taskRunId)?.promptPending ?? false,
+      });
+    }
+  }
+
+  private warnIfNoRendererListening(taskRunId: string): void {
+    if (this.sessionEventSubscribers.has(taskRunId)) return;
+    const session = this.sessions.get(taskRunId);
+    if (!session?.promptPending) return;
+    const now = Date.now();
+    const lastWarnedAt = this.lastNoListenerWarnAt.get(taskRunId) ?? 0;
+    if (now - lastWarnedAt < NO_LISTENER_WARN_INTERVAL_MS) return;
+    this.lastNoListenerWarnAt.set(taskRunId, now);
+    this.log.warn(
+      "Session events emitted while a prompt is pending but no renderer is subscribed",
+      { taskRunId, taskId: session.taskId },
+    );
+  }
+
   private createClientConnection(
     taskRunId: string,
     _channel: string,
@@ -1792,6 +1863,7 @@ For git operations while detached:
         taskRunId,
         payload,
       });
+      this.warnIfNoRendererListening(taskRunId);
     };
 
     const onAcpMessage = (message: unknown) => {
@@ -2133,6 +2205,10 @@ For git operations while detached:
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
+      bedrockGatewayVariant:
+        "bedrockGatewayVariant" in params
+          ? params.bedrockGatewayVariant
+          : undefined,
     };
   }
 

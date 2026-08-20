@@ -15,7 +15,9 @@ from products.slack_app.backend.services.slack_messages import (
     app_home_url,
     context_block,
     normalize_labeled_mentions_to_bare,
+    post_slack_thread_reply,
     reply_footer_block,
+    slack_message_exists,
     viewer_has_code_access,
 )
 
@@ -221,6 +223,19 @@ class SlackThreadHandler:
                 logger.warning("slack_auth_test_failed", error=str(e))
         return self._bot_user_id
 
+    def _post_in_thread(self, **kwargs: Any) -> Any:
+        """Post in the run's thread, or nothing at all once the prompt it answers is gone.
+
+        Every lifecycle card and relayed answer goes through here, so a user who deletes
+        the prompt mid-run simply stops hearing from us.
+        """
+        return post_slack_thread_reply(
+            self._get_client(),
+            channel=self.context.channel,
+            thread_ts=self.context.thread_ts,
+            **kwargs,
+        )
+
     def _find_progress_message_ts(self) -> str | None:
         """Find existing progress message in the thread."""
         try:
@@ -282,6 +297,9 @@ class SlackThreadHandler:
             return None
         try:
             client = self._get_client()
+            if not slack_message_exists(client, self.context.channel, self.context.thread_ts):
+                logger.warning("slack_app_status_stream_skipped_message_deleted", channel=self.context.channel)
+                return None
             integration = self._get_integration()
             response = client.chat_startStream(
                 channel=self.context.channel,
@@ -418,12 +436,7 @@ class SlackThreadHandler:
                     blocks=blocks,
                 )
             else:
-                client.chat_postMessage(
-                    channel=self.context.channel,
-                    thread_ts=self.context.thread_ts,
-                    text=text,
-                    blocks=blocks,
-                )
+                self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
@@ -489,12 +502,7 @@ class SlackThreadHandler:
         if not footer:
             return
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=footer["elements"][0]["text"],
-                blocks=[footer],
-            )
+            self._post_in_thread(text=footer["elements"][0]["text"], blocks=[footer])
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
@@ -521,12 +529,7 @@ class SlackThreadHandler:
             else None
         )
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -664,11 +667,6 @@ class SlackThreadHandler:
                 blocks = [*blocks, footer]
         try:
             self.delete_progress()
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))

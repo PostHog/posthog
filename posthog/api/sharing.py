@@ -13,6 +13,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -74,12 +75,12 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -318,7 +319,9 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
         "suggested_users_with_access": None,
         "commit_sha": get_git_commit_short(),
         "livestream_host": settings.LIVESTREAM_HOST,
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
+            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
+        ),
         "anonymous": True,
     }
 

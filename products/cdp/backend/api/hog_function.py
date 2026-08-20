@@ -26,7 +26,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import MANAGED_ALERT_EVENT_PATTERN, is_managed_alert_internal_event
+from posthog.cdp.internal_events import (
+    LEGACY_INSIGHT_ALERT_EVENT,
+    MANAGED_ALERT_EVENT_PATTERN,
+    is_managed_alert_internal_event,
+)
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -949,7 +953,9 @@ class HogFunctionViewSet(
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
         # Managed alert destinations are single-event by construction, so events[0] is sufficient here.
         queryset = queryset.filter(
-            Q(filters__events__0__id__isnull=True) | ~Q(filters__events__0__id__regex=MANAGED_ALERT_EVENT_PATTERN)
+            Q(filters__events__0__id__isnull=True)
+            | Q(filters__events__0__id=LEGACY_INSIGHT_ALERT_EVENT)
+            | ~Q(filters__events__0__id__regex=MANAGED_ALERT_EVENT_PATTERN)
         )
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
@@ -1101,7 +1107,8 @@ class HogFunctionViewSet(
         transformations during ingestion, `site_*` transpiled to client-side
         JS). A re-enqueued invocation of one of those would never drain and
         wedges the partition, so a rerun of a non-rerunnable type is rejected
-        with a 400 here.
+        with a 400 here. A disabled function is rejected the same way: the
+        worker skips its invocations, so the rerun could never execute.
 
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_function:write`.
@@ -1117,6 +1124,10 @@ class HogFunctionViewSet(
                 },
                 status=400,
             )
+
+        # The worker skips invocations of disabled functions, so an enqueued re-run could never execute.
+        if not hog_function.enabled:
+            raise serializers.ValidationError("This function is disabled. Enable it to re-run invocations.")
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

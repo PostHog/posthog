@@ -422,6 +422,10 @@ class TestPostgresSourceNonRetryableErrors:
             # customer RLS policy, view, or pooler. Permanent until the customer changes it — must not
             # keep retrying. Parameter name is invented, not a real customer value.
             'unrecognized configuration parameter "app.current_tenant"',
+            # A database proxy (e.g. Prisma Accelerate) refuses the connection because the account
+            # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
+            # the same refusal — must not keep retrying. Host/port are invented, not a real value.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -457,6 +461,19 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "connect timeout must be classified non-retryable"
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
+
+    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
+        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
+        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
+        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "plan-limit restriction must be classified non-retryable"
+        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
+        assert "plan" in matches[0].lower()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2204,9 +2221,7 @@ class TestResolveHostaddrWithTimeout:
         ],
     )
     def test_hosts_that_need_no_lookup_short_circuit(self, host):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo"
-        ) as getaddrinfo_mock:
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo") as getaddrinfo_mock:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
@@ -2220,7 +2235,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
@@ -2233,7 +2248,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["10.0.0.5"]
@@ -2242,16 +2257,38 @@ class TestResolveHostaddrWithTimeout:
         # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
         # its own "Name or service not known" error still reaches the non-retryable classifier.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             side_effect=socket.gaierror(-2, "Name or service not known"),
         ):
             assert _resolve_hostaddr_with_timeout("does-not-exist.example.com", 5432, 15) is None
+
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_strict_resolution_failure_raises(self, resolver_result):
+        patch_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException)
+            else {"return_value": resolver_result}
+        )
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo", **patch_kwargs):
+            with pytest.raises(psycopg.OperationalError, match="Could not resolve database host name"):
+                _resolve_hostaddr_with_timeout(
+                    "does-not-exist.example.com",
+                    5432,
+                    15,
+                    fail_on_resolution_error=True,
+                )
 
     def test_stalled_resolver_raises_fast_retryable_error(self):
         release = threading.Event()
         try:
             with patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 side_effect=lambda *a, **k: release.wait(),
             ):
                 with pytest.raises(psycopg.OperationalError) as exc_info:
@@ -2264,6 +2301,23 @@ class TestResolveHostaddrWithTimeout:
         # Must stay retryable: it must not carry any of the non-retryable resolution fragments.
         assert "could not translate host name" not in message
         assert "Name or service not known" not in message
+
+    def test_abort_check_interrupts_stalled_resolution(self):
+        release = threading.Event()
+        try:
+            with patch(
+                "posthog.psycopg_helpers.socket.getaddrinfo",
+                side_effect=lambda *a, **k: release.wait(),
+            ):
+                with pytest.raises(RuntimeError, match="resolution canceled"):
+                    _resolve_hostaddr_with_timeout(
+                        "db.example.com",
+                        5432,
+                        15,
+                        abort_check=MagicMock(side_effect=RuntimeError("resolution canceled")),
+                    )
+        finally:
+            release.set()
 
 
 # A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
@@ -2283,7 +2337,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(
@@ -2311,7 +2365,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(
@@ -3533,7 +3587,7 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "error received from server in SCRAM exchange: Wrong password",
-                "Invalid user or password",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
@@ -4245,6 +4299,40 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
+    def test_required_ssl_is_used_for_every_schema_discovery_connection(self, source):
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+        metadata_connection = mock.MagicMock()
+        metadata_connection.__enter__.return_value = mock.MagicMock()
+        metadata_connection.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value={},
+            ) as get_schemas,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ) as get_foreign_keys,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
+                return_value={},
+            ) as get_row_count,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=metadata_connection,
+            ) as pg_connection,
+        ):
+            source.get_schemas(self._config(), team_id=1, with_counts=True, require_ssl=True)
+
+        assert get_schemas.call_args.kwargs["require_ssl"] is True
+        assert get_foreign_keys.call_args.kwargs["require_ssl"] is True
+        assert get_row_count.call_args.kwargs["require_ssl"] is True
+        assert pg_connection.call_args.kwargs["require_ssl"] is True
+
     @pytest.mark.parametrize(
         "exc",
         [
@@ -4568,6 +4656,19 @@ class TestBuildQuery:
         with pytest.raises(ValueError):
             _build_query("public", "events", True, "table", "id", None, None)
 
+    @pytest.mark.parametrize(
+        "field_type",
+        [IncrementalFieldType.Numeric, IncrementalFieldType.Integer],
+    )
+    def test_empty_string_last_value_falls_back_to_initial_value(self, field_type):
+        # Regression: a stored watermark of "" used to become a literal `''` in the WHERE
+        # clause, which Postgres rejects for a numeric/integer column with "invalid input
+        # syntax for type numeric" instead of falling back like a missing (None) watermark.
+        query = _build_query("public", "events", True, "table", "cursor", field_type, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_sampling_table(self):
         query = _build_query("public", "users", False, "table", None, None, None, add_sampling=True)
         rendered = self._render(query)
@@ -4860,22 +4961,33 @@ class TestBuildXminQuery:
     def _render(self, composed: sql.Composed) -> str:
         return composed.as_string()
 
-    def _bounds(self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False) -> XminBounds:
+    def _bounds(
+        self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False, full_scan=False
+    ) -> XminBounds:
         return XminBounds(
             lower=lower,
             upper=upper,
             ceiling_xid8=(num_wraparound << 32) | upper,
             num_wraparound=num_wraparound,
             wraparound_or_range=wraparound_or_range,
+            full_scan=full_scan,
         )
 
-    def test_first_run_reads_below_ceiling(self):
-        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=0))
+    def test_full_scan_drops_the_xmin_window(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(full_scan=True)
+        )
         rendered = self._render(query)
         assert f'xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}"' in rendered
-        assert "xmin::text::bigint >= 0 AND xmin::text::bigint < 5000" in rendered
-        assert "OR xmin::text::bigint" not in rendered
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
         assert rendered.rstrip().endswith("ORDER BY xmin::text::bigint ASC")
+
+    def test_full_scan_count_query_counts_every_row(self):
+        query = _build_count_query("public", "users", False, None, None, None, xmin_bounds=self._bounds(full_scan=True))
+        rendered = self._render(query)
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
 
     def test_steady_state_single_range(self):
         query = _build_query(
@@ -4946,18 +5058,27 @@ class TestCaptureXminCeiling:
         with pytest.raises(XminUnsupportedError, match="PostgreSQL 13"):
             _capture_xmin_ceiling(cursor, None, None, MagicMock())
 
-    def test_first_run_seeds_zero_lower_bound(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
-        bounds = _capture_xmin_ceiling(cursor, None, None, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.upper == 5000
-        assert bounds.wraparound_or_range is False
+    @parameterized.expand(
+        [
+            ("first_run", None, None),
+            ("multi_wrap", 4000000000, 0),
+        ]
+    )
+    def test_reads_whole_table_when_no_window_is_safe(self, _name, stored_last_value, stored_num_wraparound):
+        # Backfills and multi-wrap re-reads can't use a 32-bit window: `ceiling_xid` is only the low
+        # half of the ceiling, so tuples written in earlier epochs sit above it.
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(12 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, stored_last_value, stored_num_wraparound, MagicMock())
+        assert bounds.full_scan is True
+        assert bounds.ceiling_xid8 == (12 << 32) | 500
+        assert bounds.num_wraparound == 12
 
     def test_steady_state_uses_stored_lower_bound(self):
         cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
         bounds = _capture_xmin_ceiling(cursor, 100, 0, MagicMock())
         assert bounds.lower == 100
         assert bounds.wraparound_or_range is False
+        assert bounds.full_scan is False
 
     def test_single_wrap_sets_or_range(self):
         # Epoch advanced by exactly 1 since last sync.
@@ -4966,12 +5087,36 @@ class TestCaptureXminCeiling:
         assert bounds.num_wraparound == 1
         assert bounds.wraparound_or_range is True
         assert bounds.lower == 4000000000
+        assert bounds.full_scan is False
 
-    def test_multi_wrap_forces_full_reread(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=(3 << 32) | 500, ceiling_xid=500)
-        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.wraparound_or_range is False
+
+class TestXminBackfillAgainstPostgres:
+    @pytest.mark.django_db
+    def test_backfill_reads_tuples_above_the_ceiling_remainder(self):
+        # Reproduces the reported silent data loss. On a cluster past a wraparound the ceiling's
+        # low 32 bits are a small remainder while every tuple written in an earlier epoch keeps a
+        # much larger raw `xmin`, so the old `[0, remainder)` backfill window matched no rows and
+        # the run still completed and advanced the cursor.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE xmin_wraparound_probe (id int PRIMARY KEY)")
+            dj_cursor.execute("INSERT INTO xmin_wraparound_probe SELECT generate_series(1, 10)")
+            dj_cursor.execute("SELECT MIN(xmin::text::bigint) FROM xmin_wraparound_probe")
+            lowest_tuple_xmin = dj_cursor.fetchone()[0]
+
+            snapshot_cursor = MagicMock()
+            snapshot_cursor.connection.info.server_version = 150000
+            snapshot_cursor.fetchone.return_value = ((12 << 32) | lowest_tuple_xmin,)
+            bounds = _capture_xmin_ceiling(snapshot_cursor, None, None, MagicMock())
+
+            dj_cursor.execute(
+                _build_query("public", "xmin_wraparound_probe", False, "table", None, None, None, xmin_bounds=bounds)
+            )
+            assert len(dj_cursor.fetchall()) == 10
+
+            dj_cursor.execute(
+                _build_count_query("public", "xmin_wraparound_probe", False, None, None, None, xmin_bounds=bounds)
+            )
+            assert dj_cursor.fetchone()[0] == 10
 
 
 class TestXminCapableTablesFromConn:
@@ -5046,6 +5191,19 @@ class TestBuildPartitionQuery:
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
 
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=IncrementalFieldType.Numeric,
+            db_incremental_field_last_value="",
+        )
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_row_filter_full_refresh(self):
         query = build_partition_query(
             "public",
@@ -5097,6 +5255,12 @@ class TestBuildCountQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" not in rendered
         assert "FROM (" not in rendered
+
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = _build_count_query("public", "events", True, "cursor", IncrementalFieldType.Numeric, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
 
 
 class TestIsPartitionedTable:

@@ -313,6 +313,57 @@ class RequiredRootFilesCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
+class BackendPackageMarkerCheck(ProductCheck):
+    """backend/ needs an __init__.py or every import contract silently skips the product.
+
+    import-linter builds its graph from `products`, which is a regular package (it carries an
+    __init__.py so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`).
+    grimp does not descend from a regular package into PEP 420 namespace sub-directories, so a
+    backend without the marker is absent from the graph entirely — and a contract that never sees a
+    module reports success for it. The failure is silent in both directions: nothing warns, and the
+    contract passes.
+    """
+
+    label = "backend package marker"
+
+    # Only the paths import contracts actually target. Test directories and generated trees
+    # (warehouse_sources' per-source connectors) are namespace dirs on purpose and stay that way.
+    CONTRACT_TREES = ("facade", "presentation")
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return ctx.backend_dir.is_dir()
+
+    def _missing_markers(self, ctx: CheckContext) -> list[str]:
+        missing = []
+        if not (ctx.backend_dir / "__init__.py").exists():
+            missing.append("backend/")
+        for tree in self.CONTRACT_TREES:
+            root = ctx.backend_dir / tree
+            if not root.is_dir():
+                continue
+            for directory in sorted(d for d in root.rglob("*") if d.is_dir()):
+                if directory.name == "__pycache__" or not any(directory.glob("*.py")):
+                    continue
+                if not (directory / "__init__.py").exists():
+                    missing.append(f"backend/{directory.relative_to(ctx.backend_dir)}/")
+            if not (root / "__init__.py").exists():
+                missing.append(f"backend/{tree}/")
+        return sorted(set(missing))
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        missing = self._missing_markers(ctx)
+        if not missing:
+            return CheckResult(lines=["✓ ok"])
+        return CheckResult(
+            lines=[f"✗ missing __init__.py: {', '.join(missing)}"],
+            issues=[
+                f"missing __init__.py in {', '.join(missing)} — grimp stops descending at the first "
+                "directory without one, so import-linter cannot see what is below it and every "
+                "contract passes there vacuously. Add the marker (empty, like every other product's)"
+            ],
+        )
+
+
 def _has_test_files(backend_dir: Path) -> bool:
     """Check if backend/ contains any pytest-discoverable test files."""
     return any(backend_dir.rglob("test_*.py")) or any(backend_dir.rglob("*_test.py"))
@@ -698,10 +749,23 @@ class IsolationChainCheck(ProductCheck):
         # a leak there is guidance, not breakage. Once narrowed, the same leak means core can reach an
         # unsanctioned class the suite may not re-test — a hard error. See products/architecture.md
         # § Wiring couplings.
-        if facade_violations:
-            detail = "; ".join(
-                f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in facade_violations
+        def format_facade_imports(imports) -> str:
+            return "; ".join(f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in imports)
+
+        def format_crossings_by_class(imports) -> str:
+            # the allowance is keyed per class, so report one entry per class even when several
+            # facade modules re-export it — otherwise the count reads higher than the sanctioned list
+            by_class: dict[str, tuple[str, list[str]]] = {}
+            for v in imports:
+                _, modules = by_class.setdefault(v.class_name, (v.source_path, []))
+                modules.append(f"facade/{v.facade_module}")
+            return "; ".join(
+                f"{name} (from {source_path}, via {', '.join(sorted(modules))})"
+                for name, (source_path, modules) in sorted(by_class.items())
             )
+
+        if facade_violations:
+            detail = format_facade_imports(facade_violations)
             remedies = (
                 "move it to a garage (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
                 "backend/tasks.py) if it implements a core-owned base; move it to facade/contracts.py "
@@ -716,6 +780,27 @@ class IsolationChainCheck(ProductCheck):
                     f"facade re-exports class(es) from outside the wiring locations: {detail}. The skip is "
                     f"inert while un-narrowed, but narrowing is blocked until this is fixed — {remedies}"
                 )
+
+        # The watched-models allowance (MODEL_CROSSINGS). Crossing model classes are
+        # sanctioned interim debt, so they never block narrowing — but the debt stays visible as a
+        # standing warning, and a narrowed product must keep the whole model surface watched or the
+        # skip is unsound (a model or migration change core observes would run no Django suite).
+        if status.model_crossings:
+            crossing_detail = format_crossings_by_class(status.model_crossings)
+            result.warnings.append(
+                f"facade hands out Django model class(es) under the watched-models allowance: {crossing_detail}. "
+                "Sanctioned interim debt (products/architecture.md § Wiring couplings) — the model surface stays "
+                "in the contract-check inputs so the skip is sound; convert crossings to facade contracts to "
+                "retire the allowance entry"
+            )
+        if has_narrowed and status.uncovered_model_surface:
+            surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the watched-models surface "
+                f"{', '.join(status.uncovered_model_surface)} — the facade hands out model classes under the "
+                f"watched-models allowance, so a change there would skip the Django suite. Add the matching "
+                f"input(s) ({surface_globs})"
+            )
 
         # Earned but not turned on: a fully sealed, eligible product that already carries
         # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
@@ -823,7 +908,9 @@ class IsolationChainCheck(ProductCheck):
             # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
-            turbo_omission = has_narrowed and (status.unwatched_garages or status.uncovered_carveout_modules)
+            turbo_omission = has_narrowed and (
+                status.unwatched_garages or status.uncovered_carveout_modules or status.uncovered_model_surface
+            )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"
             elif needs_turn_on or routes_unwatched or turbo_omission:
@@ -981,6 +1068,10 @@ class OrphanedTestFilesCheck(ProductCheck):
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
         "signals": ("backend/emission/",),
+        # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
+        # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
+        # invocation rather than inside the product's Django suite.
+        "stamphog": ("packages/pr-approval-agent/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:
@@ -1050,6 +1141,7 @@ class OrphanedTestFilesCheck(ProductCheck):
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
+    BackendPackageMarkerCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),

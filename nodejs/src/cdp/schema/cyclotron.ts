@@ -122,6 +122,8 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
 })
 
+export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
     to: z.object({
@@ -131,8 +133,9 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     replyTo: z.string().optional(),
     from: z.object({
         integrationId: z.number(),
+        integrationIds: z.array(z.number()).max(MAX_WORKFLOW_EMAIL_SENDERS).optional(),
         // Templated per-invocation sender overrides. EmailService requires the rendered
-        // address to be on the integration's verified domain before it reaches the provider.
+        // address to be on the selected integration's verified domain before it reaches the provider.
         email: z.string().optional(),
         name: z.string().optional(),
     }),

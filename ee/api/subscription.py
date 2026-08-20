@@ -63,7 +63,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable

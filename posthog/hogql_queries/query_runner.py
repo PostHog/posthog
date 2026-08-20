@@ -521,6 +521,26 @@ def get_query_runner(
         display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
 
         if display_type == ChartDisplayType.CALENDAR_HEATMAP:
+            query_tags = get_from_dict_or_attr(query_obj, "tags")
+            if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+                from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                    is_trends_precompute_enabled_for_team,
+                )
+
+                if is_trends_precompute_enabled_for_team(team):
+                    from products.web_analytics.backend.hogql_queries.web_calendar_heatmap import (
+                        WebCalendarHeatmapTrendsQueryRunner,
+                    )
+
+                    return WebCalendarHeatmapTrendsQueryRunner(
+                        query=query_obj,
+                        team=team,
+                        timings=timings,
+                        limit_context=limit_context,
+                        modifiers=modifiers,
+                        user=user,
+                    )
+
             from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(
@@ -615,7 +635,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "PathsQuery":
-        from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
+        from products.product_analytics.backend.facade.queries import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -627,7 +647,7 @@ def get_query_runner(
         )
 
     if kind == "PathsV2Query":
-        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+        from products.product_analytics.backend.facade.queries import PathsV2QueryRunner
 
         return PathsV2QueryRunner(
             query=cast(PathsV2Query | dict[str, Any], query),
@@ -649,9 +669,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "StickinessQuery":
-        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
-            StickinessQueryRunner,
-        )
+        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),
@@ -950,6 +968,18 @@ def get_query_runner(
         from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
         return ErrorTrackingSimilarIssuesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "ErrorTrackingFingerprintProjectionQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingFingerprintProjectionQueryRunner
+
+        return ErrorTrackingFingerprintProjectionQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1660,6 +1690,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _calculate(self) -> R:
         raise NotImplementedError()
 
+    def query_status_labels(self) -> list[str] | None:
+        return None
+
     def enqueue_async_calculation(
         self,
         *,
@@ -1698,6 +1731,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
+            labels=self.query_status_labels(),
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
             is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,

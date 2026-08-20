@@ -600,13 +600,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+                'UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.'
             ),
         external_data_schema: zod
             .uuid()
             .nullish()
             .describe(
-                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.'
             ),
         source_column: zod
             .string()
@@ -623,7 +623,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
             ),
         key_column: zod
             .string()
@@ -639,7 +639,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
+        'Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.'
     )
 
 export const customPropertySourcesUpdateBodySourceColumnMax = 400
@@ -980,9 +980,14 @@ export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.o
 
 export const featureRequestsCreateBodyTitleMax = 400
 
+export const featureRequestsCreateBodyDescriptionDefault = ``
+
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
-    description: zod.string().describe('Required customer-facing request description in Markdown.'),
+    description: zod
+        .string()
+        .default(featureRequestsCreateBodyDescriptionDefault)
+        .describe('Optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().describe('ID of the affected Customer Analytics account.'),
     product_area_ids: zod.array(zod.uuid()).describe('One or more active product area IDs. Duplicate IDs are ignored.'),
     idempotency_key: zod
@@ -1004,7 +1009,7 @@ export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsUpdateBodyTitleMax)
         .optional()
         .describe('Updated customer-facing request title.'),
-    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
     product_area_ids: zod
         .array(zod.uuid())
@@ -1043,7 +1048,7 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsPartialUpdateBodyTitleMax)
         .optional()
         .describe('Updated customer-facing request title.'),
-    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
     product_area_ids: zod
         .array(zod.uuid())

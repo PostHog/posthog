@@ -64,6 +64,7 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -87,6 +88,7 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
                               |CanvasState
                               |ChangeRequest
@@ -267,6 +269,7 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
@@ -298,6 +301,8 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCanvas
+                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -329,6 +334,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
@@ -429,6 +435,7 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -452,6 +459,7 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
                         |CanvasState
                         |ChangeRequest
@@ -626,6 +634,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
@@ -657,6 +666,8 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCanvas
+                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
@@ -688,6 +699,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskWorkflowDispatch
                         |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
@@ -816,6 +828,7 @@ rules:
                               |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -887,6 +900,7 @@ rules:
                         |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
@@ -987,6 +1001,7 @@ rules:
                           (?x)(
                               CommunitySkillVote
                               |DashboardPrivilege
+                              |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1043,6 +1058,7 @@ rules:
                     (?x)(
                         CommunitySkillVote
                         |DashboardPrivilege
+                        |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

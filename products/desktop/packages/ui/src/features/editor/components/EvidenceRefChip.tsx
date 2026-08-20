@@ -41,10 +41,11 @@ import {
 const SPARK_W = 100;
 const SPARK_H = 30;
 const SPARK_PAD = 2;
-// PostHog's first data-viz color, same source quill-charts reads; the hex
-// fallback keeps the spark on-brand where the theme variable isn't defined
-// (the tooltip portals outside the theme root).
-const SPARK_COLOR = "var(--data-color-1, #1d4aff)";
+// Surfaces with their own palette (the quick-ask panel) set
+// --evidence-spark-color; everywhere else PostHog's first data-viz color
+// applies, with a hex fallback because the tooltip portals outside the
+// theme root.
+const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
 function Sparkline({
@@ -63,7 +64,7 @@ function Sparkline({
 
   if (render === "bar") {
     const step = SPARK_W / points.length;
-    const gap = Math.min(step * 0.25, 2);
+    const barWidth = step * 0.62;
     // Bars grow from the zero line, so a negative point extends below it.
     // Measuring to the chart bottom instead would shrink or invert them once
     // any point is negative (min drops below 0 and lifts the zero line).
@@ -72,7 +73,7 @@ function Sparkline({
       <svg
         viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
         preserveAspectRatio="none"
-        className="h-9 w-full"
+        className="my-1 h-8 w-full"
         role="img"
         aria-label="Column sparkline"
         data-testid="evidence-sparkline"
@@ -83,12 +84,13 @@ function Sparkline({
             <rect
               // biome-ignore lint/suspicious/noArrayIndexKey: static series, never reorders
               key={index}
-              x={index * step + gap / 2}
-              width={step - gap}
-              y={Math.min(y, baseline)}
-              height={Math.max(Math.abs(y - baseline), 0.5)}
+              x={(index * step + (step - barWidth) / 2).toFixed(1)}
+              width={barWidth.toFixed(1)}
+              y={Math.min(y, baseline).toFixed(1)}
+              height={Math.max(Math.abs(y - baseline), 0.5).toFixed(1)}
+              rx={1.2}
               fill={SPARK_COLOR}
-              fillOpacity={0.85}
+              fillOpacity={0.82}
             />
           );
         })}
@@ -114,7 +116,7 @@ function Sparkline({
     <svg
       viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
       preserveAspectRatio="none"
-      className="h-9 w-full"
+      className="my-1 h-8 w-full"
       role="img"
       aria-label="Trend sparkline"
       data-testid="evidence-sparkline"
@@ -407,7 +409,8 @@ export function EvidenceRefChip({
               loaded on every surface that renders chips (see ChatMarkdown). */}
           <Popover.Positioner side="top" sideOffset={8} className="z-[9999]">
             <Popover.Popup
-              className="dark rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
+              data-testid="evidence-hover-card"
+              className="rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
               style={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)" }}
             >
               <EvidenceHoverCardLoader target={target} url={url}>

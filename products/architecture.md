@@ -105,6 +105,21 @@ A model cannot be narrowed: whatever interface it presents, the object still car
 Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
+**The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
+Two products hold entries.
+`warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
+`product_analytics`: `Insight`, `InsightVariable` and `InsightViewed`.
+Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
+`InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
+The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
+An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
+That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
+The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.
+It only shrinks.
+Adding an entry requires amending this section to name the class and why it cannot yet be a contract.
+The bar is that some consumer needs ORM semantics a contract cannot express — relation traversal, queryset-typed downstream APIs like access-control filtering, row locking, or model behavior.
+A consumer that only reads fields, or that ends in `values_list`, is disqualifying: the remedy there is a facade function returning contracts, not an entry here.
+
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
@@ -124,6 +139,7 @@ myproduct/
     apps.py
     models.py          # Django ORM only
     logic.py           # Business logic
+    logic/             # ...or a package, once logic.py outgrows one file
 
     tasks/
       __init__.py
@@ -279,6 +295,10 @@ The alternative — returning ORM objects — works until it doesn't, then you'r
 # 6. Business Logic (backend/logic.py)
 
 Business logic lives here: validation, calculations, business rules, ORM queries.
+
+Start as a single `logic.py`.
+Once it outgrows one file, split it into a `logic/` package with one module per concern and mirror that split in `tests/logic/` — `products/visual_review/backend/logic/` is the reference, and `/splitting-oversized-modules` does the move.
+Import the submodule you need (`from .logic import runs`) rather than re-exporting through `__init__.py`: one binding per symbol keeps it obvious where behavior lives and keeps test patch targets on the real definition.
 
 Examples:
 
