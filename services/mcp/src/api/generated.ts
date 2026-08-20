@@ -54455,6 +54455,27 @@ export namespace Schemas {
       completed_at?: string | null;
     }
 
+    /**
+     * * `user` - user
+     * * `system` - system
+     */
+    export type TaskPrincipalDTOTypeEnum = typeof TaskPrincipalDTOTypeEnum[keyof typeof TaskPrincipalDTOTypeEnum];
+
+
+    export const TaskPrincipalDTOTypeEnum = {
+      User: 'user',
+      System: 'system',
+    } as const;
+
+    export interface TaskPrincipalDTO {
+      user?: TaskUserBasicInfo | null;
+      type: TaskPrincipalDTOTypeEnum;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      label?: string | null;
+    }
+
     export interface SlackThreadReferenceDTO {
       url: string;
       channel: string;
@@ -54512,6 +54533,7 @@ export namespace Schemas {
       /** @nullable */
       last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
+      principal?: TaskPrincipalDTO | null;
       /** @nullable */
       ci_prompt: string | null;
       /** @nullable */
