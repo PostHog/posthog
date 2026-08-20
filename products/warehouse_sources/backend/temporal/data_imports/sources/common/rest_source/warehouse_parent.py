@@ -116,7 +116,7 @@ def _row_filter_scan_and_predicate(
         floor = cutoff if field_type.tz is not None else cutoff.replace(tzinfo=None)
         field_ref = pc.field(physical)
         scan_filter = field_ref.is_null() | (field_ref >= pa.scalar(floor, type=field_type))
-    elif pa.types.is_string(field_type) or pa.types.is_large_string(field_type):
+    elif pa.types.is_string(field_type) or pa.types.is_large_string(field_type) or pa.types.is_string_view(field_type):
         # ISO-8601 UTC strings order lexicographically, so a string floor compares correctly —
         # just not through pyarrow's own kernel (see the missing-kernel note above).
         floor = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
@@ -132,6 +132,20 @@ def _row_filter_scan_and_predicate(
         return value is None or value >= floor
 
     return _ResolvedRowFilter(scan_filter=scan_filter, row_passes=_passes_floor, physical_column=physical)
+
+
+def _probe_row_filter(delta_table: "deltalake.DeltaTable", resolved: _ResolvedRowFilter) -> None:
+    """Run a resolved filter over one batch, so a scan pyarrow can't serve raises here.
+
+    One batch of one column, which is what makes it cheap enough to pay on every run: enough
+    for pyarrow to bind both the pushdown and the row check to real types.
+    """
+    for batch in delta_table.to_pyarrow_dataset().to_batches(
+        columns=[resolved.physical_column], batch_size=1, filter=resolved.scan_filter
+    ):
+        for row in batch.to_pylist():
+            resolved.row_passes(row)
+        break
 
 
 def resolve_parent_table_ref(
@@ -193,9 +207,11 @@ def resolve_parent_table_ref(
             # surface deep inside the pipeline, past the caller's fall-back-to-the-API branch.
             _physical_columns_by_api_name(delta_table, parent_name, required_columns)
         if row_filter is not None:
-            # Same eagerness for the filter: the reader rebuilds this, but a missing or
-            # unfilterable column must surface while the API fallback is still possible.
-            _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+            # Same eagerness for the filter, and run it rather than only build it: pyarrow
+            # resolves a scan against the types its reader really produces, which the Delta
+            # schema does not always predict. Anything it can't serve must surface here, where
+            # the API fallback is still possible, not from inside the reader's generator.
+            _probe_row_filter(delta_table, _row_filter_scan_and_predicate(delta_table, parent_name, row_filter))
         return ParentTableRef(uri=uri, version=delta_table.version())
     except WarehouseParentTableNotFoundError:
         raise

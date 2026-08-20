@@ -361,6 +361,19 @@ def test_resolve_rejects_unfilterable_tables_so_callers_fall_back(
         _patched_resolve(uri, row_filter=bad_filter)
 
 
+def test_resolve_turns_a_scan_time_filter_failure_into_a_fallback(tmp_path: Path) -> None:
+    # Resolve runs the filter, not just builds it. A scan pyarrow cannot serve has to become
+    # the fallback signal here; raised from inside the reader's generator it reaches no caller
+    # that can drop to the parent API, and the sync fails instead.
+    uri = _write_parent_table_with_ages(tmp_path, "string")
+
+    with patch.object(
+        warehouse_parent, "_probe_row_filter", side_effect=pa.ArrowNotImplementedError("no kernel for string_view")
+    ):
+        with pytest.raises(WarehouseParentTableNotFoundError, match="could not be resolved"):
+            _patched_resolve(uri, row_filter=_LAST_SEEN_FLOOR)
+
+
 def test_row_filter_tightens_to_an_absolute_floor(tmp_path: Path) -> None:
     # The incremental caller passes its watermark so the scan stops reading issues it would
     # only discard per row. The tighter of the two floors has to win, or an incremental run
