@@ -35,7 +35,11 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog'
+        # Skip merge-queue attempts: this check is not required, the PR branch already
+        # built the same diff, and each attempt pushes the image to GHCR, which
+        # throttles the whole org when the queue churns. The build job requires this
+        # job's outputs, so skipping here skips the build too.
+        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}

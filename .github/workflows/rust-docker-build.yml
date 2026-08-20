@@ -39,8 +39,12 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Skip on workflow_dispatch — always build everything (escape hatch)
+        # Skip merge-queue attempts: this check is not required, the PR branch already
+        # built the same diff, and each attempt pushes every affected image to GHCR,
+        # which throttles the whole org when the queue churns.
         if: >-
             github.event_name != 'workflow_dispatch' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
              github.event.pull_request.head.repo.full_name == github.repository)
         permissions:
@@ -80,6 +84,7 @@ jobs:
         # Run unless affected explicitly found zero images ('none') or failed.
         if: |
             !cancelled() &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
              github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
