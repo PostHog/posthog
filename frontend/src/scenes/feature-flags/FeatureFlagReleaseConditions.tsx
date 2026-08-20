@@ -686,7 +686,9 @@ export function FeatureFlagReleaseConditions({
                                 ),
                                 description: (
                                     <span>
-                                        Stable assignment per device. Good fit for experiments on anonymous users.{' '}
+                                        Stable assignment per device, based on <code>$device_id</code>. Person property
+                                        filters still apply. A request with no <code>$device_id</code> does not match
+                                        these conditions. Good fit for experiments on anonymous users.{' '}
                                         <Link
                                             to="https://posthog.com/docs/feature-flags/device-bucketing"
                                             target="_blank"
