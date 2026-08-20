@@ -2705,6 +2705,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
     customization?: {
         tile_spacing?: DashboardTileSpacing
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
     }
 }
 

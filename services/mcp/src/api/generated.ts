@@ -19917,6 +19917,20 @@ export namespace Schemas {
       Wide: 'wide',
     } as const;
 
+    /**
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable
+     */
+    export type LayoutCompactionEnum = typeof LayoutCompactionEnum[keyof typeof LayoutCompactionEnum];
+
+
+    export const LayoutCompactionEnum = {
+      Vertical: 'vertical',
+      Horizontal: 'horizontal',
+      Stable: 'stable',
+    } as const;
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -19926,6 +19940,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       tile_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
     }
 
     /**
@@ -20006,6 +20026,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -20916,7 +20942,7 @@ export namespace Schemas {
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -61071,6 +61097,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
