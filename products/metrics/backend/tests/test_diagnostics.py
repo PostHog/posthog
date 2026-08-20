@@ -63,7 +63,9 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
         assert decomposition.series_count == 2
         assert decomposition.sample_count == 6
         # 11 and 22 are the latest readings; the four earlier samples are re-readings.
-        assert sorted(series.value for series in decomposition.series) == [11.0, 22.0]
+        contributions = [series.value for series in decomposition.series]
+        assert sorted(value for value in contributions if value is not None) == [11.0, 22.0]
+        assert None not in contributions
         assert decomposition.reference_value == 33.0
 
     def test_reports_disagreement_between_the_runner_and_the_reference(self) -> None:

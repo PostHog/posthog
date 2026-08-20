@@ -23,11 +23,15 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
+from typing import TypeVar
 
 from posthog.dataclasses import frozen
 
 # What `p95` means when a caller doesn't spell the percentile out.
 _DEFAULT_QUANTILE = 0.95
+
+# The reducers never read a series key; it only has to identify the series.
+K = TypeVar("K")
 
 
 @frozen
@@ -201,7 +205,7 @@ def reduce_spatial(values: Sequence[float], reducer: SpatialReducer, *, quantile
     raise ValueError(f"Unsupported spatial reducer: {reducer!r}")
 
 
-def apply_plan(series_samples: Mapping[object, Sequence[Sample]], plan: ReductionPlan) -> float | None:
+def apply_plan(series_samples: Mapping[K, Sequence[Sample]], plan: ReductionPlan) -> float | None:
     """Run both reduction steps over a bucket's series and return its number."""
     if plan.temporal == TemporalReducer.NONE:
         per_series_values = [sample.value for samples in series_samples.values() for sample in samples]
@@ -214,7 +218,7 @@ def apply_plan(series_samples: Mapping[object, Sequence[Sample]], plan: Reductio
     return reduce_spatial(per_series_values, plan.spatial, quantile=plan.quantile)
 
 
-def is_duplicate_invariant(series_samples: Mapping[object, Sequence[Sample]], plan: ReductionPlan) -> bool:
+def is_duplicate_invariant(series_samples: Mapping[K, Sequence[Sample]], plan: ReductionPlan) -> bool:
     """Whether re-delivering every sample leaves the bucket's number unchanged.
 
     Duplicating a scrape is the cheapest way to ask whether a reduction counts
