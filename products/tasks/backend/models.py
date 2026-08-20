@@ -688,7 +688,7 @@ class Task(DeletedMetaFields, models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,
+        user_id: int | None,
         repository: str | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -719,6 +719,8 @@ class Task(DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        system_principal: "Task.SystemPrincipal | None" = None,
+        system_workload: "Task.SystemWorkload | None" = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -726,7 +728,11 @@ class Task(DeletedMetaFields, models.Model):
         `create_without_run` (which discards the run state). One path keeps the
         GitHub-integration resolution and authorship logic from drifting between them.
         """
-        created_by = User.objects.get(id=user_id)
+        if (user_id is None) == (system_principal is None):
+            raise ValueError("Exactly one human or system task principal is required")
+        if system_principal is not None and system_workload is None:
+            raise ValueError("System-owned tasks require an explicit workload")
+        created_by = User.objects.get(id=user_id) if user_id is not None else None
 
         from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
@@ -753,6 +759,8 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             client_provenance=client_provenance,
             created_by=created_by,
+            system_principal=system_principal,
+            system_workload=system_workload,
             repository=repository,
             github_integration=github_integration,
         )
@@ -770,7 +778,7 @@ class Task(DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
-        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None and created_by is not None:
             # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
             # then use the user_id BOT provided and get user's GitHub Integration instead
             user_github_integration = resolve_user_github_integration_for_task(
@@ -1000,7 +1008,7 @@ class Task(DeletedMetaFields, models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        user_id: int | None,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1037,6 +1045,8 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        system_principal: "Task.SystemPrincipal | None" = None,
+        system_workload: "Task.SystemWorkload | None" = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1079,6 +1089,8 @@ class Task(DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            system_principal=system_principal,
+            system_workload=system_workload,
         )
 
         run_extra_state = dict(extra_state or {})

@@ -240,7 +240,7 @@ def _validate_system_report_canvas_context(task: Task, ctx: TaskProcessingContex
         ctx.repositories
         or ctx.github_integration_id
         or ctx.github_user_integration_id
-        or ctx.sandbox_environment_id
+        or (ctx.sandbox_environment_id and ctx.sandbox_environment_name != "SIGNALS_REPORT_CANVAS")
         or ctx.custom_image_name
         or task.mcp_credential_owner_id is not None
     ):

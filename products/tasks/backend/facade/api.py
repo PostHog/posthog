@@ -135,6 +135,8 @@ TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 TaskRuntime = Task.Runtime
+TaskSystemPrincipal = Task.SystemPrincipal
+TaskSystemWorkload = Task.SystemWorkload
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -1253,7 +1255,7 @@ def create_and_run_task(
     title: str,
     description: str,
     origin_product: "Task.OriginProduct",
-    user_id: int,
+    user_id: int | None,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
@@ -1263,6 +1265,8 @@ def create_and_run_task(
     internal: bool = False,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
+    system_principal: Task.SystemPrincipal | None = None,
+    system_workload: Task.SystemWorkload | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -1300,6 +1304,8 @@ def create_and_run_task(
         signal_report_id=signal_report_id,
         internal=internal,
         sandbox_environment_id=sandbox_environment_id,
+        system_principal=system_principal,
+        system_workload=system_workload,
         **extra,
     )
     latest = task.latest_run

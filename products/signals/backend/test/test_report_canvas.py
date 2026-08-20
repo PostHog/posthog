@@ -63,7 +63,6 @@ class TestReportCanvasGeneration(APIBaseTest):
             patch("products.signals.backend.report_canvas.report_canvases_enabled", return_value=True),
             patch("products.signals.backend.report_canvas._fetch_report_signals", return_value=[]),
             patch("products.signals.backend.report_canvas.fetch_implementation_pr_urls_for_reports", return_value={}),
-            patch("products.signals.backend.report_canvas.resolve_acting_user_id_for_team", return_value=self.user.id),
             patch(
                 "products.signals.backend.report_canvas.get_or_create_signals_sandbox_env", return_value="env"
             ) as get_sandbox_environment,
@@ -103,6 +102,11 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert discussion.state["activity_target"] == {"scope": "desktop_canvas", "id": str(canvas.id)}
         assert attempt.status == SignalReportCanvasGeneration.Status.GENERATING
         assert attempt.generation_task_id == generation_task_id
+        generation_kwargs = create_generation.call_args.kwargs
+        assert generation_kwargs["user_id"] is None
+        assert generation_kwargs["system_principal"] == tasks_facade.TaskSystemPrincipal.SIGNALS
+        assert generation_kwargs["system_workload"] == tasks_facade.TaskSystemWorkload.REPORT_CANVAS
+        assert generation_kwargs["description"] == generation_kwargs["pending_user_message"]
 
     def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
         report = self._report()

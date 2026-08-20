@@ -25,11 +25,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
-from products.signals.backend.sandbox import (
-    SIGNALS_REPORT_CANVAS_ENV_NAME,
-    get_or_create_signals_sandbox_env,
-    resolve_acting_user_id_for_team,
-)
+from products.signals.backend.sandbox import SIGNALS_REPORT_CANVAS_ENV_NAME, get_or_create_signals_sandbox_env
 from products.tasks.backend.facade import api as tasks_facade
 
 REPORT_CANVAS_FEATURE_FLAG = "signals-report-canvases"
@@ -300,9 +296,6 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         session.generated_fingerprint = fingerprint
         session.save(update_fields=["generation_status", "failure_reason", "generated_fingerprint", "updated_at"])
 
-        user_id = resolve_acting_user_id_for_team(team_id)
-        if user_id is None:
-            raise RuntimeError("No active organization member can run the report canvas agent")
         sandbox_environment_id = get_or_create_signals_sandbox_env(
             team_id,
             SIGNALS_REPORT_CANVAS_ENV_NAME,
@@ -325,7 +318,9 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             title=f"Canvas: {report.title or 'Report'}",
             description=prompt,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
-            user_id=user_id,
+            user_id=None,
+            system_principal=tasks_facade.TaskSystemPrincipal.SIGNALS,
+            system_workload=tasks_facade.TaskSystemWorkload.REPORT_CANVAS,
             create_pr=False,
             pending_user_message=prompt,
             posthog_mcp_scopes="report_canvas",
