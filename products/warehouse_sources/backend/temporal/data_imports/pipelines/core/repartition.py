@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -101,12 +102,35 @@ class RepartitionBudgetExceededError(Exception):
     half-built temp table: the next attempt resumes appending from that offset rather than
     re-streaming from row 0, letting a table too large to rewrite in one activity converge across
     attempts instead of failing the same way every time.
+
+    `resumed_from` is how many rows this attempt inherited: 0 when it started fresh, either because it
+    is the first attempt or because the resume path rejected the prior checkpoint. The caller needs it
+    to tell convergence from a treadmill. `rows_written` alone cannot: a rewrite that restarts every
+    run writes hundreds of millions of rows each time and still ends where it began.
+
+    `resumed_from == 0` alone can't tell a genuine first attempt from a treadmill restart, though — both
+    inherit nothing. `had_prior_checkpoint` splits them: True means a checkpoint existed at the start of
+    this attempt (so re-covering ground from row 0 is a restart, not progress), False means there was
+    none to inherit. `checkpoint_saved` records whether this attempt persisted a checkpoint the next run
+    can resume from. A fresh first attempt that saved one is forward progress; the caller sets both.
     """
 
-    def __init__(self, message: str, *, rows_written: int = 0, resolved: RepartitionTarget | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        rows_written: int = 0,
+        resolved: RepartitionTarget | None = None,
+        resumed_from: int = 0,
+        had_prior_checkpoint: bool = False,
+        checkpoint_saved: bool = False,
+    ) -> None:
         super().__init__(message)
         self.rows_written = rows_written
         self.resolved = resolved
+        self.resumed_from = resumed_from
+        self.had_prior_checkpoint = had_prior_checkpoint
+        self.checkpoint_saved = checkpoint_saved
 
 
 class RepartitionSupersededError(Exception):
@@ -748,6 +772,7 @@ async def _rewrite_into_temp(
         )
         rows_written += combined.num_rows
         commits += 1
+        report_buffer_bytes(0)
         fields = progress()
         await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
@@ -773,6 +798,7 @@ async def _rewrite_into_temp(
                 f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}",
                 rows_written=rows_written,
                 resolved=resolved,
+                resumed_from=skip_rows,
             )
 
         # Resume: temp already holds the first `skip_rows` rows in scan order, so read past them and
@@ -841,6 +867,8 @@ async def _rewrite_into_temp(
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes
+        # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
+        report_buffer_bytes(buffered_bytes)
 
     await flush()
 
@@ -1031,6 +1059,10 @@ async def repartition_table_in_place(
                 skip_rows=skip_rows,
             )
         except RepartitionBudgetExceededError as e:
+            # A checkpoint present at the start of this attempt means a resumed_from==0 restart
+            # re-covered ground rather than progressing; its absence means this is a genuine first
+            # attempt. The classifier needs the distinction (see `_handle_budget_exceeded`).
+            e.had_prior_checkpoint = rewrite_checkpoint is not None
             # Checkpoint the half-built temp so the next attempt resumes instead of re-streaming from
             # row 0. Guard with a claim check first: a superseded zombie must not clobber the newer
             # claimant's state (the check raises RepartitionSupersededError, which the caller handles
@@ -1038,6 +1070,7 @@ async def repartition_table_in_place(
             await ensure_claim()
             partial_rows = await _valid_delta_row_count(temp_uri, storage_options)
             if partial_rows:
+                e.checkpoint_saved = True
                 live_version = await asyncio.to_thread(old_delta.version)
                 await asyncio.to_thread(
                     schema.set_repartition_rewrite,
@@ -1048,6 +1081,10 @@ async def repartition_table_in_place(
                         # Fences the resume: only valid while live stays at this version (see the
                         # resume path). A merge that commits between attempts bumps it and invalidates.
                         "live_version": live_version,
+                        # Stamped on every checkpoint write, so it moves forward only while the rewrite
+                        # keeps advancing. The import gate reads it to decide whether this rewrite is
+                        # still live enough to be worth pausing ingestion for.
+                        "held_at": datetime.now(UTC).isoformat(),
                     },
                 )
             raise

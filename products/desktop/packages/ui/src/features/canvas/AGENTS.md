@@ -62,11 +62,13 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
-  Recognition uses `channel_type`, never the name.
+  Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
+  (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
+  `channel_type`/name for a server that predates the field — never the name alone.
 - **The lock follows what a space is, not what it is called.** `channelGlyph`
-  takes a `personal` flag, and every caller holding the channel passes
-  `channelType === "personal"`; the name match behind it is a fallback for
-  surfaces that hold a bare name.
+  takes a `personal` flag; a caller holding the channel object should pass
+  `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
+  name match behind it is a fallback for surfaces that hold only a bare name.
   A public space named `personal` used to wear the lock while the real private
   space showed none, which is a space impersonating yours.
   `validateChannelName` reserves `personal` and `me` so the create and rename
@@ -133,6 +135,12 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
+  Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
+  So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.
+- **After the title they are controls, not an avatar stack.** The header is one line about one session, sitting beside a live copy-link button, so what it can act on it draws as quill icon buttons: the pin toggles (always shown, filled when pinned), and a badge carrying a `url` opens it.
+  Badges with nothing to go to — `Local`, a plain origin — stay marks with a tooltip, sized to the button box so the row doesn't step as badges come and go.
+  The PR badge is dropped here: `TaskActionsMenu` sits at the end of the same row and already draws the PR in its lifecycle colour with its actions behind it.
 - **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
   `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
   A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
@@ -191,7 +199,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 

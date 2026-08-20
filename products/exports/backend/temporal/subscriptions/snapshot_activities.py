@@ -20,7 +20,7 @@ from products.exports.backend.temporal.subscriptions.llm_change_summary import g
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 

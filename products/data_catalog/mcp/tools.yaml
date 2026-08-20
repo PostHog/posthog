@@ -125,11 +125,14 @@ tools:
             produce the number. Prefer an executable definition when the metric is deterministic; use a markdown
             definition when the calculation needs judgment or multiple steps. Only propose a definition that was
             explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off
-            queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
-            metric. Keep 'description' to 1-3 sentences saying what the metric means and what it serves - never a
-            walkthrough of the query or calculation steps (the definition carries those); put rationale for the chosen
-            definition in 'reasoning'. There is no list tool: discover existing metrics with execute-sql over
-            system.information_schema.metrics.
+            queries. If you derived a number or settled a definition and no metric exists for it, end your answer by
+            offering to save it as a proposed metric. Keep 'description' to 1-3 sentences saying what the metric means
+            and what it serves - never a walkthrough of the query or calculation steps (the definition carries those);
+            put rationale for the chosen definition in 'reasoning'. There is no list tool: discover existing metrics
+            with execute-sql over system.information_schema.metrics. When the metric comes from an existing saved
+            insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the
+            two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the
+            metric then links back to the insight so a person can edit the query where it lives.
         exclude_params:
             - created_source
         inject_body:
@@ -178,6 +181,12 @@ tools:
         rename_params:
             name: new_name
         feature_flag: product-data-catalog
+    data-catalog-metrics-bulk-approve-create:
+        operation: data_catalog_metrics_bulk_approve_create
+        enabled: false
+    data-catalog-metrics-bulk-delete-create:
+        operation: data_catalog_metrics_bulk_delete_create
+        enabled: false
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy
         enabled: false

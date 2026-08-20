@@ -76,6 +76,7 @@ jobs:
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout.
@@ -278,6 +279,16 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
@@ -409,39 +420,56 @@ jobs:
               id: schema-cache
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and the
+                  # full-migrate fallthrough (~17 min) has blown this job's 40-minute budget
+                  # before; pytest's keepdb migrate tops a slightly stale dump up in seconds,
+                  # the same way it already layers PR-added migrations.
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
+                      ${{ needs.changes.outputs.schema_prefix_key }}
 
-            - name: Prime test_posthog and posthog from cached schema (PR)
-              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
-              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
-              # keepdb=True path layers any PR-added migrations on top.
-              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
+            - name: Prime test_posthog from cached schema
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — falling through to full migrate"
-                      python manage.py migrate
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-schema-fresh; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — falling through to full migrate"
-                      python manage.py migrate
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master pushes, PR cache misses)
+              # replays the full migration chain here, in a process that exits before
+              # tests: the executor's memory high-water stays resident in whichever
+              # process runs it, and pytest must not carry it through the test phase.
+              # pytest --reuse-db adopts the DB like the PR prime above; any failure
+              # falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
                       exit 0
                   fi
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
-                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
-
-            - name: Run Django migrations (master)
-              # Master pushes don't restore from cache (the artifact-producing run
-              # is in ci-backend, not here). Run a full migrate so migrate_clickhouse
-              # can read posthog_instancesetting from a populated posthog db.
-              if: ${{ github.event_name != 'pull_request' }}
-              run: python manage.py migrate
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
+                  fi
 
             - name: Run persons migrations
               run: |
@@ -451,6 +479,11 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
+              # Reads posthog_instancesetting through Django, so it needs a migrated
+              # Postgres db. test_posthog is the only one this job maintains, which is
+              # what ci-mcp.yml and ci-e2e-playwright.yml do with their own single db.
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: python manage.py migrate_clickhouse
 
             - name: Restore test durations from cache

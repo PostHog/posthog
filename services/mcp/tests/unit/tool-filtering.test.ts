@@ -774,22 +774,9 @@ describe('Tool Filtering - Feature Flags', () => {
     // need a different approach: directly test the filtering logic extracted
     // as a pure function.
 
-    // Since getToolsForFeatures is tightly coupled to getToolDefinitions,
-    // we'll test the filtering behavior by using real definitions plus
-    // verifying the feature flag logic with tools that already exist.
-    // We'll also add a tool definition with feature_flag to the real JSON
-    // as a fixture.
-
-    // Alternative: test the logic inline. getToolsForFeatures applies filters
-    // to entries from getToolDefinitions. We can test the filter predicate
-    // directly by examining what happens when we pass featureFlags to the
-    // real getToolsForFeatures — since no real tool has feature_flag set,
-    // featureFlags should have no effect on the real set.
-
     it('should not affect tools without feature_flag when featureFlags is provided', () => {
         const withoutFlags = getToolsForFeatures({})
         const withFlags = getToolsForFeatures({ featureFlags: { 'some-flag': true } })
-        // No real tool has feature_flag, so results should be identical
         expect(withFlags).toEqual(withoutFlags)
     })
 
@@ -810,6 +797,18 @@ describe('Tool Filtering - Feature Flags', () => {
         const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
         expect(on).toContain('notebook-edit')
         expect(on).not.toContain('notebooks-partial-update')
+    })
+
+    it('billing-mcp-read-tools flag gates billing read tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
+        expect(off).not.toContain('billing-overview-get')
+        expect(off).not.toContain('billing-usage-get')
+        expect(off).not.toContain('billing-spend-get')
+
+        const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
+        expect(on).toContain('billing-overview-get')
+        expect(on).toContain('billing-usage-get')
+        expect(on).toContain('billing-spend-get')
     })
 
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
@@ -850,13 +849,13 @@ describe('Tool Filtering - Feature Flags', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
             expect.arrayContaining([
-                'logs-alerting',
                 'logs-anomalies',
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
                 'user-interviews',
                 'customer-analytics-csp',
+                'customer-analytics-feature-requests',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'tasks',
@@ -876,13 +875,15 @@ describe('Tool Filtering - Feature Flags', () => {
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
+                'billing-mcp-read-tools',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
                 'data-warehouse-scene',
+                'data-quality-checks',
             ])
         )
-        expect(flags).toHaveLength(30)
+        expect(flags).toHaveLength(32)
     })
 
     it('every loops tool is gated on the loops flag', () => {

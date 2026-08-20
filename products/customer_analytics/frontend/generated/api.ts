@@ -49,8 +49,12 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountListPageApi,
+    FeatureRequestAddAccountApi,
     FeatureRequestApi,
     FeatureRequestCreateApi,
+    FeatureRequestEvidenceCreateApi,
+    FeatureRequestEvidenceDeleteApi,
+    FeatureRequestEvidenceUpdateApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
@@ -125,7 +129,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List accounts with external IDs, churn timestamps, and active relationship assignments. Requires a project secret API key with the `account:read` scope.
+ * List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the `account:read` scope.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (
@@ -1143,9 +1147,9 @@ export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) =
 }
 
 /**
- * Person and group sources only: trigger the underlying warehouse schema's sync now. This
- * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
- * off it.
+ * Person and group sources only: run what this source reads now — an import for a table
+ * binding (a real, billable warehouse sync), a materialization for a view binding. The
+ * incremental person/group-property update runs off that run.
  */
 export const customPropertySourcesSync = async (
     projectId: string,
@@ -1734,6 +1738,42 @@ export const featureRequestsPartialUpdate = async (
     })
 }
 
+export const getFeatureRequestsAddAccountCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/add_account/`
+}
+
+export const featureRequestsAddAccountCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestAddAccountApi: FeatureRequestAddAccountApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsAddAccountCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestAddAccountApi),
+    })
+}
+
+export const getFeatureRequestsAddEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/add_evidence/`
+}
+
+export const featureRequestsAddEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceCreateApi: FeatureRequestEvidenceCreateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsAddEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceCreateApi),
+    })
+}
+
 export const getFeatureRequestsArchiveCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/archive/`
 }
@@ -1767,6 +1807,24 @@ export const featureRequestsHistoryList = async (
     })
 }
 
+export const getFeatureRequestsRemoveEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/remove_evidence/`
+}
+
+export const featureRequestsRemoveEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceDeleteApi: FeatureRequestEvidenceDeleteApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsRemoveEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceDeleteApi),
+    })
+}
+
 export const getFeatureRequestsRestoreCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/restore/`
 }
@@ -1797,6 +1855,24 @@ export const featureRequestsStatusHistoryList = async (
     return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUpdateEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/update_evidence/`
+}
+
+export const featureRequestsUpdateEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceUpdateApi: FeatureRequestEvidenceUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUpdateEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceUpdateApi),
     })
 }
 

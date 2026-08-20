@@ -470,12 +470,20 @@ def build_thread_context_update_block(
 
 
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
-    """Construct the dispatch workflow id from webhook inputs."""
+    """Construct the dispatch workflow id from webhook inputs.
+
+    Doubles as the queue workflow's dedupe key, so a confirmed re-dispatch has to
+    read as its own unit of work: the same Slack event already came through once
+    to raise the prompt, and reusing that id would have the queue swallow the
+    confirmation as a redelivery.
+    """
     event = inputs.event
     if inputs.slack_event_id:
         suffix = inputs.slack_event_id
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    if inputs.untagged_followup_confirmed:
+        suffix = f"{suffix}:confirmed"
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
@@ -499,7 +507,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
+    from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -738,7 +746,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # 3. Now start the workflow
     if task_run:
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(created.task_id),
             run_id=str(task_run.id),
             team_id=created.team_id,
@@ -854,17 +862,6 @@ def forward_posthog_code_followup_activity(
             actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
         )
-
-    sandbox_url = (task_run.state or {}).get("sandbox_url")
-    if not sandbox_url:
-        logger.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
-        post_slack_thread_reply(
-            slack.client,
-            channel=channel,
-            thread_ts=thread_ts,
-            text="The agent is still starting up. Give it a moment and try again.",
-        )
-        return True
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
@@ -1090,7 +1087,7 @@ def _resume_task_with_new_run(
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
+    from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
@@ -1225,7 +1222,7 @@ def _resume_task_with_new_run(
     )
 
     try:
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(mapping.task_id),
             run_id=str(new_run.id),
             team_id=new_run.team_id,

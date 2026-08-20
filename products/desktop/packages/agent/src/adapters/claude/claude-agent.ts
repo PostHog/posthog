@@ -44,7 +44,7 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { serializeError } from "@posthog/shared";
+import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
 import {
@@ -80,7 +80,11 @@ import { BaseAcpAgent } from "../base-acp-agent";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
-import { resolveSpokenNarration, resolveTaskId } from "../session-meta";
+import {
+  resolveBedrockGatewayVariant,
+  resolveSpokenNarration,
+  resolveTaskId,
+} from "../session-meta";
 import {
   buildBreakdown,
   emptyBaseline,
@@ -188,7 +192,7 @@ const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
  * first text block of either would read host context as the user's command and
  * miss the command entirely.
  */
-function leadingSlashCommand(params: PromptRequest): string | undefined {
+function promptSlashCommand(params: PromptRequest): string | undefined {
   const meta = params._meta as { localSkillName?: unknown } | undefined;
   const localSkillName =
     typeof meta?.localSkillName === "string" ? meta.localSkillName : null;
@@ -200,7 +204,7 @@ function leadingSlashCommand(params: PromptRequest): string | undefined {
     if (localSkillName && isLocalSkillCommandChunk(chunk, localSkillName)) {
       return undefined;
     }
-    return chunk.text.match(/^(\/\S+)/)?.[1];
+    return leadingSlashCommand(chunk.text);
   }
   return undefined;
 }
@@ -223,6 +227,14 @@ function confirmConsumedSteers(turn: Turn): void {
       turn.pendingSteers.delete(uuid);
     }
   }
+  if (turn.pendingSteers.size > 0) {
+    return;
+  }
+  if (turn.steerTimer) {
+    clearTimeout(turn.steerTimer);
+    turn.steerTimer = undefined;
+  }
+  turn.deferredResult = undefined;
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
@@ -531,7 +543,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     // Detect local-only slash commands that return results without model invocation
-    const command = leadingSlashCommand(params);
+    const command = promptSlashCommand(params);
 
     if (command === "/clear") {
       // Handled by the adapter, never forwarded to the SDK (whose own /clear
@@ -2388,6 +2400,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
     const spokenNarration = resolveSpokenNarration(meta);
+    const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
     const buildInProcessMcpServers = (): Record<
       string,
@@ -2407,6 +2420,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
+          peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2498,6 +2512,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      bedrockGatewayVariant,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,
