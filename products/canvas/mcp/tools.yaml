@@ -28,6 +28,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-create:
         operation: canvases_create
         enabled: true
@@ -49,6 +52,9 @@ tools:
                     "Id of the channel to create the canvas in — the channel the task was created in, from the task's context.
                     Use channel-list only to resolve a channel the user named; never pick a channel from the listing
                     yourself (the personal #me channel is not a default)."
+                aliases:
+                    - channel
+                    - channelId
             kind:
                 description:
                     "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid
@@ -83,6 +89,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-drafts-retrieve:
         operation: canvases_drafts_retrieve
         enabled: true
@@ -101,6 +110,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose drafts to list.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-edit-create:
         operation: canvases_edit_create
         enabled: true
@@ -122,6 +134,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-layout-get:
         operation: canvases_layout_retrieve
         enabled: true
@@ -143,6 +158,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to read.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-layout-patch:
         operation: canvases_layout_patch_create
         enabled: true
@@ -166,6 +184,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-layout-publish:
         operation: canvases_layout_publish_create
         enabled: true
@@ -187,6 +208,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
+                aliases:
+                    - canvas_id
+                    - canvasId
             expected_current_version_id:
                 description:
                     The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas
@@ -238,6 +262,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose draft to promote.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-publish-create:
         operation: canvases_publish_create
         enabled: true
@@ -261,6 +288,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-publish-current-version:
         operation: canvases_publish_current_version_create
         enabled: true
@@ -275,6 +305,11 @@ tools:
             Queue a build for the canvas's current source version without changing its source or metadata. Any project
             member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
             value returns a 409 version_conflict.
+        param_overrides:
+            id:
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-report-error-create:
         operation: canvases_report_error_create
         enabled: false
@@ -303,6 +338,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
@@ -321,6 +359,9 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
+                aliases:
+                    - canvas_id
+                    - canvasId
     canvases-actions-invoke:
         operation: canvases_actions_invoke
         enabled: false

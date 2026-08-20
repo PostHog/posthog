@@ -29,11 +29,15 @@ import {
     CanvasesValidateCreateBody,
     CanvasesValidateCreateParams,
 } from '@/generated/canvas/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CanvasBuildsRetrieveSchema = CanvasesBuildsRetrieveParams.omit({ project_id: true })
-    .extend(CanvasesBuildsRetrieveQueryParams.shape)
-    .extend({ id: CanvasesBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.') })
+const CanvasBuildsRetrieveSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesBuildsRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesBuildsRetrieveQueryParams.shape)
+        .extend({ id: CanvasesBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.') })
+)
 
 const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Schemas.CanvasBuildsResponse> => ({
     name: 'canvas-builds-retrieve',
@@ -51,17 +55,20 @@ const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Sch
     },
 })
 
-const CanvasCreateSchema = CanvasesCreateBody.extend({
-    channel_id: CanvasesCreateBody.shape['channel_id'].describe(
-        "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default)."
-    ),
-    kind: CanvasesCreateBody.shape['kind'].describe(
-        "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component."
-    ),
-    description: CanvasesCreateBody.shape['description'].describe(
-        'Short prose describing the canvas. For components this is the store-search text — say what the widget shows and what its config controls, so future searches find it.'
-    ),
-})
+const CanvasCreateSchema = z.preprocess(
+    normalizeParamAliases({ channel_id: ['channel', 'channelId'] }),
+    CanvasesCreateBody.extend({
+        channel_id: CanvasesCreateBody.shape['channel_id'].describe(
+            "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default)."
+        ),
+        kind: CanvasesCreateBody.shape['kind'].describe(
+            "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component."
+        ),
+        description: CanvasesCreateBody.shape['description'].describe(
+            'Short prose describing the canvas. For components this is the store-search text — say what the widget shows and what its config controls, so future searches find it.'
+        ),
+    })
+)
 
 const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => ({
     name: 'canvas-create',
@@ -93,9 +100,12 @@ const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => 
     },
 })
 
-const CanvasDraftCreateSchema = CanvasesDraftCreateParams.omit({ project_id: true })
-    .extend(CanvasesDraftCreateBody.shape)
-    .extend({ id: CanvasesDraftCreateParams.shape['id'].describe('ID of the canvas to stage a draft for.') })
+const CanvasDraftCreateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesDraftCreateParams.omit({ project_id: true })
+        .extend(CanvasesDraftCreateBody.shape)
+        .extend({ id: CanvasesDraftCreateParams.shape['id'].describe('ID of the canvas to stage a draft for.') })
+)
 
 const canvasDraftCreate = (): ToolBase<typeof CanvasDraftCreateSchema, Schemas.CanvasSourceDraftResponse> => ({
     name: 'canvas-draft-create',
@@ -118,9 +128,12 @@ const canvasDraftCreate = (): ToolBase<typeof CanvasDraftCreateSchema, Schemas.C
     },
 })
 
-const CanvasDraftsRetrieveSchema = CanvasesDraftsRetrieveParams.omit({ project_id: true })
-    .extend(CanvasesDraftsRetrieveQueryParams.shape)
-    .extend({ id: CanvasesDraftsRetrieveParams.shape['id'].describe('ID of the canvas whose drafts to list.') })
+const CanvasDraftsRetrieveSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesDraftsRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesDraftsRetrieveQueryParams.shape)
+        .extend({ id: CanvasesDraftsRetrieveParams.shape['id'].describe('ID of the canvas whose drafts to list.') })
+)
 
 const canvasDraftsRetrieve = (): ToolBase<typeof CanvasDraftsRetrieveSchema, Schemas.PaginatedCanvasDraftList> => ({
     name: 'canvas-drafts-retrieve',
@@ -139,9 +152,12 @@ const canvasDraftsRetrieve = (): ToolBase<typeof CanvasDraftsRetrieveSchema, Sch
     },
 })
 
-const CanvasEditCreateSchema = CanvasesEditCreateParams.omit({ project_id: true })
-    .extend(CanvasesEditCreateBody.shape)
-    .extend({ id: CanvasesEditCreateParams.shape['id'].describe('ID of the canvas whose source to edit.') })
+const CanvasEditCreateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesEditCreateParams.omit({ project_id: true })
+        .extend(CanvasesEditCreateBody.shape)
+        .extend({ id: CanvasesEditCreateParams.shape['id'].describe('ID of the canvas whose source to edit.') })
+)
 
 const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.CanvasSourcePublishResponse> => ({
     name: 'canvas-edit-create',
@@ -170,9 +186,12 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
     },
 })
 
-const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true }).extend({
-    id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
-})
+const CanvasLayoutGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesLayoutRetrieveParams.omit({ project_id: true }).extend({
+        id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
+    })
+)
 
 const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutResponse> => ({
     name: 'canvas-layout-get',
@@ -187,11 +206,14 @@ const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.Canva
     },
 })
 
-const CanvasLayoutPatchSchema = CanvasesLayoutPatchCreateParams.omit({ project_id: true })
-    .extend(CanvasesLayoutPatchCreateBody.shape)
-    .extend({
-        id: CanvasesLayoutPatchCreateParams.shape['id'].describe('ID of the grid canvas whose layout to patch.'),
-    })
+const CanvasLayoutPatchSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesLayoutPatchCreateParams.omit({ project_id: true })
+        .extend(CanvasesLayoutPatchCreateBody.shape)
+        .extend({
+            id: CanvasesLayoutPatchCreateParams.shape['id'].describe('ID of the grid canvas whose layout to patch.'),
+        })
+)
 
 const canvasLayoutPatch = (): ToolBase<typeof CanvasLayoutPatchSchema, Schemas.CanvasLayoutPublishResponse> => ({
     name: 'canvas-layout-patch',
@@ -217,16 +239,21 @@ const canvasLayoutPatch = (): ToolBase<typeof CanvasLayoutPatchSchema, Schemas.C
     },
 })
 
-const CanvasLayoutPublishSchema = CanvasesLayoutPublishCreateParams.omit({ project_id: true })
-    .extend(CanvasesLayoutPublishCreateBody.shape)
-    .extend({
-        id: CanvasesLayoutPublishCreateParams.shape['id'].describe('ID of the grid canvas whose layout to publish.'),
-        expected_current_version_id: CanvasesLayoutPublishCreateBody.shape['expected_current_version_id']
-            .unwrap()
-            .describe(
-                'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded.'
+const CanvasLayoutPublishSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesLayoutPublishCreateParams.omit({ project_id: true })
+        .extend(CanvasesLayoutPublishCreateBody.shape)
+        .extend({
+            id: CanvasesLayoutPublishCreateParams.shape['id'].describe(
+                'ID of the grid canvas whose layout to publish.'
             ),
-    })
+            expected_current_version_id: CanvasesLayoutPublishCreateBody.shape['expected_current_version_id']
+                .unwrap()
+                .describe(
+                    'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded.'
+                ),
+        })
+)
 
 const canvasLayoutPublish = (): ToolBase<typeof CanvasLayoutPublishSchema, Schemas.CanvasLayoutPublishResponse> => ({
     name: 'canvas-layout-publish',
@@ -282,9 +309,12 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
     },
 })
 
-const CanvasPromoteCreateSchema = CanvasesPromoteCreateParams.omit({ project_id: true })
-    .extend(CanvasesPromoteCreateBody.shape)
-    .extend({ id: CanvasesPromoteCreateParams.shape['id'].describe('ID of the canvas whose draft to promote.') })
+const CanvasPromoteCreateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesPromoteCreateParams.omit({ project_id: true })
+        .extend(CanvasesPromoteCreateBody.shape)
+        .extend({ id: CanvasesPromoteCreateParams.shape['id'].describe('ID of the canvas whose draft to promote.') })
+)
 
 const canvasPromoteCreate = (): ToolBase<typeof CanvasPromoteCreateSchema, Schemas.CanvasBuild> => ({
     name: 'canvas-promote-create',
@@ -307,9 +337,12 @@ const canvasPromoteCreate = (): ToolBase<typeof CanvasPromoteCreateSchema, Schem
     },
 })
 
-const CanvasPublishCreateSchema = CanvasesPublishCreateParams.omit({ project_id: true })
-    .extend(CanvasesPublishCreateBody.shape)
-    .extend({ id: CanvasesPublishCreateParams.shape['id'].describe('ID of the canvas whose source to publish.') })
+const CanvasPublishCreateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesPublishCreateParams.omit({ project_id: true })
+        .extend(CanvasesPublishCreateBody.shape)
+        .extend({ id: CanvasesPublishCreateParams.shape['id'].describe('ID of the canvas whose source to publish.') })
+)
 
 const canvasPublishCreate = (): ToolBase<typeof CanvasPublishCreateSchema, Schemas.CanvasSourcePublishResponse> => ({
     name: 'canvas-publish-create',
@@ -338,8 +371,11 @@ const canvasPublishCreate = (): ToolBase<typeof CanvasPublishCreateSchema, Schem
     },
 })
 
-const CanvasPublishCurrentVersionSchema = CanvasesPublishCurrentVersionCreateParams.omit({ project_id: true }).extend(
-    CanvasesPublishCurrentVersionCreateBody.shape
+const CanvasPublishCurrentVersionSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesPublishCurrentVersionCreateParams.omit({ project_id: true }).extend(
+        CanvasesPublishCurrentVersionCreateBody.shape
+    )
 )
 
 const canvasPublishCurrentVersion = (): ToolBase<typeof CanvasPublishCurrentVersionSchema, Schemas.CanvasBuild> => ({
@@ -360,9 +396,12 @@ const canvasPublishCurrentVersion = (): ToolBase<typeof CanvasPublishCurrentVers
     },
 })
 
-const CanvasSourceRetrieveSchema = CanvasesSourceRetrieveParams.omit({ project_id: true })
-    .extend(CanvasesSourceRetrieveQueryParams.shape)
-    .extend({ id: CanvasesSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.') })
+const CanvasSourceRetrieveSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesSourceRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesSourceRetrieveQueryParams.shape)
+        .extend({ id: CanvasesSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.') })
+)
 
 const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Schemas.CanvasSourceResponse> => ({
     name: 'canvas-source-retrieve',
@@ -380,9 +419,12 @@ const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Sch
     },
 })
 
-const CanvasValidateCreateSchema = CanvasesValidateCreateParams.omit({ project_id: true })
-    .extend(CanvasesValidateCreateBody.shape)
-    .extend({ id: CanvasesValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.') })
+const CanvasValidateCreateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['canvas_id', 'canvasId'] }),
+    CanvasesValidateCreateParams.omit({ project_id: true })
+        .extend(CanvasesValidateCreateBody.shape)
+        .extend({ id: CanvasesValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.') })
+)
 
 const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Schemas.CanvasValidateResponse> => ({
     name: 'canvas-validate-create',
