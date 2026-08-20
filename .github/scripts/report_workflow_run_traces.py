@@ -542,7 +542,15 @@ class _FailureRecordingExporter(SpanExporter):
         self.failed = False
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        result = self.inner.export(spans)
+        # A transport failure (read timeout, refused connection, repeated connection
+        # error) raises out of the inner exporter rather than returning FAILURE, and
+        # the SDK's batch processor swallows that on its worker thread. Record it before
+        # re-raising so the watermark check still sees the loss and the SDK still logs it.
+        try:
+            result = self.inner.export(spans)
+        except Exception:
+            self.failed = True
+            raise
         if result is not SpanExportResult.SUCCESS:
             self.failed = True
         return result

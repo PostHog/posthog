@@ -533,6 +533,25 @@ class TestExitStatus:
         )
         assert reporter.main(["--run-id", "999"]) == reporter.EXIT_INCOMPLETE
 
+    def test_an_exporter_that_raises_holds_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A transport failure raises rather than returning FAILURE, and the SDK's batch
+        # processor swallows it on its worker thread, so without recording the loss a total
+        # outage would read as a clean tick and the watermark would advance past every trace.
+        class _RaisingExporter(SpanExporter):
+            def export(self, spans: Any) -> SpanExportResult:
+                raise ConnectionError("ingest endpoint unreachable")
+
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", "p")
+        monkeypatch.delenv("POSTHOG_CI_TRACES_EXTRA_TOKEN", raising=False)
+        monkeypatch.setattr(reporter, "OTLPSpanExporter", lambda **_kwargs: _RaisingExporter())
+        monkeypatch.setattr(
+            reporter.urllib.request,
+            "urlopen",
+            _FakeOpener({"/jobs": {"jobs": [_raw_job()]}, "/actions/runs/999": _raw_run()}),
+        )
+        assert reporter.main(["--run-id", "999"]) == reporter.EXIT_INCOMPLETE
+
     def test_a_run_reporting_zero_jobs_advances_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A cancelled run really can report zero jobs, and nothing was lost, so the tick is clean.
         monkeypatch.setenv("GITHUB_TOKEN", "t")
