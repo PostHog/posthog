@@ -5,6 +5,8 @@ import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
 interface SideQuestionCardProps {
   taskId: string;
+  /** The task's current run. An entry asked against a prior run is hidden. */
+  taskRunId?: string;
 }
 
 /**
@@ -12,11 +14,11 @@ interface SideQuestionCardProps {
  * lives only in view state — it is never part of the session transcript — so
  * dismissing it leaves no trace.
  */
-export function SideQuestionCard({ taskId }: SideQuestionCardProps) {
+export function SideQuestionCard({ taskId, taskRunId }: SideQuestionCardProps) {
   const entry = useSideQuestionStore((s) => s.byTaskId[taskId]);
   const dismiss = useSideQuestionStore((s) => s.dismiss);
 
-  if (!entry) return null;
+  if (!entry || entry.taskRunId !== taskRunId) return null;
 
   return (
     <Box className="mb-2 rounded-lg border border-gray-5 bg-card px-3 py-2">

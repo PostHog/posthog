@@ -5,7 +5,12 @@ import { create } from "zustand";
 
 const log = logger.scope("side-question");
 
-export type SideQuestionEntry = { id: string; question: string } & (
+export type SideQuestionEntry = {
+  id: string;
+  question: string;
+  /** The run this question was asked against — a card must not outlive it. */
+  taskRunId: string;
+} & (
   | { status: "pending" }
   | { status: "done"; answer: string }
   | { status: "error"; error: string }
@@ -14,50 +19,66 @@ export type SideQuestionEntry = { id: string; question: string } & (
 interface SideQuestionState {
   /** Latest side question per task. Ephemeral: never persisted, never part of session history. */
   byTaskId: Record<string, SideQuestionEntry>;
-  ask: (taskId: string, question: string) => string;
-  resolve: (taskId: string, id: string, answer: string) => void;
-  fail: (taskId: string, id: string, error: string) => void;
+  ask: (taskId: string, taskRunId: string, question: string) => string;
+  resolve: (
+    taskId: string,
+    taskRunId: string,
+    id: string,
+    answer: string,
+  ) => void;
+  fail: (taskId: string, taskRunId: string, id: string, error: string) => void;
   dismiss: (taskId: string) => void;
 }
 
 /**
- * Settles the entry only if it is still the one the caller created — a
- * re-asked or dismissed question must not receive a stale answer.
+ * Settles the entry only if it is still the one the caller created for the
+ * same run — a re-asked or dismissed question, or a run that reconnected or
+ * restarted in the meantime, must not receive a stale answer.
  */
 function settle(
   state: SideQuestionState,
   taskId: string,
+  taskRunId: string,
   id: string,
   outcome:
     | { status: "done"; answer: string }
     | { status: "error"; error: string },
 ): Partial<SideQuestionState> | SideQuestionState {
   const entry = state.byTaskId[taskId];
-  if (entry?.id !== id) return state;
+  if (entry?.id !== id || entry.taskRunId !== taskRunId) return state;
   return {
     byTaskId: {
       ...state.byTaskId,
-      [taskId]: { id: entry.id, question: entry.question, ...outcome },
+      [taskId]: {
+        id: entry.id,
+        question: entry.question,
+        taskRunId,
+        ...outcome,
+      },
     },
   };
 }
 
 export const useSideQuestionStore = create<SideQuestionState>()((set) => ({
   byTaskId: {},
-  ask: (taskId, question) => {
+  ask: (taskId, taskRunId, question) => {
     const id = crypto.randomUUID();
     set((state) => ({
       byTaskId: {
         ...state.byTaskId,
-        [taskId]: { id, question, status: "pending" },
+        [taskId]: { id, question, taskRunId, status: "pending" },
       },
     }));
     return id;
   },
-  resolve: (taskId, id, answer) =>
-    set((state) => settle(state, taskId, id, { status: "done", answer })),
-  fail: (taskId, id, error) =>
-    set((state) => settle(state, taskId, id, { status: "error", error })),
+  resolve: (taskId, taskRunId, id, answer) =>
+    set((state) =>
+      settle(state, taskId, taskRunId, id, { status: "done", answer }),
+    ),
+  fail: (taskId, taskRunId, id, error) =>
+    set((state) =>
+      settle(state, taskId, taskRunId, id, { status: "error", error }),
+    ),
   dismiss: (taskId) =>
     set((state) => {
       const { [taskId]: _dismissed, ...rest } = state.byTaskId;
@@ -74,15 +95,21 @@ export const useSideQuestionStore = create<SideQuestionState>()((set) => ({
 export function fireSideQuestion(
   sessionService: Pick<SessionService, "askSideQuestion">,
   taskId: string,
+  taskRunId: string,
   question: string,
 ): void {
   const { ask, resolve, fail } = useSideQuestionStore.getState();
-  const id = ask(taskId, question);
+  const id = ask(taskId, taskRunId, question);
   sessionService
     .askSideQuestion(taskId, question)
-    .then((answer) => resolve(taskId, id, answer))
+    .then((answer) => resolve(taskId, taskRunId, id, answer))
     .catch((error) => {
-      fail(taskId, id, getErrorMessage(error) || "Side question failed");
+      fail(
+        taskId,
+        taskRunId,
+        id,
+        getErrorMessage(error) || "Side question failed",
+      );
       log.error("Side question failed", error);
     });
 }

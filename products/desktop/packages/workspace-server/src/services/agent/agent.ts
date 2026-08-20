@@ -347,6 +347,8 @@ interface ManagedSession {
   sideQuestion?: boolean;
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
+  /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
+  pendingSideQuestions: number;
   /** MCP tool approval states fetched at session start */
   mcpToolApprovals: McpToolApprovals;
   /** Maps tool keys to their installation for backend approval updates */
@@ -603,7 +605,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private killIdleSession(taskRunId: string): void {
     const session = this.sessions.get(taskRunId);
     if (!session) return;
-    if (session.promptPending || session.inFlightMcpToolCalls.size > 0) {
+    if (
+      session.promptPending ||
+      session.inFlightMcpToolCalls.size > 0 ||
+      session.pendingSideQuestions > 0
+    ) {
       this.recordActivity(taskRunId);
       return;
     }
@@ -1209,6 +1215,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         steering,
         sideQuestion,
         inFlightMcpToolCalls: new Map(),
+        pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
         toolInstallations,
         evaluatedPrUrls: new Set(),
@@ -1480,6 +1487,11 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
    * the conversation; it does count as activity (resets the idle-kill timer),
    * the same way refreshSession does. The exchange runs beside the
    * conversation (ACP JSON-RPC multiplexes, so this works mid-turn).
+   *
+   * `pendingSideQuestions` keeps the session alive if the idle timer fires
+   * while the extension call is still awaited — otherwise `killIdleSession`
+   * would see no pending prompt and no in-flight tool call and clean up the
+   * session out from under this request.
    */
   async sideQuestion(
     sessionId: string,
@@ -1492,12 +1504,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
 
     session.lastActivityAt = Date.now();
     this.recordActivity(sessionId);
+    session.pendingSideQuestions++;
 
-    const result = await session.clientSideConnection.extMethod(
-      POSTHOG_METHODS.SIDE_QUESTION,
-      { sessionId: getAgentSessionId(session), question },
-    );
-    return sideQuestionOutput.parse(result);
+    try {
+      const result = await session.clientSideConnection.extMethod(
+        POSTHOG_METHODS.SIDE_QUESTION,
+        { sessionId: getAgentSessionId(session), question },
+      );
+      return sideQuestionOutput.parse(result);
+    } finally {
+      session.pendingSideQuestions--;
+    }
   }
 
   async cancelSession(sessionId: string): Promise<boolean> {

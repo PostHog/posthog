@@ -80,7 +80,13 @@ export function useSessionCallbacks({
         taskRun: task.latest_run ?? null,
         askSideQuestion:
           currentSession && sessionSupportsSideQuestion(currentSession)
-            ? (question) => fireSideQuestion(sessionService, taskId, question)
+            ? (question) =>
+                fireSideQuestion(
+                  sessionService,
+                  taskId,
+                  currentSession.taskRunId,
+                  question,
+                )
             : undefined,
       });
       if (handled) return true;

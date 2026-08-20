@@ -12,7 +12,7 @@ describe("SideQuestionCard", () => {
   it("renders nothing when there is no entry for the task", () => {
     const { container } = render(
       <Theme>
-        <SideQuestionCard taskId="task-1" />
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
       </Theme>,
     );
     expect(container.firstElementChild).toBeEmptyDOMElement();
@@ -21,13 +21,18 @@ describe("SideQuestionCard", () => {
   it("shows a spinner while the question is pending", () => {
     useSideQuestionStore.setState({
       byTaskId: {
-        "task-1": { id: "q-1", question: "what changed?", status: "pending" },
+        "task-1": {
+          id: "q-1",
+          question: "what changed?",
+          taskRunId: "run-1",
+          status: "pending",
+        },
       },
     });
 
     render(
       <Theme>
-        <SideQuestionCard taskId="task-1" />
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
       </Theme>,
     );
 
@@ -41,6 +46,7 @@ describe("SideQuestionCard", () => {
         "task-1": {
           id: "q-1",
           question: "what changed?",
+          taskRunId: "run-1",
           status: "done",
           answer: "The function parses JSONL.",
         },
@@ -49,7 +55,7 @@ describe("SideQuestionCard", () => {
 
     render(
       <Theme>
-        <SideQuestionCard taskId="task-1" />
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
       </Theme>,
     );
 
@@ -62,6 +68,7 @@ describe("SideQuestionCard", () => {
         "task-1": {
           id: "q-1",
           question: "what changed?",
+          taskRunId: "run-1",
           status: "error",
           error: "Side question timed out",
         },
@@ -70,23 +77,50 @@ describe("SideQuestionCard", () => {
 
     render(
       <Theme>
-        <SideQuestionCard taskId="task-1" />
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
       </Theme>,
     );
 
     expect(screen.getByText("Side question timed out")).toBeInTheDocument();
   });
 
+  it("renders nothing when the entry belongs to a prior run", () => {
+    useSideQuestionStore.setState({
+      byTaskId: {
+        "task-1": {
+          id: "q-1",
+          question: "what changed?",
+          taskRunId: "run-1",
+          status: "done",
+          answer: "The function parses JSONL.",
+        },
+      },
+    });
+
+    const { container } = render(
+      <Theme>
+        <SideQuestionCard taskId="task-1" taskRunId="run-2" />
+      </Theme>,
+    );
+
+    expect(container.firstElementChild).toBeEmptyDOMElement();
+  });
+
   it("dismisses the entry when the dismiss button is clicked", () => {
     useSideQuestionStore.setState({
       byTaskId: {
-        "task-1": { id: "q-1", question: "what changed?", status: "pending" },
+        "task-1": {
+          id: "q-1",
+          question: "what changed?",
+          taskRunId: "run-1",
+          status: "pending",
+        },
       },
     });
 
     render(
       <Theme>
-        <SideQuestionCard taskId="task-1" />
+        <SideQuestionCard taskId="task-1" taskRunId="run-1" />
       </Theme>,
     );
 
