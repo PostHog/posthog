@@ -4938,9 +4938,7 @@ ${commonInstructions}
       baseBranch: this.config.baseBranch ?? null,
     });
     if (!owned) {
-      // Info, not debug: a wrongly rejected PR leaves the run with no PR until the
-      // webhook backstop binds it, and this line is the only trace of why.
-      this.logger.info(
+      this.logger.debug(
         "PR seen in output is not this run's, skipping attribution",
         {
           runId: payload.run_id,
