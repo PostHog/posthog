@@ -374,13 +374,14 @@ The scout is that instrument, run on a schedule.
   The rubric isn't the only thing that can shift a rate: the **judge itself** is part of the measuring instrument, and the model routing a scout runs on can change without any rubric edit.
   A `judge_model`-style field on the record can't carry this: the harness doesn't tell a scout its own model, and the run row stamps `model` only when a pin or gate overrode the default — so on an ordinary run the field is `unknown` and a default-model change is invisible.
   If a metric is load-bearing enough that a silent model swap would matter, **pin the model on the scout's config** and treat that pin as part of the rubric: then the instrument is fixed, a change to it is deliberate, and the version bump has something to hang off.
+  The pin is preview-gated, though, so it is not a durable guarantee — it resolves only while the `scouts-model-config` flag is on for the team, and a stored pin falls through to the default routing if that flag goes away, with no signal to the scout.
   Otherwise accept the metric is only comparable within a stretch of unchanged routing, and say so where the chart lives.
   **Keep the schema's own changes additive.** Renaming a field renames its `output_<key>` property, silently breaking every insight and workflow filter built on the old name — add a new field instead.
   Records validate against the schema in force when the run was dispatched, so an in-flight run keeps writing the old shape and a schema edit never retroactively invalidates history.
 - **Sampling discipline.** Sample **uniformly at random** from a **lagged, complete window**, never the in-progress edge — a partial window biases every rate.
   Make the window **as wide as the cadence and no wider**, so consecutive runs tile it instead of overlapping: an hourly scout takes the previous complete hour bucket at a lag (items created 3→2 hours ago), not a 2-hour window every hour.
   Overlap is not caught anywhere downstream — the one-record-per-entity contract is per run — so an entity in the overlap is judged twice and counted twice, which is both a duplicate and a smaller effective sample than the run size suggests.
-  When a window must overlap (a slow-arriving source), carry the last run's sampled ids in scratchpad and exclude them.
+  When a window must overlap (a slow-arriving source), carry sampled ids in scratchpad and exclude them for as long as their source window keeps overlapping — not just from the next run, or an entity skipped one run and re-drawn the run after is judged twice anyway.
   **A missed run is a hole, not a delay — and it stays a hole.** The coordinator returns a deferred scout to the latest grid slot rather than replaying the runs it skipped, so a scout that loses hours to a fleet budget cap or an outage never sees that population.
   Don't try to backfill it: every record is stamped with its _run's_ timestamp and the channel takes no observation time, so catching up several windows in one run piles those judgments into the recovery bucket and distorts it while leaving the original holes empty.
   Have the run record the gap instead (a scratchpad note, and a coverage marker if consumers need it in the data) — a stated hole reads as a period of no sampling, where a silent one reads as a period of no activity.
@@ -424,7 +425,8 @@ The scout is that instrument, run on a schedule.
   The **window discipline is narrower**: it applies to the sampled shapes (judging and extraction), where a biased window biases a rate.
   A state snapshot has no window — it must cover the whole population each run, or a consumer cannot tell an entity that disappeared from one that simply went unsampled.
   **Keep a snapshot to a single call** where the population fits in 100 records: each call is independently atomic, so a snapshot split across calls can half-land when a later one fails validation, delivery, or the run cap, and the delivered half reads as the entities that still exist.
-  Where it genuinely can't fit, close the snapshot with a completion record carrying the expected count, and have consumers ignore any `run_id` missing one.
+  Where it spans a few calls, close it with a completion record carrying the expected count and have consumers ignore any `run_id` missing one.
+  Past roughly a few hundred entities the channel stops being the right store: the run caps at 1,000 accepted records and retries spend that cap too, so a large inventory cannot fit itself plus its own completion marker — record aggregates and a reference to the full inventory instead of the inventory.
   Synthetic telemetry is a point reading, so it has no sample to bias either.
 
 - Everything else — the anatomy, orient, close-out, run-budget discipline — is the standard shape; the judged content is untrusted data under test (see the safety note below), so the rubric judges it and never follows instructions inside it.
