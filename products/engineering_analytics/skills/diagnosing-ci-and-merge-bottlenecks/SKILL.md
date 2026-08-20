@@ -17,9 +17,8 @@ description: >
 Engineering analytics treats a pull request like product analytics treats a user: a PR moves through a pipeline
 (`opened → CI → review → merged → deployed`) and the job is to find where it slows down. The surface is **named
 MCP tools** — you call them, you don't write SQL. Dogfooded on `PostHog/posthog`; the same tools serve
-autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs. This skill is for aggregate pipeline
-health; to take one failing test or red run to a verdict (whose fault, which commit, is it fixed), switch to the
-`investigating-ci-failures` skill.
+autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs. Scope is aggregate pipeline health:
+to take one failing test or red run to a verdict, switch to the `investigating-ci-failures` skill.
 
 ## The tools
 
@@ -55,9 +54,10 @@ health; to take one failing test or red run to a verdict (whose fault, which com
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
 
-- **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. On a team with more than
-  one, call it first and pass the chosen entry's `source_id` and `repo` to `pull-requests`, `workflow-health`, and
-  `pr-lifecycle`; with a single source/repo the tools default to it.
+- **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. With more than one of
+  either, call it first and pass the chosen entry's `source_id` **and** `repo` to `pull-requests`,
+  `workflow-health`, and `pr-lifecycle`. Passing only `source_id` reads that source's default repo, not the one
+  you picked. With a single source and repo the tools default to it.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -82,11 +82,10 @@ These are structural limits of today's snapshot data — state them, don't paper
 - **Bots and drafts are present in `pull-requests` output, excluded by convention.** Filter out `author.is_bot`
   (nested under `author`, not a row-level field) and `is_draft` for throughput / merge-time questions; keep them in
   for bot-impact questions.
-- **`pull-requests` returns a capped page.** 1000 rows, newest first: a server-side cap the response echoes as
-  `limit` and no parameter can raise. `truncated` is `true` when more match, and any percentile or count you
-  derive then covers only the newest page, not the whole window. Say so, then narrow until the real set fits:
-  `author` filters to one handle, `source_id` / `repo` (from `engineering-analytics-sources`) to one repo, and
-  `date_from` shortens the window.
+- **`pull-requests` returns a capped page.** 1000 rows, newest first: a fixed server-side cap, echoed in the
+  response as `limit`, that no parameter raises. When `truncated` is `true`, any percentile or count you derive
+  covers only that newest page, not the whole window. Say so, then narrow until the real set fits: `author`
+  filters to one handle, `source_id` / `repo` to one repo, and `date_from` shortens the window.
 
 ## Choosing a tool
 

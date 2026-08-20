@@ -160,9 +160,9 @@ Given a run id, the `engineering-analytics-run-failure-logs` MCP tool returns
 every failed job's error region with original line numbers, already thinned.
 One call instead of a jobs listing plus a log download, and it works when the
 job died before any test ran. It is bounded by Logs retention, so fall back to
-`gh` for older runs. When you have a PR number rather than a run id,
-`engineering-analytics-ci-failure-logs` returns the same thing across every run
-the PR has pushed, so a failure from an earlier push is still there.
+`gh` for older runs. Given a PR number instead of a run id,
+`engineering-analytics-ci-failure-logs` does the same across every run that PR
+has pushed, so an earlier push's failure is still there.
 
 Extract these before classifying:
 

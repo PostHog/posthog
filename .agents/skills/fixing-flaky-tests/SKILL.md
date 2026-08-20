@@ -65,7 +65,7 @@ hogli ci:insights search "<test name or error>"    # cross-run history — corro
 `search` reports two surfaces; read each for what it actually claims:
 
 - **broken tests** (recent failure fingerprints, last 2 days). A `potentially_resolved` state means that job's latest default-branch run is green again — weak evidence a fix landed, not proof. Confirm _against the run data_ that it covers this failure before reporting instead of re-fixing.
-- **test health** (ranked by blast radius; the `engineering-analytics-flaky-tests` MCP tool reads the same spans when the `posthog` server is connected). `confirmed_flake` is the only classification backed by proof: one commit both failed and passed the test, via a re-run attempt going green or an in-job retry. `suspected_regression` means no recovery was recorded — absence of proof, not proof of a regression, so treat it as real until your own run data says otherwise.
+- **test health** (ranked by blast radius; the same spans the `engineering-analytics-flaky-tests` MCP tool reads). `confirmed_flake` is the only classification backed by proof: one commit both failed and passed the test, via a re-run attempt going green or an in-job retry. `suspected_regression` means no recovery was recorded — absence of proof, not proof of a regression, so treat it as real until your own run data says otherwise.
 
 ### Corroborate with Trunk Flaky Tests
 
