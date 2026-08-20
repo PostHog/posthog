@@ -80,6 +80,13 @@ def get_tick_skipped_metric(team_id: int, source_id: str, stuck: bool) -> Metric
     )
 
 
+def get_pk_divergence_metric(team_id: int, source_id: str) -> MetricCounter:
+    return _source_meter(team_id, source_id).create_counter(
+        "cdc_pk_divergence_total",
+        "Total tables whose WAL replica identity key stopped matching the stored primary key",
+    )
+
+
 def get_slot_advance_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter("cdc_slot_advance_total", "Total replication slot advances")
 

@@ -851,7 +851,7 @@ class CDCExtractActivity:
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 
-            self._handle_pk_changes_post_wal()
+            self._detect_pk_changes_post_wal()
             truncated_tables = self._handle_truncates()
 
             if self.event_count == 0:
@@ -1054,8 +1054,7 @@ class CDCExtractActivity:
         # Fall back to information_schema for any tables missing PKs
         missing_pk_tables = [t for t in cdc_table_names if t not in self.pk_columns_by_table]
         if missing_pk_tables:
-            db_schema = (self.source.job_inputs or {}).get("schema", "public")
-            queried_pks = self.reader.get_primary_key_columns(db_schema, missing_pk_tables)
+            queried_pks = self._query_pk_columns(missing_pk_tables)
             self.pk_columns_by_table.update(queried_pks)
             # Persist discovered PKs to avoid re-querying
             for schema in self.cdc_schemas:
@@ -1079,6 +1078,32 @@ class CDCExtractActivity:
                 if isinstance(inc, str) and inc:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
+
+    def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
+        """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
+
+        Schema names are qualified (`schema.table`) while the catalog lookup takes one namespace
+        plus bare relation names, so a name has to be split for the query and rejoined for the
+        result. Passing the qualified name straight through matched no catalog row, so any schema
+        without a stored primary key fell back to an empty merge key. Splitting on the first dot and
+        defaulting to the source's namespace matches how the tables are resolved when they are added
+        to the publication.
+        """
+        assert self.source is not None
+        default_namespace = (self.source.job_inputs or {}).get("schema", "public")
+        names_by_namespace: dict[str, dict[str, str]] = {}
+        for name in table_names:
+            namespace, dot, relation = name.partition(".")
+            if not dot:
+                namespace, relation = default_namespace, name
+            names_by_namespace.setdefault(namespace, {})[relation] = name
+
+        resolved: dict[str, list[str]] = {}
+        for namespace, relations_by_name in names_by_namespace.items():
+            queried = self.reader.get_primary_key_columns(namespace, list(relations_by_name))
+            for relation, pk_columns in queried.items():
+                resolved[relations_by_name[relation]] = pk_columns
+        return resolved
 
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
         retained = self.enabled_columns_by_table.get(event.table_name)
@@ -1285,18 +1310,26 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Post-WAL handling
     # ------------------------------------------------------------------
-    def _handle_pk_changes_post_wal(self) -> None:
-        """Detect PK column changes that surfaced during decoding."""
+    def _detect_pk_changes_post_wal(self) -> None:
+        """Report tables whose replica identity key stopped matching the primary key we merge on.
+
+        Detection only. Adopting the new key here would re-key a live Delta table whose existing
+        rows were merged under the old one, so every row already in the table would be duplicated
+        rather than replaced from that point on. The safe remediation is a full re-snapshot of the
+        table, which is an operator decision, not something a WAL read should trigger on its own.
+        """
         for table_name in self.all_table_names:
             decoder_pks = self.reader.get_decoder_key_columns(table_name)
             stored_pks = self.pk_columns_by_table.get(table_name, [])
-            if decoder_pks and decoder_pks != stored_pks:
-                pk_schema = self.schema_by_name.get(table_name)
-                pk_log = self._schema_log(pk_schema) if pk_schema is not None else self.log
-                pk_log.warning("pk_columns_changed", table=table_name, old=stored_pks, new=decoder_pks)
-                self.pk_columns_by_table[table_name] = decoder_pks
-                if pk_schema is not None:
-                    self._update_schema_sync_type_config(pk_schema, updates={"primary_key_columns": decoder_pks})
+            # Compared as sets because pg_catalog orders the stored key by index position while the
+            # decoder reports it in table column order, so a composite key can differ in order
+            # without having changed.
+            if not decoder_pks or set(decoder_pks) == set(stored_pks):
+                continue
+            pk_schema = self.schema_by_name.get(table_name)
+            pk_log = self._schema_log(pk_schema) if pk_schema is not None else self.log
+            pk_log.warning("cdc_pk_columns_diverged", table=table_name, stored=stored_pks, wal=decoder_pks)
+            metrics.get_pk_divergence_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
 
     def _handle_truncates(self) -> list[str]:
         """Process any truncated tables observed during decoding.
