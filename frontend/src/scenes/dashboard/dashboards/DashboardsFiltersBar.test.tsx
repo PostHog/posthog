@@ -74,4 +74,19 @@ describe('DashboardsFiltersBar', () => {
         fireEvent.click(clearButton as Element)
         expect(setFilters).toHaveBeenCalledWith({ folder: null })
     })
+
+    // An active filter can outlive its folder in the options list: the folder's dashboards get moved
+    // or deleted, or the filter is restored from the URL before any folder holds a dashboard. The
+    // select must stay visible with the current folder labelled, so the filter remains clearable.
+    it.each([
+        ['a named folder that no longer holds dashboards', 'Marketing/Website', 'Marketing/Website'],
+        ['the project root after its dashboards were moved out', '', 'Project root'],
+    ])('keeps an active folder filter clearable when no folder holds a dashboard (%s)', (_desc, folder, label) => {
+        const { container } = renderBar([], folder)
+        expect(screen.getByText(label)).toBeInTheDocument()
+        const clearButton = container.querySelector('.LemonButtonWithSideAction__side-button button')
+        expect(clearButton).not.toBeNull()
+        fireEvent.click(clearButton as Element)
+        expect(setFilters).toHaveBeenCalledWith({ folder: null })
+    })
 })

@@ -41,6 +41,22 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
         setFilters({ tags: Array.from(selected) })
     }
 
+    // Keep the active folder selectable even after it drops out of folderOptions (its dashboards were
+    // moved or deleted, or the filter was restored from the URL), so its clear (×) affordance stays
+    // reachable instead of the select vanishing and stranding the list behind an unclearable filter.
+    const folderSelectOptions = folderOptions.map((option) =>
+        option.value === '' ? { ...option, value: PROJECT_ROOT_FOLDER_VALUE } : option
+    )
+    if (filters.folder != null) {
+        const activeValue = folderToSelectValue(filters.folder)
+        if (activeValue !== null && !folderSelectOptions.some((option) => option.value === activeValue)) {
+            folderSelectOptions.push({
+                label: filters.folder === '' ? 'Project root' : filters.folder,
+                value: activeValue,
+            })
+        }
+    }
+
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
             <LemonInput
@@ -155,16 +171,14 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
-                    {folderOptions.length > 0 && (
+                    {folderSelectOptions.length > 0 && (
                         <LemonSelect
                             size="small"
                             placeholder="Folder"
                             allowClear
                             value={folderToSelectValue(filters.folder)}
                             onChange={(value) => setFilters({ folder: selectValueToFolder(value) })}
-                            options={folderOptions.map((option) =>
-                                option.value === '' ? { ...option, value: PROJECT_ROOT_FOLDER_VALUE } : option
-                            )}
+                            options={folderSelectOptions}
                             dropdownMatchSelectWidth={false}
                         />
                     )}
