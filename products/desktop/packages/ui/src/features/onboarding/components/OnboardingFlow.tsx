@@ -15,6 +15,7 @@ import {
   resolveRepoIntegrationId,
 } from "@posthog/core/onboarding/spaceRepoAssignment";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
@@ -124,9 +125,21 @@ export function OnboardingFlow() {
       personalCreated: provisioned.personal_created,
       generalCreated: provisioned.general_created,
     })) {
-      await apiClient.updateTaskChannelRepositories(channelId, integrationId, [
-        cloudRepo,
-      ]);
+      const updated = await apiClient.updateTaskChannelRepositories(
+        channelId,
+        integrationId,
+        [cloudRepo],
+      );
+      // The direct API call bypasses the standard mutation's cache sync, so
+      // patch the seeded channel cache with the assigned repository. Otherwise
+      // consumers stay on the repository-less provision response until the poll.
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((channel) =>
+            channel.id === updated.id ? updated : channel,
+          ),
+      );
     }
   };
 
