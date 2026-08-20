@@ -526,6 +526,7 @@ def _run_rows(
     start_date: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = "2025-03-01",
 ) -> list[list[dict[str, Any]]]:
     with mock.patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
         return _collect(
@@ -536,7 +537,7 @@ def _run_rows(
                 scope="/subscriptions/abc/",
                 endpoint=endpoint,
                 start_date=start_date,
-                api_version="2025-03-01",
+                api_version=api_version,
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
                 should_use_incremental_field=should_use_incremental_field,
@@ -680,6 +681,22 @@ class TestGetRows:
         assert "/forecast?" in url
         assert kwargs["json"]["timePeriod"]["from"].startswith(self.today.isoformat())
         assert kwargs["json"]["includeActualCost"] is False
+
+    @parameterized.expand([("2025-03-01",), ("2026-06-01",)])
+    def test_pinned_api_version_reaches_the_request_url(self, api_version: str) -> None:
+        # A pinned source spends its version on every call — the query/forecast/dimensions wire is
+        # identical across versions, so the only per-version difference is the api-version param.
+        session = _FakeSession([_token_response(), _query_response([])])
+
+        _run_rows(
+            session,
+            "cost_by_service",
+            _FakeResumeManager(),
+            start_date=(self.today - timedelta(days=2)).isoformat(),
+            api_version=api_version,
+        )
+
+        assert f"api-version={api_version}" in session.calls[1][1]
 
     def test_empty_page_yields_nothing(self) -> None:
         session = _FakeSession([_token_response(), _query_response([])])

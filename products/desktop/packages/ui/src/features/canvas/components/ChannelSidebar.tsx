@@ -18,7 +18,6 @@ import {
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
-import { computeEffectiveBulkIds } from "@posthog/core/sidebar/selection";
 import {
   Button,
   cn,
@@ -57,9 +56,11 @@ import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/pl
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
-import { SidebarBulkActionFooter } from "@posthog/ui/features/sidebar/components/SidebarBulkActionFooter";
+import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
 import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
@@ -68,7 +69,14 @@ import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "framer-motion";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
@@ -421,40 +429,49 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
   const marquee = useMarqueeSelection(listAnchorRef);
   const prefersReducedMotion = useReducedMotion();
+  // A drag that starts on a selected row carries the whole selection, so a pin
+  // or an unpin applies to every row the user picked, not just the grabbed one.
+  const dragSiblingsFor = useCallback(
+    (item: ChannelItemModel) =>
+      item.kind === "task"
+        ? taskDragSiblings(item.id, recentItems, (candidate) =>
+            candidate.kind === "task" ? candidate.id : null,
+          )
+        : [],
+    [recentItems],
+  );
   const pinDrag = usePinDrag<ChannelItemModel>({
     isPinned: (item) => item.pinned,
-    togglePin: actions.togglePin,
+    setPinned: actions.setPinned,
+    getDragSiblings: dragSiblingsFor,
   });
 
   useEffect(() => {
     pruneSelection(selectableTaskIds);
   }, [selectableTaskIds, pruneSelection]);
 
-  // Bulk actions include the open session, but selection styling stays tied to
-  // explicit picks so selecting another row does not highlight the open row.
-  // Only a task-kind active row folds in; a canvas can't join a session batch.
+  // A bulk action acts on exactly the rows that are highlighted. The open
+  // session used to be folded in as well, which told you "2 selected" after one
+  // cmd-click and archived a session you never picked.
   const activeTaskId = activeKey?.startsWith("task:")
     ? activeKey.slice("task:".length)
     : null;
-  const effectiveBulkIds = useMemo(
-    () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
-    [selectedTaskIds, activeTaskId],
-  );
 
   const selectedTasks = useMemo(() => {
-    const selected = new Set(effectiveBulkIds);
+    const selected = new Set(selectedTaskIds);
     return recentItems
       .filter(
         (i): i is ChannelItemModel & { task: Task } =>
           i.kind === "task" && i.task !== null && selected.has(i.id),
       )
       .map((i) => i.task);
-  }, [recentItems, effectiveBulkIds]);
+  }, [recentItems, selectedTaskIds]);
   const selectedTasksRunState = useChannelTasksRunState(selectedTasks);
   const bulkActions = useSidebarBulkActions(
-    effectiveBulkIds,
+    selectedTaskIds,
     selectedTasksRunState,
   );
+  const archiveConfirm = useBulkArchiveConfirm(bulkActions);
 
   const handleRowClick = (item: ChannelItemModel, e: React.MouseEvent) => {
     if (item.kind !== "task") {
@@ -532,64 +549,82 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // Every row gets the wrapper, not just the dragged one. Swapping a row
   // between wrapped and bare remounts it, and Chromium ends a native drag the
   // moment its source leaves the DOM.
-  const taskRow = (item: (typeof items)[number], showPinBadge: boolean) => (
-    <motion.div
-      key={item.key}
-      initial={false}
-      animate={
-        item.key === pinDrag.drag?.item.key
-          ? { height: 0, opacity: 0 }
-          : { height: "auto", opacity: 1 }
-      }
-      transition={rowTransition}
-      className="overflow-hidden"
-    >
-      <ChannelItemRow
-        item={item}
-        channelId={channelId}
-        isActive={item.key === activeKey}
-        isSelected={item.kind === "task" && selectedTaskIds.includes(item.id)}
-        showPinBadge={showPinBadge}
-        actions={actions}
-        onClick={(e) => handleRowClick(item, e)}
-        isEditing={item.kind === "task" && editingTaskId === item.id}
-        onRename={
-          item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
+  const taskRow = (item: (typeof items)[number], showPinBadge: boolean) => {
+    const inSelection =
+      item.kind === "task" && selectedTaskIds.includes(item.id);
+    return (
+      <motion.div
+        key={item.key}
+        initial={false}
+        animate={
+          pinDrag.drag?.items.some((dragged) => dragged.key === item.key)
+            ? { height: 0, opacity: 0 }
+            : { height: "auto", opacity: 1 }
         }
-        // Undefined disables the menu item: a full command centre has nowhere to
-        // put the task, and an action that silently does nothing is worse than a
-        // greyed-out one.
-        onAddToCommandCenter={
-          item.kind === "task" && !commandCenterCells.includes(item.id)
-            ? commandCenterAssigner(item.id, item.title)
-            : undefined
-        }
-        onEditSubmit={
-          item.kind === "task"
-            ? async (newTitle) => {
-                setEditingTaskId(null);
-                try {
-                  await renameTask({
-                    taskId: item.id,
-                    currentTitle: item.title,
-                    newTitle,
-                  });
-                } catch (error) {
-                  log.error("Failed to rename task", error);
+        transition={rowTransition}
+        className="overflow-hidden"
+      >
+        <ChannelItemRow
+          item={item}
+          channelId={channelId}
+          isActive={item.key === activeKey}
+          isSelected={inSelection}
+          showPinBadge={showPinBadge}
+          // Right-clicking inside a selection acts on the selection; right-clicking
+          // outside it drops the selection first, so the menu that opens is about
+          // the row under the pointer and nothing else.
+          bulk={
+            inSelection && selectedTaskIds.length > 1
+              ? {
+                  actions: bulkActions,
+                  onArchive: archiveConfirm.requestArchive,
                 }
-              }
-            : undefined
-        }
-        onEditCancel={() => setEditingTaskId(null)}
-        onDragStart={
-          item.kind === "task"
-            ? (event) => pinDrag.onItemDragStart(item, event)
-            : undefined
-        }
-        onDragEnd={item.kind === "task" ? pinDrag.onItemDragEnd : undefined}
-      />
-    </motion.div>
-  );
+              : null
+          }
+          onContextMenuOpenChange={(open) => {
+            if (open && !inSelection) clearSelection();
+          }}
+          actions={actions}
+          onClick={(e) => handleRowClick(item, e)}
+          isEditing={item.kind === "task" && editingTaskId === item.id}
+          onRename={
+            item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
+          }
+          // Undefined disables the menu item: a full command centre has nowhere to
+          // put the task, and an action that silently does nothing is worse than a
+          // greyed-out one.
+          onAddToCommandCenter={
+            item.kind === "task" && !commandCenterCells.includes(item.id)
+              ? commandCenterAssigner(item.id, item.title)
+              : undefined
+          }
+          onEditSubmit={
+            item.kind === "task"
+              ? async (newTitle) => {
+                  setEditingTaskId(null);
+                  try {
+                    await renameTask({
+                      taskId: item.id,
+                      currentTitle: item.title,
+                      newTitle,
+                    });
+                  } catch (error) {
+                    log.error("Failed to rename task", error);
+                  }
+                }
+              : undefined
+          }
+          onEditCancel={() => setEditingTaskId(null)}
+          onDragStart={
+            item.kind === "task"
+              ? (event) => pinDrag.onItemDragStart(item, event)
+              : undefined
+          }
+          onDragEnd={item.kind === "task" ? pinDrag.onItemDragEnd : undefined}
+        />
+      </motion.div>
+    );
+  };
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
@@ -756,10 +791,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
       {/* Below the list rather than floating over it: the bottom rows are where
           a shift-click range usually ends, and the FAB already sits there. */}
-      <SidebarBulkActionFooter
+      <SidebarBulkActionBar
         actions={bulkActions}
         onClearSelection={clearSelection}
+        onArchive={archiveConfirm.requestArchive}
       />
+      {archiveConfirm.dialog}
 
       {pinDrag.drag ? (
         <ChannelItemDragPreview

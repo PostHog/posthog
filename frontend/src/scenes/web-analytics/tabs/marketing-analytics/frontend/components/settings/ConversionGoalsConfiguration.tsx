@@ -6,6 +6,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils/dom'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -25,6 +26,7 @@ import {
     defaultConversionGoalFilter,
     getConfiguredConversionGoalsLabel,
 } from './constants'
+import { revenueDisabledReason, withValidFlags } from './conversionGoalFlags'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter
@@ -35,6 +37,35 @@ const createEmptyFormState = (): ConversionGoalFormState => ({
     filter: defaultConversionGoalFilter,
     name: '',
 })
+
+function CountsAsToggles({
+    goal,
+    onChange,
+    disabledReason,
+}: {
+    goal: ConversionGoalFilter
+    onChange: (goal: ConversionGoalFilter) => void
+    disabledReason?: string | null
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonCheckbox
+                size="small"
+                label="Revenue"
+                checked={!!goal.counts_as_revenue}
+                onChange={(counts_as_revenue) => onChange({ ...goal, counts_as_revenue })}
+                disabledReason={disabledReason || revenueDisabledReason(goal)}
+            />
+            <LemonCheckbox
+                size="small"
+                label="Customer"
+                checked={!!goal.counts_as_customer}
+                onChange={(counts_as_customer) => onChange({ ...goal, counts_as_customer })}
+                disabledReason={disabledReason}
+            />
+        </div>
+    )
+}
 
 export function ConversionGoalsConfiguration({
     hideTitle = false,
@@ -60,11 +91,11 @@ export function ConversionGoalsConfiguration({
         if (conversionGoalName === '') {
             conversionGoalName = formState.filter.custom_name || formState.filter.name || 'No name'
         }
-        const newGoal: ConversionGoalFilter = {
+        const newGoal: ConversionGoalFilter = withValidFlags({
             ...formState.filter,
             conversion_goal_id: formState.filter.conversion_goal_id || uuid(),
             conversion_goal_name: conversionGoalName,
-        }
+        })
 
         addOrUpdateConversionGoal(newGoal)
         setFormState(createEmptyFormState())
@@ -77,7 +108,7 @@ export function ConversionGoalsConfiguration({
 
     const handleSaveEdit = (): void => {
         if (editingGoal) {
-            addOrUpdateConversionGoal(editingGoal)
+            addOrUpdateConversionGoal(withValidFlags(editingGoal))
         }
         setEditingGoalId(null)
         setEditingGoal(null)
@@ -133,6 +164,12 @@ export function ConversionGoalsConfiguration({
                             disabledReason={restrictedReason}
                         />
                     </div>
+
+                    <CountsAsToggles
+                        goal={formState.filter}
+                        onChange={(filter) => setFormState((prev) => ({ ...prev, filter }))}
+                        disabledReason={restrictedReason}
+                    />
 
                     <div className="flex gap-2">
                         <LemonButton
@@ -218,6 +255,30 @@ export function ConversionGoalsConfiguration({
                                     )
                                 }
                                 return goal.custom_name || goal.name || 'No name'
+                            },
+                        },
+                        {
+                            key: 'counts_as',
+                            title: 'Counts as',
+                            render: (_, goal: ConversionGoalFilter) => {
+                                if (editingGoalId === goal.conversion_goal_id && editingGoal) {
+                                    return (
+                                        <CountsAsToggles
+                                            goal={editingGoal}
+                                            onChange={setEditingGoal}
+                                            disabledReason={restrictedReason}
+                                        />
+                                    )
+                                }
+                                const flags = [
+                                    goal.counts_as_revenue && 'Revenue',
+                                    goal.counts_as_customer && 'Customer',
+                                ].filter(Boolean)
+                                return flags.length ? (
+                                    <span className="text-xs">{flags.join(', ')}</span>
+                                ) : (
+                                    <span className="text-xs text-muted">Conversions only</span>
+                                )
                             },
                         },
                         {

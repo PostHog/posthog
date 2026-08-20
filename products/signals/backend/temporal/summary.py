@@ -26,6 +26,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
@@ -556,9 +557,12 @@ class CheckReportQuotaGateInput:
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
     """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
-    credits quota and enforcement is on. Emits `signal_report_quota_paused` whenever the team is limited,
-    enforced or not, so the dark-launch would-block volume is measurable. Never raises: any
-    failure resolves to False (run proceeds), matching the quota module's fail-open policy.
+    credits quota with enforcement on, or the team hit its daily report limit. Emits
+    `signal_report_quota_paused` whenever the team is quota-limited, enforced or not, so the
+    dark-launch would-block volume is measurable, and `signal_report_daily_limit_paused` when the
+    daily limit binds; both fire when both limits are hit, keeping each event stream complete for
+    its own gate. Never raises: any failure resolves to False (run proceeds), matching both
+    modules' fail-open policy.
     """
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -567,7 +571,12 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             capture_signal_report_quota_paused(
                 team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
             )
-        return gate.enforced
+        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+        if daily_gate.limited:
+            capture_signal_report_daily_limit_paused(
+                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
+            )
+        return gate.enforced or daily_gate.limited
     except Exception:
         record_quota_check_failed_open()
         logger.exception(
