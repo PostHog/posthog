@@ -99,7 +99,6 @@ import {
     DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
-    DashboardGridCompaction,
     DashboardTileBasicType,
     DashboardTileSpacing,
     DashboardType,
@@ -113,6 +112,8 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
+
+import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'

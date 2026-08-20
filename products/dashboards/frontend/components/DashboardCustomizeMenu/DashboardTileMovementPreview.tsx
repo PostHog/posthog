@@ -1,6 +1,6 @@
 import './DashboardTileMovementPreview.scss'
 
-import { DashboardGridCompaction } from '~/types'
+import { DashboardGridCompaction } from '../../dashboardCustomization'
 
 const GRID_STROKE = 'var(--color-border-primary)'
 const EXISTING_TILE = 'var(--data-color-3)'

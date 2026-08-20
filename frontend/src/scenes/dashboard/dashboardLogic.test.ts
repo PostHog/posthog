@@ -32,13 +32,14 @@ import { initKeaTests } from '~/test/init'
 import {
     DashboardMode,
     DashboardPlacement,
-    DashboardGridCompaction,
     DashboardTile,
     DashboardType,
     InsightColor,
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -428,7 +429,9 @@ describe('dashboardLogic', () => {
                 logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
                 logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
+                    DashboardGridCompaction.Horizontal
+                )
                 expect(api.update).not.toHaveBeenCalled()
 
                 await jest.advanceTimersByTimeAsync(750)

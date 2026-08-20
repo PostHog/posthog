@@ -6,9 +6,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { DashboardGridCompaction, DashboardTileSpacing } from '~/types'
+import type { DashboardTileSpacing } from '~/types'
 
-import { DASHBOARD_GRID_COMPACTION_LABELS, DASHBOARD_TILE_SPACING_LABELS } from '../../dashboardCustomization'
+import {
+    DASHBOARD_GRID_COMPACTION_LABELS,
+    DASHBOARD_TILE_SPACING_LABELS,
+    DashboardGridCompaction,
+    type DashboardGridCompaction as DashboardGridCompactionType,
+} from '../../dashboardCustomization'
 import { DashboardTileMovementPreview } from './DashboardTileMovementPreview'
 
 const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
@@ -20,14 +25,16 @@ const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
 ]
 
 const GRID_COMPACTION_OPTIONS: {
-    value: DashboardGridCompaction
+    value: DashboardGridCompactionType
     label: JSX.Element
 }[] = [
     {
         value: DashboardGridCompaction.Vertical,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}</span>
+                <span className="text-xs font-medium">
+                    {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}
+                </span>
                 <LemonTag type="success">Recommended</LemonTag>
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
@@ -37,7 +44,9 @@ const GRID_COMPACTION_OPTIONS: {
         value: DashboardGridCompaction.Horizontal,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Horizontal]}</span>
+                <span className="text-xs font-medium">
+                    {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Horizontal]}
+                </span>
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Horizontal} />
             </span>
         ),
@@ -46,7 +55,9 @@ const GRID_COMPACTION_OPTIONS: {
         value: DashboardGridCompaction.Stable,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Stable]}</span>
+                <span className="text-xs font-medium">
+                    {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Stable]}
+                </span>
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Stable} />
             </span>
         ),
@@ -55,7 +66,8 @@ const GRID_COMPACTION_OPTIONS: {
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
-    const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } = useActions(dashboardLogic)
+    const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } =
+        useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     if (!dashboard || !canEditDashboard || !dashboardCustomizationEnabled) {
@@ -72,7 +84,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
         saveDashboardTileSpacing(value)
     }
 
-    const setGridCompaction = (value: DashboardGridCompaction): void => {
+    const setGridCompaction = (value: DashboardGridCompactionType): void => {
         if (value === layoutCompaction) {
             return
         }
@@ -94,7 +106,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
             </div>
             <div className="flex gap-x-3 border-t pt-2">
                 <span className="pt-3 text-xs text-muted whitespace-nowrap">When you move a tile</span>
-                <LemonRadio<DashboardGridCompaction>
+                <LemonRadio<DashboardGridCompactionType>
                     value={layoutCompaction}
                     onChange={setGridCompaction}
                     options={GRID_COMPACTION_OPTIONS}

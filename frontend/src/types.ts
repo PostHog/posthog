@@ -6,7 +6,6 @@ import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LayoutCompactionEnumApi as DashboardGridCompaction } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
@@ -2706,12 +2705,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
     customization?: {
         tile_spacing?: DashboardTileSpacing
-        layout_compaction?: DashboardGridCompaction
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
     }
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
-export { DashboardGridCompaction }
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',

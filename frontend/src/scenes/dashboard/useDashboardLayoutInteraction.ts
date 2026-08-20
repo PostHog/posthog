@@ -10,10 +10,9 @@ import {
 } from 'scenes/dashboard/dashboardResizeCompactor'
 import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
 
-import { DashboardGridCompaction } from '~/types'
 import type { DashboardLayoutSize } from '~/types'
 
-import { getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 
 type InteractionKind = 'drag' | 'resize'
 

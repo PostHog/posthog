@@ -2,8 +2,15 @@ import { cloneLayoutItem, horizontalCompactor, noCompactor } from 'react-grid-la
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { fastVerticalCompactor } from 'react-grid-layout/extras'
 
-import { DashboardGridCompaction } from '~/types'
 import type { DashboardTileSpacing } from '~/types'
+
+export const DashboardGridCompaction = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Stable: 'stable',
+} as const
+
+export type DashboardGridCompaction = (typeof DashboardGridCompaction)[keyof typeof DashboardGridCompaction]
 
 export const DASHBOARD_TILE_SPACING_GAPS: Record<DashboardTileSpacing, number> = {
     tight: 8,
@@ -67,12 +74,7 @@ export const freePlacementCompactor: Compactor = noCompactor
 export const makeRoomInRowCompactor: Compactor = horizontalCompactor
 
 export interface DashboardGridCompactor extends Compactor {
-    compactInteraction: (
-        cols: number,
-        activeTileId: string,
-        restoredLayout: Layout,
-        resizedLayout: Layout
-    ) => Layout
+    compactInteraction: (cols: number, activeTileId: string, restoredLayout: Layout, resizedLayout: Layout) => Layout
 }
 
 export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
