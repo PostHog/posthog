@@ -632,7 +632,10 @@ class _MetricSeriesBreakdownSerializer(serializers.Serializer):
         help_text="How many samples the series actually sent, even when 'samples' was trimmed."
     )
     samples_truncated = serializers.BooleanField(help_text="Whether 'samples' lists fewer samples than arrived.")
-    value = serializers.FloatField(help_text="What this series contributed after the per-series reduction.")
+    value = serializers.FloatField(
+        allow_null=True,
+        help_text="What this series contributed after the per-series reduction. Null for percentiles, which read the pooled readings and so have no single per-series contribution.",
+    )
 
 
 class _MetricBucketDecompositionSerializer(serializers.Serializer):
@@ -646,8 +649,8 @@ class _MetricBucketDecompositionSerializer(serializers.Serializer):
     bucket_start = serializers.CharField(help_text="Start of the explained bucket, ISO 8601.")
     interval = serializers.CharField(help_text="Bucket size the point was plotted at.")
     temporal_reducer = serializers.ChoiceField(
-        choices=["none", "last", "sum_over_time", "increase"],
-        help_text="How each series' samples were collapsed to one value: 'last' for gauges, 'sum_over_time' for delta counters, 'increase' for cumulative counters.",
+        choices=["none", "last", "avg_over_time", "sum_over_time", "increase", "pooled_samples"],
+        help_text="How each series' samples were collapsed to one value: 'last' for an instant gauge reading, 'avg_over_time' for an average, 'sum_over_time' for delta counters, 'increase' for cumulative counters, and 'pooled_samples' for percentiles, which skip the per-series step entirely.",
     )
     spatial_reducer = serializers.ChoiceField(
         choices=["sum", "avg", "min", "max", "quantile", "count_series"],

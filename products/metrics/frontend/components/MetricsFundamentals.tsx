@@ -45,18 +45,22 @@ const RULES: { key: string; title: string; should: string; formula: string; exam
     {
         key: 'ordering',
         title: 'Percentiles and rates do not survive being averaged',
-        should: 'A percentile of percentiles is not a percentile, and a rate of summed counters misreads restarts. Reduce inside each series first, then combine.',
+        should: 'A percentile of percentiles is not a percentile, and a rate of summed counters misreads restarts. Rates reduce inside each series first, then combine. Percentiles go the other way and read every reading in the bucket, because collapsing a series to one number throws away the tail the percentile is asking about. The tradeoff is that a series collected more often contributes more readings to that tail.',
         formula: 'sum(rate(x)), never rate(sum(x))',
         example:
             'Host A serves 1,000 requests at p95 of 1ms, host B serves 10 at 2,000ms. Averaging the two p95s gives about 1,000ms. The real combined p95 is about 1ms.',
     },
 ]
 
+// These describe the reduction the check itself applied, which is only also
+// what the chart did when the two agree. The wording says so either way.
 const TEMPORAL_REDUCER_COPY: Record<string, string> = {
-    last: 'kept each series latest reading',
+    last: 'took each series latest reading',
+    avg_over_time: 'averaged each series readings over the bucket',
     sum_over_time: 'added up each series increments',
     increase: 'measured how much each series rose',
-    none: 'did not reduce per series, so every raw sample was counted',
+    pooled_samples: 'used every reading rather than one value per series',
+    none: 'did not reduce per series, so every raw sample counted',
 }
 
 const SPATIAL_REDUCER_COPY: Record<string, string> = {
@@ -77,7 +81,10 @@ const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'increase', label: 'Increase' },
 ]
 
-const formatValue = (value: number | null): string => (value === null ? 'no value' : String(value))
+// Float reductions land on values like 79.33333333333333, which are unreadable
+// next to each other and imply a precision the comparison does not use.
+const formatValue = (value: number | null): string =>
+    value === null ? 'no value' : Number(value.toPrecision(10)).toLocaleString('en-US', { maximumFractionDigits: 4 })
 
 const SeriesRow = ({ series }: { series: _MetricSeriesBreakdownApi }): JSX.Element => {
     const labelText =
@@ -91,7 +98,9 @@ const SeriesRow = ({ series }: { series: _MetricSeriesBreakdownApi }): JSX.Eleme
                 <span className="font-mono text-xs truncate">
                     {series.service_name} {labelText}
                 </span>
-                <span className="font-semibold shrink-0">{series.value}</span>
+                <span className="font-semibold shrink-0">
+                    {series.value === null ? `${series.sample_count} readings` : formatValue(series.value)}
+                </span>
             </div>
             <div className="font-mono text-xs text-muted">
                 {series.samples.map((sample) => sample.value).join(', ')}
@@ -130,7 +139,8 @@ const Decomposition = ({ decomposition }: { decomposition: _MetricBucketDecompos
             </div>
 
             <p className="mb-0">
-                For this bucket the query {temporal}, then {spatial}.
+                To get {formatValue(decomposition.reference_value)}, the check {temporal}, then {spatial}.
+                {!decomposition.agrees && ' The chart reached its number a different way.'}
             </p>
 
             {decomposition.rows_truncated && (
@@ -198,7 +208,7 @@ export function MetricsFundamentals(): JSX.Element {
                 </div>
             </div>
 
-            {checkResult && <Decomposition decomposition={checkResult.decomposition} />}
+            {checkResult && !checkResultLoading && <Decomposition decomposition={checkResult.decomposition} />}
 
             <div>
                 <h3>The rules</h3>

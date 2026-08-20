@@ -9,6 +9,7 @@ from products.metrics.backend.fundamentals import (
     Sample,
     SpatialReducer,
     TemporalReducer,
+    apply_plan,
     is_duplicate_invariant,
     plan_reduction,
     reduce_spatial,
@@ -27,9 +28,13 @@ class TestPlanReduction:
         [
             # A gauge sample is a re-reading, so the bucket's current value is the last one.
             ("gauge_sum", "sum", "gauge", "", TemporalReducer.LAST, SpatialReducer.SUM),
-            ("gauge_avg", "avg", "gauge", "", TemporalReducer.LAST, SpatialReducer.AVG),
+            # A gauge that moves inside the bucket has a meaningful mean, so the
+            # per-series step averages over time rather than keeping one reading.
+            ("gauge_avg", "avg", "gauge", "", TemporalReducer.AVG_OVER_TIME, SpatialReducer.AVG),
             ("gauge_count", "count", "gauge", "", TemporalReducer.LAST, SpatialReducer.COUNT_SERIES),
-            ("gauge_p95", "p95", "gauge", "", TemporalReducer.LAST, SpatialReducer.QUANTILE),
+            # A percentile describes a distribution, so it needs the readings
+            # themselves rather than one summary number per series.
+            ("gauge_p95", "p95", "gauge", "", TemporalReducer.POOLED_SAMPLES, SpatialReducer.QUANTILE),
             # A cumulative counter carries an absolute odometer reading.
             ("cumulative_sum", "sum", "sum", "cumulative", TemporalReducer.LAST, SpatialReducer.SUM),
             ("cumulative_increase", "increase", "sum", "cumulative", TemporalReducer.INCREASE, SpatialReducer.SUM),
@@ -71,6 +76,12 @@ class TestTemporalReduction:
     def test_increase_ignores_history_before_the_first_sample(self) -> None:
         assert reduce_temporal(_samples(100), TemporalReducer.INCREASE) == 0
 
+    def test_avg_over_time_keeps_the_whole_bucket_not_just_the_tail(self) -> None:
+        # A queue that spiked to 240 and settled at 8 did not average 8.
+        assert reduce_temporal(_samples(6, 240, 5, 210, 7, 8), TemporalReducer.AVG_OVER_TIME) == pytest.approx(
+            79.33, abs=0.01
+        )
+
 
 class TestSpatialReduction:
     @parameterized.expand(
@@ -88,8 +99,32 @@ class TestSpatialReduction:
     def test_quantile_runs_over_series_values(self) -> None:
         assert reduce_spatial([1.0, 2.0, 3.0, 4.0], SpatialReducer.QUANTILE, quantile=0.5) == pytest.approx(2.5)
 
-    def test_empty_bucket_has_no_value(self) -> None:
-        assert reduce_spatial([], SpatialReducer.SUM) is None
+    @parameterized.expand([("sum", SpatialReducer.SUM), ("count_series", SpatialReducer.COUNT_SERIES)])
+    def test_empty_bucket_has_no_value(self, _name: str, reducer: SpatialReducer) -> None:
+        # The runner returns no row for an empty bucket, so a reference that
+        # returned 0 here would report every empty bucket as a disagreement.
+        assert reduce_spatial([], reducer) is None
+
+
+class TestPooledQuantile:
+    def test_percentile_reads_the_samples_rather_than_one_value_per_series(self) -> None:
+        # One series that swings inside the bucket still has a tail.
+        plan = plan_reduction(aggregation="p95", metric_type="gauge")
+        spiky = {"a": _samples(6, 240, 5, 210, 7, 8)}
+        assert apply_plan(spiky, plan) == pytest.approx(232.5)
+
+    def test_percentile_pools_across_series(self) -> None:
+        plan = plan_reduction(aggregation="p95", metric_type="gauge")
+        pooled = apply_plan({"a": _samples(1, 2), "b": _samples(3, 4)}, plan)
+        assert pooled == pytest.approx(_quantile_of([1.0, 2.0, 3.0, 4.0]))
+
+
+def _quantile_of(values: list[float]) -> float:
+    position = 0.95 * (len(values) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    weight = position - lower
+    return values[lower] * (1 - weight) + values[upper] * weight
 
 
 class TestDuplicateSampleInvariance:

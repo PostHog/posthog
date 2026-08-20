@@ -35,7 +35,7 @@ from products.metrics.backend.facade.contracts import (
     MetricSampleView,
     MetricSeriesBreakdown,
 )
-from products.metrics.backend.fundamentals import Sample, apply_plan, plan_reduction, reduce_temporal
+from products.metrics.backend.fundamentals import Sample, TemporalReducer, apply_plan, plan_reduction, reduce_temporal
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     _QUERY_SETTINGS,
@@ -210,7 +210,9 @@ def decompose_bucket(
                 ),
                 sample_count=len(samples),
                 samples_truncated=len(samples) > max_samples_per_series,
-                value=reduce_temporal(samples, plan.temporal),
+                value=None
+                if plan.temporal is TemporalReducer.POOLED_SAMPLES
+                else reduce_temporal(samples, plan.temporal),
             )
         )
 

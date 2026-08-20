@@ -366,16 +366,20 @@ export interface _MetricExplainRequestApi {
 /**
  * * `none` - none
  * * `last` - last
+ * * `avg_over_time` - avg_over_time
  * * `sum_over_time` - sum_over_time
  * * `increase` - increase
+ * * `pooled_samples` - pooled_samples
  */
 export type TemporalReducerEnumApi = (typeof TemporalReducerEnumApi)[keyof typeof TemporalReducerEnumApi]
 
 export const TemporalReducerEnumApi = {
     None: 'none',
     Last: 'last',
+    AvgOverTime: 'avg_over_time',
     SumOverTime: 'sum_over_time',
     Increase: 'increase',
+    PooledSamples: 'pooled_samples',
 } as const
 
 /**
@@ -427,8 +431,11 @@ export interface _MetricSeriesBreakdownApi {
     sample_count: number
     /** Whether 'samples' lists fewer samples than arrived. */
     samples_truncated: boolean
-    /** What this series contributed after the per-series reduction. */
-    value: number
+    /**
+     * What this series contributed after the per-series reduction. Null for percentiles, which read the pooled readings and so have no single per-series contribution.
+     * @nullable
+     */
+    value: number | null
 }
 
 export interface _MetricBucketDecompositionApi {
@@ -444,12 +451,14 @@ export interface _MetricBucketDecompositionApi {
     bucket_start: string
     /** Bucket size the point was plotted at. */
     interval: string
-    /** How each series' samples were collapsed to one value: 'last' for gauges, 'sum_over_time' for delta counters, 'increase' for cumulative counters.
+    /** How each series' samples were collapsed to one value: 'last' for an instant gauge reading, 'avg_over_time' for an average, 'sum_over_time' for delta counters, 'increase' for cumulative counters, and 'pooled_samples' for percentiles, which skip the per-series step entirely.
      *
      * * `none` - none
      * * `last` - last
+     * * `avg_over_time` - avg_over_time
      * * `sum_over_time` - sum_over_time
-     * * `increase` - increase */
+     * * `increase` - increase
+     * * `pooled_samples` - pooled_samples */
     temporal_reducer: TemporalReducerEnumApi
     /** How the per-series values were combined into the bucket's number.
      *

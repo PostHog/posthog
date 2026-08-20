@@ -331,7 +331,10 @@ class MetricSeriesBreakdown:
     samples: tuple[MetricSampleView, ...]
     sample_count: int
     samples_truncated: bool
-    value: float
+    # None when the aggregation has no per-series step, as percentiles do not:
+    # they read the pooled readings, so no single number is this series'
+    # contribution.
+    value: float | None
 
 
 @dataclass(frozen=True, slots=True)

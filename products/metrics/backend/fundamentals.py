@@ -45,8 +45,17 @@ class TemporalReducer(StrEnum):
     # the shape of the bug this module exists to catch, kept nameable so a
     # decomposition can report it rather than only failing a check.
     NONE = "none"
-    # Gauges: the bucket's value is the most recent reading.
+    # Gauges under an instant aggregation: the bucket's value is the most
+    # recent reading, matching PromQL's instant vector.
     LAST = "last"
+    # Gauges under an average: the readings inside the bucket are all real
+    # observations, so the series' value for the bucket is their mean.
+    AVG_OVER_TIME = "avg_over_time"
+    # Percentiles: there is no per-series step at all. A percentile describes a
+    # distribution, and collapsing each series first would compute a percentile
+    # of summaries, which is not a percentile of anything. Samples are deduped
+    # by timestamp and pooled instead.
+    POOLED_SAMPLES = "pooled_samples"
     # Delta counters: each sample is an increment already.
     SUM_OVER_TIME = "sum_over_time"
     # Cumulative counters: diff consecutive readings, treating a drop as a restart.
@@ -110,6 +119,10 @@ def plan_reduction(*, aggregation: str, metric_type: str, temporality: str = "")
         return ReductionPlan(temporal=TemporalReducer.SUM_OVER_TIME, spatial=spatial, quantile=quantile)
     if aggregation in _COUNTER_FUNCTIONS:
         return ReductionPlan(temporal=TemporalReducer.INCREASE, spatial=spatial, quantile=quantile)
+    if spatial == SpatialReducer.QUANTILE:
+        return ReductionPlan(temporal=TemporalReducer.POOLED_SAMPLES, spatial=spatial, quantile=quantile)
+    if spatial == SpatialReducer.AVG:
+        return ReductionPlan(temporal=TemporalReducer.AVG_OVER_TIME, spatial=spatial, quantile=quantile)
     return ReductionPlan(temporal=TemporalReducer.LAST, spatial=spatial, quantile=quantile)
 
 
@@ -128,8 +141,8 @@ def _deduped_in_time_order(samples: Sequence[Sample]) -> list[Sample]:
 
 def reduce_temporal(samples: Sequence[Sample], reducer: TemporalReducer) -> float:
     """Collapse one series' samples to that series' value for the bucket."""
-    if reducer == TemporalReducer.NONE:
-        raise ValueError("TemporalReducer.NONE has no single value; apply it through a plan")
+    if reducer in (TemporalReducer.NONE, TemporalReducer.POOLED_SAMPLES):
+        raise ValueError(f"{reducer!r} has no single per-series value; apply it through a plan")
     ordered = _deduped_in_time_order(samples)
     if not ordered:
         return 0.0
@@ -138,6 +151,8 @@ def reduce_temporal(samples: Sequence[Sample], reducer: TemporalReducer) -> floa
         return ordered[-1].value
     if reducer == TemporalReducer.SUM_OVER_TIME:
         return sum(sample.value for sample in ordered)
+    if reducer == TemporalReducer.AVG_OVER_TIME:
+        return sum(sample.value for sample in ordered) / len(ordered)
     if reducer == TemporalReducer.INCREASE:
         # The first sample's history is unknown, so it contributes nothing. A
         # reading below its predecessor means the counter restarted, and the
@@ -166,10 +181,12 @@ def reduce_spatial(values: Sequence[float], reducer: SpatialReducer, *, quantile
     Returns None for an empty bucket, which consumers render as a gap rather
     than as a zero.
     """
-    if reducer == SpatialReducer.COUNT_SERIES:
-        return float(len(values))
+    # An empty bucket has no value at all, including no series count. Returning
+    # 0 here would make every gap look like a real zero.
     if not values:
         return None
+    if reducer == SpatialReducer.COUNT_SERIES:
+        return float(len(values))
 
     if reducer == SpatialReducer.SUM:
         return sum(values)
@@ -188,6 +205,10 @@ def apply_plan(series_samples: Mapping[object, Sequence[Sample]], plan: Reductio
     """Run both reduction steps over a bucket's series and return its number."""
     if plan.temporal == TemporalReducer.NONE:
         per_series_values = [sample.value for samples in series_samples.values() for sample in samples]
+    elif plan.temporal == TemporalReducer.POOLED_SAMPLES:
+        per_series_values = [
+            sample.value for samples in series_samples.values() for sample in _deduped_in_time_order(samples)
+        ]
     else:
         per_series_values = [reduce_temporal(samples, plan.temporal) for samples in series_samples.values() if samples]
     return reduce_spatial(per_series_values, plan.spatial, quantile=plan.quantile)
