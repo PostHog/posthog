@@ -478,6 +478,24 @@ describe('mcpClusteringLogic category scope', () => {
         expect(logic.values.scopedClusters.map((c) => c.id)).toContain(logic.values.selectedClusterId)
     })
 
+    // The map is a slower query than the stored snapshot and can also fail or return nothing.
+    // A category carried in from a bookmarked url must not scope every view down to nothing when
+    // there is no map to scope against — the views render unscoped until (if ever) the map lands.
+    it('applies no scope when a category is selected but the map load fails', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: 'Data' })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCategories).toEqual(['Data'])
+        expect(logic.values.categoryMap).toEqual([])
+        expect(logic.values.toolsInScope).toBeNull()
+        expect(logic.values.scopedClusters).toHaveLength(SHAPED_CLUSTERS.length)
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
+    })
+
     // A single category comes back from the url as a bare string rather than an array,
     // which would otherwise scope to the individual characters of its name.
     it.each([

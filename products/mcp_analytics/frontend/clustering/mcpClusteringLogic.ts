@@ -544,12 +544,17 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (categoryMap: MCPToolCategoryMapItem[]): string[] =>
                 Array.from(new Set(categoryMap.map((row) => row.category))).sort((a, b) => a.localeCompare(b)),
         ],
-        // Null rather than an empty set when nothing is selected: "no filter" has to mean
-        // everything, and an empty set would read as "nothing matches".
+        // Null rather than an empty set means "no scope, show everything". Two cases return it:
+        // nothing is selected, or there is no map to scope against — still loading, the query
+        // failed, or the project sent no $mcp_tool_category in the window. Without the second
+        // guard a category carried in from the url would scope every view down to nothing while
+        // the map is absent, and the selector hides itself (no categories to offer), leaving no
+        // way to clear it. A real scope only exists once the map has data, so this renders
+        // unscoped meanwhile, matching the loader's "an absent map costs only the filter" intent.
         toolsInScope: [
             (s) => [s.categoryMap, s.selectedCategories],
             (categoryMap: MCPToolCategoryMapItem[], selectedCategories: string[]): Set<string> | null => {
-                if (selectedCategories.length === 0) {
+                if (selectedCategories.length === 0 || categoryMap.length === 0) {
                     return null
                 }
                 const wanted = new Set(selectedCategories)
