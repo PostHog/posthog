@@ -497,6 +497,9 @@ jobs:
                   done
             - name: Upload CLI debug symbols
               if: runner.os != 'Windows'
+              # Dogfooding only: a failed symbol upload degrades our own error
+              # tracking, and must not block shipping the CLI to users.
+              continue-on-error: true
               shell: bash
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
