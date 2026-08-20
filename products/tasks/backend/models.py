@@ -538,11 +538,9 @@ class Task(DeletedMetaFields, models.Model):
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
-        *,
-        expected_created_by_id: int | None = None,
-        expected_ownership_version: str | None = None,
-        validate_task_ownership: bool = False,
     ) -> "TaskRun":
+        expected_created_by_id = self.created_by_id
+        expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
@@ -557,9 +555,7 @@ class Task(DeletedMetaFields, models.Model):
                 .select_related("created_by", "team")
                 .get(id=self.id, team_id=self.team_id)
             )
-            if validate_task_ownership and (
-                task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version
-            ):
+            if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}

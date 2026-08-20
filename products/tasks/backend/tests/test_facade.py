@@ -90,10 +90,6 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             mode: str = "background",
             extra_state: dict | None = None,
             branch: str | None = None,
-            *,
-            expected_created_by_id: int | None = None,
-            expected_ownership_version: str | None = None,
-            validate_task_ownership: bool = False,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -104,9 +100,6 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 mode=mode,
                 extra_state=extra_state,
                 branch=branch,
-                expected_created_by_id=expected_created_by_id,
-                expected_ownership_version=expected_ownership_version,
-                validate_task_ownership=validate_task_ownership,
             )
 
         def bootstrap() -> None:

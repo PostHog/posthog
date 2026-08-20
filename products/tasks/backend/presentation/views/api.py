@@ -2995,6 +2995,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             for_control=not is_read,
         ):
             raise NotFound("Task not found")
+        if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):
+            raise NotFound("Task run not found")
         return task_id
 
     @validated_request(

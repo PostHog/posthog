@@ -171,14 +171,7 @@ class SandboxWarmer:
                 run_state["resume_from_run_id"] = str(existing.id)
                 run_state.update(parse_run_state(existing.state).resume_snapshot_carry_state())
 
-            new_run = locked.create_run(
-                mode=mode,
-                extra_state=run_state,
-                branch=run_state.get("branch"),
-                expected_created_by_id=self.user.id,
-                expected_ownership_version=locked.ownership_version,
-                validate_task_ownership=True,
-            )
+            new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
             enqueue_or_start_workflow(
