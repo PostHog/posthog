@@ -991,6 +991,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
+    # No required_scopes here because create (POST) and list (GET) share this route via
+    # .mapping, which can't carry per-method scopes. Their scopes live in
+    # _DESTINATIONS_URL_REQUIRED_SCOPES; a new destination action must be added there too.
     @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
