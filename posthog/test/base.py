@@ -239,7 +239,7 @@ from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.

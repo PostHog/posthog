@@ -110,6 +110,22 @@ class TestJiraSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.subdomain, self.config.email, self.config.api_token)
 
+    @pytest.mark.parametrize(
+        "bad_subdomain",
+        ["acme.atlassian.net", "https://acme.atlassian.net", "acme.example.com", ""],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.jira.source.validate_jira_credentials"
+    )
+    def test_validate_credentials_rejects_malformed_subdomain_without_probing(
+        self, mock_validate, bad_subdomain
+    ) -> None:
+        config = JiraSourceConfig(subdomain=bad_subdomain, email="e@x.com", api_token="token")
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+        assert is_valid is False
+        assert error_message is not None and "subdomain" in error_message
+        mock_validate.assert_not_called()
+
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
         assert isinstance(manager, ResumableSourceManager)

@@ -13,7 +13,7 @@ from posthog.utils import wait_for_parallel_celery_group
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
