@@ -938,6 +938,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 friction_cards: kindCount(ExperimentWatchCardKindEnumApi.Friction),
                 variant_only_cards: kindCount(ExperimentWatchCardKindEnumApi.VariantOnly),
                 metric_cards: kindCount(ExperimentWatchCardKindEnumApi.Metric),
+                dropped_duplicate_cards: sessionEventDeltas.dropped_duplicate_cards,
             })
         },
         selectWatchCard: ({ card }) => {

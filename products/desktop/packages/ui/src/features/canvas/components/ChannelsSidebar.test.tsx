@@ -13,10 +13,12 @@ const mocks = vi.hoisted(() => ({
     starred: boolean;
   }[],
   channelsLoading: false,
+  createChannel: vi.fn(),
   archivedTaskIds: new Set<string>(),
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
+  markChannelSeen: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
@@ -34,6 +36,13 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
   }),
+  useChannelMutations: () => ({
+    createChannel: mocks.createChannel,
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkChannelSeen", () => ({
+  useMarkChannelSeen: (channelId: string | undefined) =>
+    mocks.markChannelSeen(channelId),
 }));
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
@@ -80,9 +89,13 @@ vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ channelId: mocks.routeChannelId }),
 }));
 
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  REPORT_CANVAS_INBOX_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
+  keepListForRoute,
   showChannelList,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -118,12 +131,27 @@ describe("ChannelsSidebar", () => {
     mocks.channelsLayout = false;
     mocks.channels = [];
     mocks.channelsLoading = false;
+    mocks.createChannel.mockResolvedValue({ id: "general-id" });
     mocks.archivedTaskIds = new Set();
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
-    useSidebarStore.setState({ channelsEnabled: false, open: true });
+    // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
+    // workspaces in this harness) can't collapse it out from under the tests.
+    useSidebarStore.setState({
+      channelsEnabled: false,
+      open: true,
+      hasUserSetOpen: true,
+    });
+  });
+
+  it("does not provision #general outside the report canvas rollout", () => {
+    mocks.featureFlags.set(REPORT_CANVAS_INBOX_FLAG, false);
+
+    renderSidebar();
+
+    expect(mocks.createChannel).not.toHaveBeenCalled();
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're
@@ -157,6 +185,25 @@ describe("ChannelsSidebar", () => {
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
     });
 
+    it("marks a channel seen only while its pane is visible", () => {
+      mocks.routeChannelId = ENG.id;
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(ENG.id);
+
+      act(() => showChannelList());
+
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
+    // ⌘B collapses the sidebar to zero width but keeps the pane mounted. A poll
+    // landing behind it must not stamp the channel seen — nobody saw the pane.
+    it("does not mark a channel seen while the sidebar is closed", () => {
+      mocks.routeChannelId = ENG.id;
+      useSidebarStore.setState({ open: false });
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
     // Opening a channel from anywhere — a deep link, a mention, ⌘1-9 — has to
     // land on the channel even if the list was left open.
     it("follows the route back into a channel", () => {
@@ -180,6 +227,35 @@ describe("ChannelsSidebar", () => {
       renderSidebar();
       expect(listIsInteractive()).toBe(true);
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
+    });
+
+    // A deep link back to the channel is a request to see it, so a latch armed
+    // before an intervening channel-less route must not strand it on the list.
+    it("does not hold the list for a deep link after a channel-less route", () => {
+      mocks.routeChannelId = ENG.id;
+      const { rerender } = renderSidebar();
+      act(() => {
+        showChannelList();
+        keepListForRoute(ENG.id);
+      });
+      expect(listIsInteractive()).toBe(true);
+
+      mocks.routeChannelId = undefined;
+      rerender(
+        <Theme>
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      mocks.routeChannelId = ENG.id;
+      rerender(
+        <Theme>
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      expect(listIsInteractive()).toBe(false);
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
     });
 
     // A trackpad swipe reaches the panes as a horizontal wheel. Right (negative

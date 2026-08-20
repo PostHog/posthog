@@ -29,6 +29,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.baseten import (
     BASETEN_EXCLUSIVE_MODELS,
+    BASETEN_GLM53_PUBLIC_MODEL,
     BASETEN_PUBLIC_MODEL,
     ensure_baseten_configured,
     is_baseten_configured,
@@ -61,10 +62,22 @@ LlmCall = Callable[..., Awaitable[Any]]
 
 GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
 
+# GLM models across all backends: these need the Claude-runtime reasoning rewrite on the
+# Anthropic surface regardless of which provider serves them.
+GLM_MODELS: frozenset[str] = frozenset({BASETEN_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL})
+
 
 def is_inference_routed_model(model: str) -> bool:
     """Whether this model id is served by the inference-routing layer rather than a native provider."""
-    return is_cloudflare_model(model) or model in BASETEN_EXCLUSIVE_MODELS
+    normalized = model.strip().lower()
+    return is_cloudflare_model(normalized) or normalized in BASETEN_EXCLUSIVE_MODELS
+
+
+def normalize_inference_routed_model(request_data: dict[str, Any]) -> dict[str, Any]:
+    normalized = request_data["model"].strip().lower()
+    if not is_inference_routed_model(normalized) or normalized == request_data["model"]:
+        return request_data
+    return {**request_data, "model": normalized}
 
 
 def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
@@ -178,7 +191,11 @@ async def send_inference_anthropic_messages(
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    if request_data["model"] not in BASETEN_EXCLUSIVE_MODELS:
+    request_data = normalize_inference_routed_model(request_data)
+    # Skip normalization only for Baseten-exclusive non-GLM models (DeepSeek); a Baseten-exclusive
+    # GLM still needs the Claude-runtime reasoning rewrite.
+    model = request_data["model"]
+    if model in GLM_MODELS or model not in BASETEN_EXCLUSIVE_MODELS:
         request_data = normalize_glm_anthropic_request(request_data, product=product)
 
     return await _send_inference_request(
@@ -201,6 +218,7 @@ async def send_inference_chat_completions(
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
+    request_data = normalize_inference_routed_model(request_data)
     return await _send_inference_request(
         request_data,
         user,
@@ -221,6 +239,7 @@ async def send_inference_responses(
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
+    request_data = normalize_inference_routed_model(request_data)
     return await _send_inference_request(
         request_data,
         user,

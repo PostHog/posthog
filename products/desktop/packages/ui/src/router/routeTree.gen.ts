@@ -21,6 +21,7 @@ import { Route as CodeIndexRouteImport } from './routes/code/index'
 import { Route as WebsiteSkillsRouteImport } from './routes/website/skills'
 import { Route as WebsiteNewRouteImport } from './routes/website/new'
 import { Route as WebsiteMcpServersRouteImport } from './routes/website/mcp-servers'
+import { Route as WebsiteHomeRouteImport } from './routes/website/home'
 import { Route as WebsiteCommandCenterRouteImport } from './routes/website/command-center'
 import { Route as WebsiteActivityRouteImport } from './routes/website/activity'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
@@ -33,6 +34,7 @@ import { Route as WebsiteChannelIdIndexRouteImport } from './routes/website/$cha
 import { Route as CodeLoopsIndexRouteImport } from './routes/code/loops/index'
 import { Route as CodeInboxIndexRouteImport } from './routes/code/inbox/index'
 import { Route as CodeAgentsIndexRouteImport } from './routes/code/agents/index'
+import { Route as WebsiteFeedsFeedIdRouteImport } from './routes/website/feeds/$feedId'
 import { Route as WebsiteChannelIdNewRouteImport } from './routes/website/$channelId/new'
 import { Route as WebsiteChannelIdLoopsRouteImport } from './routes/website/$channelId/loops'
 import { Route as WebsiteChannelIdHistoryRouteImport } from './routes/website/$channelId/history'
@@ -140,6 +142,11 @@ const WebsiteMcpServersRoute = WebsiteMcpServersRouteImport.update({
   path: '/mcp-servers',
   getParentRoute: () => WebsiteRoute,
 } as any)
+const WebsiteHomeRoute = WebsiteHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => WebsiteRoute,
+} as any)
 const WebsiteCommandCenterRoute = WebsiteCommandCenterRouteImport.update({
   id: '/command-center',
   path: '/command-center',
@@ -199,6 +206,11 @@ const CodeAgentsIndexRoute = CodeAgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => CodeAgentsRoute,
+} as any)
+const WebsiteFeedsFeedIdRoute = WebsiteFeedsFeedIdRouteImport.update({
+  id: '/feeds/$feedId',
+  path: '/feeds/$feedId',
+  getParentRoute: () => WebsiteRoute,
 } as any)
 const WebsiteChannelIdNewRoute = WebsiteChannelIdNewRouteImport.update({
   id: '/$channelId/new',
@@ -468,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -490,6 +503,7 @@ export interface FileRoutesByFullPath {
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
   '/website/$channelId/loops': typeof WebsiteChannelIdLoopsRoute
   '/website/$channelId/new': typeof WebsiteChannelIdNewRoute
+  '/website/feeds/$feedId': typeof WebsiteFeedsFeedIdRoute
   '/code/agents/': typeof CodeAgentsIndexRoute
   '/code/inbox/': typeof CodeInboxIndexRoute
   '/code/loops/': typeof CodeLoopsIndexRoute
@@ -537,6 +551,7 @@ export interface FileRoutesByTo {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -552,6 +567,7 @@ export interface FileRoutesByTo {
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
   '/website/$channelId/loops': typeof WebsiteChannelIdLoopsRoute
   '/website/$channelId/new': typeof WebsiteChannelIdNewRoute
+  '/website/feeds/$feedId': typeof WebsiteFeedsFeedIdRoute
   '/code/agents': typeof CodeAgentsIndexRoute
   '/code/inbox': typeof CodeInboxIndexRoute
   '/code/loops': typeof CodeLoopsIndexRoute
@@ -601,6 +617,7 @@ export interface FileRoutesById {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/home': typeof WebsiteHomeRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -623,6 +640,7 @@ export interface FileRoutesById {
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
   '/website/$channelId/loops': typeof WebsiteChannelIdLoopsRoute
   '/website/$channelId/new': typeof WebsiteChannelIdNewRoute
+  '/website/feeds/$feedId': typeof WebsiteFeedsFeedIdRoute
   '/code/agents/': typeof CodeAgentsIndexRoute
   '/code/inbox/': typeof CodeInboxIndexRoute
   '/code/loops/': typeof CodeLoopsIndexRoute
@@ -675,6 +693,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -697,6 +716,7 @@ export interface FileRouteTypes {
     | '/website/$channelId/history'
     | '/website/$channelId/loops'
     | '/website/$channelId/new'
+    | '/website/feeds/$feedId'
     | '/code/agents/'
     | '/code/inbox/'
     | '/code/loops/'
@@ -744,6 +764,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -759,6 +780,7 @@ export interface FileRouteTypes {
     | '/website/$channelId/history'
     | '/website/$channelId/loops'
     | '/website/$channelId/new'
+    | '/website/feeds/$feedId'
     | '/code/agents'
     | '/code/inbox'
     | '/code/loops'
@@ -807,6 +829,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/home'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -829,6 +852,7 @@ export interface FileRouteTypes {
     | '/website/$channelId/history'
     | '/website/$channelId/loops'
     | '/website/$channelId/new'
+    | '/website/feeds/$feedId'
     | '/code/agents/'
     | '/code/inbox/'
     | '/code/loops/'
@@ -973,6 +997,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WebsiteMcpServersRouteImport
       parentRoute: typeof WebsiteRoute
     }
+    '/website/home': {
+      id: '/website/home'
+      path: '/home'
+      fullPath: '/website/home'
+      preLoaderRoute: typeof WebsiteHomeRouteImport
+      parentRoute: typeof WebsiteRoute
+    }
     '/website/command-center': {
       id: '/website/command-center'
       path: '/command-center'
@@ -1056,6 +1087,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/code/agents/'
       preLoaderRoute: typeof CodeAgentsIndexRouteImport
       parentRoute: typeof CodeAgentsRoute
+    }
+    '/website/feeds/$feedId': {
+      id: '/website/feeds/$feedId'
+      path: '/feeds/$feedId'
+      fullPath: '/website/feeds/$feedId'
+      preLoaderRoute: typeof WebsiteFeedsFeedIdRouteImport
+      parentRoute: typeof WebsiteRoute
     }
     '/website/$channelId/new': {
       id: '/website/$channelId/new'
@@ -1385,6 +1423,7 @@ declare module '@tanstack/react-router' {
 interface WebsiteRouteChildren {
   WebsiteActivityRoute: typeof WebsiteActivityRoute
   WebsiteCommandCenterRoute: typeof WebsiteCommandCenterRoute
+  WebsiteHomeRoute: typeof WebsiteHomeRoute
   WebsiteMcpServersRoute: typeof WebsiteMcpServersRoute
   WebsiteNewRoute: typeof WebsiteNewRoute
   WebsiteSkillsRoute: typeof WebsiteSkillsRoute
@@ -1395,6 +1434,7 @@ interface WebsiteRouteChildren {
   WebsiteChannelIdHistoryRoute: typeof WebsiteChannelIdHistoryRoute
   WebsiteChannelIdLoopsRoute: typeof WebsiteChannelIdLoopsRoute
   WebsiteChannelIdNewRoute: typeof WebsiteChannelIdNewRoute
+  WebsiteFeedsFeedIdRoute: typeof WebsiteFeedsFeedIdRoute
   WebsiteChannelIdIndexRoute: typeof WebsiteChannelIdIndexRoute
   WebsiteChannelIdDashboardsDashboardIdRoute: typeof WebsiteChannelIdDashboardsDashboardIdRoute
   WebsiteChannelIdTasksTaskIdRoute: typeof WebsiteChannelIdTasksTaskIdRoute
@@ -1403,6 +1443,7 @@ interface WebsiteRouteChildren {
 const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteActivityRoute: WebsiteActivityRoute,
   WebsiteCommandCenterRoute: WebsiteCommandCenterRoute,
+  WebsiteHomeRoute: WebsiteHomeRoute,
   WebsiteMcpServersRoute: WebsiteMcpServersRoute,
   WebsiteNewRoute: WebsiteNewRoute,
   WebsiteSkillsRoute: WebsiteSkillsRoute,
@@ -1413,6 +1454,7 @@ const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteChannelIdHistoryRoute: WebsiteChannelIdHistoryRoute,
   WebsiteChannelIdLoopsRoute: WebsiteChannelIdLoopsRoute,
   WebsiteChannelIdNewRoute: WebsiteChannelIdNewRoute,
+  WebsiteFeedsFeedIdRoute: WebsiteFeedsFeedIdRoute,
   WebsiteChannelIdIndexRoute: WebsiteChannelIdIndexRoute,
   WebsiteChannelIdDashboardsDashboardIdRoute:
     WebsiteChannelIdDashboardsDashboardIdRoute,

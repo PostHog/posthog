@@ -96,9 +96,9 @@ class TestInstagramSource:
         # be able to tell the user which grant is missing.
         assert integration.requiredScopes is not None
         assert set(integration.requiredScopes.split(" ")) == {
-            "instagram_basic",
-            "instagram_manage_insights",
-            "instagram_manage_comments",
+            "instagram_business_basic",
+            "instagram_business_manage_insights",
+            "instagram_business_manage_comments",
             "pages_show_list",
             "pages_read_engagement",
         }
@@ -115,7 +115,10 @@ class TestInstagramSource:
 
     def test_the_graph_api_version_is_pinned_to_something_the_code_calls(self) -> None:
         assert self.source.default_version in self.source.supported_versions
-        assert self.source.resolve_api_version(None) == "v23.0"
+        # New sources land on the newest Graph API version; an unpinned row resolves to it too.
+        assert self.source.resolve_api_version(None) == "v26.0"
+        # An existing pin is honored verbatim so older sources keep hitting their own version path.
+        assert self.source.resolve_api_version("v23.0") == "v23.0"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
@@ -189,7 +192,7 @@ class TestInstagramSource:
 
         assert validate.call_args.kwargs["access_token"] == "refreshed-token"
         assert validate.call_args.kwargs["instagram_account_id"] == ACCOUNT_ID
-        assert validate.call_args.kwargs["api_version"] == "v23.0"
+        assert validate.call_args.kwargs["api_version"] == "v26.0"
 
     def test_validate_credentials_fails_cleanly_when_the_connection_is_gone(self) -> None:
         with (
@@ -252,7 +255,10 @@ class TestInstagramSource:
         # Each table checkpoints a URL built for its own edge, so the Redis slots differ.
         assert media._key != comments._key
 
-    def test_source_for_pipeline_syncs_with_the_connection_token(self) -> None:
+    # Each supported version's pin must reach the request layer verbatim, so a source pinned to
+    # an older Graph API version keeps hitting its own path once v26.0 is the default.
+    @pytest.mark.parametrize("pinned_version", ["v22.0", "v23.0", "v26.0"])
+    def test_source_for_pipeline_syncs_with_the_connection_token(self, pinned_version: str) -> None:
         config = InstagramSourceConfig(
             instagram_integration_id=7, instagram_account_id=ACCOUNT_ID, start_date="2024-01-01"
         )
@@ -260,7 +266,7 @@ class TestInstagramSource:
             "media",
             should_use_incremental_field=True,
             db_incremental_field_last_value="2024-06-01T00:00:00+0000",
-            api_version="v22.0",
+            api_version=pinned_version,
         )
 
         with (
@@ -272,7 +278,7 @@ class TestInstagramSource:
         kwargs = build_source.call_args.kwargs
         assert kwargs["access_token"] == "refreshed-token"
         assert kwargs["endpoint"] == "media"
-        assert kwargs["api_version"] == "v22.0"
+        assert kwargs["api_version"] == pinned_version
         assert kwargs["instagram_account_id"] == ACCOUNT_ID
         assert kwargs["start_date"] == "2024-01-01"
         assert kwargs["should_use_incremental_field"] is True

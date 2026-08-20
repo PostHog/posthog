@@ -195,7 +195,7 @@ export const getQueryBasedDashboard = (
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
 // estimated too expensive to run), 513 (out of memory)
-const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
     VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)

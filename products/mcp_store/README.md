@@ -1,6 +1,6 @@
 # MCP store
 
-A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `MCP_SERVERS` feature flag).
+A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
@@ -24,13 +24,12 @@ When you change a serializer the gateway UI consumes, update the desktop's hand-
 
 ## Settings experience and rollout
 
-Two independent feature flags gate two surfaces — neither flag depends on the other:
+The `mcp-gateway` feature flag (`MCP_GATEWAY`) gates both surfaces:
 
-- The Settings → MCP servers page is gated by the `mcp-servers` feature flag (`MCP_SERVERS`).
-  On that page, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below; when it is off, Settings renders the existing marketplace UI.
-- The standalone gateway scene at `/mcp-servers` and its nav entry are gated solely by `mcp-gateway` and are reachable even with `mcp-servers` off.
+- The Settings → MCP servers page, which renders the gateway experience described below.
+- The standalone gateway scene at `/mcp-servers` and its nav entry.
 
-Keep both layers until the legacy `mcp-servers` flag and marketplace logic are removed in a follow-up change.
+The marketplace UI that `McpStoreSettings` falls back to when the flag is off is unreachable, since the Settings section itself requires the flag; remove it together with the rest of the marketplace logic in a follow-up change.
 
 The gateway experience has these pages and workflows:
 

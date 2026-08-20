@@ -23,7 +23,7 @@ from posthog.errors import QueryErrorCategory
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_signal_emitter import NotifiedAlert
+from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
@@ -157,7 +157,7 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
 class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
     def _notified(
-        self, alert_id: str, action: str, result_count: int | None, consecutive_failures: int
+        self, alert_id: str, action: AlertSignalAction, result_count: int | None, consecutive_failures: int
     ) -> NotifiedAlert:
         return NotifiedAlert(
             alert_id=alert_id,

@@ -48,7 +48,7 @@ from posthog.api.team import (
     validate_team_attrs,
 )
 from posthog.api.utils import validate_authorized_url_wildcards
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -91,6 +91,7 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
 from posthog.rbac.user_access_control import (
@@ -316,6 +317,7 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
         request.user,
         "default release conditions updated",
         {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        request=request,
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
@@ -1327,13 +1329,9 @@ class ProjectViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(organization_id__in=scoped_organizations)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(organization_id__in=scoped_organizations)
-        return queryset.filter(id__in=visible_teams_ids)
+        if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            queryset = queryset.filter(organization_id__in=scoped_organizations)
+        return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -1421,7 +1419,9 @@ class ProjectViewSet(
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(UserCanCreateProjectPermission)
+                    # Evaluate the create-access check before the premium check so a member who lacks
+                    # permission gets the permission message, not the plan-upgrade one.
+                    permissions.insert(permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -1435,6 +1435,12 @@ class ProjectViewSet(
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
+                raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming a project the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
                 raise exceptions.NotFound()
             return team.project
 
@@ -1864,6 +1870,8 @@ class ProjectViewSet(
                 team.organization_id = target_organization_id
                 team.save()
 
+            self._reconcile_current_project_of_affected_users(teams, target_organization)
+
         report_user_action(
             user,
             "project moved to another organization",
@@ -1882,6 +1890,24 @@ class ProjectViewSet(
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
+
+    @staticmethod
+    def _reconcile_current_project_of_affected_users(teams: list[Team], target_organization: Organization) -> None:
+        """Keep `current_team` and `current_organization` in step after a project changes hands.
+
+        Left alone, both fields keep naming the state from before the move. Every check that reads
+        the pair then answers for an organization that no longer holds the project.
+        """
+        affected_users = User.objects.filter(current_team__in=teams)
+        member_user_ids = set(
+            OrganizationMembership.objects.filter(
+                organization=target_organization, user__in=affected_users
+            ).values_list("user_id", flat=True)
+        )
+        # Members follow the project into its new organization; everyone else loses a pointer they
+        # can no longer act on, and falls back to an organization they do belong to on next use
+        affected_users.filter(id__in=member_user_ids).update(current_organization=target_organization)
+        affected_users.exclude(id__in=member_user_ids).update(current_team=None, current_organization=None)
 
     @cached_property
     def user_permissions(self):

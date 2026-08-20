@@ -28,6 +28,14 @@ To retire a model/table:
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
+## Retire dedicated migration tests
+
+A data migration test protects the rollout, not the permanent behavior of the product. Remove the dedicated test after all supported environments have applied the migration, the rollback window has closed, and no supported upgrade still relies on the old data state.
+
+Delete an expired test instead of marking it skipped. Keep the migration file. Fresh-schema CI still checks that the complete migration chain applies.
+
+Do not apply this rule to migration tooling, migration safety checks, reusable backfill systems, or backfills that people can still run.
+
 ## Workflow
 
 1. **Classify** the change as additive (new nullable column, new table) or risky (drop/rename, `NOT NULL`, indexes, constraints, large data updates, model moves). A change is also risky if it touches a [hot table](#hot-table-hazard), regardless of how additive it looks. See also the [cross-language `NOT NULL` hazard](#cross-language-not-null-hazard) below.

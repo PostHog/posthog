@@ -14,6 +14,9 @@ import type { AcpMessage } from "./session-events";
 
 export type { Adapter };
 
+/** Entries the first paint of a big transcript renders; the rest pages in on scroll. */
+export const TRANSCRIPT_TAIL_WINDOW = 2000;
+
 export type PermissionRequest = Omit<RequestPermissionRequest, "sessionId"> & {
   taskRunId: string;
   receivedAt: number;
@@ -65,6 +68,11 @@ export interface AgentSession {
   logUrl?: string;
   /** Full cloud transcript entry count across the resume chain. */
   cloudTranscriptEntryCount?: number;
+  /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
+  transcriptWindowStart?: number;
+  isLoadingOlderTranscript?: boolean;
+  /** True while the terminal transcript is being fetched, so an empty thread shows as loading. */
+  isHydratingTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;
   framework?: "claude";

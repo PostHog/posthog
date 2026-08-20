@@ -7,6 +7,7 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any
 
 from posthog.models import Team
@@ -24,7 +25,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryRequest,
     MetricSeries,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -275,6 +276,8 @@ def list_metric_event_samples(
     date_from: dt.datetime,
     date_to: dt.datetime,
     trace_id: str | None = None,
+    filters: Sequence[MetricFilter] = (),
+    metric_type: MetricType | None = None,
     limit: int = 100,
 ) -> list[MetricEventSample]:
     """List individual metric emissions (the events model) for a metric,
@@ -283,8 +286,14 @@ def list_metric_event_samples(
     Each sample carries its value, attributes, and trace linkage, so the
     Samples view can render raw rows and pivot to the trace behind any one.
     Pass `trace_id` for the reverse pivot — every emission on a given trace.
-    Raises `ValueError` for an empty metric name, an inverted window, or an
-    out-of-range limit; the presentation layer surfaces these as 400s.
+    `filters` and `metric_type` narrow the emissions to the same series a
+    `run_metric_query` call with those arguments charts, so a filtered view
+    and its chart agree. Both are matched against the emission's series, so
+    an emission whose series row hasn't been ingested yet drops out once
+    either is set.
+    Raises `ValueError` for an empty metric name, an inverted window, an
+    invalid regex filter, or an out-of-range limit; the presentation layer
+    surfaces these as 400s.
     """
     runner = MetricEventSamplesQueryRunner(
         team=team,
@@ -292,6 +301,8 @@ def list_metric_event_samples(
         date_from=date_from,
         date_to=date_to,
         trace_id=trace_id,
+        filters=filters,
+        metric_type=metric_type,
         limit=limit,
     )
     return [MetricEventSample(**row) for row in runner.run()]

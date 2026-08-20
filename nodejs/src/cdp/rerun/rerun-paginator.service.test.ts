@@ -456,6 +456,83 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
         })
 
+        it('honours error_message_contains filter, case-insensitively', async () => {
+            await seedRows([
+                {
+                    invocation_id: 'inv-sender',
+                    status: 'failed',
+                    error: new Error(
+                        'The custom sender address "placeholder@example.com" is not a valid email address.'
+                    ),
+                },
+                { invocation_id: 'inv-other', status: 'failed', error: new Error('Some unrelated hog error') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        // Deliberately lower-cased vs the stored message: a needle copied
+                        // from logs must match regardless of capitalization.
+                        error_message_contains: 'the custom sender address',
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id)).toEqual(['inv-sender'])
+            expect(next.progress.queued).toBe(1)
+        })
+
+        it('skips invocations whose latest status outside the window no longer matches', async () => {
+            // Original failures inside a historical window...
+            await seedRows([
+                {
+                    invocation_id: 'inv-replayed',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    scheduledAt: new Date('2026-02-01T10:00:00Z'),
+                },
+                {
+                    invocation_id: 'inv-still-failed',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    scheduledAt: new Date('2026-02-01T11:00:00Z'),
+                },
+            ])
+            // ...then a successful replay of one of them lands its lifecycle row in the
+            // partition of its own scheduled_at, outside the window. The windowed page
+            // query still sees the old failed row, so without the cross-partition status
+            // check a second rerun would re-enqueue it and re-fire its side effects.
+            await seedRows([
+                { invocation_id: 'inv-replayed', status: 'succeeded', scheduledAt: new Date('2026-06-01T10:00:00Z') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-02T00:00:00Z' },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id)).toEqual(['inv-still-failed'])
+            expect(next.progress.queued).toBe(1)
+            expect(next.progress.skipped).toBe(1)
+        })
+
         it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
             await seedRows([
                 { invocation_id: 'a', status: 'failed', error: new Error('5xx') },

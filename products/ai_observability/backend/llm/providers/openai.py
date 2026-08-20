@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
+    LLMError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
@@ -28,6 +29,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -194,31 +196,43 @@ class OpenAIAdapter:
                     model=request.model,
                     usage=usage,
                 )
-        except openai.AuthenticationError as e:
-            raise AuthenticationError(str(e))
-        except openai.NotFoundError:
-            raise ModelNotFoundError(request.model)
-        except openai.PermissionDeniedError:
-            raise ModelPermissionError(request.model)
-        except openai.RateLimitError as e:
-            error_body = getattr(e, "body", {}) or {}
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
+            raise
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, openai.AuthenticationError):
+            return AuthenticationError(str(error))
+        if isinstance(error, openai.NotFoundError):
+            return ModelNotFoundError(model)
+        if isinstance(error, openai.PermissionDeniedError):
+            return ModelPermissionError(model)
+        if isinstance(error, openai.RateLimitError):
+            error_body = getattr(error, "body", {}) or {}
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
-                raise QuotaExceededError(str(e))
-            raise RateLimitError(str(e))
-        except openai.APIConnectionError as e:
+                return QuotaExceededError(str(error))
+            return RateLimitError(str(error))
+        if isinstance(error, openai.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
-            raise ProviderConnectionError(str(e)) from e
-        except openai.APIStatusError as e:
-            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
-                raise ContextWindowExceededError(str(e)) from e
+            return ProviderConnectionError(str(error))
+        if isinstance(error, openai.APIStatusError):
+            if isinstance(error, openai.BadRequestError) and is_context_window_error_message(str(error)):
+                return ContextWindowExceededError(str(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
-            if getattr(e, "status_code", None) == 402:
-                raise QuotaExceededError(str(e))
-            raise
+            if getattr(error, "status_code", None) == 402:
+                return QuotaExceededError(str(error))
+        return None
 
     def _complete_with_json_fallback(
         self,
@@ -361,8 +375,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     yield from self._yield_usage_chunks(chunk.usage)
 
         except Exception as e:
-            logger.exception(f"OpenAI API error: {e}")
-            yield StreamChunk(type="error", data={"error": str(e)})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
@@ -446,6 +459,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
         return {}
 

@@ -57,7 +57,7 @@ export interface CollectedImage {
  * label, or any destination outside the fetch topic.
  */
 export interface CollectedUrl {
-    /** `imageurl:<pseudoTeam>:<hash>` — the ref the mirrored line carries for this URL. */
+    /** `imageurl:<pseudoTeam>:<hash>` stored in the mirrored line's namespaced ref attribute. */
     ref: string
     url: string
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
@@ -78,7 +78,7 @@ export interface ImageCollectionConfig {
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
     /**
-     * Replace a remote image's `src` with a ref and return its URL for the fetch lane.
+     * Keep a remote image's placeholder, stash its ref, and return its URL for the fetch lane.
      *
      * Independent of `collectImages`. The two lanes have separate destinations and separate
      * rollouts, so tying them together would make the URL measurement wait on the scrub lane.

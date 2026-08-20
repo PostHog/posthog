@@ -19,12 +19,12 @@ import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)
-    const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { conversionMetrics, aggregationTargetLabel, funnelVizType } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const labels = [
-        ...(funnelsFilter?.funnelVizType === FunnelVizType.Steps
+        ...(funnelVizType === FunnelVizType.Steps
             ? [
                   <>
                       <span className="flex items-center text-secondary mr-1">
@@ -39,7 +39,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends && conversionMetrics.medianTime != null
+        ...(funnelVizType !== FunnelVizType.Trends && conversionMetrics.medianTime != null
             ? [
                   <>
                       <span className="flex items-center text-secondary">
@@ -50,9 +50,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           <span>Median time to convert</span>
                       </span>
-                      {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      {funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-secondary mr-1">:</span>
-                      {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert ? (
+                      {funnelVizType === FunnelVizType.TimeToConvert ? (
                           <span className="font-bold">{humanFriendlyDuration(conversionMetrics.medianTime)}</span>
                       ) : (
                           <Link
@@ -65,7 +65,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnelVizType === FunnelVizType.Trends
+        ...(funnelVizType === FunnelVizType.Trends
             ? [
                   <>
                       <span className="text-secondary">Conversion rate</span>

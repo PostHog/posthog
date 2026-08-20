@@ -864,6 +864,11 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     if issubclass(type_, datetime.time) and isinstance(value, datetime.time):
         return pa.time64("us")
 
+    # UUID values are stringified later in `_process_batch`; declare the field as string here so a
+    # UUID column absent from the provided schema doesn't crash while its field is being appended.
+    if issubclass(type_, uuid.UUID):
+        return pa.string()
+
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
