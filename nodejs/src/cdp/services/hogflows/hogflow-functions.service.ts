@@ -45,10 +45,7 @@ export class HogFlowFunctionsService {
             mappings,
             created_at: '',
             updated_at: '',
-            // trigger_type rides along with the action config so the email queue's
-            // priority classification can tell broadcast fan-outs (batch trigger)
-            // from event-triggered sends — see getEmailQueuePriorityClass.
-            metadata: { ...config, trigger_type: hogFlow.trigger?.type },
+            metadata: config,
         }
 
         return hogFunction
