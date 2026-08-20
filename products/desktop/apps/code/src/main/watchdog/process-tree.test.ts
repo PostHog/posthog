@@ -68,6 +68,16 @@ describe("redactCommand", () => {
       "sh -c ANTHROPIC_API_KEY=abc123def456 node agent.js",
       ["abc123def456"],
     ],
+    [
+      "underscored and prefixed secret flags",
+      "mcp-server --api_secret abc123def456 --session-token xyz789xyz789",
+      ["abc123def456", "xyz789xyz789"],
+    ],
+    [
+      "a token in a URL query string",
+      "curl https://example.com/callback?access_token=abc123def456",
+      ["abc123def456"],
+    ],
   ])("strips %s", (_name, command, secrets) => {
     const redacted = redactCommand(command);
 
@@ -77,9 +87,11 @@ describe("redactCommand", () => {
     expect(redacted).toContain("[redacted]");
   });
 
-  it("leaves ordinary arguments alone", () => {
-    const command = "/usr/bin/git --no-pager status --porcelain";
-
+  it.each([
+    "/usr/bin/git --no-pager status --porcelain",
+    // "key" as a substring of an innocent flag must not swallow its value.
+    "/Applications/PostHog.app/Contents/MacOS/PostHog --type=renderer --keyboard-layout us",
+  ])("leaves ordinary arguments alone: %s", (command) => {
     expect(redactCommand(command)).toBe(command);
   });
 

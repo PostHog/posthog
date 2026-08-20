@@ -105,6 +105,7 @@ import {
 } from "./utils/logger";
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
+import { redactUrl } from "./utils/network-log";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
 import { setMemoryWatchdog } from "./watchdog/instance";
 import { MemoryWatchdog } from "./watchdog/watchdog";
@@ -259,7 +260,9 @@ app.on("render-process-gone", (_event, webContents, details) => {
   void memoryWatchdog.capture(
     "render-process-gone",
     `Renderer exited: ${details.reason} (code ${details.exitCode})`,
-    { ...details, url: webContents.getURL() },
+    // An artifact preview renderer's URL is a base64 `data:` document holding
+    // the whole artifact, which has no place in a report a user attaches.
+    { ...details, url: redactUrl(webContents.getURL()) },
   );
   posthogNodeAnalytics.captureException(
     new Error(`Renderer process gone: ${details.reason}`),
@@ -425,6 +428,10 @@ app.whenReady().then(async () => {
   log.info(
     `Logs: main=${getLogFilePath()} chromium=${getChromiumLogFilePath() ?? "(disabled)"} network=${getNetworkLogFilePath()}`,
   );
+  // Before anything that can reject: a boot that dies during service
+  // initialization is exactly the kind the watchdog exists to explain, and it
+  // can only do that if its sentinel and breadcrumbs are already on disk.
+  void memoryWatchdog.start();
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
@@ -501,7 +508,6 @@ app.whenReady().then(async () => {
   container.bind(FS_SERVICE).toService(MAIN_FS_SERVICE);
   await initializeServices();
   initializeDeepLinks();
-  void memoryWatchdog.start();
 
   if (process.env.POSTHOG_E2E_UPDATE_FEED) {
     const updates = container.get<UpdatesService>(UPDATES_SERVICE);

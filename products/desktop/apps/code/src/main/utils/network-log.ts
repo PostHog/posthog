@@ -39,6 +39,10 @@ const UUID_SEGMENT =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN_CHARSET = /^[A-Za-z0-9._~+/=-]+$/;
 
+// A `data:` URL carries its payload inline, so there is no host or path to trim
+// down to — an artifact preview renderer's URL is the whole base64 document.
+const DATA_URL = /^data:([^,;]*)/i;
+
 function safeDecodeSegment(segment: string): string {
   try {
     return decodeURIComponent(segment);
@@ -77,6 +81,11 @@ function redactPath(pathname: string): string {
 // any URL fragment are dropped, and credential-shaped path segments are masked,
 // so secrets never reach the world-readable network log.
 export function redactUrl(rawUrl: string): string {
+  const dataUrl = DATA_URL.exec(rawUrl);
+  if (dataUrl) {
+    return `data:${dataUrl[1] || "text/plain"},${REDACTED}`;
+  }
+
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);

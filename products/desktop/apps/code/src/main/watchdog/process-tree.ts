@@ -13,16 +13,24 @@ const PS_ARGS = ["-axo", "pid=,ppid=,rss=,pcpu=,args="];
 // so a report is sensitive material regardless.
 const SECRET_TOKEN =
   /\b(?:phx_|phc_|sk-ant-|sk-|ghp_|gho_|ghs_|github_pat_|xox[abposr]-|AKIA)[A-Za-z0-9_-]{8,}/g;
-const SECRET_FLAG =
-  /(--?(?:api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|password|passwd|credentials?|bearer|connection[-_]?string)[=\s]+)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
+// The keyword has to be a whole `-`/`_` separated component, so `--api_secret`
+// and `--session-token` are caught while `--keyboard-layout` is left alone.
+const SECRET_WORD =
+  "(?:key|token|secret|password|passwd|credentials?|bearer|connection[-_]?string)";
+const SECRET_FLAG = new RegExp(
+  `(--?(?:[\\w-]*[-_])?${SECRET_WORD}(?:[-_][\\w-]*)?[=\\s]+)(?:"[^"]*"|'[^']*'|[^\\s"']+)`,
+  "gi",
+);
 // Header values survive `ps` either quoted (`sh -c` keeps the whole command in
 // one arg) or already split into argv, so the value has to be matched without
 // relying on the quotes being there.
 const SECRET_HEADER =
   /((?:authorization|proxy-authorization|x-api-key|x-auth-token)\s*:\s*(?:bearer|basic|token|digest)?\s*)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
-// `FOO_TOKEN=…` from an inline env assignment, and its lowercase variants.
-const SECRET_ASSIGNMENT =
-  /\b([\w.]*(?:key|token|secret|password|passwd|credentials?)[\w.]*=)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
+// `FOO_TOKEN=…` from an inline env assignment, and `?access_token=…` from a URL.
+const SECRET_ASSIGNMENT = new RegExp(
+  `\\b((?:[\\w.-]*[-._])?${SECRET_WORD}(?:[-._][\\w.-]*)?=)(?:"[^"]*"|'[^']*'|[^\\s"']+)`,
+  "gi",
+);
 // The password half of `postgres://user:pass@host/db`.
 const URL_CREDENTIALS = /([a-z][\w+.-]*:\/\/[^\s:/@]+:)[^\s/@]+@/gi;
 
