@@ -15,10 +15,7 @@ import {
 import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { PanelResizeHandle } from "@posthog/ui/features/navigation/components/PanelResizeHandle";
-import {
-  RightPanelButtons,
-  SIDES,
-} from "@posthog/ui/features/navigation/components/RightPanelButtons";
+import { RightPanelButtons } from "@posthog/ui/features/navigation/components/RightPanelButtons";
 import {
   RightPanelSurface,
   SLIDE_MS,
@@ -26,6 +23,7 @@ import {
 import { resolvePanelGeometry } from "@posthog/ui/features/navigation/rightPanelGeometry";
 import {
   openRightPanelSide,
+  SIDES,
   SWITCHER_WIDTH_PX,
 } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";

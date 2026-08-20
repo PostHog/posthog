@@ -1,3 +1,10 @@
+import {
+  ChatCircleIcon,
+  GitDiffIcon,
+  type Icon,
+  PackageIcon,
+  PulseIcon,
+} from "@phosphor-icons/react";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
@@ -65,3 +72,18 @@ export function useRightPanelOpen(taskId: string | undefined): boolean {
     }) != null
   );
 }
+
+/** The panels the right column can show, in the order the switcher lists them. */
+export const SIDES: Record<RightPanelSide, { label: string; Icon: Icon }> = {
+  timeline: { label: "Timeline", Icon: PulseIcon },
+  artifacts: { label: "Artifacts", Icon: PackageIcon },
+  comments: { label: "Comments", Icon: ChatCircleIcon },
+  changes: { label: "Changes", Icon: GitDiffIcon },
+};
+
+export const SIDE_ORDER: readonly RightPanelSide[] = [
+  "timeline",
+  "artifacts",
+  "comments",
+  "changes",
+];

@@ -1,7 +1,7 @@
 import { Kbd } from "@posthog/quill";
 import { ResizeHandle } from "@posthog/ui/primitives/ResizeHandle";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 /**
  * The grab strip a resizable panel is dragged by. Rest the pointer on the
@@ -15,26 +15,35 @@ const meta: Meta<typeof ResizeHandle> = {
   args: { edge: "left", tooltip: "Resize", isResizing: false },
   render: (args) => {
     const Demo = () => {
+      const [width, setWidth] = useState(340);
       const [isResizing, setIsResizing] = useState(false);
+      const boxRef = useRef<HTMLDivElement>(null);
+      const rightRef = useRef(0);
       return (
-        <div className="flex h-screen">
-          <div className="flex-1 bg-fill-hover" />
-          <div className="relative w-[340px] border-border border-l bg-background p-3 text-[13px]">
-            A panel with a grip on its {args.edge} edge.
+        // A transform, like every real caller has: it makes this the containing
+        // block for a fixed shield, which is why the shield is portaled out.
+        <div className="flex h-screen" style={{ transform: "translateX(0)" }}>
+          <div className="flex-1 bg-fill-hover p-3 text-[13px]">
+            Drag the grip. The cursor holds across this pane too.
+          </div>
+          <div
+            ref={boxRef}
+            className="relative border-border border-l bg-background p-3 text-[13px]"
+            style={{ width }}
+          >
+            {width}px
             <ResizeHandle
               {...args}
               isResizing={isResizing}
-              onMouseDown={() => setIsResizing(true)}
+              setIsResizing={setIsResizing}
+              onDragStart={() => {
+                rightRef.current =
+                  boxRef.current?.getBoundingClientRect().right ?? 0;
+              }}
+              onDrag={(event) =>
+                setWidth(Math.max(120, rightRef.current - event.clientX))
+              }
             />
-            {isResizing && (
-              <button
-                type="button"
-                className="mt-2 underline"
-                onClick={() => setIsResizing(false)}
-              >
-                stop resizing
-              </button>
-            )}
           </div>
         </div>
       );

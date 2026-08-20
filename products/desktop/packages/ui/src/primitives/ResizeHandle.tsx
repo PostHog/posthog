@@ -42,7 +42,9 @@ export function ResizeHandle({
   onDragEnd?: (event: MouseEvent) => void;
 }) {
   const handlers = React.useRef({ onDrag, onDragEnd, setIsResizing });
-  handlers.current = { onDrag, onDragEnd, setIsResizing };
+  React.useEffect(() => {
+    handlers.current = { onDrag, onDragEnd, setIsResizing };
+  });
 
   React.useEffect(() => {
     if (!isResizing) return;
@@ -59,21 +61,12 @@ export function ResizeHandle({
     return () => {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
+      // Unmounting mid-drag means no mouseup ever lands, which would strand the
+      // cursor and a stuck isResizing. Redundant when the drag ended normally.
+      setDragCursor(false);
+      handlers.current.setIsResizing(false);
     };
   }, [isResizing]);
-
-  // Unmounting mid-drag (a route swap, a panel that closes) means no mouseup
-  // ever lands, which would strand the cursor and a stuck isResizing.
-  const live = React.useRef({ isResizing, setIsResizing });
-  live.current = { isResizing, setIsResizing };
-  React.useEffect(
-    () => () => {
-      if (!live.current.isResizing) return;
-      live.current.setIsResizing(false);
-      setDragCursor(false);
-    },
-    [],
-  );
 
   const grip = (
     <button
@@ -119,7 +112,10 @@ export function ResizeHandle({
                 sideOffset={8}
                 className="isolate"
               >
-                <Tooltip.Popup className="quill-tooltip__content flex flex-col items-start gap-1 text-left">
+                {/* Uniform padding over quill's 6px/12px split, and a line
+                    height that hugs the text: a kbd chip fills its line box,
+                    so leading above a bare line reads as a lopsided box. */}
+                <Tooltip.Popup className="quill-tooltip__content flex flex-col items-start gap-1 p-2 text-left leading-tight">
                   {tooltip}
                 </Tooltip.Popup>
               </Tooltip.Positioner>
@@ -129,14 +125,10 @@ export function ResizeHandle({
       ) : (
         grip
       )}
-      {/* Portalled to the body so the shield spans the window. The panels that
-          host this handle carry a transform, which makes a fixed-position child
-          resolve to the panel box instead of the viewport, and the shield has to
-          reach the whole window to hold the col-resize cursor and swallow
-          pointer events over other panes and embedded iframes for the length of
-          the drag.
-          pointer-events-auto: a panel being drag-closed turns its own off, and
-          a shield that isn't a hit target has no cursor to give. */}
+      {/* Portaled to the body: every caller sits inside a transformed panel,
+          which would otherwise be the containing block for a fixed shield and
+          confine it there. pointer-events-auto because a drag-closed panel
+          turns its own off, and a shield that is no hit target gives no cursor. */}
       {isResizing &&
         createPortal(
           <div className="pointer-events-auto fixed inset-0 z-[200] cursor-col-resize" />,

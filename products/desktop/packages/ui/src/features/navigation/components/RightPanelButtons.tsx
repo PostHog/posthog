@@ -1,35 +1,18 @@
 import {
-  ChatCircleIcon,
-  GitDiffIcon,
-  type Icon,
-  PackageIcon,
-  PulseIcon,
-} from "@phosphor-icons/react";
-import {
   Button,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
+import {
+  openRightPanelSide,
+  SIDE_ORDER,
+  SIDES,
+} from "@posthog/ui/features/navigation/rightPanelSide";
 import type { RightPanelSide } from "@posthog/ui/features/navigation/rightPanelStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
-
-export const SIDES: Record<RightPanelSide, { label: string; Icon: Icon }> = {
-  timeline: { label: "Timeline", Icon: PulseIcon },
-  artifacts: { label: "Artifacts", Icon: PackageIcon },
-  comments: { label: "Comments", Icon: ChatCircleIcon },
-  changes: { label: "Changes", Icon: GitDiffIcon },
-};
-
-const SIDE_ORDER: readonly RightPanelSide[] = [
-  "timeline",
-  "artifacts",
-  "comments",
-  "changes",
-];
 
 /** The one lesson this switcher teaches: where a run's deliverables land. */
 const ARTIFACTS_PANEL_TIP = TIP_KEYS.sessionArtifactsLocation;

@@ -224,10 +224,10 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         }
       >
         {children}
-        {/* Resize handle lives inside the panel so it rides along in both the
-            docked and floating states. Its grip straddles the panel's free
-            edge - the one away from the window. */}
-        {(open || overlayVisible) && (
+        {/* Rides along in both the docked and floating states, and stays
+            mounted through a drag that closes the panel - it owns the gesture's
+            listeners, so unmounting it mid-drag would strand them. */}
+        {(open || overlayVisible || isResizing) && (
           <ResizeHandle
             edge={isLeft ? "right" : "left"}
             tooltip={resizeTooltip}
