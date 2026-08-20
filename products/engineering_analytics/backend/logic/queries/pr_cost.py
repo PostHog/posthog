@@ -387,6 +387,10 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    # The prefix predicate deliberately counts all queue-shaped spend, including branch shapes
+    # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
+    # in merge_queue_overview.py use the narrower corroborated population; the two answer different
+    # questions, so don't unify them casually.
     queue = merge_queue_branch_predicate("c.head_branch")
     queue_agg = (
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {cur}) AS queue_billable_seconds, "

@@ -35,11 +35,15 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries.merge_queue_overview import query_merge_queue_overview
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
 )
-from products.engineering_analytics.backend.logic.queries.workflow_health import query_time_to_green_series
+from products.engineering_analytics.backend.logic.queries.workflow_health import (
+    query_time_to_green_series,
+    query_time_to_green_window,
+)
 
 _RUNS_SELECT = """
     SELECT
@@ -370,6 +374,10 @@ def query_repo_overview(
     )
 
     jobs_available = curated.jobs_source() is not None
+    queue = query_merge_queue_overview(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+    time_to_green = query_time_to_green_window(
+        curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+    )
     costs = query_workflow_window_costs_with_prev(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
@@ -402,6 +410,20 @@ def query_repo_overview(
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
         merge_queue_billable_minutes=queue_minutes,
         merge_queue_billable_minutes_prev=queue_minutes_prev,
+        merge_queue_merged_pr_count=queue.merged_pr_count,
+        merge_queue_merged_pr_count_prev=queue.merged_pr_count_prev,
+        merge_queue_median_gate_to_merge_seconds=queue.median_gate_to_merge_seconds,
+        merge_queue_median_gate_to_merge_seconds_prev=queue.median_gate_to_merge_seconds_prev,
+        merge_queue_p90_gate_to_merge_seconds=queue.p90_gate_to_merge_seconds,
+        merge_queue_p90_gate_to_merge_seconds_prev=queue.p90_gate_to_merge_seconds_prev,
+        merge_queue_avg_attempts_per_merge=queue.avg_attempts_per_merge,
+        merge_queue_avg_attempts_per_merge_prev=queue.avg_attempts_per_merge_prev,
+        merge_queue_multi_attempt_merge_share=queue.multi_attempt_merge_share,
+        merge_queue_multi_attempt_merge_share_prev=queue.multi_attempt_merge_share_prev,
+        merge_queue_failed_gate_merge_share=queue.failed_gate_merge_share,
+        merge_queue_failed_gate_merge_share_prev=queue.failed_gate_merge_share_prev,
+        median_time_to_green_seconds=time_to_green.median_seconds,
+        median_time_to_green_seconds_prev=time_to_green.median_seconds_prev,
         jobs_available=jobs_available,
         default_branch=default_branch,
         cost_series=series.cost,
