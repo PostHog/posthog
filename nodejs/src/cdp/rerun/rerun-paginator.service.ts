@@ -79,6 +79,22 @@ interface InvocationRow {
     invocation_globals: string
 }
 
+/**
+ * Latest lifecycle state for an invocation across ALL partitions. The page
+ * query is window-bounded, so a prior replay's rows (written into the partition
+ * of their own scheduled_at, outside the window) are invisible to it. These
+ * fields override the stale in-window snapshot before rehydration — see
+ * `fetchLatestState`.
+ */
+interface InvocationLatestState {
+    is_deleted: number
+    status: string
+    latest_attempts: number
+    parent_run_id: string
+    invocation_globals: string
+    first_scheduled_at: string
+}
+
 export interface PageOutcome {
     /** New job state after this page. The worker writes it back via reschedule(state) — or ack()s if done. */
     state: RerunJobState
@@ -136,29 +152,32 @@ export class RerunPaginatorService {
         try {
             const rows = await this.fetchPage(teamId, state)
 
-            // Stop early if the user's max_count or our hard server cap is reached.
+            // Remaining cap on invocations to re-enqueue. Scan the whole page —
+            // stale rows near the top must not hide fresh failures below them —
+            // and cap only the queuing inside rehydrateBatch.
             const remainingBudget = this.remainingBudget(state)
-            const toProcess = rows.slice(0, remainingBudget)
 
             // A historical window can't see the newer lifecycle rows a prior replay wrote —
             // they land in the partition of their own scheduled_at, outside the window — so
-            // the in-window collapse can report 'failed' for an invocation that has since
-            // succeeded. Re-check the page against each invocation's latest status across
-            // all partitions; without this, replaying the same window twice re-fires side
-            // effects (emails, webhooks) for already-recovered runs.
-            const staleStatusIds = await this.fetchStaleStatusInvocationIds(
+            // the in-window collapse is a pre-replay snapshot. It can report 'failed' for an
+            // invocation that has since succeeded, and its invocation_globals, attempts,
+            // parent_run_id, and first_scheduled_at are all stale. Fetch each invocation's
+            // latest state across all partitions and rehydrate from that; without it,
+            // replaying the same window twice re-fires side effects (emails, webhooks) —
+            // for hog flows the stale currentAction re-runs already-completed actions.
+            const latestState = await this.fetchLatestState(
                 teamId,
                 function_kind,
                 function_id,
-                toProcess.map((row) => row.invocation_id),
-                this.requestedStatus(state)
+                rows.map((row) => row.invocation_id)
             )
 
-            const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(
+            const { queued, skipped, queuedInvocations, examined } = await this.rehydrateBatch(
                 teamId,
                 state,
-                toProcess,
-                staleStatusIds
+                rows,
+                latestState,
+                remainingBudget
             )
 
             let conflictSkipped = 0
@@ -252,11 +271,12 @@ export class RerunPaginatorService {
                 )
             }
 
+            const queuedThisPage = queued - conflictSkipped
             const nextProgress: RerunJobProgress = {
-                queued: progress.queued + queued - conflictSkipped,
+                queued: progress.queued + queuedThisPage,
                 skipped: progress.skipped + skipped + conflictSkipped,
-                cursor: this.advanceCursor(state, toProcess),
-                done: this.isDone(state, rows.length, toProcess.length),
+                cursor: this.advanceCursor(state, rows.slice(0, examined)),
+                done: this.isDone(state, rows.length, queuedThisPage),
                 last_error: undefined,
                 pages_processed: (progress.pages_processed ?? 0) + 1,
             }
@@ -418,13 +438,20 @@ export class RerunPaginatorService {
         await Promise.all([this.invocationResultsRowsService.flush(), this.monitoringService.flush()])
     }
 
+    // The cap bounds how many invocations a rerun re-enqueues. Only queued
+    // invocations count against it — skipped rows (already recovered, over
+    // max_attempts, in-flight) must not. A prior replay writes its lifecycle
+    // rows outside a historical window, so a later run walks the same top-of-
+    // window rows, finds them recovered, and skips them. If skips spent budget,
+    // that second run would exhaust the cap on rows the first run handled and
+    // queue nothing, leaving the rows below the cap boundary unreachable.
     private remainingBudget(state: RerunJobState): number {
         const cap = Math.min(state.request.filter.max_count ?? this.maxCount, this.maxCount)
-        return Math.max(0, cap - state.progress.queued - state.progress.skipped)
+        return Math.max(0, cap - state.progress.queued)
     }
 
-    private isDone(state: RerunJobState, fetchedCount: number, processedCount: number): boolean {
-        const budgetSpent = this.remainingBudget(state) <= processedCount
+    private isDone(state: RerunJobState, fetchedCount: number, queuedCount: number): boolean {
+        const budgetSpent = this.remainingBudget(state) <= queuedCount
         const pageWasPartial = fetchedCount < RERUN_PAGE_SIZE
         return budgetSpent || pageWasPartial
     }
@@ -482,43 +509,61 @@ export class RerunPaginatorService {
     }
 
     /**
-     * Of the given invocation ids, return those whose latest lifecycle row —
-     * across ALL partitions, not just the request window — no longer matches
-     * the requested statuses (or is deleted). Same primary-prefix keying as
-     * `fetchRunningInvocationIds`, so it stays cheap without a partition bound.
+     * For the given invocation ids, fetch each one's latest lifecycle state
+     * across ALL partitions, not just the request window. Same primary-prefix
+     * keying as `fetchRunningInvocationIds`, so it stays cheap without a
+     * partition bound. The paginator's page query is window-bounded, so its
+     * argMax collapse only sees rows a prior replay wrote inside the window;
+     * this is the unbounded source of truth for the status check and for the
+     * fields carried onto the rehydrated invocation.
      */
-    private async fetchStaleStatusInvocationIds(
+    private async fetchLatestState(
         teamId: number,
         functionKind: RerunFunctionKind,
         functionId: string,
-        invocationIds: string[],
-        requestedStatus: string[]
-    ): Promise<Set<string>> {
+        invocationIds: string[]
+    ): Promise<Map<string, InvocationLatestState>> {
         if (invocationIds.length === 0) {
-            return new Set()
+            return new Map()
         }
         const result = await this.clickhouse.query({
-            query: `/* team_id:${teamId} query_type:hog_invocation_rerun_stale_status */
-                SELECT invocation_id
+            query: `/* team_id:${teamId} query_type:hog_invocation_rerun_latest_state */
+                SELECT
+                    invocation_id,
+                    argMax(is_deleted, version)         AS is_deleted,
+                    argMax(status, version)             AS status,
+                    argMax(attempts, version)           AS latest_attempts,
+                    argMax(parent_run_id, version)      AS parent_run_id,
+                    argMax(invocation_globals, version) AS invocation_globals,
+                    argMax(first_scheduled_at, version) AS first_scheduled_at
                 FROM hog_invocation_results
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
                   AND invocation_id IN {invocation_ids:Array(String)}
-                GROUP BY invocation_id
-                HAVING argMax(is_deleted, version) = 1
-                    OR argMax(status, version) NOT IN {requested_status:Array(String)}`,
+                GROUP BY invocation_id`,
             query_params: {
                 team_id: teamId,
                 function_kind: functionKind,
                 function_id: functionId,
                 invocation_ids: invocationIds,
-                requested_status: requestedStatus,
             },
             format: 'JSONEachRow',
         })
-        const rows = (await result.json()) as { invocation_id: string }[]
-        return new Set(rows.map((r) => r.invocation_id))
+        const rows = (await result.json()) as (InvocationLatestState & { invocation_id: string })[]
+        return new Map(
+            rows.map((r) => [
+                r.invocation_id,
+                {
+                    is_deleted: r.is_deleted,
+                    status: r.status,
+                    latest_attempts: r.latest_attempts,
+                    parent_run_id: r.parent_run_id,
+                    invocation_globals: r.invocation_globals,
+                    first_scheduled_at: r.first_scheduled_at,
+                },
+            ])
+        )
     }
 
     private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
@@ -616,25 +661,59 @@ export class RerunPaginatorService {
         teamId: number,
         state: RerunJobState,
         rows: InvocationRow[],
-        staleStatusIds: Set<string>
-    ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
+        latestState: Map<string, InvocationLatestState>,
+        budget: number
+    ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[]; examined: number }> {
         const maxAttempts = state.request.filter.max_attempts
+        const requestedStatus = this.requestedStatus(state)
 
-        // Rehydrate the whole page concurrently — `addGroupsToGlobals` and the
-        // hog function manager are LazyLoader-backed and batch their DB lookups
-        // across concurrent callers, so a sequential loop would defeat that.
+        // Cheap pass over the page: drop stale / over-attempts rows using the
+        // latest cross-partition state, and gather at most `budget` candidates to
+        // rehydrate. Scanning row by row (not a budget-sized slice of the raw
+        // page) is what stops recovered rows near the top from hiding fresh
+        // failures below them. `examined` is how far the cursor may advance: a row
+        // past the budget cutoff is left for the next page rather than dropped.
+        let skipped = 0
+        let examined = 0
+        const candidates: InvocationRow[] = []
+        for (const row of rows) {
+            if (candidates.length >= budget) {
+                break
+            }
+            examined++
+            const latest = latestState.get(row.invocation_id)
+            // Judged on the latest status: a prior replay may have recovered or
+            // deleted the invocation since the in-window snapshot was written.
+            if (latest && (latest.is_deleted === 1 || !requestedStatus.includes(latest.status))) {
+                counterRerunInvocationsSkipped.labels(state.function_kind, 'stale_status').inc()
+                skipped++
+                continue
+            }
+            // Merge the latest cross-partition state over the in-window row.
+            // `last_scheduled_at` stays from the window row — it drives the keyset
+            // cursor, which must stay ordered within the window.
+            const effectiveRow: InvocationRow = latest
+                ? {
+                      ...row,
+                      latest_attempts: latest.latest_attempts,
+                      parent_run_id: latest.parent_run_id,
+                      invocation_globals: latest.invocation_globals,
+                      first_scheduled_at: latest.first_scheduled_at,
+                  }
+                : row
+            if (maxAttempts !== undefined && effectiveRow.latest_attempts >= maxAttempts) {
+                counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
+                skipped++
+                continue
+            }
+            candidates.push(effectiveRow)
+        }
+
+        // Rehydrate the candidates concurrently — `addGroupsToGlobals` and the hog
+        // function manager are LazyLoader-backed and batch their DB lookups across
+        // concurrent callers, so a sequential loop would defeat that.
         const rehydrated = await Promise.all(
-            rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
-                // Stale rows stay in the page (the cursor advances over them) and count
-                // as skipped, so pagination never re-fetches them.
-                if (staleStatusIds.has(row.invocation_id)) {
-                    counterRerunInvocationsSkipped.labels(state.function_kind, 'stale_status').inc()
-                    return null
-                }
-                if (maxAttempts !== undefined && row.latest_attempts >= maxAttempts) {
-                    counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
-                    return null
-                }
+            candidates.map(async (row): Promise<CyclotronJobInvocation | null> => {
                 try {
                     const invocation = await this.rehydrateInvocation(
                         teamId,
@@ -660,6 +739,7 @@ export class RerunPaginatorService {
         const queuedInvocations: CyclotronJobInvocation[] = []
         for (const invocation of rehydrated) {
             if (!invocation) {
+                skipped++
                 continue
             }
             // Rerun-start lifecycle row. is_retry/attempts are derived from
@@ -672,8 +752,9 @@ export class RerunPaginatorService {
 
         return {
             queued: queuedInvocations.length,
-            skipped: rows.length - queuedInvocations.length,
+            skipped,
             queuedInvocations,
+            examined,
         }
     }
 

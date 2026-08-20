@@ -282,6 +282,18 @@ describe('RerunPaginatorService integration', () => {
         ...overrides,
     })
 
+    // A window plus a later partition, both relative to now. The lifecycle table
+    // drops partitions past its 30-day TTL, so a fixed historical date would be
+    // gone before the seed is read; relative dates keep both partitions resident.
+    // Cross-partition tests seed originals inside the window and a prior replay's
+    // rows in the later partition, outside it.
+    const recentWindow = (): { at: (days: number) => Date; windowStart: string; windowEnd: string } => ({
+        at: (days: number): Date =>
+            DateTime.now().minus({ days }).set({ hour: 10, minute: 0, second: 0, millisecond: 0 }).toJSDate(),
+        windowStart: DateTime.now().minus({ days: 6 }).startOf('day').toISO()!,
+        windowEnd: DateTime.now().minus({ days: 4 }).startOf('day').toISO()!,
+    })
+
     describe('by-ids mode', () => {
         it('rehydrates and re-enqueues only the requested invocations, ignoring others', async () => {
             await seedRows([
@@ -492,33 +504,25 @@ describe('RerunPaginatorService integration', () => {
         })
 
         it('skips invocations whose latest status outside the window no longer matches', async () => {
-            // Original failures inside a historical window...
+            const { at, windowStart, windowEnd } = recentWindow()
+            // Original failures inside the window...
             await seedRows([
-                {
-                    invocation_id: 'inv-replayed',
-                    status: 'failed',
-                    error: new Error('boom'),
-                    scheduledAt: new Date('2026-02-01T10:00:00Z'),
-                },
+                { invocation_id: 'inv-replayed', status: 'failed', error: new Error('boom'), scheduledAt: at(5) },
                 {
                     invocation_id: 'inv-still-failed',
                     status: 'failed',
                     error: new Error('boom'),
-                    scheduledAt: new Date('2026-02-01T11:00:00Z'),
+                    scheduledAt: new Date(at(5).getTime() + 3600_000),
                 },
             ])
-            // ...then a successful replay of one of them lands its lifecycle row in the
-            // partition of its own scheduled_at, outside the window. The windowed page
-            // query still sees the old failed row, so without the cross-partition status
-            // check a second rerun would re-enqueue it and re-fire its side effects.
-            await seedRows([
-                { invocation_id: 'inv-replayed', status: 'succeeded', scheduledAt: new Date('2026-06-01T10:00:00Z') },
-            ])
+            // ...then a successful replay of one of them lands its lifecycle row in a later
+            // partition, outside the window. The windowed page query still sees the old
+            // failed row, so without the cross-partition status check a second rerun would
+            // re-enqueue it and re-fire its side effects.
+            await seedRows([{ invocation_id: 'inv-replayed', status: 'succeeded', scheduledAt: at(2) }])
 
             const state = buildState({
-                request: {
-                    filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-02T00:00:00Z' },
-                },
+                request: { filter: { window_start: windowStart, window_end: windowEnd } },
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
@@ -533,7 +537,7 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.skipped).toBe(1)
         })
 
-        it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
+        it('honours max_count by capping queued invocations at the user-provided limit', async () => {
             await seedRows([
                 { invocation_id: 'a', status: 'failed', error: new Error('5xx') },
                 { invocation_id: 'b', status: 'failed', error: new Error('5xx') },
@@ -556,6 +560,127 @@ describe('RerunPaginatorService integration', () => {
             })
             expect(next.progress.queued).toBe(2)
             expect(next.progress.done).toBe(true)
+        })
+
+        it('does not charge previously skipped rows against the cap', async () => {
+            // Three fresh failures, well under the cap.
+            await seedRows([
+                { invocation_id: 'fresh-1', status: 'failed', error: new Error('5xx') },
+                { invocation_id: 'fresh-2', status: 'failed', error: new Error('5xx') },
+                { invocation_id: 'fresh-3', status: 'failed', error: new Error('5xx') },
+            ])
+
+            // A rerun that already skipped stale (recovered) rows on earlier pages:
+            // progress.skipped is high, nothing queued yet. Skipped rows must not
+            // consume the cap, or fresh failures below the cap boundary would be
+            // unreachable. Old budget (cap - queued - skipped = 5 - 0 - 10) is 0.
+            const state = buildState({
+                request: {
+                    filter: { window_start: '2026-01-01T00:00:00Z', window_end: '2027-01-01T00:00:00Z', max_count: 5 },
+                },
+                progress: { queued: 0, skipped: 10, done: false },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id).sort()).toEqual(['fresh-1', 'fresh-2', 'fresh-3'])
+            expect(next.progress.queued).toBe(3)
+        })
+
+        it('queues fresh failures even when recovered rows sit above them under a tight cap', async () => {
+            const { at, windowStart, windowEnd } = recentWindow()
+
+            // Four failures in the window, ordered by scheduled_at.
+            await seedRows([
+                { invocation_id: 'recovered-1', status: 'failed', error: new Error('boom'), scheduledAt: at(5) },
+                {
+                    invocation_id: 'recovered-2',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    scheduledAt: new Date(at(5).getTime() - 3600_000),
+                },
+                {
+                    invocation_id: 'fresh-1',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    scheduledAt: new Date(at(5).getTime() - 7200_000),
+                },
+                {
+                    invocation_id: 'fresh-2',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    scheduledAt: new Date(at(5).getTime() - 10800_000),
+                },
+            ])
+            // The two newest ones are recovered by a prior replay, whose success rows land
+            // in a later partition outside the window.
+            await seedRows([
+                { invocation_id: 'recovered-1', status: 'succeeded', scheduledAt: at(2) },
+                { invocation_id: 'recovered-2', status: 'succeeded', scheduledAt: at(2) },
+            ])
+
+            const state = buildState({
+                request: { filter: { window_start: windowStart, window_end: windowEnd, max_count: 2 } },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            // DESC ordering puts the two recovered rows first. Slicing the page to the
+            // cap before the stale check would see only those two, skip them, and queue
+            // nothing — the whole page must be scanned so the fresh failures are reached.
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id).sort()).toEqual(['fresh-1', 'fresh-2'])
+            expect(next.progress.queued).toBe(2)
+        })
+
+        it('rehydrates from the latest cross-partition state, not the pre-replay in-window snapshot', async () => {
+            const { at, windowStart, windowEnd } = recentWindow()
+
+            // Original failure inside the window, no prior rerun (attempts=0) ...
+            await seedRows([
+                {
+                    invocation_id: 'inv-advanced',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    rerunAttempts: 0,
+                    scheduledAt: at(5),
+                },
+            ])
+            // ... a prior replay advanced it (attempts=2) and it failed again, writing its
+            // lifecycle row into a later partition, outside the window.
+            await seedRows([
+                {
+                    invocation_id: 'inv-advanced',
+                    status: 'failed',
+                    error: new Error('boom'),
+                    rerunAttempts: 2,
+                    scheduledAt: at(2),
+                },
+            ])
+
+            const state = buildState({
+                request: { filter: { window_start: windowStart, window_end: windowEnd } },
+            })
+
+            await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
+
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-advanced'])
+            // The in-window snapshot has attempts=0 (would rehydrate rerunAttempts=1). The
+            // latest row outside the window has attempts=2, so rehydration must carry
+            // rerunAttempts=3 — proof it read the latest state, not the stale snapshot.
+            expect(enqueued[0].state.rerunAttempts).toBe(3)
         })
 
         it('returns done=true with an empty page when no rows match the filter', async () => {
