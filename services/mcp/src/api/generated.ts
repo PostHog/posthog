@@ -30786,6 +30786,37 @@ export namespace Schemas {
       skip_on_conflict?: boolean;
     }
 
+    /**
+     * Form fields to include in the multipart POST, before the file part.
+     */
+    export type ErrorTrackingSymbolSetPresignedPostFields = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetPresignedPost {
+      /** S3 endpoint URL to send the multipart POST to. */
+      url: string;
+      /** Form fields to include in the multipart POST, before the file part. */
+      fields: ErrorTrackingSymbolSetPresignedPostFields;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadEntry {
+      /** ID of the symbol set the upload belongs to. */
+      symbol_set_id: string;
+      /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+      presigned_url: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+      fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+    }
+
+    /**
+     * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+     */
+    export type ErrorTrackingSymbolSetBulkStartUploadResponseIdMap = {[key: string]: ErrorTrackingSymbolSetBulkStartUploadEntry};
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadResponse {
+      /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+      id_map: ErrorTrackingSymbolSetBulkStartUploadResponseIdMap;
+    }
+
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;

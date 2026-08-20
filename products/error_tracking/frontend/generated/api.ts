@@ -66,6 +66,7 @@ import type {
     ErrorTrackingSymbolSetBulkDeleteApi,
     ErrorTrackingSymbolSetBulkFinishUploadApi,
     ErrorTrackingSymbolSetBulkStartUploadApi,
+    ErrorTrackingSymbolSetBulkStartUploadResponseApi,
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
@@ -1736,11 +1737,14 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetBulkStartUploadApi?: ErrorTrackingSymbolSetBulkStartUploadApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
-    })
+): Promise<ErrorTrackingSymbolSetBulkStartUploadResponseApi> => {
+    return apiMutator<ErrorTrackingSymbolSetBulkStartUploadResponseApi>(
+        getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
+        }
+    )
 }
