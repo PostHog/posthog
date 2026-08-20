@@ -304,8 +304,10 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
         signals_app = get_signals_app()
         if signals_app is not None:
             return signals_app
-        # Array still authorizes the `signals` gateway product, so the run works; it just
-        # isn't isolated yet. Loud enough to notice, since the isolation is the point.
+        # The gateway no longer accepts Array tokens for the `signals` product, so this run's
+        # inference calls will be rejected there. Minting still succeeds so the failure surfaces
+        # in the run (with this log to explain it) rather than as an opaque kickoff error; the
+        # real fix is provisioning the region's Signals application row.
         logger.warning("signals_oauth_app_missing_falling_back_to_array", region=get_instance_region())
     return get_array_app()
 

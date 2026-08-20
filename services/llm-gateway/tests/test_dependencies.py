@@ -23,7 +23,7 @@ from llm_gateway.dependencies import (
     get_request_json,
     resolve_plan_and_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.plan_resolver import PlanInfo
@@ -512,6 +512,7 @@ class TestBasetenExclusiveModelGateWiring:
 
 
 class TestServerCredentialRequirementWiring:
+    # The signals path only accepts the Signals app now, so the marker wiring is pinned with it
     def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
         return AuthenticatedUser(
             user_id=7,
@@ -519,7 +520,7 @@ class TestServerCredentialRequirementWiring:
             auth_method="oauth_access_token",
             distinct_id="test-distinct-id-7",
             scopes=scopes,
-            application_id=POSTHOG_CODE_US_APP_ID,
+            application_id=SIGNALS_DEV_APP_ID,
         )
 
     @pytest.mark.asyncio

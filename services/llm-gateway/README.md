@@ -280,7 +280,7 @@ locks an entitled user out for at most a minute after their cached grant expires
 
 `signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
 Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.
-The PostHog Code application ids stay listed on `signals` until every region mints under the new app; removing them completes the isolation.
+The PostHog Code application ids are no longer accepted for `signals`, so a region whose runs still mint under the Code app rejects every Signals OAuth run at the gateway.
 
 ### Adding a new product
 
