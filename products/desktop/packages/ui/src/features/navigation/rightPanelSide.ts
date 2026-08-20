@@ -49,6 +49,13 @@ export function toggleRightPanel(taskId: string): void {
  */
 export const CONTENT_CHROME_RIGHT_VAR = "--content-chrome-right";
 
+/**
+ * The room the switcher takes at the right of the row, covering one button per
+ * side at icon-sm. It is what the content pane keeps clear while the panel is
+ * closed, and what the panel's own header row leaves free for its title.
+ */
+export const SWITCHER_WIDTH_PX = 112;
+
 /** Whether this session's panel is open, for chrome that has to make room. */
 export function useRightPanelOpen(taskId: string | undefined): boolean {
   const stored = useRightPanelStore((s) =>

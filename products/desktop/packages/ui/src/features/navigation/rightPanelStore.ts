@@ -14,18 +14,25 @@ export const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
 export const RIGHT_PANEL_MIN_WIDTH = 280;
 const RIGHT_PANEL_DEFAULT_WIDTH = 340;
 
-/** What share of the window an expanded panel takes before anyone drags it. */
-const EXPANDED_DEFAULT_SHARE = 0.75;
+/**
+ * The most of its row the panel pushes the content pane out of before it starts
+ * covering it instead. Past this the pane is as narrow as it is going to get, so
+ * the panel keeps widening over the top of a pane that no longer reflows - which
+ * is what makes expanding cheap, and what keeps the line where the two behaviors
+ * meet from being a jump.
+ */
+export const PANEL_PUSH_MAX_SHARE = 0.5;
+
+/**
+ * What the panel always leaves of the row rather than taking all of it, whether
+ * it got there by being expanded or by being dragged. A sliver of the pane still
+ * showing is what says the panel is over the content and not a page of its own,
+ * and it gives somewhere to click back to.
+ */
+export const PANEL_ROW_INSET_PX = 50;
 
 interface RightPanelStore {
   width: number;
-  /**
-   * How wide the expanded panel's drawer was last dragged to, or `null` for one
-   * nobody has dragged. The drawer floats over the content instead of taking a
-   * column beside it, so it keeps its own width: the docked column's is held to
-   * half the window, which is the ceiling expanding is there to escape.
-   */
-  expandedWidth: number | null;
   isResizing: boolean;
   /**
    * The panel each session (or the sessionless fallback key) has open, so
@@ -52,12 +59,12 @@ interface RightPanelStore {
    */
   seenArtifactCountByKey: Record<string, number | undefined>;
   /**
-   * Which sessions have their panel expanded into the drawer. Not persisted, for
-   * the same reason `sideByKey` isn't - this is within-run memory.
+   * Which sessions have their panel expanded to the whole content row. Not
+   * persisted, for the same reason `sideByKey` isn't - this is within-run
+   * memory.
    */
   expandedByKey: Record<string, boolean | undefined>;
   setWidth: (width: number) => void;
-  setExpandedWidth: (width: number) => void;
   setIsResizing: (isResizing: boolean) => void;
   setSideForKey: (key: string, side: RightPanelSide | null) => void;
   setExpandedForKey: (key: string, expanded: boolean) => void;
@@ -124,28 +131,76 @@ export function resolveArtifactMark({
 }
 
 /**
- * How wide the expanded panel opens: the width someone dragged its drawer to,
- * or three quarters of the window for a drawer nobody has dragged. Either way it
- * is held to the panel's floor and to the window's own edge, so a width dragged
- * out on a wide monitor still fits when the app is opened on a narrow one - and
- * a window narrower than the floor gives all of itself rather than overflowing.
+ * How wide the panel is allowed to be: what it was dragged to, held to its own
+ * floor and to the row's ceiling. A width dragged out on a wide monitor still
+ * fits when the app is opened on a narrow one, and a row with less room than the
+ * floor asks for gives what it has rather than overflowing.
  */
-export function resolveExpandedWidth(
-  stored: number | null,
-  windowWidth: number = window.innerWidth,
-): number {
-  const wanted = stored ?? Math.round(windowWidth * EXPANDED_DEFAULT_SHARE);
+export function resolvePanelWidth(stored: number, rowWidth: number): number {
+  const ceiling = Math.max(0, rowWidth - PANEL_ROW_INSET_PX);
   return Math.max(
-    Math.min(RIGHT_PANEL_MIN_WIDTH, windowWidth),
-    Math.min(wanted, windowWidth),
+    Math.min(RIGHT_PANEL_MIN_WIDTH, ceiling),
+    Math.min(stored, ceiling),
   );
+}
+
+/**
+ * Dragging the grip past the panel's floor toward the edge closes it, and while
+ * the button is still held, dragging back out brings it in again. The reopen
+ * line sits outside the close line so the boundary can't jitter.
+ */
+const DRAG_CLOSE_AT = RIGHT_PANEL_MIN_WIDTH * 0.5;
+const DRAG_REOPEN_AT = DRAG_CLOSE_AT + 16;
+
+/** What a drag is asking of the panel, given where the pointer has reached. */
+export type PanelDrag =
+  | { action: "resize"; width: number }
+  /** Out of the full row and back to a width of its own, mid-drag. */
+  | { action: "collapse"; width: number }
+  | { action: "close" }
+  | { action: "reopen"; width: number }
+  /** The pointer is somewhere the panel has no answer for. */
+  | { action: "hold" };
+
+/**
+ * What the pointer's distance from the row's right edge means to the panel it
+ * is dragging. Expanded, the panel is already as wide as the row allows, so
+ * dragging out asks for nothing it can have and dragging in is how expanding
+ * comes undone - from there the drag carries on as an ordinary one.
+ */
+export function resolvePanelDrag({
+  pointer,
+  rowWidth,
+  open,
+  expanded,
+}: {
+  /** The pointer's distance from the row's right edge. */
+  pointer: number;
+  rowWidth: number;
+  open: boolean;
+  expanded: boolean;
+}): PanelDrag {
+  const width = resolvePanelWidth(pointer, rowWidth);
+
+  if (expanded) {
+    return width >= resolvePanelWidth(rowWidth, rowWidth)
+      ? { action: "hold" }
+      : { action: "collapse", width };
+  }
+  if (open) {
+    return pointer < DRAG_CLOSE_AT
+      ? { action: "close" }
+      : { action: "resize", width };
+  }
+  return pointer >= DRAG_REOPEN_AT
+    ? { action: "reopen", width }
+    : { action: "hold" };
 }
 
 export const useRightPanelStore = create<RightPanelStore>()(
   persist(
     (set) => ({
       width: RIGHT_PANEL_DEFAULT_WIDTH,
-      expandedWidth: null,
       isResizing: false,
       sideByKey: {},
       closedByDefault: false,
@@ -153,7 +208,6 @@ export const useRightPanelStore = create<RightPanelStore>()(
       expandedByKey: {},
       setWidth: (width) =>
         set({ width: Math.max(RIGHT_PANEL_MIN_WIDTH, width) }),
-      setExpandedWidth: (width) => set({ expandedWidth: width }),
       setIsResizing: (isResizing) => set({ isResizing }),
       setSideForKey: (key, side) =>
         set((state) => ({
@@ -189,7 +243,6 @@ export const useRightPanelStore = create<RightPanelStore>()(
       partialize: (state) => ({
         width: state.width,
         closedByDefault: state.closedByDefault,
-        expandedWidth: state.expandedWidth,
       }),
     },
   ),

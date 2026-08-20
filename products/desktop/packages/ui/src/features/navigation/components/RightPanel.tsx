@@ -9,9 +9,6 @@ import {
 } from "@phosphor-icons/react";
 import {
   Button,
-  Drawer,
-  DrawerContent,
-  DrawerTitle,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -25,8 +22,11 @@ import {
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
 import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { DrawerResizeHandle } from "@posthog/ui/features/navigation/components/DrawerResizeHandle";
-import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
+import { PanelResizeHandle } from "@posthog/ui/features/navigation/components/PanelResizeHandle";
+import {
+  openRightPanelSide,
+  SWITCHER_WIDTH_PX,
+} from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import {
   useSessionArtifactCount,
@@ -36,20 +36,23 @@ import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
-import {
-  ResizableSidebar,
-  SLIDE_MS,
-} from "@posthog/ui/primitives/ResizableSidebar";
 import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
-  RIGHT_PANEL_MIN_WIDTH,
+  PANEL_PUSH_MAX_SHARE,
+  PANEL_ROW_INSET_PX,
   type RightPanelSide,
   resolveArtifactMark,
-  resolveExpandedWidth,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "../rightPanelStore";
@@ -67,14 +70,6 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
   "comments",
   "changes",
 ];
-
-/**
- * The room the switcher takes at the right of the row, covering SIDE_ORDER at
- * icon-sm. The panel's header row leaves it free for the title, and while the
- * panel is closed the content pane's own chrome (the tab strip and its split
- * and close controls) keeps out of it through CONTENT_CHROME_RIGHT_VAR.
- */
-export const SWITCHER_WIDTH_PX = 112;
 
 /** The one lesson this switcher teaches: where a run's deliverables land. */
 const ARTIFACTS_PANEL_TIP = TIP_KEYS.sessionArtifactsLocation;
@@ -152,9 +147,9 @@ function SideButton({
 
 /**
  * The panel's own switcher: one button per side, the active one toggling the
- * panel closed. It sits a row below the header band, pinned to the right edge,
- * and stays there whether the panel is open or closed, because the panel slides
- * out from under it.
+ * panel closed. It keeps the same corner in both places it is drawn - the
+ * panel's header row while the panel is open, and the content row's own top
+ * right while it is away - so the buttons read as fixed.
  */
 export function RightPanelButtons({
   active,
@@ -251,7 +246,7 @@ function ChangesPanelContent({ task }: { task: Task }) {
   );
 }
 
-/** The control that takes a panel between the column and the expanded drawer. */
+/** The control that takes the panel between its own width and the whole row. */
 function ExpandButton({
   expanded,
   onToggle,
@@ -286,27 +281,25 @@ function ExpandButton({
   );
 }
 
-/** What the title reads like in either place the panel is drawn. */
+/** What the panel's title reads like. */
 const PANEL_TITLE_CLASS = "min-w-0 flex-1 truncate font-medium text-[13px]";
 
 /**
- * The panel's title row. Docked, it stops short of the corner the switcher
- * floats over; expanded, the drawer carries a switcher of its own and the row
- * runs to its edge.
+ * The panel's title row. It stops short of the corner the switcher floats over,
+ * so the title and the expand control never run under buttons that outlive any
+ * one panel.
  */
 function PanelHeader({
   title,
-  reserveSwitcher,
   children,
 }: {
   title: ReactNode;
-  reserveSwitcher: boolean;
   children?: ReactNode;
 }) {
   return (
     <div
       className="flex h-[32px] shrink-0 items-center gap-0.5 border-border border-b pl-3"
-      style={{ paddingRight: reserveSwitcher ? SWITCHER_WIDTH_PX : 8 }}
+      style={{ paddingRight: SWITCHER_WIDTH_PX }}
     >
       {title}
       {children}
@@ -335,92 +328,80 @@ function PanelContent({
 }
 
 /**
- * The expanded panel: the same panel in a drawer over the content rather than a
- * column beside it, so it can take as much of the window as it is dragged to -
- * the column is held to half of it, which is the ceiling expanding escapes. Its
- * title row and switcher come along, because the drawer covers the ones the
- * column leaves floating in the corner.
+ * How long the panel takes to slide in, widen, or go away.
  */
-export function ExpandedPanelDrawer({
-  taskId,
-  task,
-  side,
-  active,
-  hasNewArtifacts,
-  onCollapse,
+const SLIDE_MS = 200;
+
+/**
+ * The two layers the panel is drawn in. The spacer is what pushes the content
+ * pane over, and it stops growing at its share of the row; the panel itself is
+ * laid over the row's right edge at whatever width it has been given, so past
+ * that point it widens across a pane that has already stopped reflowing.
+ * Expanding is then only a wider panel over the same parked pane, not a
+ * relayout of everything under it.
+ *
+ * Both layers belong to the content row, so the panel reaches the row's edges
+ * and no further - the nav beside it stays uncovered.
+ */
+export function RightPanelSurface({
+  panelRef,
+  open,
+  expanded,
+  width,
+  isResizing,
+  children,
 }: {
-  taskId: string;
-  task: Task | null;
-  side: RightPanelSide;
-  active: RightPanelSide | null;
-  hasNewArtifacts: boolean;
-  onCollapse: () => void;
+  panelRef: RefObject<HTMLDivElement | null>;
+  open: boolean;
+  /** Taking the whole row, rather than the width it was dragged to. */
+  expanded: boolean;
+  width: number;
+  isResizing: boolean;
+  children?: ReactNode;
 }) {
-  const storedWidth = useRightPanelStore((s) => s.expandedWidth);
-  const setExpandedWidth = useRightPanelStore((s) => s.setExpandedWidth);
-  const isResizing = useRightPanelStore((s) => s.isResizing);
-  const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
+  // A drag is the pointer's own movement, so the panel has to keep up with it
+  // frame for frame rather than easing toward each width it is handed.
+  const slide = isResizing ? "0ms" : `${SLIDE_MS}ms`;
 
   return (
-    <Drawer
-      open
-      swipeDirection="right"
-      onOpenChange={(next) => {
-        // Escape, a click outside, and a swipe out all mean the same thing here:
-        // put the panel back in its column, rather than close it altogether.
-        if (!next) onCollapse();
-      }}
-    >
-      <DrawerContent
-        className="right-panel-drawer"
-        style={{ width: resolveExpandedWidth(storedWidth) }}
-        // Base UI reads a horizontal drag anywhere in a right drawer as a swipe
-        // toward dismissal, which this panel has no room for: the drag that sets
-        // its width is horizontal, and so is selecting a line of a diff or
-        // scrolling a wide one. Escape, the backdrop, and the collapse button are
-        // how it closes.
-        data-base-ui-swipe-ignore
+    <>
+      {/* Stops at the share of the row the panel is allowed to push, after
+          which the pane stops moving and the panel carries on widening. */}
+      <div
+        className="h-full shrink-0 transition-[width] ease-out motion-reduce:transition-none"
+        style={{
+          width: open
+            ? `min(${width}px, ${PANEL_PUSH_MAX_SHARE * 100}%)`
+            : "0px",
+          transitionDuration: slide,
+        }}
+      />
+      <div
+        ref={panelRef}
+        className="absolute inset-y-0 right-0 z-40 flex min-w-0 flex-col border-gray-6 border-l bg-background transition-[width,transform] ease-out motion-reduce:transition-none"
+        style={{
+          width: expanded ? "100%" : `${width}px`,
+          // One ceiling for both widths, so a width stored on a wider window
+          // lands where expanding would, rather than over the nav.
+          maxWidth: `calc(100% - ${PANEL_ROW_INSET_PX}px)`,
+          transform: open ? "translateX(0)" : "translateX(100%)",
+          pointerEvents: open ? undefined : "none",
+          transitionDuration: slide,
+        }}
       >
-        <PanelHeader
-          reserveSwitcher={false}
-          title={
-            <DrawerTitle className={PANEL_TITLE_CLASS}>
-              {SIDES[side].label}
-            </DrawerTitle>
-          }
-        >
-          <ExpandButton expanded onToggle={onCollapse} />
-          <RightPanelButtons
-            active={active}
-            taskId={taskId}
-            hasNewArtifacts={hasNewArtifacts}
-          />
-        </PanelHeader>
-        <PanelContent task={task} side={side} />
-        <DrawerResizeHandle
-          isResizing={isResizing}
-          setIsResizing={setIsResizing}
-          setWidth={setExpandedWidth}
-        />
-      </DrawerContent>
-    </Drawer>
+        {children}
+      </div>
+    </>
   );
 }
 
 /**
- * The panel's title and contents fade with its slide, so the two read as one
- * movement: in over the slide's own duration, out quicker, so the panel is
- * already gone as the column finishes closing.
- */
-const PANEL_FADE_OUT_MS = 120;
-
-/**
  * The side to draw, which outlasts the one that is open: a closing panel has to
- * keep its title and contents on screen to fade them out, then drop them. A
+ * keep its title and contents on screen to slide them out, then drop them. A
  * drag that is still held keeps them, since dragging back out brings the same
  * panel in and rebuilding it mid-drag would stutter.
  */
-function useFadingSide(
+function useDrawnSide(
   active: RightPanelSide | null,
   held: boolean,
 ): RightPanelSide | null {
@@ -432,7 +413,7 @@ function useFadingSide(
       return;
     }
     if (held) return;
-    const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
+    const timer = setTimeout(() => setDrawn(null), SLIDE_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
 
@@ -452,10 +433,8 @@ export function RightPanel() {
 }
 
 /**
- * The right panel column: a push column beside the content, one panel at a
- * time, shared resizable width. Its switcher is pinned to the top right of the
- * column and outlives any one panel, so the panel opens and closes beneath a
- * row of buttons that never move.
+ * The right panel: one panel at a time at the right of the content row, with a
+ * switcher that outlives any one of them.
  */
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
@@ -479,11 +458,12 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
     (s) => s.expandedByKey[taskId] ?? false,
   );
 
+  const panelRef = useRef<HTMLDivElement>(null);
   const open = active != null;
-  // A closed panel has nothing to expand, so the drawer waits for it to open
+  // A closed panel has nothing to expand, so the whole row waits for it to open
   // again rather than dropping the mode the reader chose.
   const expanded = open && wantsExpanded;
-  const drawn = useFadingSide(active, isResizing);
+  const drawn = useDrawnSide(active, isResizing);
 
   useEffect(() => preloadReviewPages(), []);
 
@@ -502,77 +482,55 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
 
   return (
     <>
-      <ResizableSidebar
-        open={open && !expanded}
+      <RightPanelSurface
+        panelRef={panelRef}
+        open={open}
+        expanded={expanded}
         width={width}
-        setWidth={setWidth}
         isResizing={isResizing}
-        setIsResizing={setIsResizing}
-        side="right"
-        minWidth={RIGHT_PANEL_MIN_WIDTH}
-        setOpen={setOpen}
       >
-        <div
-          className="flex h-full min-h-0 flex-col bg-background transition-opacity ease-out motion-reduce:transition-none"
-          style={{
-            opacity: open ? 1 : 0,
-            transitionDuration: open
-              ? `${SLIDE_MS}ms`
-              : `${PANEL_FADE_OUT_MS}ms`,
-          }}
-        >
-          {/* Expanded, the panel is drawn in the drawer instead - mounting it in
-              both places would run a session's review twice. */}
-          {drawn && !expanded && (
-            <>
-              <PanelHeader
-                reserveSwitcher
-                title={
-                  <span className={PANEL_TITLE_CLASS}>
-                    {SIDES[drawn].label}
-                  </span>
-                }
-              >
-                <ExpandButton
-                  expanded={false}
-                  onToggle={() => setExpandedForKey(taskId, true)}
-                />
-              </PanelHeader>
-              <PanelContent task={task} side={drawn} />
-            </>
-          )}
-        </div>
-      </ResizableSidebar>
-      {drawn && expanded && (
-        <ExpandedPanelDrawer
-          taskId={taskId}
-          task={task}
-          side={drawn}
+        {drawn && (
+          <>
+            <PanelHeader
+              title={
+                <span className={PANEL_TITLE_CLASS}>{SIDES[drawn].label}</span>
+              }
+            >
+              <ExpandButton
+                expanded={expanded}
+                onToggle={() => setExpandedForKey(taskId, !expanded)}
+              />
+            </PanelHeader>
+            <PanelContent task={task} side={drawn} />
+            <PanelResizeHandle
+              panelRef={panelRef}
+              open={open}
+              expanded={expanded}
+              width={width}
+              isResizing={isResizing}
+              setIsResizing={setIsResizing}
+              setWidth={setWidth}
+              setOpen={setOpen}
+              setExpanded={(next) => setExpandedForKey(taskId, next)}
+            />
+          </>
+        )}
+      </RightPanelSurface>
+      {/* Outside the panel, so the buttons hold their place while it comes and
+          goes under them. It has to outrank the panel's own layer; the row's
+          `isolate` keeps that rank from reaching the app's overlays. */}
+      <div
+        className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
+        style={{ width: SWITCHER_WIDTH_PX }}
+      >
+        <RightPanelButtons
           active={active}
+          taskId={taskId}
           hasNewArtifacts={hasNewArtifacts}
-          onCollapse={() => setExpandedForKey(taskId, false)}
+          offerArtifactsTip={hasNewArtifacts && !isWorking}
+          artifactCount={artifactCount}
         />
-      )}
-      {/* Outside the sliding column, so the buttons hold their place while the
-          panel comes and goes under them. It has to outrank the panel's closed
-          layer, which sweeps across this corner at z-50 on the way out; the
-          row's own `isolate` keeps that rank from reaching the app's overlays.
-          Expanded, the drawer's own row stands in for it, since this one would
-          sit under the backdrop. */}
-      {!expanded && (
-        <div
-          className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
-          style={{ width: SWITCHER_WIDTH_PX }}
-        >
-          <RightPanelButtons
-            active={active}
-            taskId={taskId}
-            hasNewArtifacts={hasNewArtifacts}
-            offerArtifactsTip={hasNewArtifacts && !isWorking}
-            artifactCount={artifactCount}
-          />
-        </div>
-      )}
+      </div>
     </>
   );
 }

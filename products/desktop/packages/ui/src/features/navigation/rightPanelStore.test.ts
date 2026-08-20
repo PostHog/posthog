@@ -3,7 +3,8 @@ import {
   DEFAULT_RIGHT_PANEL_SIDE,
   type RightPanelSide,
   resolveArtifactMark,
-  resolveExpandedWidth,
+  resolvePanelDrag,
+  resolvePanelWidth,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "./rightPanelStore";
@@ -192,44 +193,112 @@ describe("resolveArtifactMark", () => {
   );
 });
 
-describe("resolveExpandedWidth", () => {
+describe("resolvePanelWidth", () => {
   it.each<{
     name: string;
-    stored: number | null;
-    windowWidth: number;
+    stored: number;
+    rowWidth: number;
     expected: number;
   }>([
     {
-      name: "a drawer nobody has dragged takes three quarters of the window",
-      stored: null,
-      windowWidth: 1600,
-      expected: 1200,
-    },
-    {
       name: "a dragged width is kept as it is",
       stored: 900,
-      windowWidth: 1600,
+      rowWidth: 1600,
       expected: 900,
     },
     {
-      name: "a width dragged out on a wider window still fits this one",
+      name: "a drag to the row's far edge stops short of covering it",
+      stored: 1600,
+      rowWidth: 1600,
+      expected: 1550,
+    },
+    {
+      name: "a width dragged out on a wider window still fits this row",
       stored: 2400,
-      windowWidth: 1600,
-      expected: 1600,
+      rowWidth: 1600,
+      expected: 1550,
     },
     {
       name: "a width dragged in past the panel's floor is held at it",
       stored: 120,
-      windowWidth: 1600,
+      rowWidth: 1600,
       expected: 280,
     },
     {
-      name: "a window narrower than the floor gives all of itself",
+      name: "a row with less room than the floor gives what it has",
       stored: 120,
-      windowWidth: 200,
-      expected: 200,
+      rowWidth: 200,
+      expected: 150,
     },
-  ])("$name", ({ stored, windowWidth, expected }) => {
-    expect(resolveExpandedWidth(stored, windowWidth)).toBe(expected);
+  ])("$name", ({ stored, rowWidth, expected }) => {
+    expect(resolvePanelWidth(stored, rowWidth)).toBe(expected);
+  });
+});
+
+describe("resolvePanelDrag", () => {
+  // A 1600px row: the panel's ceiling is 1550, its floor 280, and the drag
+  // closes below 140 / reopens at 156.
+  const rowWidth = 1600;
+
+  it.each<{
+    name: string;
+    pointer: number;
+    open: boolean;
+    expanded: boolean;
+    expected: ReturnType<typeof resolvePanelDrag>;
+  }>([
+    {
+      name: "dragging an open panel sets the width the pointer asks for",
+      pointer: 700,
+      open: true,
+      expanded: false,
+      expected: { action: "resize", width: 700 },
+    },
+    {
+      name: "dragging an open panel past its floor closes it",
+      pointer: 100,
+      open: true,
+      expanded: false,
+      expected: { action: "close" },
+    },
+    {
+      name: "dragging back out while still held brings it in again",
+      pointer: 200,
+      open: false,
+      expanded: false,
+      expected: { action: "reopen", width: 280 },
+    },
+    {
+      name: "a closed panel between the two lines stays closed",
+      pointer: 150,
+      open: false,
+      expanded: false,
+      expected: { action: "hold" },
+    },
+    {
+      name: "dragging an expanded panel in takes it off the full row",
+      pointer: 900,
+      open: true,
+      expanded: true,
+      expected: { action: "collapse", width: 900 },
+    },
+    {
+      name: "dragging an expanded panel out asks for room it hasn't got",
+      pointer: 1900,
+      open: true,
+      expanded: true,
+      expected: { action: "hold" },
+    },
+    {
+      name: "an expanded panel dragged past its floor collapses on the way",
+      pointer: 100,
+      open: true,
+      expanded: true,
+      expected: { action: "collapse", width: 280 },
+    },
+  ])("$name", ({ pointer, open, expanded, expected }) => {
+    expect(resolvePanelDrag({ pointer, rowWidth, open, expanded })).toEqual(
+      expected,
+    );
   });
 });

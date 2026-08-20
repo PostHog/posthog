@@ -1274,12 +1274,22 @@ body.ph-window-blurred .app-fade-in {
   --terminal-selection-fg: #e6e6e6;
 }
 
-/* Buttons and menu items should have pointer cursor */
-button,
-[type="button"],
-[role="button"],
-[role="menuitem"] {
-  cursor: pointer;
+/*
+ * Buttons and menu items should have pointer cursor.
+ *
+ * Layered, because unlayered declarations outrank every `@layer` - this rule
+ * used to beat any `cursor-*` utility written on a button, so a resize grip
+ * asking for `col-resize` and a disabled button asking for `not-allowed` both
+ * silently got `pointer` instead. In `base` it does what a reset should: set
+ * the default, and lose to anything that names a cursor of its own.
+ */
+@layer base {
+  button,
+  [type="button"],
+  [role="button"],
+  [role="menuitem"] {
+    cursor: pointer;
+  }
 }
 
 .quill-button.quill-button--variant-outline:hover {
@@ -1442,22 +1452,6 @@ button,
  * caps are utility classes on the elements themselves, and a rule inside
  * @layer components would lose to them.
  */
-.right-panel-drawer {
-  max-width: 100vw;
-}
-.right-panel-drawer > :not([data-slot="drawer-handle"]) {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  max-width: none;
-  margin-inline: 0;
-  /* Sits exactly over the card the popup paints behind it, so the header's rule
-     and the content's own edges keep the card's rounded corners. */
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-}
-
 /*
  * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
  * `!important`, and `!important` inverts cascade-layer order, so no utility

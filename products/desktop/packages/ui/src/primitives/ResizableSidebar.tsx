@@ -1,5 +1,6 @@
 import { SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { PEEK_CLOSE_MARGIN } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
+import { ResizeHandle } from "@posthog/ui/primitives/ResizeHandle";
 import React from "react";
 
 // Linear-style drag-to-close: dragging the handle clamps at SIDEBAR_MIN_WIDTH,
@@ -36,6 +37,9 @@ interface ResizableSidebarProps {
   onPeekEnter?: () => void;
   onPeekLeave?: () => void;
   onPeekDismiss?: () => void;
+  // What the resize grip says once the pointer has rested on it. Defaults to
+  // the bare "Resize"; a panel with a shortcut of its own passes that too.
+  resizeTooltip?: React.ReactNode;
 }
 
 export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
@@ -53,6 +57,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   onPeekEnter,
   onPeekLeave,
   onPeekDismiss,
+  resizeTooltip = "Resize",
 }) => {
   // Whether the active drag started on the docked sidebar or the floating
   // (peek) one — dragging back out must restore the same mode it closed from.
@@ -280,44 +285,18 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
       >
         {children}
         {/* Resize handle lives inside the panel so it rides along in both the
-            docked and floating states. */}
+            docked and floating states. Its grip straddles the panel's free
+            edge - the one away from the window. */}
         {(open || overlayVisible) && (
-          <button
-            type="button"
-            aria-label={`Resize ${side} sidebar`}
-            // Mouse/drag-only affordance: there is no keyboard resize model,
-            // so keep it out of the tab order rather than expose a focusable
-            // control that announces a resize action and does nothing.
-            tabIndex={-1}
+          <ResizeHandle
+            edge={isLeft ? "right" : "left"}
+            tooltip={resizeTooltip}
+            isResizing={isResizing}
+            armed={handleArmed}
             onMouseDown={handleMouseDown}
-            className={`no-drag group absolute top-0 bottom-0 flex w-2 cursor-col-resize justify-center border-0 bg-transparent p-0 ${
-              handleArmed || isResizing ? "" : "pointer-events-none"
-            }`}
-            style={{
-              left: isLeft ? undefined : -5,
-              right: isLeft ? -5 : undefined,
-              zIndex: 100,
-            }}
-          >
-            <span
-              className={`h-full w-px transition-colors duration-150 ease-out ${
-                isResizing
-                  ? "bg-primary"
-                  : handleArmed
-                    ? "bg-transparent delay-100 group-hover:bg-primary"
-                    : "bg-transparent"
-              }`}
-            />
-          </button>
+          />
         )}
       </div>
-      {/* Full-screen shield while dragging: keeps the col-resize cursor no
-          matter what the pointer crosses (content sets its own cursors, and
-          webview tabs would swallow the drag entirely). Outside the panel so
-          the panel's pointer-events:none while drag-closed can't disable it. */}
-      {isResizing && (
-        <div className="fixed inset-0 z-[200] cursor-col-resize" />
-      )}
     </div>
   );
 };

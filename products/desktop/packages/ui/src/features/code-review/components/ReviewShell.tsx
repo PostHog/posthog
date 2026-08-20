@@ -4,6 +4,8 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useCloudPrUrl } from "@posthog/ui/features/git-interaction/useCloudPrUrl";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import { useIsWiderThan } from "@posthog/ui/primitives/hooks/useIsWiderThan";
+import { ResizeHandle } from "@posthog/ui/primitives/ResizeHandle";
 import { Flex, Spinner, Text } from "@radix-ui/themes";
 import {
   type ReactNode,
@@ -22,6 +24,7 @@ import {
   resolveVisibleActiveFilePath,
 } from "../commentFileFilter";
 import {
+  REVIEW_FILE_BROWSER_MIN_WIDTH,
   REVIEW_LIST_BUFFER_PX,
   REVIEW_LIST_ESTIMATED_ITEM_SIZE,
 } from "../constants";
@@ -50,71 +53,57 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 500;
 const SIDEBAR_DEFAULT_WIDTH = 280;
 
-function ExpandedSidebar({ task }: { task: Task }) {
+function FileBrowser({ task }: { task: Task }) {
   const reviewHost = useService<ReviewHost>(REVIEW_HOST);
   const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const isDragging = useRef(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const boxRef = useRef<HTMLDivElement | null>(null);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      isDragging.current = true;
-      const startX = e.clientX;
-      const startWidth = width;
+  useEffect(() => {
+    if (!isResizing) return;
+    const right = boxRef.current?.getBoundingClientRect().right ?? 0;
 
-      const handleMouseMove = (e: MouseEvent) => {
-        if (!isDragging.current) return;
-        const delta = startX - e.clientX;
-        const newWidth = Math.min(
+    const handleMouseMove = (e: MouseEvent) => {
+      setWidth(
+        Math.min(
           SIDEBAR_MAX_WIDTH,
-          Math.max(SIDEBAR_MIN_WIDTH, startWidth + delta),
-        );
-        setWidth(newWidth);
-      };
+          Math.max(SIDEBAR_MIN_WIDTH, right - e.clientX),
+        ),
+      );
+    };
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
 
-      const handleMouseUp = () => {
-        isDragging.current = false;
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [width],
-  );
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
 
   return (
-    <Flex direction="row" className="shrink-0">
-      <button
-        type="button"
-        aria-label="Resize sidebar"
-        onMouseDown={handleMouseDown}
-        style={{ transition: "background 0.1s" }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--accent-8)";
+    <Flex
+      ref={boxRef}
+      direction="column"
+      style={{ width: `${width}px`, minWidth: `${SIDEBAR_MIN_WIDTH}px` }}
+      className="relative shrink-0 border-l border-l-(--gray-6) bg-(--color-background)"
+    >
+      {reviewHost.renderFileBrowser(task)}
+      <ResizeHandle
+        edge="left"
+        tooltip="Resize"
+        isResizing={isResizing}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setIsResizing(true);
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
         }}
-        onMouseLeave={(e) => {
-          if (!isDragging.current) {
-            e.currentTarget.style.background = "transparent";
-          }
-        }}
-        className="w-[4px] shrink-0 cursor-col-resize border-l border-l-(--gray-6) bg-transparent p-0"
       />
-      <Flex
-        direction="column"
-        style={{
-          width: `${width}px`,
-          minWidth: `${SIDEBAR_MIN_WIDTH}px`,
-        }}
-        className="shrink-0 bg-(--color-background)"
-      >
-        {reviewHost.renderExpandedSidebar(task)}
-      </Flex>
     </Flex>
   );
 }
@@ -148,6 +137,7 @@ export function ReviewShell({
   const taskId = task.id;
   const listRef = useRef<VListHandle | null>(null);
   const listContainerRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const lastActiveRef = useRef<string | null>(null);
   const pendingNavigationRef = useRef<string | null>(null);
   const navigationFrameRef = useRef<number | null>(null);
@@ -200,10 +190,14 @@ export function ReviewShell({
     [reviewHost],
   );
 
-  const reviewMode = useReviewNavigationStore(
-    (s) => s.reviewModes[taskId] ?? "closed",
+  // The file browser answers to the room the review was given, not to the mode
+  // it was opened in: the same review is a column beside a session, a panel
+  // widened over it, and a scene of its own, and only the first of those has no
+  // room for a browser.
+  const showFileBrowser = useIsWiderThan(
+    shellRef,
+    REVIEW_FILE_BROWSER_MIN_WIDTH,
   );
-  const isExpanded = reviewMode === "expanded";
 
   const viewedCount = useMemo(() => {
     const visibleKeys =
@@ -442,7 +436,7 @@ export function ReviewShell({
       }}
     >
       <ReviewViewedContext.Provider value={viewedContextValue}>
-        <Flex direction="column" height="100%" id="review-shell">
+        <Flex ref={shellRef} direction="column" height="100%" id="review-shell">
           <ReviewToolbar
             taskId={taskId}
             fileCount={fileCount}
@@ -482,7 +476,7 @@ export function ReviewShell({
               <PendingReviewBar taskId={taskId} />
             </Flex>
 
-            {isExpanded && <ExpandedSidebar task={task} />}
+            {showFileBrowser && <FileBrowser task={task} />}
           </Flex>
         </Flex>
       </ReviewViewedContext.Provider>
