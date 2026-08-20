@@ -25,7 +25,7 @@ concurrency:
 jobs:
     tests:
         name: Run tests
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         defaults:
             run:
@@ -38,6 +38,13 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v1-cli-ci'
+                  workspaces: cli
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Check Cargo.lock is up to date
               run: |
                   cargo update --workspace --locked
@@ -48,7 +55,7 @@ jobs:
 
     clippy:
         name: Clippy
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         defaults:
             run:
@@ -62,12 +69,19 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v1-cli-ci'
+                  workspaces: cli
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Run clippy
               run: cargo clippy --all-targets --all-features -- -D warnings
 
     format:
         name: Format
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         defaults:
             run:
@@ -86,7 +100,7 @@ jobs:
 
     api-cli-release-bundle:
         name: API CLI release bundle
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
