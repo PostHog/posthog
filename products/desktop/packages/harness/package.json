@@ -52,6 +52,14 @@
       "types": "./dist/extensions/posthog-provider/*.d.ts",
       "import": "./dist/extensions/posthog-provider/*.js"
     },
+    "./extensions/product-engineer": {
+      "types": "./dist/extensions/product-engineer/index.d.ts",
+      "import": "./dist/extensions/product-engineer/index.js"
+    },
+    "./extensions/product-engineer/*": {
+      "types": "./dist/extensions/product-engineer/*.d.ts",
+      "import": "./dist/extensions/product-engineer/*.js"
+    },
     "./extensions/web-access": {
       "types": "./dist/extensions/web-access/extension.d.ts",
       "import": "./dist/extensions/web-access/extension.js"
@@ -107,6 +115,7 @@
     "@earendil-works/pi-tui": "catalog:",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@posthog/shared": "workspace:*",
+    "fflate": "^0.8.2",
     "lru-cache": "^11.1.0",
     "turndown": "^7.2.4",
     "typebox": "1.3.7",

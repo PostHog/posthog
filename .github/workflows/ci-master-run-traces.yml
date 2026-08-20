@@ -1,0 +1,93 @@
+name: Master run traces
+
+# Emits one OTLP trace per completed master-push workflow run: root span = the run,
+# a span per job beneath it, a span per step beneath those. Covers every workflow,
+# including the ones with no telemetry of their own (Container Images CD, the
+# container CD lane, the Rust image builds).
+#
+# Complements .github/scripts/report_test_timings.py, which emits per-test traces
+# from JUnit XML under its own trace IDs. Those stay separate traces.
+#
+# Cron rather than a `workflow_run: workflows: ['*']` listener: that listener fires
+# once per completed run (~40 per master push) and `'*'` matches the listener itself,
+# so it self-triggers up to GitHub's 3-level workflow_run chain cap — thousands of
+# dispatches a day against a repo that has to respect a 500-runs/10s cap. One cron
+# tick that scans for newly-finished runs costs 24 dispatches a day instead.
+#
+# The watermark is this workflow's own last successful run, read back from the Actions
+# API, so there is no cache or committed state to lose. A failed tick doesn't advance
+# it, so the next tick re-covers the gap.
+on:
+    schedule:
+        # Hourly. GitHub can delay a scheduled tick under load, which only means the next
+        # one batches more runs — the watermark is time-based, so nothing is missed. The
+        # 6h default lookback leaves plenty of headroom for a few skipped ticks.
+        - cron: '0 * * * *'
+    workflow_dispatch:
+        inputs:
+            since:
+                description: 'ISO 8601 watermark override, for a manual backfill'
+                required: false
+                type: string
+
+# Serialize ticks so two never scan the same window at once.
+concurrency:
+    group: ci-master-run-traces
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    actions: read # list master runs and read their jobs when the App-token mint falls back
+
+jobs:
+    emit-traces:
+        name: Emit master run traces
+        # hogli-lint: not-a-required-gate — report-only telemetry, gates nothing.
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            # A cron workflow always runs the default-branch copy of this file, so the
+            # checked-out script is master's. The base-ref pinning that ci-backend.yml's
+            # report-test-timings needs guards against a PR swapping the script that
+            # receives the project token, which cannot happen here.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/report_workflow_run_traces.py
+                  sparse-checkout-cone-mode: false
+
+            # Reads job durations from the Actions API — the same purpose as
+            # ci-backend.yml's calculate-running-time, so it shares that bucket rather
+            # than the posthog-tests app ci-alerts-devex already bursts on at merge
+            # peaks. A failed mint degrades to github.token instead of skipping the tick.
+            - name: Mint telemetry GitHub token
+              id: app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
+            # Deliberately not continue-on-error: a red tick is what holds the watermark
+            # at the last clean one, so the next tick re-covers the window. This workflow
+            # gates nothing, so failing costs a notification rather than a blocked merge.
+            - name: Emit master run traces
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  SINCE: ${{ inputs.since }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  # dual emission while CI traces migrate to the project behind POSTHOG_API_TOKEN
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: |
+                  args=()
+                  if [[ -n "$SINCE" ]]; then
+                    args+=(--since "$SINCE")
+                  fi
+                  uv run --script .github/scripts/report_workflow_run_traces.py "${args[@]}"

@@ -18,7 +18,8 @@ import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkCha
 import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
-  consumeKeepListForNextRoute,
+  clearKeepListForRoute,
+  shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -26,6 +27,7 @@ import {
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
@@ -191,13 +193,19 @@ export function ChannelsSidebar() {
     enabled: channelsLayout,
   });
   useEffect(() => {
-    if (!channelsLayout || !routeChannelId) return;
+    if (!channelsLayout) return;
+    // A route with no channel ends the navigation the latch was armed for. Left
+    // set, it would hold a later deep link to that channel on the list.
+    if (!routeChannelId) {
+      clearKeepListForRoute();
+      return;
+    }
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
     // Unless the navigation said otherwise: opening a session from the list's
     // tree loads it without taking the tree off the screen.
-    if (!consumeKeepListForNextRoute()) showChannelPane();
+    if (!shouldKeepListForRoute(routeChannelId)) showChannelPane();
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   // Browsing the list is view state, not navigation: you stay in the channel
@@ -243,6 +251,7 @@ export function ChannelsSidebar() {
       onPeekEnter={beginSidebarPeek}
       onPeekLeave={() => endSidebarPeek()}
       onPeekDismiss={cancelSidebarPeek}
+      resizeTooltip={<NavResizeTooltip />}
     >
       {/* One preview card for every row in here — the channel's own list and
           the space tree both draw their rows as triggers on it. */}
