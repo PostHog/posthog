@@ -13,9 +13,8 @@ on:
         branches:
             - master
     pull_request:
-    # The live-provider integration suite runs here, off the per-PR path. A daily run
-    # catches provider regressions; workflow_dispatch and the run-llm-gateway-integration
-    # label cover on-demand runs.
+    # The live-provider integration suite runs here, off the per-PR path: on a daily
+    # schedule, on workflow_dispatch, and on the run-llm-gateway-integration label.
     schedule:
         - cron: '0 6 * * *'
     workflow_dispatch:
@@ -132,6 +131,9 @@ jobs:
     # the daily schedule, on manual dispatch, and on a PR that carries the
     # run-llm-gateway-integration label (the label is read on the next push). It is not part
     # of the required llm_services_tests gate.
+    # The modules mark provider tests xfail(strict=False) to absorb transient outages, so a
+    # live failure reports xfailed and the job stays green. Read the run output to spot a
+    # regression; a green run is not a full pass.
     llm-gateway-integration:
         name: LLM Gateway Integration Tests
         if: >-
