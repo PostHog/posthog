@@ -6,7 +6,7 @@ from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, MCPBuiltInAgentKey, Task
 from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
 
 
@@ -162,16 +162,20 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     mock_create.assert_called_once_with(task.created_by, 123, **expected)
 
 
+@pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,
 ) -> None:
-    task = MagicMock(
-        id="task-id",
-        created_by=MagicMock(),
-        team_id=123,
+    organization = Organization.objects.create(name="signals-budget-org")
+    team = Team.objects.create(organization=organization, name="signals-budget-team")
+    creator = User.objects.create(email="signals-budget-creator@example.com")
+    task = Task.objects.create(
+        team=team,
+        title="Implementation: report",
+        created_by=creator,
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         internal=True,
     )
@@ -291,6 +295,25 @@ def test_run_token_fails_closed_for_slack_run_with_unresolvable_actor(mock_creat
 
     # Non-Slack runs keep the creator fallback.
     assert create_oauth_access_token_for_run(task, {}) == "token"
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_run_token_rejects_previous_task_owner(mock_create: MagicMock) -> None:
+    organization = Organization.objects.create(name="oauth-handoff-org")
+    team = Team.objects.create(organization=organization, name="oauth-handoff-team")
+    creator = User.objects.create(email="oauth-handoff-creator@example.com")
+    task = Task.objects.create(
+        team=team,
+        title="Transferred task",
+        created_by=creator,
+        state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"},
+    )
+
+    with pytest.raises(TaskInvalidStateError):
+        create_oauth_access_token_for_run(task, {})
+
+    mock_create.assert_not_called()
 
 
 @pytest.mark.django_db

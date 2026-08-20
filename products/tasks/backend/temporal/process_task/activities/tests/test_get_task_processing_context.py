@@ -24,7 +24,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
-from products.tasks.backend.models import SandboxEnvironment, Task
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -174,6 +174,18 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
+        task_run = test_task.create_run()
+        test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
+        test_task.save(update_fields=["state", "updated_at"])
+
+        with pytest.raises(TaskInvalidStateError):
+            async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_task_not_found_is_retryable(self, activity_environment):
