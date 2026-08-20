@@ -263,6 +263,30 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     await first.catch(() => {});
   });
 
+  it("strips the live session's outputFormat so the answer stays plain text", async () => {
+    const agent = makeAgent();
+    const { session } = installFakeSession(agent, "s-struct");
+    // A structured task run stores a json_schema outputFormat on the live
+    // session; inheriting it forces the answer into that unrelated shape.
+    (
+      session as unknown as { queryOptions: Record<string, unknown> }
+    ).queryOptions.outputFormat = {
+      type: "json_schema",
+      schema: { type: "object" },
+    };
+    nextQueryMessages = [
+      assistantText("plain answer"),
+      { type: "result", subtype: "success" },
+    ];
+
+    const result = await agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, {
+      question: "what changed?",
+    });
+
+    expect(result).toEqual({ answer: "plain answer" });
+    expect(lastQueryCall.options?.outputFormat).toBeUndefined();
+  });
+
   it("aborts an in-flight side question when the session closes", async () => {
     const agent = makeAgent();
     installFakeSession(agent, "s-8");

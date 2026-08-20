@@ -1997,11 +1997,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const abortController = new AbortController();
     this.sideQuestionAbort = abortController;
     try {
-      // Drop `sessionId` (identity comes from `resume`) and `hooks` (they
-      // close over live-session caches and task state).
+      // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
+      // over live-session caches and task state), and `outputFormat` (a
+      // structured task run stores a json_schema here that would force the
+      // plain-text answer into the task's unrelated shape).
       const {
         sessionId: _sessionId,
         hooks: _hooks,
+        outputFormat: _outputFormat,
         ...rest
       } = this.session.queryOptions;
       const options: Options = {
