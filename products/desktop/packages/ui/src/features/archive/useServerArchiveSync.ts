@@ -72,13 +72,21 @@ export function useServerArchiveSync(): void {
     if (!client || running.current) return;
     // The triggers, checked directly: don't start a drain that would find
     // nothing. The loop below re-reads both sources fresh each pass.
+    const mirrored = new Set(
+      useServerArchiveSyncStore.getState().syncedTaskIds,
+    );
     if (
       pendingUnarchive.length === 0 &&
-      pendingServerArchiveIds(
-        archivedTaskIds,
-        new Set(useServerArchiveSyncStore.getState().syncedTaskIds),
-      ).length === 0
+      pendingServerArchiveIds(archivedTaskIds, mirrored).length === 0
     ) {
+      // Distinguishes "nothing to mirror" from "never ran" — the two are
+      // otherwise identical in the console, and each app instance has its own
+      // archive DB (dev vs packaged), so an unexpectedly small count here is
+      // the tell that you're looking at the other instance's backlog.
+      log.debug("Archive sync idle", {
+        archivedLocally: archivedTaskIds.size,
+        alreadyMirrored: mirrored.size,
+      });
       return;
     }
 
@@ -88,6 +96,14 @@ export function useServerArchiveSync(): void {
       // next launch or trigger, but not by the very next pass of this loop.
       const attempted = new Set<string>();
       let changed = 0;
+      // The drain's outcome IS the diagnosis when a count reads wrong, and a
+      // run that finds work is rare (once per backlog) — so say what was found
+      // and what happened to it, not just the failures.
+      log.info("Draining archive state to the server", {
+        archivedLocally: archivedTaskIds.size,
+        alreadyMirrored: mirrored.size,
+        pendingUnarchive: pendingUnarchive.length,
+      });
       try {
         for (;;) {
           const api = clientRef.current;
@@ -135,6 +151,10 @@ export function useServerArchiveSync(): void {
       } finally {
         running.current = false;
       }
+      log.info("Archive drain finished", {
+        synced: changed,
+        refused: attempted.size,
+      });
       if (changed === 0) return;
       // Refetches the lists the drain just shortened, which is what moves the
       // space counts drawn from them.
