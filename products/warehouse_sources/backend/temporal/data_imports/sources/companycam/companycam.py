@@ -179,6 +179,10 @@ def companycam_source(
             "base_url": base_url(api_version),
             "auth": {"type": "bearer", "token": api_key},
             "paginator": _paginator_for(endpoint),
+            # capture=False: project notes, photo/video metadata, and other free-text fields
+            # can carry customer-authored (potentially sensitive) content the name-based HTTP
+            # sample scrubbers aren't guaranteed to catch, same as the other PII-heavy sources.
+            "capture": False,
         },
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
@@ -224,8 +228,10 @@ def companycam_source(
 
 
 def validate_credentials(api_key: str, api_version: str) -> bool:
+    # capture=False: `/company` returns the customer's company record, which can carry
+    # free-text fields the name-based HTTP sample scrubbers aren't guaranteed to catch.
     is_valid, _status_code = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False),
         f"{base_url(api_version)}/company",
         headers={"Authorization": f"Bearer {api_key}"},
     )
