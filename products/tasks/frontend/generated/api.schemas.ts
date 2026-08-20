@@ -2144,6 +2144,17 @@ export interface TaskCommentDetailApi {
     next: string | null
 }
 
+/**
+ * Request body for handing a task off to a colleague: they become its owner.
+ */
+export interface TaskHandoffRequestApi {
+    /**
+     * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+     * @minimum 1
+     */
+    user: number
+}
+
 export interface TaskPinRequestApi {
     /** Whether the task should be pinned for the requester. */
     pinned: boolean
@@ -4331,6 +4342,31 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
+     * Exclude tasks with this origin product from the results
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
+     * @minLength 1
+     */
+    exclude_origin_product?: TasksListExcludeOriginProduct
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
@@ -4429,6 +4465,31 @@ export const TasksListCiStatus = {
     Failing: 'failing',
     Pending: 'pending',
     None: 'none',
+} as const
+
+export type TasksListExcludeOriginProduct =
+    (typeof TasksListExcludeOriginProduct)[keyof typeof TasksListExcludeOriginProduct]
+
+export const TasksListExcludeOriginProduct = {
+    Onboarding: 'onboarding',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
+    SignalReport: 'signal_report',
+    SignalsScout: 'signals_scout',
+    SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
+    Workflow: 'workflow',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
