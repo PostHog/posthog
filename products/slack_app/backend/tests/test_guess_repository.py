@@ -22,6 +22,7 @@ from products.slack_app.backend.api import (
     _user_repo_list_cache_key,
     parse_rules_command,
 )
+from products.slack_app.backend.services.commands import MENTION_HELP_REDIRECT
 
 
 def _repo_dict(org: str, name: str, repo_id: int = 1) -> dict:
@@ -466,7 +467,7 @@ class TestHandleRulesCommandActivity:
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
-    def test_help_uses_posthog_commands(self, mock_slack_cls):
+    def test_help_points_at_the_slash_command(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
@@ -480,10 +481,10 @@ class TestHandleRulesCommandActivity:
             self.user.id,
         )
 
+        # The mention is still consumed as a command rather than becoming a task.
         assert result.status == "handled"
         msg = mock_slack.client.chat_postMessage.call_args
-        assert "@PostHog <task description>" in msg.kwargs["text"]
-        assert "@PostHog Desktop" not in msg.kwargs["text"]
+        assert msg.kwargs["text"] == MENTION_HELP_REDIRECT
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):

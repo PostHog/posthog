@@ -8,6 +8,13 @@ if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
+MENTION_COMMAND_PREFIX = "@PostHog"
+
+MENTION_HELP_REDIRECT = (
+    "Run `/posthog help` to see the available commands. To start a task, mention me with a "
+    "description of the work, then reply in the thread to follow up."
+)
+
 
 def _handle_help(
     slack: SlackIntegration,
@@ -17,25 +24,34 @@ def _handle_help(
     slack_user_id: str,
     *,
     trigger_ts: str = "",
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
-    # Task creation only makes sense on the mention surface — slash commands lack the thread
-    # context the workflow needs, so omit it when the user discovered help via ``/posthog``.
-    lines = ["*Available commands:*\n"]
-    if command_prefix == "@PostHog":
-        lines.append(f"`{command_prefix} <task description>` — Create a task for the agent to work on")
-    lines.extend(
-        [
-            f"`{command_prefix} rules list` — Show all routing rules",
-            f'`{command_prefix} rules add "description" org/repo` — Add a routing rule',
-            f'`{command_prefix} rules add "description"` — Add a routing rule (pick repo from list)',
-            f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
-            f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
-            f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
-        ]
-    )
+    # The slash command is the help surface, so a mention only points at it. Returning before the
+    # admin lookup keeps this reply off the Slack users.info call the listing below needs.
+    if command_prefix == MENTION_COMMAND_PREFIX:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            trigger_ts=trigger_ts,
+            text=MENTION_HELP_REDIRECT,
+        )
+        return
+
+    # Task creation and thread follow-ups have no slash equivalent, but this listing is the only
+    # help a user can reach, so it documents them under the mention prefix they actually type.
+    lines = [
+        "*Available commands:*\n",
+        f"`{MENTION_COMMAND_PREFIX} <task description>` — Create a task for the agent to work on",
+        f"`{command_prefix} rules list` — Show all routing rules",
+        f'`{command_prefix} rules add "description" org/repo` — Add a routing rule',
+        f'`{command_prefix} rules add "description"` — Add a routing rule (pick repo from list)',
+        f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
+        f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
+        f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
+    ]
 
     # The workspace-wide default is admins/owners-only, so only surface it to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
@@ -44,8 +60,7 @@ def _handle_help(
         )
 
     lines.append(f"`{command_prefix} help` — Show this message\n")
-    if command_prefix == "@PostHog":
-        lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
+    lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
 
     post_slack_thread_reply(
         slack.client, channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts, text="\n".join(lines)
@@ -59,7 +74,7 @@ def _handle_rules_list(
     thread_ts: str,
     *,
     trigger_ts: str = "",
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -155,7 +170,7 @@ def _handle_rules_remove(
     rule_numbers: list[int] | None,
     *,
     trigger_ts: str = "",
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -207,7 +222,7 @@ def _handle_project_show(
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.user import User
 
@@ -343,7 +358,7 @@ def _handle_project_set_workspace(
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     """Set the workspace-wide default project (the ``slack_user_id IS NULL`` row),
     which applies to every Slack user in the workspace without a personal default.
@@ -475,7 +490,7 @@ def dispatch_rules_command(
     slack_workspace_id: str,
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
-    command_prefix: str = "@PostHog",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
     already resolved a single ``integration`` to act on; project commands also
