@@ -639,6 +639,15 @@ class DisplayNameIndex:
     bare_tables: list[str]
 
 
+@frozen
+class QualifiedRelation:
+    """A relation addressed by namespace and name. Both are strings, so keeping them named
+    stops a `COUNT(*)` being aimed at `name.schema`."""
+
+    schema: str
+    name: str
+
+
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
@@ -871,24 +880,24 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     "SELECT schemaname, viewname FROM pg_views WHERE schemaname = ANY(%(schemas)s) AND viewname = ANY(%(names)s)",
                     params,
                 )
-                view_pairs = [
-                    (schema_name, view_name)
+                to_count = [
+                    QualifiedRelation(schema=schema_name, name=view_name)
                     for schema_name, view_name in cursor.fetchall()
                     if (schema_name, view_name) in index.display_by_pair
                 ]
-                view_pairs.extend(self._materialized_view_pairs(conn, cursor, index, params))
+                to_count.extend(self._materialized_views(conn, cursor, index, params))
 
-                if view_pairs:
+                if to_count:
                     view_counts = [
                         sql.SQL(
                             "SELECT {schema_lit} AS schema_name, {view_lit} AS table_name, COUNT(*) AS row_count FROM {schema}.{view}"
                         ).format(
-                            schema_lit=sql.Literal(schema_name),
-                            view_lit=sql.Literal(view_name),
-                            schema=sql.Identifier(schema_name),
-                            view=sql.Identifier(view_name),
+                            schema_lit=sql.Literal(relation.schema),
+                            view_lit=sql.Literal(relation.name),
+                            schema=sql.Identifier(relation.schema),
+                            view=sql.Identifier(relation.name),
                         )
-                        for schema_name, view_name in view_pairs
+                        for relation in to_count
                     ]
                     cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
                     for schema_name, table_name, row_count in cursor.fetchall():
@@ -901,13 +910,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         return result
 
     @staticmethod
-    def _materialized_view_pairs(
+    def _materialized_views(
         conn: psycopg.Connection,
         cursor: Any,
         index: DisplayNameIndex,
         params: dict,
-    ) -> list[tuple[str, str]]:
-        """`(schema, name)` for each requested relation that is a materialized view.
+    ) -> list[QualifiedRelation]:
+        """Each requested relation that is a materialized view.
 
         Isolated from the caller's `except` so a role without access to `svv_mv_info` loses only
         the materialized-view counts, not every count in the batch. The rollback matters for the
@@ -925,7 +934,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return []
 
         return [
-            (schema_name, view_name)
+            QualifiedRelation(schema=schema_name, name=view_name)
             for schema_name, view_name in rows
             if (schema_name, view_name) in index.display_by_pair
         ]
