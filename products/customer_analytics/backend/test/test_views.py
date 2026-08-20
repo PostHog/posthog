@@ -48,7 +48,7 @@ from products.customer_analytics.backend.models import (
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
