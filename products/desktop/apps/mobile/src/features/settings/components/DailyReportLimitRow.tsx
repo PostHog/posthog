@@ -31,7 +31,12 @@ export function DailyReportLimitRow() {
 
   const status = describeDailyReportLimit(config);
   const savedValue = dailyReportLimitFieldValue(config);
-  const rightLabel = isError
+  // A failed background refetch keeps the cached config while flipping isError,
+  // so only treat the case with no cached config as a hard error. Otherwise a
+  // transient failure would hide a known cap and block editing a value the user
+  // can still read from cache.
+  const showLoadError = isError && config === undefined;
+  const rightLabel = showLoadError
     ? "—"
     : status.limit === null
       ? "No limit"
@@ -68,8 +73,8 @@ export function DailyReportLimitRow() {
     <>
       <Pressable
         onPress={openSheet}
-        disabled={isLoading || isError}
-        className={`active:bg-gray-2 ${isLoading || isError ? "opacity-50" : ""}`}
+        disabled={isLoading || showLoadError}
+        className={`active:bg-gray-2 ${isLoading || showLoadError ? "opacity-50" : ""}`}
       >
         <View className="flex-row items-center gap-3 border-gray-5 border-b px-4 py-3">
           <View className="min-w-0 flex-1">
@@ -77,13 +82,13 @@ export function DailyReportLimitRow() {
               Daily report limit
             </Text>
             <Text
-              className={`mt-0.5 text-[12px] leading-snug ${isError ? "text-status-error" : "text-gray-10"}`}
+              className={`mt-0.5 text-[12px] leading-snug ${showLoadError ? "text-status-error" : "text-gray-10"}`}
             >
-              {isError
+              {showLoadError
                 ? "Couldn't load the limit. Try again later."
                 : status.usageText}
             </Text>
-            {!isError && status.reachedText ? (
+            {!showLoadError && status.reachedText ? (
               <Text className="mt-0.5 text-[12px] text-status-warning leading-snug">
                 {status.reachedText}
               </Text>
