@@ -417,14 +417,15 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             render={(props) => (
                                                 <Link
                                                     {...props}
-                                                    to={urls.queryPerformance()}
+                                                    to={urls.experimentsStaffTools()}
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
+                                                    // Stable autocapture contract: name stays query-performance even though the label and route are now experiments staff tools
                                                     data-attr="new-account-menu-query-performance"
                                                 >
                                                     <IconDatabase />
-                                                    Query performance
+                                                    Experiments staff tools
                                                 </Link>
                                             )}
                                         />
