@@ -12,14 +12,14 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
 function MagnitudeBar({
-    share,
+    fraction,
     current,
-    markerShare,
+    markerFraction,
     markerTooltip,
 }: {
-    share: number
+    fraction: number
     current: boolean
-    markerShare?: number | null
+    markerFraction?: number | null
     markerTooltip?: string
 }): JSX.Element {
     return (
@@ -27,15 +27,15 @@ function MagnitudeBar({
             <div
                 className="h-full rounded-sm"
                 style={{
-                    width: `${Math.max(share * 100, 2)}%`,
+                    width: `${Math.max(fraction * 100, 2)}%`,
                     background: current ? 'var(--data-color-1)' : 'var(--muted)',
                 }}
             />
-            {markerShare != null && (
+            {markerFraction != null && (
                 <Tooltip title={markerTooltip}>
                     <div
                         className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm"
-                        style={{ left: `${markerShare * 100}%`, background: 'var(--text-3000)' }}
+                        style={{ left: `${markerFraction * 100}%`, background: 'var(--text-3000)' }}
                     />
                 </Tooltip>
             )}
@@ -82,9 +82,9 @@ function ComparisonRow({
                 <SplitBar rate={value} />
             ) : (
                 <MagnitudeBar
-                    share={max > 0 ? value / max : 0}
+                    fraction={max > 0 ? value / max : 0}
                     current={current}
-                    markerShare={marker != null && max > 0 ? marker / max : null}
+                    markerFraction={marker != null && max > 0 ? marker / max : null}
                     markerTooltip={marker != null && markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined}
                 />
             )}
@@ -121,7 +121,8 @@ export function WindowComparisonCard({
     deltaUnit?: 'pt'
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    /** A companion figure (e.g. p90) pinned as a tick on each bar, on the same scale as the value. */
+    /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
+     *  the value. Ignored in `share` mode, which has no scale to pin against. */
     marker?: number | null
     markerPrevious?: number | null
     markerLabel?: string

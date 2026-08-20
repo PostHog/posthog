@@ -69,8 +69,6 @@ export function RepoOverviewScene(): JSX.Element {
     // during the initial fetch would misread as a broken setup — hold it back while loading.
     const overviewPending = overviewLoading && !overview
 
-    const perMerge = (cost: number | null | undefined, merges: number | null | undefined): number | null =>
-        cost != null && merges ? cost / merges : null
     const asMinutes = (seconds: number | null | undefined): number | null => (seconds != null ? seconds / 60 : null)
 
     // Cycle time is ready→merge wherever the backend can observe the draft/ready transitions. Without
@@ -123,7 +121,7 @@ export function RepoOverviewScene(): JSX.Element {
                     {/* The windowed headline metrics: each card compares this window against the previous
                         one directly (two values), not as a time series. CI cost is a window total, not a
                         rate, so its number lives on the Workflows section below. */}
-                    <Section id="trends" title="CI health" busy={overviewLoading}>
+                    <Section id="ci-health" title="CI health" busy={overviewLoading}>
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                             <WindowComparisonCard
                                 title="CI runs that passed"
@@ -161,15 +159,8 @@ export function RepoOverviewScene(): JSX.Element {
 
                             <WindowComparisonCard
                                 title="CI cost per merged PR"
-                                value={
-                                    jobsAvailable
-                                        ? perMerge(overview?.estimated_cost_usd, overview?.merged_pr_count)
-                                        : null
-                                }
-                                previousValue={perMerge(
-                                    overview?.estimated_cost_usd_prev,
-                                    overview?.merged_pr_count_prev
-                                )}
+                                value={overview?.cost_per_merge_usd}
+                                previousValue={overview?.cost_per_merge_usd_prev}
                                 formatValue={compactUsd}
                                 goodWhenDown
                                 loading={overviewPending}
@@ -195,12 +186,12 @@ export function RepoOverviewScene(): JSX.Element {
                                 <WindowComparisonCard
                                     title="Median time in the merge queue"
                                     tooltip="From a PR's first merge queue gate run starting to the PR merging. Waiting before gate testing starts is not included. The tick marks the p90."
-                                    value={overview?.merge_queue_median_gate_to_merge_seconds}
-                                    previousValue={overview?.merge_queue_median_gate_to_merge_seconds_prev}
+                                    value={overview?.merge_queue_median_first_gate_to_merge_seconds}
+                                    previousValue={overview?.merge_queue_median_first_gate_to_merge_seconds_prev}
                                     formatValue={compactAgeLabel}
                                     goodWhenDown
-                                    marker={overview?.merge_queue_p90_gate_to_merge_seconds}
-                                    markerPrevious={overview?.merge_queue_p90_gate_to_merge_seconds_prev}
+                                    marker={overview?.merge_queue_p90_first_gate_to_merge_seconds}
+                                    markerPrevious={overview?.merge_queue_p90_first_gate_to_merge_seconds_prev}
                                     markerLabel="p90"
                                     loading={overviewPending}
                                     emptyText="No queue-landed merges in the window."
