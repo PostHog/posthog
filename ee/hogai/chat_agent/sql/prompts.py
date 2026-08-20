@@ -79,7 +79,20 @@ PROBLEMATIC PATTERNS:
    But e_all__override is defined later in the SQL, causing the error.
 
 REQUIRED WORKAROUNDS:
-1. For accessing person data, use the person virtual table from events:
+1. To look up a person by their identity (email, name, or other person property), query the
+   `persons` table directly. Match text case-insensitively with `ilike`, because the stored value
+   can differ in case from what the user typed:
+   ✅ SELECT p.id, p.properties.email, p.properties.name
+      FROM persons p
+      WHERE ilike(p.properties.email, '%ada@example.com%') OR ilike(p.properties.name, '%ada lovelace%')
+   Do NOT answer identity lookups from `events.person.properties.*`. Those values are point-in-time:
+   they are frozen at ingestion, so they can be stale, empty, or absent even when the person exists.
+   The `persons` table always holds the current properties. Also do not add a `timestamp` bound to a
+   person lookup on the `persons` table. That table has no event timestamp, and a person can exist
+   without a recent event.
+
+   For reading person data alongside events (not for identity lookup), you may still use the person
+   virtual table from events:
    ✅ SELECT e.person.id, e.person.properties.email, e.event
       FROM events e
       WHERE e.timestamp > now() - INTERVAL 7 DAY

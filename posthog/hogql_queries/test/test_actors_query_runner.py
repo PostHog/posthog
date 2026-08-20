@@ -230,6 +230,28 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"\tjacob4@{self.random_uuid}.posthog\n"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    def test_persons_query_search_matches_tokens_across_display_name_fields(self):
+        # Regression: a full name/email whose words live in different fields. A single-substring
+        # ILIKE only matched when one field held the whole string, so "ada lovelace" found nobody.
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_person(
+            properties={"email": f"ada@{random_uuid}.example.com", "name": "Lovelace", "username": "countess"},
+            team=self.team,
+            distinct_ids=[f"distinct-{random_uuid}"],
+            is_identified=True,
+        )
+        flush_persons_and_events()
+
+        for search, expected in [
+            ("ada Lovelace", 1),  # tokens split across email and name
+            ("LOVELACE ada", 1),  # order-independent and case-insensitive
+            ("countess", 1),  # username is a display-name property too
+            ("ada Babbage", 0),  # every token must match some field
+        ]:
+            with self.subTest(search=search):
+                runner = self._create_runner(ActorsQuery(search=search))
+                self.assertEqual(len(runner.calculate().results), expected)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))

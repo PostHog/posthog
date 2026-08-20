@@ -144,32 +144,40 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
-            where_exprs.append(
-                ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        parse_expr(
-                            "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{search}%")},
-                        ),
-                    ]
-                )
-            )
+            # Match every whitespace-separated token, so a full name like "first last" still
+            # matches when the two words live in different fields (name in one, email in another).
+            for token in search.split():
+                where_exprs.append(self._search_token_condition(token))
         return where_exprs
+
+    def _search_token_condition(self, token: str) -> ast.Expr:
+        # posthog.api.person imports this module transitively, so import the constant lazily.
+        from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+        display_name_properties = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+        field_matches: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", prop])]),
+                right=ast.Constant(value=f"%{token}%"),
+            )
+            for prop in display_name_properties
+        ]
+        field_matches.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                right=ast.Constant(value=f"%{token}%"),
+            )
+        )
+        field_matches.append(
+            parse_expr(
+                "id in (select person_id from person_distinct_ids where ilike(distinct_id, {token}))",
+                {"token": ast.Constant(value=f"%{token}%")},
+            )
+        )
+        return ast.Or(exprs=field_matches)
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
