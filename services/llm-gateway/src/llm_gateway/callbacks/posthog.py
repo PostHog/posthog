@@ -181,7 +181,9 @@ def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
                 break
             if not isinstance(k, str):
                 continue
-            if _is_sensitive_key(k):
+            # Reject sensitive keys AND gateway-owned prefixes ($ai_*, $group_*, $feature/*)
+            # at every nesting level so callers cannot inject protected fields via nested dicts.
+            if _is_sensitive_key(k) or _is_gateway_owned_property(k):
                 continue
             sanitized_dict[k] = _sanitize_custom_metadata_value(v, depth + 1)
         return sanitized_dict
@@ -243,47 +245,39 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
         return properties
 
     result = dict(properties)
+    marker_size = len(json.dumps(_TRUNCATION_MARKER))
 
-    # First phase: Truncate truncatable AI fields ($ai_input, $ai_output_choices)
+    # Phase 1: Truncate large AI I/O fields — the most common source of oversized events.
+    # Size bookkeeping is purely arithmetic (O(1) per field) to avoid O(N²) re-serialisation.
     for field in _TRUNCATABLE_FIELDS:
         if field in result and result[field] != _TRUNCATION_MARKER:
             field_raw = json.dumps(result[field], default=str)
             if len(field_raw) >= _MIN_FIELD_SIZE_TO_TRUNCATE:
-                saved = len(field_raw) - len(json.dumps(_TRUNCATION_MARKER))
+                current_size -= max(0, len(field_raw) - marker_size)
                 result[field] = _TRUNCATION_MARKER
-                current_size -= max(0, saved)
                 if current_size <= _MAX_CAPTURE_SIZE:
-                    if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
-                        return result
+                    return result
 
-    # Second phase: If still over limit, inspect non-gateway-owned fields in a single O(N) pass
-    if current_size > _MAX_CAPTURE_SIZE or len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:
-        non_owned_sizes: list[tuple[str, int]] = []
-        for key, val in list(result.items()):
-            if not _is_gateway_owned_property(key):
-                val_size = len(json.dumps(val, default=str))
-                non_owned_sizes.append((key, val_size))
+    # Phase 2: prune non-gateway-owned fields by descending size — O(N log N) overall.
+    # Gateway-owned keys ($ai_*, $group_*, $feature/*) are excluded; custom $group_/$feature/
+    # keys should never reach here because _sanitize_custom_metadata_value rejects them.
+    if current_size > _MAX_CAPTURE_SIZE:
+        non_owned: list[tuple[str, int]] = [
+            (key, len(json.dumps(val, default=str)))
+            for key, val in result.items()
+            if not _is_gateway_owned_property(key) and key not in _TRUNCATABLE_FIELDS
+        ]
+        non_owned.sort(key=lambda item: item[1], reverse=True)
 
-        non_owned_sizes.sort(key=lambda item: item[1], reverse=True)
-
-        for key, val_size in non_owned_sizes:
+        for key, val_size in non_owned:
             if val_size >= _MIN_FIELD_SIZE_TO_TRUNCATE:
-                saved = val_size - len(json.dumps(_TRUNCATION_MARKER))
+                current_size -= max(0, val_size - marker_size)
                 result[key] = _TRUNCATION_MARKER
-                current_size -= max(0, saved)
             else:
-                result.pop(key, None)
                 current_size -= val_size
-
-            if current_size <= _MAX_CAPTURE_SIZE:
-                if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
-                    return result
-
-        if len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:
-            for key, _ in non_owned_sizes:
                 result.pop(key, None)
-                if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
-                    return result
+            if current_size <= _MAX_CAPTURE_SIZE:
+                return result
 
     return result
 

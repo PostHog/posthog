@@ -1369,6 +1369,9 @@ class TestTruncateForCapture:
                 "AUTH": "Basic secret",
                 "safe_field": "valid_value",
                 "nested_password": "super_secret_password",
+                "$feature/nested_flag": True,
+                "$group_nested": "should_be_stripped",
+                "$ai_injected": "should_be_stripped",
             },
             "valid_custom_key": "valid_custom_value",
         }
@@ -1406,6 +1409,9 @@ class TestTruncateForCapture:
             assert props["valid_custom_key"] == "valid_custom_value"
             assert "AUTH" not in props["nested_secrets"]
             assert "nested_password" not in props["nested_secrets"]
+            assert "$feature/nested_flag" not in props["nested_secrets"]
+            assert "$group_nested" not in props["nested_secrets"]
+            assert "$ai_injected" not in props["nested_secrets"]
             assert props["nested_secrets"]["safe_field"] == "valid_value"
 
     @pytest.mark.asyncio
