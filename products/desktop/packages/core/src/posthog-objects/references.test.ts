@@ -60,6 +60,14 @@ describe("extractPostHogObjectReferences", () => {
     },
   );
 
+  it("stays fast on many unmatched opening tags", () => {
+    const hostile = `${'<insight id="x">'.repeat(20_000)}\n<flag id="real" />`;
+    const start = performance.now();
+    const references = extractPostHogObjectReferences(hostile);
+    expect(performance.now() - start).toBeLessThan(1_000);
+    expect(references).toEqual([{ kind: "flag", id: "real", label: "real" }]);
+  });
+
   it("ignores partial, unknown, and oversized references", () => {
     expect(
       extractPostHogObjectReferences(

@@ -26,8 +26,12 @@ const OBJECT_ALIASES: Record<string, string> = {
   sql: "hogql",
 };
 
-const TAG_PATTERN =
-  /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)/g;
+// Opening tags and closing tags are matched separately so an unmatched opener
+// costs one regex step instead of a lazy scan to the end of the message; the
+// closer for each opener comes from a precomputed per-tag position index.
+const OPEN_TAG_PATTERN =
+  /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(\/>|>)/g;
+const CLOSE_TAG_PATTERN = /<\/([a-z][\w-]*)\s*>/g;
 const ATTR_PATTERN = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g;
 const MAX_REFERENCES = 50;
 const MAX_OBJECT_ID_LENGTH = 16_384;
@@ -89,16 +93,66 @@ function normalizeKind(value: string): string | null {
   return OBJECT_KINDS.has(kind) ? kind : null;
 }
 
+interface TagMatch {
+  name: string;
+  rawAttributes: string;
+  body: string;
+  end: number;
+}
+
+// One pass over openers plus one over closers keeps parsing linear in the
+// input size, where a single backreferencing regex retried the closing-tag
+// search from every unmatched opener (quadratic on crafted input).
+function* scanTags(text: string): Generator<TagMatch> {
+  const closersByName = new Map<string, number[][]>();
+  for (const close of text.matchAll(CLOSE_TAG_PATTERN)) {
+    let positions = closersByName.get(close[1]);
+    if (!positions) {
+      positions = [];
+      closersByName.set(close[1], positions);
+    }
+    positions.push([close.index, close.index + close[0].length]);
+  }
+  const cursors = new Map<string, number>();
+  let nextAllowed = 0;
+  for (const open of text.matchAll(OPEN_TAG_PATTERN)) {
+    if (open.index < nextAllowed) continue;
+    const name = open[1];
+    const openEnd = open.index + open[0].length;
+    if (open[3] === "/>") {
+      nextAllowed = openEnd;
+      yield { name, rawAttributes: open[2], body: "", end: openEnd };
+      continue;
+    }
+    const positions = closersByName.get(name);
+    if (!positions) continue;
+    let cursor = cursors.get(name) ?? 0;
+    while (cursor < positions.length && positions[cursor][0] < openEnd) {
+      cursor++;
+    }
+    cursors.set(name, cursor);
+    if (cursor >= positions.length) continue;
+    const [closeStart, closeEnd] = positions[cursor];
+    nextAllowed = closeEnd;
+    yield {
+      name,
+      rawAttributes: open[2],
+      body: text.slice(openEnd, closeStart),
+      end: closeEnd,
+    };
+  }
+}
+
 export function extractPostHogObjectReferences(
   markdown: string,
 ): PostHogObjectReference[] {
   const references: PostHogObjectReference[] = [];
   const seen = new Set<string>();
-  for (const match of stripCode(markdown).matchAll(TAG_PATTERN)) {
-    const kind = normalizeKind(match[1]);
+  for (const match of scanTags(stripCode(markdown))) {
+    const kind = normalizeKind(match.name);
     if (!kind) continue;
-    const attributes = parseAttributes(match[2]);
-    const body = (match[3] ?? "").trim();
+    const attributes = parseAttributes(match.rawAttributes);
+    const body = match.body.trim();
     const id = (kind === "hogql" ? body : (attributes.id ?? "")).trim();
     if (!id || id.length > MAX_OBJECT_ID_LENGTH) continue;
     const key = `${kind}\0${id}`;
