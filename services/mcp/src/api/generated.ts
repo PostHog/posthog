@@ -6323,6 +6323,16 @@ export namespace Schemas {
       uuid: string;
     }
 
+    export type ErrorTrackingQueryIssueSeverity = typeof ErrorTrackingQueryIssueSeverity[keyof typeof ErrorTrackingQueryIssueSeverity];
+
+
+    export const ErrorTrackingQueryIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
 
 
@@ -6348,6 +6358,7 @@ export namespace Schemas {
       last_seen: string;
       library?: string | null;
       name?: string | null;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
@@ -6398,6 +6409,7 @@ export namespace Schemas {
       name?: string | null;
       odds_ratio: number;
       population: Population;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
     }
 
@@ -7669,6 +7681,7 @@ export namespace Schemas {
       issue_description?: string | null;
       issue_id: string;
       issue_name?: string | null;
+      issue_severity?: ErrorTrackingQueryIssueSeverity | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
       version: number;
