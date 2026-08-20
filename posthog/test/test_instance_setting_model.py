@@ -2,6 +2,8 @@ from typing import cast
 
 import pytest
 
+from django.db import OperationalError
+
 from posthog.models.instance_setting import (
     InstanceSetting,
     _clear_instance_setting_cache,
@@ -146,6 +148,30 @@ def test_admin_save_model_wraps_bare_strings(db):
     admin.save_model(request, obj4, form=None, change=False)
     assert obj4.raw_value == "42"
     assert obj4.value == 42
+
+
+def test_failed_refresh_serves_stale_cached_value(db, monkeypatch):
+    # A refresh read that fails (e.g. a pgbouncer blip) must serve the last known value instead of
+    # letting the error reach the caller. This is the 500 on the synchronous throttle path.
+    initial = get_instance_setting("EMAIL_HOST")
+
+    monkeypatch.setattr("posthog.models.instance_setting._INSTANCE_SETTING_CACHE_TTL_SECONDS", 0)
+
+    def _raise(*args, **kwargs):
+        raise OperationalError("connection pooler blip")
+
+    monkeypatch.setattr(InstanceSetting.objects, "filter", _raise)
+    assert get_instance_setting("EMAIL_HOST") == initial
+
+
+def test_failed_read_without_cache_reraises(db, monkeypatch):
+    # With nothing cached to fall back on, the error must propagate rather than return a wrong value.
+    def _raise(*args, **kwargs):
+        raise OperationalError("connection pooler blip")
+
+    monkeypatch.setattr(InstanceSetting.objects, "filter", _raise)
+    with pytest.raises(OperationalError):
+        get_instance_setting("EMAIL_HOST")
 
 
 def test_db_change_propagates_after_ttl(db, monkeypatch):

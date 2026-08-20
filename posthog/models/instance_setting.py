@@ -54,7 +54,14 @@ def get_instance_setting(key: str) -> Any:
             return cached[1]
 
     # Fetch outside the lock so a slow query doesn't block other readers.
-    saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    try:
+        saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    except Exception:
+        # The refresh read failed, e.g. a pgbouncer blip. Serve the last known value instead of
+        # letting the error reach the caller. These settings change rarely, so a stale read is safe.
+        if cached is not None:
+            return cached[1]
+        raise
     value = saved_setting.value if saved_setting is not None else CONSTANCE_CONFIG[key][0]
 
     with _instance_setting_cache_lock:
