@@ -32,9 +32,9 @@ fixing, and N-run validation. For "who broke master" — the culprit commit and
 the commit that fixed it — hand off to the `investigating-ci-failures` skill,
 which owns the green/red boundary analysis. For aggregate pipeline health (is CI
 getting slower, which workflow is the long pole, how long PRs take to merge),
-read `diagnosing-ci-and-merge-bottlenecks`. Both live under
-`products/engineering_analytics/skills/` and are product skills, so neither is
-invocable here: open the `SKILL.md` at that path and read it directly.
+read `diagnosing-ci-and-merge-bottlenecks`. Both are product skills under
+`products/engineering_analytics/skills/`, not invocable here: read the
+`SKILL.md` at that path.
 
 ## Safety rules
 
@@ -227,8 +227,7 @@ Unlike the span-derived test reads, this one can give you a real rate: the
 warehouse records every job attempt, greens included, so the denominator is
 honest. Query 7 in
 `products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md`
-is copy-ready; that skill also owns the wider investigation and is worth reading
-directly, as it is a product skill and not invocable from this repo.
+is copy-ready; that skill also owns the wider investigation.
 
 Read the result as:
 

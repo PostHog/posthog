@@ -25,7 +25,7 @@ Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the 
 
 For triaging a red CI run (finding and classifying the failure), use the `debugging-ci-failures` skill first — this skill takes over once the failure is classified as a flaky test.
 For writing new Playwright tests that aren't flaky, use the `playwright-test` skill.
-`investigating-ci-failures` (green/red boundary, who broke master) and `diagnosing-ci-and-merge-bottlenecks` (the `engineering-analytics-flaky-tests` tool and its caveats) are product skills under `products/engineering_analytics/skills/`, not invocable here: read their `SKILL.md` at that path.
+`investigating-ci-failures` (green/red boundary) and `diagnosing-ci-and-merge-bottlenecks` (the `engineering-analytics-flaky-tests` tool's caveats) are product skills under `products/engineering_analytics/skills/`, not invocable here: read their `SKILL.md` at that path.
 
 ## 1. Measure the failure rate — from GitHub, not from a digest
 
