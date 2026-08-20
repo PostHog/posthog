@@ -16494,6 +16494,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `general` - General
+     */
+    export type SystemRoleEnum = typeof SystemRoleEnum[keyof typeof SystemRoleEnum];
+
+
+    export const SystemRoleEnum = {
+      Personal: 'personal',
+      General: 'general',
+    } as const;
+
+    /**
      * Response shape for a task channel, read from a frozen ``ChannelDTO``.
      */
     export interface ChannelDTO {
@@ -16506,6 +16518,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+      /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+       *
+       * * `personal` - Personal
+       * * `general` - General */
+      readonly system_role: SystemRoleEnum | null;
     }
 
     export interface ChannelDeleteConflict {
@@ -17792,6 +17809,20 @@ export namespace Schemas {
       content_type?: string;
     }
 
+    /**
+     * One declared variable of a templated skill — the schema a client renders a form from.
+     */
+    export interface CommunitySkillTemplateVariable {
+      /** Variable identifier, substituted for `{{ name }}` in the skill body. */
+      name: string;
+      /** Human-readable question shown when collecting a value for this variable. */
+      prompt: string;
+      /** Whether a value must be supplied at install time (otherwise it falls back to the default). */
+      is_required: boolean;
+      /** Value used when none is supplied. Empty when the variable has no default. */
+      default: string;
+    }
+
     export interface CommunitySkill {
       readonly id: string;
       /** Stable identifier matching the skill's directory in the community-skills repo. */
@@ -17824,6 +17855,8 @@ export namespace Schemas {
       readonly github_url: string;
       /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
       readonly files: readonly CommunitySkillFileManifest[];
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -17839,12 +17872,19 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillInstallVariables = {[key: string]: string};
+
     export interface CommunitySkillInstall {
       /**
          * Name for the installed skill in your team. Defaults to the community skill's slug.
          * @maxLength 64
          */
       new_name?: string;
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillInstallVariables;
     }
 
     /**
@@ -17883,6 +17923,8 @@ export namespace Schemas {
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
       readonly github_url: string;
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -66713,6 +66755,18 @@ export namespace Schemas {
       username: string;
       /** Root database password — returned only here at provision time and on reset-password */
       password: string;
+    }
+
+    /**
+     * The requester's default channels, plus whether this call is what created them.
+     */
+    export interface ProvisionedChannels {
+      /** The full channel list after provisioning, same shape as the list endpoint. */
+      channels: ChannelDTO[];
+      /** Whether this call created the requester's personal #me channel. */
+      personal_created: boolean;
+      /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+      general_created: boolean;
     }
 
     /**
