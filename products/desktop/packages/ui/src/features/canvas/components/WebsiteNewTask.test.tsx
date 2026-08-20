@@ -21,7 +21,10 @@ const { track, useFolderInstructions, taskInputProps } = vi.hoisted(() => ({
 // TaskInput is a huge hook-heavy component; stub it down to just the surface
 // this test cares about — a button that fires onContextChipClick when wired.
 vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
-  TaskInput: (props: { onContextChipClick?: () => void }) => {
+  TaskInput: (props: {
+    allowNoRepo?: boolean;
+    onContextChipClick?: () => void;
+  }) => {
     taskInputProps(props);
     return (
       <button
@@ -121,6 +124,13 @@ describe("WebsiteNewTask context panel", () => {
         channelContextId: "chan-1",
       }),
     );
+  });
+
+  it("uses the standard repository and branch selectors", () => {
+    useFolderInstructions.mockReturnValue({ data: undefined });
+    renderNewTask();
+
+    expect(taskInputProps.mock.lastCall?.[0]).not.toHaveProperty("allowNoRepo");
   });
 
   it("opens the context panel and tracks view_context when the chip is clicked", async () => {

@@ -74,7 +74,7 @@ class FirebaseResumeConfig:
 class FirebaseCredentials:
     project_id: str
     client_email: str
-    private_key: str
+    private_key: str = dataclasses.field(repr=False)
     private_key_id: Optional[str] = None
     # Kept as it was read from the key file, but never used as a request target — see `token_endpoint`.
     token_uri: Optional[str] = None
@@ -269,8 +269,14 @@ def _request(
     if not response.ok:
         # `raise_for_status` reports status and URL only, so drain a tightly bounded prefix purely
         # to release the connection — the error path never needs a full page's worth of bytes.
-        _read_truncated_body(response, MAX_ERROR_BODY_BYTES)
-        response.raise_for_status()
+        detail_body = _read_truncated_body(response, MAX_ERROR_BODY_BYTES)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # Google's structured error (status/message) lets callers tell a permanent,
+            # database-configuration failure apart from a transient or unexpected one.
+            e.args = (f"{e.args[0]} ({_error_detail(response, detail_body)})",)
+            raise
 
     raw = _read_capped_body(response, MAX_RESPONSE_BYTES)
     if not raw:
@@ -577,10 +583,12 @@ def get_tables(credentials: FirebaseCredentials) -> list[str]:
         collection_ids = list_collection_ids(api_session, tokens, credentials)
         tables.extend(firestore_table_name(collection_id) for collection_id in collection_ids)
     except requests.HTTPError as e:
-        # A project with no Firestore database answers 404, and a service account without the
-        # Datastore role answers 403. Neither should hide the tables the source can still read.
+        # A project with no Firestore database answers 404, a service account without the
+        # Datastore role answers 403, and a default database provisioned in Datastore mode
+        # (rather than Native mode) answers 400 — the Documents API this source reads is
+        # Native-mode only. None of these should hide the tables the source can still read.
         status = e.response.status_code if e.response is not None else None
-        if status not in (403, 404):
+        if status not in (403, 404) and not (status == 400 and "datastore mode" in str(e).lower()):
             raise
         LOGGER.warning(f"Skipping Firestore collections for Firebase project {credentials.project_id}: {status}")
 
