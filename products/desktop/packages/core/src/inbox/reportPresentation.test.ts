@@ -1,10 +1,58 @@
+import type {
+  SignalReportActionability,
+  SignalReportStatus,
+} from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
   formatSignalReportSummaryMarkdown,
+  isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
 } from "./reportPresentation";
+
+describe("isStatusRedundantWithActionability", () => {
+  it.each<{
+    status: SignalReportStatus;
+    actionability: SignalReportActionability | null;
+    expected: boolean;
+  }>([
+    // Without a verdict the status is the only information, so it always shows.
+    { status: "ready", actionability: null, expected: false },
+    { status: "pending_input", actionability: null, expected: false },
+    // Ready is the default terminal state; any verdict supersedes it.
+    {
+      status: "ready",
+      actionability: "immediately_actionable",
+      expected: true,
+    },
+    { status: "ready", actionability: "requires_human_input", expected: true },
+    // Both badges would say "Needs input".
+    {
+      status: "pending_input",
+      actionability: "requires_human_input",
+      expected: true,
+    },
+    // Different stories, so both badges stay.
+    {
+      status: "pending_input",
+      actionability: "immediately_actionable",
+      expected: false,
+    },
+    {
+      status: "in_progress",
+      actionability: "requires_human_input",
+      expected: false,
+    },
+  ])(
+    "$status + $actionability -> $expected",
+    ({ status, actionability, expected }) => {
+      expect(isStatusRedundantWithActionability(status, actionability)).toBe(
+        expected,
+      );
+    },
+  );
+});
 
 describe("deriveHeadline", () => {
   it("returns null for null/undefined/empty input", () => {

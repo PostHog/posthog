@@ -8,10 +8,8 @@ from posthog.clickhouse.property_values import (
     PROPERTY_VALUES_MV_SQL,
 )
 
-if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV"):
     _ROLES = [NodeRole.AUX]
-elif settings.CLOUD_DEPLOYMENT == "DEV":
-    _ROLES = [NodeRole.DATA]
 else:
     _ROLES = []
 

@@ -622,6 +622,20 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskDTO:
+    """Outcome of a workflow's "Create AI task" action.
+
+    ``created`` is False when the request replayed an already-used idempotency key and the
+    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
+    task whose run has since been deleted.
+    """
+
+    task_id: UUID
+    run_id: UUID | None
+    created: bool
+
+
+@dataclass(frozen=True)
 class CodeInviteRedeemResult:
     """Outcome of attempting to redeem a PostHog Desktop invite.
 
@@ -632,36 +646,6 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
-
-
-@dataclass(frozen=True)
-class TaskAutomationDTO:
-    """A scheduled task automation.
-
-    Mirrors exactly the fields ``TaskAutomationSerializer`` emits. Most read fields are
-    proxied off the underlying ``Task`` (``name``/``prompt``/``repository``/
-    ``github_integration``) or derived from the linked last run (``last_run_at``/
-    ``last_run_status``). ``github_integration`` is the integration's primary key (or
-    ``None``). ``last_task_id`` is always present (the automation's task id as a string);
-    ``last_task_run_id`` is the most recent run's id as a string, or ``None``.
-    """
-
-    id: UUID
-    name: str
-    prompt: str
-    repository: str | None
-    github_integration: int | None
-    cron_expression: str
-    timezone: str
-    template_id: str | None
-    enabled: bool
-    last_run_at: datetime | None
-    last_run_status: str | None
-    last_task_id: str
-    last_task_run_id: str | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 @dataclass(frozen=True)

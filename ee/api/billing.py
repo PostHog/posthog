@@ -1,13 +1,15 @@
+import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 
 import requests
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -20,10 +22,11 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -63,6 +66,10 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     return _owner_only_billing_enabled(user, organization) is False
 
 
+def is_token_auth_request(request: Request) -> bool:
+    return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+
+
 class HasBillingAccess(permissions.BasePermission):
     """
     Permission to allow users with Billing access to access Billing endpoints.
@@ -87,6 +94,47 @@ class BillingSerializer(serializers.Serializer):
     billing_limit = serializers.IntegerField()
 
 
+@extend_schema_serializer(many=False)
+class BillingOverviewResponseSerializer(serializers.Serializer):
+    customer_id = serializers.CharField(required=False, allow_null=True)
+    billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    has_active_subscription = serializers.BooleanField(required=False)
+    deactivated = serializers.BooleanField(required=False)
+    is_annual_plan_customer = serializers.BooleanField(required=False)
+    free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit_after_discount = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+    discount_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    discount_percent = serializers.FloatField(required=False, allow_null=True)
+    amount_off_expires_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label_previous = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    stripe_portal_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    external_billing_provider_invoices_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    products = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField(allow_null=True)),
+        required=False,
+        help_text="Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata.",
+    )
+    available_product_features = serializers.ListField(child=serializers.CharField(), required=False)
+    usage_summary = serializers.JSONField(required=False)
+    billing_period = serializers.JSONField(required=False, allow_null=True)
+    custom_limits_usd = serializers.JSONField(required=False)
+    next_period_custom_limits_usd = serializers.JSONField(required=False)
+    trial = serializers.JSONField(required=False, allow_null=True)
+    license = serializers.JSONField(required=False, allow_null=True)
+    account_owner = serializers.JSONField(required=False, allow_null=True)
+    customer_trust_scores = serializers.JSONField(required=False)
+    never_drop_data = serializers.BooleanField(required=False)
+
+
 class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
@@ -99,9 +147,34 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
     start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    usage_types = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "JSON-encoded array of usage type identifiers to filter on. Valid values: "
+            + ", ".join(USAGE_TYPE_VALUES)
+            + '. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.'
+        ),
+    )
+    team_ids = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "JSON-encoded array of numeric team/project IDs to filter on, "
+            "for example [1,2]. Omit for all teams in the organization."
+        ),
+    )
+    breakdowns = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            'JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", '
+            'for example ["type","team"]. Omit for a single aggregate series.'
+        ),
+    )
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
@@ -125,6 +198,73 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         """Validate and normalize the end_date."""
         return self._parse_date(value, "end_date")
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["end_date"] = timezone.now().date().isoformat()
+        return attrs
+
+    def validate_usage_types(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
+
+        if not isinstance(parsed, list) or any(not isinstance(usage_type, str) for usage_type in parsed):
+            raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
+
+        return value
+
+    def validate_team_ids(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array of numeric team IDs.")
+
+        if not isinstance(parsed, list) or any(
+            not isinstance(team_id, int) or isinstance(team_id, bool) for team_id in parsed
+        ):
+            raise serializers.ValidationError("Value must be a JSON array of numeric team IDs.")
+
+        return value
+
+    def validate_breakdowns(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+
+        if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
+            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+
+        return value
+
+
+class BillingTimeSeriesPointSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    label = serializers.CharField(required=False, allow_blank=True)  # type: ignore[assignment]
+    data = serializers.ListField(child=serializers.FloatField(), required=False)  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), required=False)
+    breakdown_type = serializers.ChoiceField(choices=["type", "team", "multiple"], allow_null=True, required=False)
+    breakdown_value = serializers.JSONField(allow_null=True, required=False)
+
+
+class BillingTimeSeriesResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(required=False)
+    type = serializers.CharField(required=False)
+    customer_id = serializers.IntegerField(required=False)
+    results = BillingTimeSeriesPointSerializer(many=True)
+    team_id_options = serializers.ListField(child=serializers.IntegerField(), required=False)
+    next = serializers.CharField(required=False, allow_blank=True)
+
 
 class BillingPeriodResponseSerializer(serializers.Serializer):
     current_period_start = serializers.DateTimeField(
@@ -140,21 +280,31 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
+    pagination_class = None
     param_derived_from_user_current_team = "team_id"
 
-    scope_object = "INTERNAL"
+    scope_object = "billing"
+    scope_object_read_actions = ["list", "usage", "spend"]
+    scope_object_write_actions: list[str] = []
+    # OpenAPI skips root-router viewsets that derive their team from the current user.
+    # Billing opts in so generated clients and MCP scaffolding include these read actions.
+    force_include_in_api_docs = True
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
+    @extend_schema(responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)})
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
             raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
+        if is_token_auth_request(request):
+            if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
+                raise PermissionDenied("You do not have access to Billing for this organization.")
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -201,6 +351,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ).data
         )
 
+    @extend_schema(exclude=True)
     @action(
         methods=["PATCH"],
         detail=False,
@@ -596,11 +747,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,
         url_path="usage",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        responses={200: BillingTimeSeriesResponseSerializer},
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -609,6 +762,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         teams_map = self._get_teams_map(organization)
 
@@ -633,11 +787,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        responses={200: BillingTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
@@ -647,6 +803,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         teams_map = self._get_teams_map(organization)
 
@@ -681,12 +838,29 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             capture_exception(e, {"organization_id": organization.id})
             return {}
 
-    def _get_org(self) -> Optional[Organization]:
-        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
-        # nosemgrep: cross-org-bypass-user-organization
-        org = None if self.request.user.is_anonymous else self.request.user.organization
+    def _check_requested_team_ids_belong_to_org(self, organization: Organization, team_ids: Optional[str]) -> None:
+        if not team_ids:
+            return
 
-        return org
+        requested_team_ids = set(json.loads(team_ids))
+        if not requested_team_ids:
+            return
+
+        matching_team_ids = set(
+            Team.objects.filter(organization=organization, id__in=requested_team_ids).values_list("id", flat=True)
+        )
+
+        if requested_team_ids != matching_team_ids:
+            raise PermissionDenied("One or more requested projects are not in this organization.")
+
+    def _get_org(self) -> Optional[Organization]:
+        if self.request.user.is_anonymous:
+            return None
+
+        try:
+            return self.team.organization
+        except Exception:
+            return None
 
     def _get_org_required(self) -> Organization:
         org = self._get_org()
