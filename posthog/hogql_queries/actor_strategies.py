@@ -144,10 +144,16 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
-            # Match every whitespace-separated token, so a full name like "first last" still
-            # matches when the two words live in different fields (name in one, email in another).
-            for token in search.split():
-                where_exprs.append(self._search_token_condition(token))
+            # Require every whitespace-separated token to match some display-name field, so a full
+            # name like "first last" matches when its words live in different fields (name and email).
+            # Distinct IDs rarely contain whitespace, so match them once against the whole string
+            # rather than per token, keeping the unindexed distinct-id scan to a single pass.
+            token_matches = ast.And(exprs=[self._search_token_condition(token) for token in search.split()])
+            distinct_id_match = parse_expr(
+                "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
+                {"search": ast.Constant(value=f"%{search}%")},
+            )
+            where_exprs.append(ast.Or(exprs=[token_matches, distinct_id_match]))
         return where_exprs
 
     def _search_token_condition(self, token: str) -> ast.Expr:
@@ -169,12 +175,6 @@ class PersonStrategy(ActorStrategy):
                 op=ast.CompareOperationOp.ILike,
                 left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
                 right=ast.Constant(value=f"%{token}%"),
-            )
-        )
-        field_matches.append(
-            parse_expr(
-                "id in (select person_id from person_distinct_ids where ilike(distinct_id, {token}))",
-                {"token": ast.Constant(value=f"%{token}%")},
             )
         )
         return ast.Or(exprs=field_matches)

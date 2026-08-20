@@ -87,9 +87,10 @@ REQUIRED WORKAROUNDS:
       WHERE ilike(p.properties.email, '%ada@example.com%') OR ilike(p.properties.name, '%ada lovelace%')
    Do NOT answer identity lookups from `events.person.properties.*`. Those values are point-in-time:
    they are frozen at ingestion, so they can be stale, empty, or absent even when the person exists.
-   The `persons` table always holds the current properties. Also do not add a `timestamp` bound to a
-   person lookup on the `persons` table. That table has no event timestamp, and a person can exist
-   without a recent event.
+   The `persons` table holds the latest known properties and is the best source for identity lookups.
+   Also do not add a `timestamp` bound to a person lookup on the `persons` table. That table has no
+   event timestamp, and a person can exist without a recent event. If the lookup returns no rows, say
+   that no matching person was found in the indexed data, not that the person does not exist.
 
    For reading person data alongside events (not for identity lookup), you may still use the person
    virtual table from events:
