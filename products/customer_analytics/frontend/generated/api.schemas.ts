@@ -34,6 +34,11 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -277,6 +282,11 @@ export interface AccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -454,6 +464,11 @@ export interface PatchedAccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -1572,6 +1587,62 @@ export interface FeatureRequestAccountApi {
     readonly name: string
 }
 
+export interface FeatureRequestEvidenceApi {
+    /** Stable evidence ID. */
+    readonly id: string
+    /** Internal summary of this account's request evidence. */
+    readonly summary: string
+    /** Customer quote kept with this evidence item. */
+    readonly customer_quote: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    readonly evidence_source: string
+    /** HTTP or HTTPS link to the source, or an empty string. */
+    readonly source_url: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    readonly requested_on: string | null
+    /**
+     * ID of the user who added the evidence.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * ID of the last user to update the evidence.
+     * @nullable
+     */
+    readonly updated_by: number | null
+    /** When the evidence was added. */
+    readonly created_at: string
+    /** When the evidence was last updated. */
+    readonly updated_at: string
+}
+
+export interface FeatureRequestAccountLinkApi {
+    /** Stable link ID between the request and account. */
+    readonly id: string
+    /** Affected Customer Analytics account. */
+    readonly account: FeatureRequestAccountApi
+    /** Evidence recorded for this account and request. List responses omit these items. */
+    readonly evidence: readonly FeatureRequestEvidenceApi[]
+    /**
+     * Total evidence items recorded for this account and request.
+     * @minimum 0
+     */
+    readonly evidence_count: number
+    /** When the account was first linked. */
+    readonly created_at: string
+    /**
+     * When the account link was last changed.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
 export interface FeatureRequestApi {
     /** Stable feature request ID. */
     readonly id: string
@@ -1610,8 +1681,12 @@ export interface FeatureRequestApi {
      * @minimum 1
      */
     readonly version: number
-    /** Affected account in the first release. */
+    /** Whether the caller can update this request and all its active account links. */
+    readonly can_update: boolean
+    /** First visible account retained for client compatibility. Use account_links for the complete list. */
     readonly account: FeatureRequestAccountApi
+    /** Active account links visible to the caller, with account-specific evidence. */
+    readonly account_links: readonly FeatureRequestAccountLinkApi[]
     /** Product areas affected by this request. */
     readonly product_areas: readonly FeatureRequestProductAreaApi[]
     /**
@@ -1668,8 +1743,10 @@ export interface FeatureRequestUpdateApi {
     title?: string
     /** Updated optional customer-facing request description in Markdown. */
     description?: string
-    /** Updated affected Customer Analytics account ID. */
+    /** Deprecated single affected account ID. Use account_ids. */
     account_id?: string
+    /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+    account_ids?: string[]
     /** One or more product area IDs. Existing inactive areas can remain linked. */
     product_area_ids?: string[]
     /** Updated customer-facing lifecycle status.
@@ -1701,8 +1778,10 @@ export interface PatchedFeatureRequestUpdateApi {
     title?: string
     /** Updated optional customer-facing request description in Markdown. */
     description?: string
-    /** Updated affected Customer Analytics account ID. */
+    /** Deprecated single affected account ID. Use account_ids. */
     account_id?: string
+    /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+    account_ids?: string[]
     /** One or more product area IDs. Existing inactive areas can remain linked. */
     product_area_ids?: string[]
     /** Updated customer-facing lifecycle status.
@@ -1721,6 +1800,69 @@ export interface PatchedFeatureRequestUpdateApi {
     request_priority?: RequestPriorityEnumApi | null
 }
 
+export interface FeatureRequestEvidencePayloadApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+}
+
+export interface FeatureRequestAddAccountApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Accessible account to link to this feature request. */
+    account_id: string
+    /** Optional first evidence item to create for the account in the same change. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
+}
+
+export interface FeatureRequestEvidenceCreateApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Active account link that owns this evidence. */
+    account_link_id: string
+}
+
 export interface FeatureRequestVersionApi {
     /**
      * Request version loaded by the editor. Stale versions return 409 Conflict.
@@ -1733,6 +1875,8 @@ export interface FeatureRequestVersionApi {
  * * `status` - Status
  * * `priority` - Priority
  * * `account` - Account
+ * * `accounts` - Accounts
+ * * `evidence` - Evidence
  * * `product_areas` - Product areas
  */
 export type FieldEnumApi = (typeof FieldEnumApi)[keyof typeof FieldEnumApi]
@@ -1741,6 +1885,8 @@ export const FieldEnumApi = {
     Status: 'status',
     Priority: 'priority',
     Account: 'account',
+    Accounts: 'accounts',
+    Evidence: 'evidence',
     ProductAreas: 'product_areas',
 } as const
 
@@ -1758,6 +1904,19 @@ export type FeatureRequestHistoryChangeApiBefore =
           id: string
           name: string
       }[]
+    | {
+          id: string
+          account: {
+              id: string
+              name: string
+          }
+          summary: string
+          customer_quote: string
+          source: string
+          source_url: string
+          /** @nullable */
+          requested_on: string | null
+      }
     | null
 
 /**
@@ -1774,6 +1933,19 @@ export type FeatureRequestHistoryChangeApiAfter =
           id: string
           name: string
       }[]
+    | {
+          id: string
+          account: {
+              id: string
+              name: string
+          }
+          summary: string
+          customer_quote: string
+          source: string
+          source_url: string
+          /** @nullable */
+          requested_on: string | null
+      }
     | null
 
 export interface FeatureRequestHistoryChangeApi {
@@ -1782,6 +1954,8 @@ export interface FeatureRequestHistoryChangeApi {
      * * `status` - Status
      * * `priority` - Priority
      * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
      * * `product_areas` - Product areas */
     readonly field: FieldEnumApi
     /** Value before the update, including relation snapshots. */
@@ -1824,6 +1998,16 @@ export interface FeatureRequestHistoryApi {
     readonly changed_at: string
 }
 
+export interface FeatureRequestEvidenceDeleteApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Evidence item to delete. */
+    evidence_id: string
+}
+
 export interface FeatureRequestStatusHistoryApi {
     /** Stable status history entry ID. */
     readonly id: string
@@ -1859,6 +2043,35 @@ export interface FeatureRequestStatusHistoryApi {
     readonly actor_name: string | null
     /** When the status changed. */
     readonly changed_at: string
+}
+
+export interface FeatureRequestEvidenceUpdateApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Evidence item to replace. */
+    evidence_id: string
 }
 
 /**
@@ -2009,6 +2222,10 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      */
     cursor?: string
     /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
+    /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
@@ -2061,6 +2278,10 @@ export type AccountsListParams = {
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
     /**
      * Number of results to return per page.
      */

@@ -114,6 +114,7 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const accountsListQueryIncludeChurnedDefault = false
+export const accountsListQueryIncludeIgnoredDefault = false
 
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     all_roles_unassigned: zod
@@ -124,6 +125,10 @@ export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(accountsListQueryIncludeChurnedDefault)
         .describe('Include churned accounts. Churned accounts are hidden by default.'),
+    include_ignored: zod
+        .boolean()
+        .default(accountsListQueryIncludeIgnoredDefault)
+        .describe('Include ignored accounts. Ignored accounts are hidden by default.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),

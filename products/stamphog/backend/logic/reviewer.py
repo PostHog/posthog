@@ -1,16 +1,17 @@
 """Sandbox reviewer invocation + output parsing.
 
-The whole review engine — hard gates, tier classification, git-blame
-familiarity, and the LLM reviewer — now runs inside the sandbox via the Action's
-own modules (``tools/pr-approval-agent/review_local.py``). This module no longer
-embeds a reviewer script; it only:
+The whole review engine (hard gates, tier classification, git-blame
+familiarity, and the LLM reviewer) runs inside the sandbox via the engine's own
+modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This
+module no longer embeds a reviewer script. It only does two things:
 
 - ``build_reviewer_invocation``: assembles the ``--context`` JSON payload the
   sandbox entrypoint consumes (PR metadata, changed files, the author's merged-PR
   numbers, base/head shas) and the ``uv run`` command to execute it.
-- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line — the
-  Action's full ``to_dict()`` contract — into a verdict, defensively. A run we
-  can't read is never an approval: malformed output escalates.
+- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line, which
+  is the engine's full ``to_dict()`` contract, into a verdict. It parses
+  defensively, because a run that the server cannot read is never an approval.
+  Malformed output escalates.
 
 The trusted review-norms prose and gate policy are NOT passed here — the server
 overwrites ``.stamphog/policy.yml`` and ``.stamphog/review-guidance.md`` in the
@@ -50,7 +51,7 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (tools/pr-approval-agent/reviewer.py) and the
+# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py) and the
 # stamphog_reviewrun column width.
 CHANGE_SUMMARY_MAX_CHARS = 200
 
@@ -104,6 +105,7 @@ def build_reviewer_invocation(
     check_runs: list[dict],
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
+    author_team_slugs: list[str],
     base_sha: str,
     head_sha: str,
     repo: str,
@@ -121,6 +123,9 @@ def build_reviewer_invocation(
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
     (the engine needs them for the git-blame familiarity signal, which it
     otherwise gets from a `gh` call it can't make in the sandbox).
+    ``author_team_slugs`` are every GitHub team the author belongs to, which the
+    engine intersects with the teams owning the changed paths to tell the reviewer
+    whether the author owns the code (another `gh` call the sandbox can't make).
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
@@ -137,6 +142,7 @@ def build_reviewer_invocation(
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "author_team_slugs": list(author_team_slugs),
         "self_driving_review": self_driving_review,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]

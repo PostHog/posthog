@@ -4,7 +4,7 @@ from rest_framework.request import Request
 
 from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 from products.endpoints.backend.models import Endpoint, EndpointVersion, _breakdown_property_names
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
     InsightVariable.Type.STRING: {"type": "string"},
