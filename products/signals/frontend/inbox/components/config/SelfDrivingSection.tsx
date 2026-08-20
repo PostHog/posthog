@@ -310,7 +310,7 @@ export function SelfDrivingSection(): JSX.Element {
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
-    const { autonomyConfig, autonomyConfigLoading } = useValues(userAutonomyLogic)
+    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
     const { setAutostartPriority } = useActions(userAutonomyLogic)
     const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
 
@@ -359,7 +359,13 @@ export function SelfDrivingSection(): JSX.Element {
                                         size="xsmall"
                                         value={myThreshold}
                                         options={MY_THRESHOLD_SEGMENTS}
-                                        disabledReason={autonomyConfigLoading ? 'Loading settings' : undefined}
+                                        disabledReason={
+                                            autostartPriorityUpdating
+                                                ? 'Saving changes'
+                                                : autonomyConfigLoading
+                                                  ? 'Loading settings'
+                                                  : undefined
+                                        }
                                         onChange={(next) =>
                                             setAutostartPriority(
                                                 next === MY_THRESHOLD_DEFAULT_VALUE

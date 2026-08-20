@@ -12,6 +12,7 @@ import type { SignalReportPriority, SignalUserAutonomyConfig } from '../types'
 export interface userAutonomyLogicValues {
     autonomyConfig: SignalUserAutonomyConfig | null
     autonomyConfigLoading: boolean
+    autostartPriorityUpdating: boolean
     slackPickersExpanded: boolean
 }
 
@@ -102,6 +103,17 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                 ...('minPriority' in updates ? { slack_notification_min_priority: updates.minPriority ?? null } : {}),
             }),
         },
+        // The threshold update runs in a listener, so `autonomyConfigLoading` (the reload loader) only
+        // turns true after the POST resolves. This flag covers the POST itself so the control stays
+        // disabled for the whole save window and can't fire a second, racing update.
+        autostartPriorityUpdating: [
+            false,
+            {
+                setAutostartPriority: () => true,
+                loadAutonomyConfigSuccess: () => false,
+                loadAutonomyConfigFailure: () => false,
+            },
+        ],
         slackPickersExpanded: [
             false,
             {
