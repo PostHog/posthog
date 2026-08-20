@@ -8577,6 +8577,7 @@ dependencies = [
  "axum 0.7.9",
  "bytes",
  "common-alloc",
+ "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
  "flate2",
