@@ -1,18 +1,5 @@
-# pytest module-name collisions that predate the invariant guarding them.
-# Each line is a set of test files that resolve to one module name. A run that collects
-# more than one of them dies at collection. Shrink this list; never grow it.
-# Maintained by test_no_new_pytest_module_name_collisions — regenerate with:
+# Test files that share a pytest module name inside one CI session. That session dies
+# at collection and runs nothing, so this list should stay empty.
+# Maintained by test_no_new_pytest_module_name_collisions - regenerate with:
 #   python posthog/test/repo_invariants/test_pytest_module_collisions.py
-test_activities: posthog/temporal/ai_observability/eval_reports/test/test_activities.py, products/conversations/backend/temporal/zendesk_import/tests/test_activities.py
-test_activity: products/batch_exports/backend/tests/temporal/destinations/redshift/test_activity.py, products/engineering_analytics/backend/logic/job_logs/test/test_activity.py
-test_anthropic: products/ai_observability/backend/llm/providers/test/test_anthropic.py, products/warehouse_sources/backend/temporal/data_imports/sources/anthropic/tests/test_anthropic.py
-test_base: posthog/schema_migrations/test/test_base.py, products/warehouse_sources/backend/temporal/data_imports/sources/common/test/test_base.py
-test_client: posthog/kafka_client/test/test_client.py, products/conversations/backend/temporal/zendesk_import/tests/test_client.py, products/tasks/backend/temporal/tests/test_client.py
-test_config: products/marketing_analytics/backend/demo/test_config.py, products/warehouse_sources/backend/temporal/data_imports/sources/common/test/test_config.py
-test_events: posthog/hogql/database/schema/test/test_events.py, products/customer_analytics/backend/test/test_events.py
-test_facade: products/customer_analytics/backend/test/test_facade.py, products/endpoints/backend/tests/test_facade.py, products/notebooks/backend/test/test_facade.py
-test_openrouter: products/ai_observability/backend/llm/providers/test/test_openrouter.py, products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/tests/test_openrouter.py
-test_sql: posthog/models/exchange_rate/test/test_sql.py, products/warehouse_sources/backend/temporal/data_imports/sources/common/test/test_sql.py
-test_util: products/cohorts/backend/models/test/test_util.py, products/warehouse_sources/backend/temporal/data_imports/tests/test_util.py
-test_utils: posthog/temporal/tests/data_modeling/test_utils.py, products/warehouse_sources/backend/temporal/data_imports/pipelines/core/test/test_utils.py
-test_workflow: posthog/temporal/ai_observability/eval_reports/test/test_workflow.py, products/batch_exports/backend/tests/temporal/destinations/redshift/test_workflow.py, products/error_tracking/backend/temporal/lifecycle/issue_created/test/test_workflow.py
+
