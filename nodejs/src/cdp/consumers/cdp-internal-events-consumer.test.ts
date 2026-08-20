@@ -2,6 +2,7 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { captureSloFailure } from '~/common/utils/posthog'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -19,6 +20,8 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
+
+jest.mock('~/common/utils/posthog', () => ({ captureSloFailure: jest.fn() }))
 
 describe('CDP Internal Events Consumer', () => {
     let processor: CdpInternalEventsConsumer
@@ -298,6 +301,33 @@ describe('CDP Internal Events Consumer', () => {
             const { invocations } = await processor.processBatch(globals)
 
             expect(invocations.map((invocation) => invocation.functionId)).toEqual([fn.id])
+        })
+
+        it('records a delivery SLO failure when the ownership filter rejects an unscoped destination', async () => {
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                filters: {
+                    ...HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    events: [{ id: '$billing_alert_firing', type: 'events' as const }],
+                },
+            })
+            const event = createInternalEvent(team.id, {})
+            event.event.event = '$billing_alert_firing'
+            event.event.properties = { alert_id: 'alert-1' }
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations).toHaveLength(0)
+            expect(captureSloFailure).toHaveBeenCalledWith({
+                distinctId: 'alert-1',
+                teamId: team.id,
+                resourceId: 'alert-1',
+                operation: 'alert_delivery',
+                failurePhase: 'destination_ownership_filter',
+                properties: { alert_event: '$billing_alert_firing' },
+            })
         })
     })
 

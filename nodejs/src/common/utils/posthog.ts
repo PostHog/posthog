@@ -65,6 +65,39 @@ export function captureTeamEvent(
     }
 }
 
+export function captureSloFailure({
+    distinctId,
+    teamId,
+    resourceId,
+    operation,
+    failurePhase,
+    properties = {},
+}: {
+    distinctId: string
+    teamId: number
+    resourceId: string
+    operation: string
+    failurePhase: string
+    properties?: Record<string, string | number | boolean | null>
+}): void {
+    if (posthog) {
+        posthog.capture({
+            distinctId,
+            event: 'slo_operation_completed',
+            properties: {
+                area: 'analytic-platform',
+                operation,
+                team_id: teamId,
+                resource_id: resourceId,
+                outcome: 'failure',
+                duration_ms: 0,
+                failure_phase: failurePhase,
+                ...properties,
+            },
+        })
+    }
+}
+
 export async function isFeatureFlagEnabled(
     key: string,
     distinctId: string,

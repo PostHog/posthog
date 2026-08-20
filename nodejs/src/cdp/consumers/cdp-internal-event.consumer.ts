@@ -5,7 +5,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { captureException, captureSloFailure } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { isManagedAlertInternalEvent } from '../managed-alert-events'
@@ -89,9 +89,9 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                         return true
                     }
                     const alertId = globals.event.properties?.alert_id
-                    return Boolean(
+                    const matchesEvent = fn.filters?.events?.some((event) => event.id === globals.event.event)
+                    const matchesAlert = Boolean(
                         typeof alertId === 'string' &&
-                            fn.filters?.events?.some((event) => event.id === globals.event.event) &&
                             fn.filters?.properties?.some(
                                 (property) =>
                                     property.type === 'event' &&
@@ -100,6 +100,17 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                                     property.value === alertId
                             )
                     )
+                    if (matchesEvent && !matchesAlert && !fn.filters?.properties?.some((property) => property.key === 'alert_id')) {
+                        captureSloFailure({
+                            distinctId: typeof alertId === 'string' ? alertId : String(fn.id),
+                            teamId: globals.project.id,
+                            resourceId: typeof alertId === 'string' ? alertId : String(fn.id),
+                            operation: 'alert_delivery',
+                            failurePhase: 'destination_ownership_filter',
+                            properties: { alert_event: globals.event.event },
+                        })
+                    }
+                    return Boolean(matchesEvent && matchesAlert)
                 },
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
