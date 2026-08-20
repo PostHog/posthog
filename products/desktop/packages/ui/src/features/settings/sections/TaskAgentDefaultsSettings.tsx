@@ -149,6 +149,7 @@ function MyDefaultPicker({
  */
 export function TaskAgentDefaultsSettings() {
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const isAuthenticated = useAuthStateValue(
     (state) => state.status === "authenticated",
   );
@@ -162,7 +163,15 @@ export function TaskAgentDefaultsSettings() {
     reset,
   } = useTaskAgentDefaults();
 
-  const settingsUrl = buildPostHogUrl(POSTHOG_SETTINGS_PATH, cloudRegion);
+  // The section is per-environment, so the link must name the desktop app's own
+  // project — otherwise the web app fills in the browser's active project, which
+  // can be a different one, and Manage edits the wrong project's default.
+  const settingsUrl = currentProjectId
+    ? buildPostHogUrl(
+        `/project/${currentProjectId}${POSTHOG_SETTINGS_PATH}`,
+        cloudRegion,
+      )
+    : null;
 
   if (!isAuthenticated) {
     return (
