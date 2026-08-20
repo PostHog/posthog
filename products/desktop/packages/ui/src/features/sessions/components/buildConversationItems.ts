@@ -289,6 +289,9 @@ export interface BuildConversationOptions {
   showDebugLogs?: boolean;
 }
 
+const PR_ATTRIBUTION_DIAGNOSTIC_PREFIX =
+  "PR seen in output is not this run's, skipping attribution";
+
 /**
  * The single ordering policy every conversation builder reads events in:
  * ascending timestamp, ties keeping arrival order (`Array.sort` is stable).
@@ -775,6 +778,7 @@ function handleNotification(
     if (!params?.message) return;
     const level = params.level ?? "info";
     if (level === "debug" && !options?.showDebugLogs) return;
+    if (params.message.startsWith(PR_ATTRIBUTION_DIAGNOSTIC_PREFIX)) return;
     ensureImplicitTurn(b, ts);
     pushItem(b, {
       sessionUpdate: "console",

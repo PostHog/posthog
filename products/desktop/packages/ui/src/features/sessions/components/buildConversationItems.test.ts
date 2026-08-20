@@ -826,6 +826,28 @@ describe("buildConversationItems", () => {
       ).toBe(true);
     });
 
+    it("hides persisted PR attribution diagnostics", () => {
+      const events: AcpMessage[] = [
+        consoleMsg(
+          1,
+          'PR seen in output is not this run\'s, skipping attribution {"prUrl":"https://github.com/PostHog/posthog/pull/1"}',
+        ),
+        consoleMsg(2, "Agent session initialized"),
+      ];
+
+      const result = buildConversationItems(events, null);
+      const consoleItems = result.items.filter(
+        (item) =>
+          item.type === "session_update" &&
+          item.update.sessionUpdate === "console",
+      );
+
+      expect(consoleItems).toHaveLength(1);
+      expect(consoleItems[0]).toMatchObject({
+        update: { message: "Agent session initialized" },
+      });
+    });
+
     it("emits no progress group for a conversation without progress notifications", () => {
       const events: AcpMessage[] = [userPromptMsg(1, 1, "hi")];
 
