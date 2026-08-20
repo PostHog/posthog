@@ -4127,7 +4127,7 @@ describe("AgentServer HTTP Mode", () => {
       } | null>;
       detectedPrUrl: string | null;
       logger: {
-        debug: ReturnType<typeof vi.fn>;
+        info: ReturnType<typeof vi.fn>;
       };
       posthogAPI: {
         getTaskRun: ReturnType<typeof vi.fn>;
@@ -4188,12 +4188,12 @@ describe("AgentServer HTTP Mode", () => {
 
     it("does not attribute an older PR the run only viewed (e.g. on a long run)", async () => {
       const s = setup(longAgo);
-      const debugLog = vi.spyOn(s.logger, "debug");
+      const infoLog = vi.spyOn(s.logger, "info");
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
       expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
       expect(s.detectedPrUrl).toBeNull();
-      expect(debugLog).toHaveBeenCalledWith(
+      expect(infoLog).toHaveBeenCalledWith(
         "PR seen in output is not this run's, skipping attribution",
         expect.objectContaining({ prUrl: PR_URL }),
       );

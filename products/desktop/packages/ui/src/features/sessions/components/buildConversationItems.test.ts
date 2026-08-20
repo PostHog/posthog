@@ -6,7 +6,7 @@ import {
   type ConversationItem,
 } from "./buildConversationItems";
 
-function consoleMsg(ts: number, message: string, level = "info"): AcpMessage {
+function consoleMsg(ts: number, message: unknown, level = "info"): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -846,6 +846,15 @@ describe("buildConversationItems", () => {
       expect(consoleItems[0]).toMatchObject({
         update: { message: "Agent session initialized" },
       });
+    });
+
+    it("ignores malformed console messages", () => {
+      const result = buildConversationItems(
+        [consoleMsg(1, { message: "invalid console payload" })],
+        null,
+      );
+
+      expect(result.items).toHaveLength(0);
     });
 
     it("emits no progress group for a conversation without progress notifications", () => {

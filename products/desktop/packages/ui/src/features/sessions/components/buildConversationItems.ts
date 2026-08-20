@@ -775,7 +775,7 @@ function handleNotification(
 
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.CONSOLE)) {
     const params = msg.params as { level?: string; message?: string };
-    if (!params?.message) return;
+    if (!params?.message || typeof params.message !== "string") return;
     const level = params.level ?? "info";
     if (level === "debug" && !options?.showDebugLogs) return;
     if (params.message.startsWith(PR_ATTRIBUTION_DIAGNOSTIC_PREFIX)) return;

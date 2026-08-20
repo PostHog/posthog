@@ -4938,7 +4938,7 @@ ${commonInstructions}
       baseBranch: this.config.baseBranch ?? null,
     });
     if (!owned) {
-      this.logger.debug(
+      this.logger.info(
         "PR seen in output is not this run's, skipping attribution",
         {
           runId: payload.run_id,
