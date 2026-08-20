@@ -12,6 +12,9 @@ def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVar
 
     # For each variable in current_variables, update with data from insight_variables if code_name matches
     for _, v in current_variables.items():
+        # A stored blob or client override can hold a non-dict value; skip it instead of raising.
+        if not isinstance(v, dict):
+            continue
         code_name = v.get("code_name")
         if code_name in insight_variables_by_code_name:
             # Update the variable with corresponding data from insight_variables

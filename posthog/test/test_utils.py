@@ -1140,6 +1140,22 @@ class TestSharingOverrideProtection(TestCase):
 
     @parameterized.expand(
         [
+            ("scalar_value", {"my_var": 1}),
+            ("list_value", {"my_var": ["a"]}),
+            ("top_level_list", [1, 2]),
+        ]
+    )
+    def test_variables_override_rejects_malformed_shape(self, _name, override):
+        from rest_framework import serializers
+
+        request = self._make_request(None, query_params={"variables_override": json.dumps(override)})
+        dashboard = type("Dashboard", (), {"variables": {}})()
+
+        with pytest.raises(serializers.ValidationError):
+            variables_override_requested_by_client(request, dashboard, variables=[])
+
+    @parameterized.expand(
+        [
             ("access_token_auth",),
             ("password_protected_auth",),
         ]
