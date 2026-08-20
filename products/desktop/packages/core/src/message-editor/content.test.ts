@@ -155,6 +155,31 @@ describe("xmlToContent", () => {
     },
   );
 
+  it("restores a hogql chip's exact query when parsing serialized content back", () => {
+    const query =
+      "SELECT count() FROM events WHERE value < 3 AND note = 'a & b'";
+    const serialized = contentToXml({
+      segments: [
+        {
+          type: "chip",
+          chip: {
+            type: "posthog_object",
+            objectKind: "hogql",
+            id: query,
+            label: "Referenced object",
+          },
+        },
+      ],
+    });
+
+    const { segments } = xmlToContent(serialized);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "chip",
+      chip: { type: "posthog_object", objectKind: "hogql", id: query },
+    });
+  });
+
   it("parses a dashboard tag into a PostHog object chip", () => {
     expect(xmlToContent('<dashboard id="17" />').segments).toEqual([
       {

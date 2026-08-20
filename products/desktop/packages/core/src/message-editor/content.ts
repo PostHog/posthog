@@ -1,4 +1,8 @@
-import { escapeXmlAttr, type UploadableSkillSource } from "@posthog/shared";
+import {
+  escapeXmlAttr,
+  type UploadableSkillSource,
+  unescapeXmlAttr,
+} from "@posthog/shared";
 import { isUploadableSkillSource, parseXmlAttrs } from "./skillTags";
 
 export const POSTHOG_OBJECT_KINDS = [
@@ -146,8 +150,11 @@ export function contentToXml(content: EditorContent): string {
   return parts.join("");
 }
 
+// Self-closing chip tags, plus the paired `<hogql>...</hogql>` form whose SQL
+// rides in the tag body. contentToXml XML-escapes that body, so the body is
+// captured here and decoded on the way into a chip.
 const CHIP_TAG_REGEX =
-  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>/g;
+  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
 
 export function deriveFileLabel(filePath: string): string {
   const segments = filePath.split("/").filter(Boolean);
@@ -227,13 +234,30 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
   }
 }
 
+// A `<hogql>` reference carries the SQL as its tag body, XML-escaped by
+// contentToXml. Decode it back to the raw query so editing a serialized message
+// (e.g. a queued one) restores the chip instead of leaking `<hogql>...&lt;...`
+// markup and a corrupted query.
+function hogqlChipFromBody(body: string): MentionChip | null {
+  const query = unescapeXmlAttr(body).trim();
+  if (!query) return null;
+  return {
+    type: "posthog_object",
+    objectKind: "hogql",
+    id: query,
+    label: query,
+  };
+}
+
 export function xmlToContent(xml: string): EditorContent {
   const segments: EditorContent["segments"] = [];
   let lastIndex = 0;
 
   for (const match of xml.matchAll(CHIP_TAG_REGEX)) {
     const matchIndex = match.index ?? 0;
-    const chip = chipFromTag(match[1], match[2] ?? "");
+    const chip = match[1]
+      ? chipFromTag(match[1], match[2] ?? "")
+      : hogqlChipFromBody(match[3] ?? "");
     if (!chip) continue;
 
     if (matchIndex > lastIndex) {
