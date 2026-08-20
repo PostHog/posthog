@@ -57,13 +57,20 @@ class DigestSummary:
     # line that stops a short digest from reading as everything that happened.
     considered: int
     prs: list[DigestPRSummary] = field(default_factory=list)
-    # PR URLs that cleared the bar but did not fit under MAX_DIGEST_PRS. The task releases their
-    # audience rows so a later run posts them. They are not the same as the PRs the model dropped
-    # as routine: those got a decision and stay consumed, while these got no reader.
-    deferred_urls: list[str] = field(default_factory=list)
+    # PRs that cleared the bar but did not fit under MAX_DIGEST_PRS, as "owner/repo#number". The
+    # task releases their audience rows so a later run posts them. They are not the same as the PRs
+    # the model dropped as routine: those got a decision and stay consumed, while these got no
+    # reader. Keyed on repo and number rather than URL because that pair is what identifies a PR;
+    # a blank or repeated URL would silently match rows the digest did show and re-post them.
+    deferred_prs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def pr_key(repository: str, pr_number: int) -> str:
+    """Identity of a PR across repos. Numbers repeat, so a bare number matches the wrong row."""
+    return f"{repository}#{pr_number}"
 
 
 def _capped_summary(considered: int, prs: list[DigestPRSummary]) -> DigestSummary:
@@ -79,7 +86,7 @@ def _capped_summary(considered: int, prs: list[DigestPRSummary]) -> DigestSummar
     return DigestSummary(
         considered=considered,
         prs=prs[:MAX_DIGEST_PRS],
-        deferred_urls=[pr.url for pr in prs[MAX_DIGEST_PRS:]],
+        deferred_prs=[pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]],
     )
 
 

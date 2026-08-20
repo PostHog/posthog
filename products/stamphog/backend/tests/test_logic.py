@@ -12,7 +12,13 @@ from parameterized import parameterized
 from products.stamphog.backend.facade.enums import AudienceReason
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
-from products.stamphog.backend.logic.digest import MAX_DIGEST_PRS, DigestPRSummary, DigestSummary, _capped_summary
+from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
+    DigestPRSummary,
+    DigestSummary,
+    _capped_summary,
+    pr_key,
+)
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
@@ -152,12 +158,13 @@ class DigestCapTests(SimpleTestCase):
         summary = _capped_summary(considered=100, prs=prs)
 
         assert len(summary.prs) == MAX_DIGEST_PRS
-        assert summary.deferred_urls == [pr.url for pr in prs[MAX_DIGEST_PRS:]]
-        assert not set(summary.deferred_urls) & {pr.url for pr in summary.prs}
+        assert summary.deferred_prs == [pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]]
+        # Keyed on repo and number, so a blank or repeated URL cannot match a PR that was shown.
+        assert not set(summary.deferred_prs) & {pr_key(p.repository, p.pr_number) for p in summary.prs}
 
     def test_a_digest_under_the_cap_defers_nothing(self) -> None:
         summary = _capped_summary(considered=9, prs=[])
-        assert summary.deferred_urls == []
+        assert summary.deferred_prs == []
 
 
 class SlackDigestEscapingTests(SimpleTestCase):

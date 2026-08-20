@@ -81,6 +81,9 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
             team_id=team_id,
             repo_config=repo_config,
             pr_number=number,
+            title=f"Change number {number}",
+            author_login="devex-dev",
+            pr_url=f"https://github.com/{REPO}/pull/{number}",
             merged_at=timezone.now(),
         )
         PullRequestAudience.objects.for_team(team_id).create(

@@ -21,7 +21,7 @@ from celery import shared_task
 
 from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
-from products.stamphog.backend.logic.digest import summarize_merged_prs
+from products.stamphog.backend.logic.digest import pr_key, summarize_merged_prs
 from products.stamphog.backend.logic.slack_digest import post_digest
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequestAudience
 
@@ -205,10 +205,14 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         # other claimed PR stays linked: the model saw it and left it out, which is a decision and
         # not a backlog. Runs after the proof-of-post write, so a crash here loses a day for those
         # PRs rather than re-sending the whole digest.
-        if summary.deferred_urls:
-            deferred = set(summary.deferred_urls)
+        if summary.deferred_prs:
+            deferred = set(summary.deferred_prs)
             PullRequestAudience.objects.for_team(team_id).filter(
-                id__in=[a.id for a in audiences if a.pull_request.pr_url in deferred]
+                id__in=[
+                    a.id
+                    for a in audiences
+                    if pr_key(a.pull_request.repo_config.repository, a.pull_request.pr_number) in deferred
+                ]
             ).update(digest_run=None)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
