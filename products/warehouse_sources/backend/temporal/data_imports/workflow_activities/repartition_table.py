@@ -356,6 +356,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     target = RepartitionTarget.from_dict(pending) if pending is not None else _target_from_schema(schema)
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
+    # `_handle_failure` also gives up at the cap, but only for an attempt that survives to run it.
+    # A rewrite whose worker is OOM-killed never reaches it, so the count has to be read here too.
+    # Never while a swap is staged: an interrupted swap may already have deleted live, leaving temp
+    # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
+    # completed however many attempts it took to get here.
+    if swap is None and _exhausted_attempts(pending):
+        _give_up(inputs, schema, pending, trigger_reason, logger)
+        return
+
     started_props = base_event_props(schema, schema.source, inputs.job_id)
     started_props["trigger_reason"] = trigger_reason
     capture_repartition_event("warehouse_repartition_started", started_props)
@@ -369,6 +378,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     schema.set_repartition_claim(
         {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
     )
+
+    # Charged before the rewrite and refunded on the stand-down paths below. Charging on failure
+    # instead bounds nothing: a worker killed mid-rewrite records no outcome, so the cap never moves.
+    charged_attempts = _charge_attempt(schema, pending, logger)
 
     start = time.monotonic()
     try:
@@ -406,7 +419,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         logger.warning(f"repartition: {e}")
         DELTA_REPARTITION_TOTAL.labels(
             team_id=str(inputs.team_id),
-            outcome=_handle_budget_exceeded(inputs, schema, pending, trigger_reason, e, claim_token, logger),
+            outcome=_handle_budget_exceeded(
+                inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts
+            ),
         ).inc()
         return
     except RepartitionSupersededError:
@@ -416,6 +431,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # set and no way to tell a stood-down attempt from one that vanished.
         logger.info("repartition: superseded by a newer attempt, standing down")
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        _refund_attempt(schema, charged_attempts, logger)
         _capture_stood_down(schema, inputs, trigger_reason, "superseded", logger)
         return
     except RepartitionUnpartitionableError as e:
@@ -439,6 +455,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # Temporal reschedules the activity — so propagate rather than record it, else every deploy fills
         # error tracking with `warehouse_repartition_failed` noise and burns a repartition attempt.
         logger.info("repartition: cancelled mid-run, will be retried")
+        _refund_attempt(schema, charged_attempts, logger)
         raise
     except Exception as e:
         # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
@@ -447,6 +464,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # Some cancellations surface through async_to_sync as an Exception-derived CancelledError.
             # Treat identically to the branch above: propagate, never record it as a failure.
             logger.info("repartition: cancelled mid-run, will be retried")
+            _refund_attempt(schema, charged_attempts, logger)
             raise
         if not _still_claimant(schema, claim_token):
             # The error is almost certainly collateral from the newer claimant clobbering our S3 state
@@ -454,6 +472,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # failure would burn an attempt and pollute error tracking with self-inflicted noise.
             logger.info("repartition: failed after being superseded, standing down", exc_info=True)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            _refund_attempt(schema, charged_attempts, logger)
             _capture_stood_down(schema, inputs, trigger_reason, "superseded_after_error", logger)
             return
         if _is_transient_infra_error(e):
@@ -475,14 +494,18 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 # and error-tracking events here would spam (and can trigger automated remediation);
                 # the log line and the transient metric carry the visibility.
                 logger.warning("repartition: transient infra error, re-raising for activity retry", exc_info=True)
+                _refund_attempt(schema, charged_attempts, logger)
                 raise ApplicationError(
                     f"Transient infra error during admin-staged repartition: {e}",
                     type="TransientRepartitionError",
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
+            _refund_attempt(schema, charged_attempts, logger)
             _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error", logger)
             return
-        failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
+        failure_outcome = _handle_failure(
+            inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts
+        )
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
         return
 
@@ -539,6 +562,7 @@ def _handle_budget_exceeded(
     error: RepartitionBudgetExceededError,
     claim_token: str,
     logger: FilteringBoundLogger,
+    charged_attempts: int | None = None,
 ) -> str:
     """Record a rewrite that ran out of one activity's budget, distinguishing progress from a stall.
 
@@ -572,6 +596,7 @@ def _handle_budget_exceeded(
     claim = schema.repartition_claim
     if not (claim and claim.get("token") == claim_token):
         logger.info("repartition: superseded (claim changed under us), standing down without recording failure")
+        _refund_attempt(schema, charged_attempts, logger)
         return "superseded"
 
     pending = schema.repartition_pending or pending or {}
@@ -603,7 +628,82 @@ def _handle_budget_exceeded(
         rows_written=error.rows_written,
         resumed_from=error.resumed_from,
     )
-    return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger)
+    return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger, charged_attempts)
+
+
+def _exhausted_attempts(pending: dict[str, Any] | None) -> bool:
+    return pending is not None and int(pending.get("attempts", 0)) >= MAX_REPARTITION_ATTEMPTS
+
+
+def _give_up(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    pending: dict[str, Any] | None,
+    trigger_reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Abandon a rewrite whose attempts are spent, clearing the markers that would re-arm it.
+
+    Stamps the cooldown as well, or detection re-flags the table on the next sync and the attempts
+    start over — same reason `_handle_failure` does.
+    """
+    logger.warning(
+        f"repartition: giving up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to "
+        f"record an outcome schema_id={inputs.schema_id}",
+        schema_id=inputs.schema_id,
+    )
+    schema.clear_repartition_pending()
+    schema.clear_repartition_swap()
+    schema.clear_repartition_rewrite()
+    schema.stamp_last_repartition_at()
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update(
+        {
+            "trigger_reason": trigger_reason,
+            "attempts": int((pending or {}).get("attempts", 0)),
+            "final": True,
+            "error_type": "RepartitionAttemptsExhausted",
+            "error_message": "attempts exhausted without any surviving to record an outcome",
+        }
+    )
+    capture_repartition_event("warehouse_repartition_failed", props)
+    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+
+
+def _charge_attempt(
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+) -> int | None:
+    """Record this attempt against the retry cap before the rewrite runs; return the prior count.
+
+    `_refund_attempt` restores that count. None means nothing was charged (no pending marker, or a DB
+    failure) — bookkeeping must never block the rewrite.
+    """
+    if pending is None:
+        return None
+    prior = int(pending.get("attempts", 0))
+    try:
+        schema.set_repartition_pending({**pending, "attempts": prior + 1})
+    except Exception:
+        logger.warning("repartition: could not charge attempt, proceeding uncharged", exc_info=True)
+        return None
+    return prior
+
+
+def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: FilteringBoundLogger) -> None:
+    """Undo `_charge_attempt` for a stand-down that must not count against the retry cap.
+
+    Supersession, transient infra and a checkpoint that advanced are noise or progress, not evidence
+    the rewrite is doomed. Re-reads the marker so a refund cannot clobber a newer attempt's charge.
+    """
+    if prior is None:
+        return
+    try:
+        schema.refresh_from_db(fields=["sync_type_config"])
+        pending = schema.repartition_pending
+        if pending is not None and int(pending.get("attempts", 0)) == prior + 1:
+            schema.set_repartition_pending({**pending, "attempts": prior})
+    except Exception:
+        logger.warning("repartition: could not refund attempt", exc_info=True)
 
 
 def _handle_failure(
@@ -614,6 +714,7 @@ def _handle_failure(
     error: Exception,
     claim_token: str,
     logger: FilteringBoundLogger,
+    charged_attempts: int | None = None,
 ) -> str:
     """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
 
@@ -627,9 +728,12 @@ def _handle_failure(
     claim = schema.repartition_claim
     if not (claim and claim.get("token") == claim_token):
         logger.info("repartition: superseded (claim changed under us), standing down without recording failure")
+        _refund_attempt(schema, charged_attempts, logger)
         return "superseded"
     pending = schema.repartition_pending or pending or {}
-    attempts = int(pending.get("attempts", 0)) + 1
+    # Already charged by `_charge_attempt`, so read rather than increment — charging twice would halve
+    # the cap. An unwritten charge leaves this one short, which only costs an extra cycle.
+    attempts = int(pending.get("attempts", 0))
 
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
