@@ -68,6 +68,14 @@ describe('RedisCache', () => {
             expect(await cache.get('region')).toBe('us')
         })
 
+        it('should drop an unparseable entry and report a miss', async () => {
+            mockRedis._store.set('mcp:token:test-user-hash:region', '')
+
+            expect(await cache.get('region')).toBeUndefined()
+            expect(mockRedis.del).toHaveBeenCalledWith('mcp:token:test-user-hash:region')
+            expect(mockRedis._store.has('mcp:token:test-user-hash:region')).toBe(false)
+        })
+
         it('should not read another user keys', async () => {
             const cacheA = new RedisCache<TestState>('user-a', mockRedis)
             const cacheB = new RedisCache<TestState>('user-b', mockRedis)

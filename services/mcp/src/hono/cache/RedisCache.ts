@@ -52,7 +52,18 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
                 redisOperationsTotal.inc({ operation: 'get', status: 'success' })
                 return undefined
             }
-            const result = JSON.parse(raw) as T[K]
+            let result: T[K]
+            try {
+                result = JSON.parse(raw) as T[K]
+            } catch {
+                // An unparseable entry (e.g. `set` called with `undefined`, which the
+                // client coerces to an empty string) would otherwise throw on every
+                // read until its TTL expires, bricking the token for days. Drop it and
+                // report a miss so the caller recomputes.
+                await this.redis.del(scopedKey)
+                redisOperationsTotal.inc({ operation: 'get', status: 'error' })
+                return undefined
+            }
             redisOperationsTotal.inc({ operation: 'get', status: 'success' })
             return result
         } catch (error) {

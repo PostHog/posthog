@@ -150,7 +150,13 @@ export class RequestContext {
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
-        const distinctId = userResult.data.distinct_id as string
+        const distinctId = userResult.data.distinct_id as string | undefined
+        if (!distinctId) {
+            // A response without `distinct_id` means we didn't reach the PostHog API
+            // (an auth redirect or proxy page parses as JSON just fine). Caching it
+            // would poison this token's cache for the full TTL.
+            throw new Error(`Failed to get user: response had no distinct_id (base URL: ${(await this.api()).baseUrl})`)
+        }
         await this.tokenCache.set('distinctId', distinctId)
         return distinctId
     }

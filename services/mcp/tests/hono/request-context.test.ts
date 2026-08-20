@@ -163,6 +163,15 @@ describe('RequestContext', () => {
 
             await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
         })
+
+        it('throws without caching when the response carries no distinct_id', async () => {
+            mockMe.mockResolvedValue({ success: true, data: {} })
+            const redis = fakeRedis()
+            const ctx = new RequestContext(redis, env, makeProps())
+
+            await expect(ctx.getDistinctId()).rejects.toThrow('no distinct_id')
+            expect(await redis.get('mcp:token:test-user:distinctId')).toBeNull()
+        })
     })
 
     describe('getSessionUuid', () => {
