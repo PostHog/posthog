@@ -107,10 +107,11 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
-        # still skip drafts. Ready PRs run the full matrices — the merge gate —
-        # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label to force the full matrices on a draft; the
+        # PRs run the snob-selected Django subset (one shard per active segment),
+        # draft or ready; turbo-tests still skip drafts. When selection can't be
+        # trusted, a ready PR runs the full matrices and a draft skips them. The
+        # queue's trunk-merge/** run and master pushes always run full. Add the
+        # `run-ci-backend` label to force the full matrices on a PR; the
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
         # or from ready_for_review. Mirrors canonical.
@@ -496,9 +497,11 @@ jobs:
         name: Discover product tests
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -540,6 +543,16 @@ jobs:
                   fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -591,15 +604,17 @@ jobs:
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+                  echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
-    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
-    # subset for fast feedback; the full matrix runs once the PR is marked ready
-    # for review, and that ready run is the merge gate. When selection can't be
-    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
-    # a selector full-run signal), the draft skips the heavy matrices entirely —
-    # the pre-selection draft behavior — and defers to the ready full run.
-    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
+    # Pick which Django tests to run on a PR. Both drafts and ready PRs get the
+    # snob-selected subset; the difference is what happens when selection can't be
+    # trusted (product->legacy cascade, turbo-discover or selector failure, a
+    # selector full-run signal). A ready PR then runs the full matrices, a draft
+    # skips them and defers to its ready run — the pre-selection draft behavior.
+    # Master pushes and the queue's trunk-merge/** run never reach this job, so
+    # what gates master is still a full run.
+    # hogli-lint: not-a-required-gate - selects PR coverage and emits no required check.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -607,25 +622,26 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and pushes always run full,
-        # which build_django_matrix falls back to
-        # when select-tests is skipped (empty MODE). The run-ci-backend label
-        # forces the full matrices on a draft.
+        # Pushes always run full, which build_django_matrix falls back to when
+        # select-tests is skipped (empty MODE). The run-ci-backend label forces
+        # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == true &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
+        # Headroom over checkout + uv + the selector's whole-tree parse. A timeout here
+        # leaves MODE empty, which on a ready PR means the full matrix — the worst case.
+        timeout-minutes: 10
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             core_files: ${{ steps.classify.outputs.core_files }}
             poe_files: ${{ steps.classify.outputs.poe_files }}
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
+            compat_files: ${{ steps.classify.outputs.compat_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
             # Kept apples-to-apples with canonical, though the shadow strips the
@@ -638,48 +654,69 @@ jobs:
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
             run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.fallback.outputs.run_legacy_reason }}
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-
+            # Ahead of the checkout on purpose: this reads job outputs only, and when it
+            # decides selection can't be trusted, cloning the repo would just delay the
+            # full matrix that is about to run instead.
             - name: Decide whether selection can be trusted
               id: fallback
               env:
                   RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
+                  RUN_LEGACY_REASON: ${{ needs.turbo-discover.outputs.run_legacy_reason }}
                   TURBO_RESULT: ${{ needs.turbo-discover.result }}
+                  DISABLED: ${{ vars.DISABLE_BACKEND_TEST_SELECTION || 'false' }}
               shell: bash
               run: |
                   set -euo pipefail
                   skip=false
-                  if [[ "$RUN_LEGACY" == "true" ]]; then
-                      # turbo-discover detected product->legacy graph impact; the
-                      # diff-based selector can't see this, so its subset would be
-                      # incomplete. Skip the draft matrices; the ready run is full.
+                  reason=untrusted
+                  if [[ "$DISABLED" == "true" ]]; then
+                      # Kill switch — set the DISABLE_BACKEND_TEST_SELECTION repo variable to
+                      # put every PR back on the full matrices without a code change. Its own
+                      # reason string, so flipping it during an incident stays distinguishable
+                      # from a genuine cascade in the selection telemetry.
+                      skip=true
+                      reason=disabled
+                  elif [[ "$RUN_LEGACY" == "true" && "$RUN_LEGACY_REASON" != "legacy_changed" ]]; then
+                      # turbo-discover inferred legacy impact from a product, contract, or
+                      # schema change rather than seeing a direct edit. The diff-based selector
+                      # cannot see that cascade, so its subset would be incomplete.
+                      # A direct legacy edit is the selector's home turf and is deliberately not
+                      # untrusted here — the selector's own FULL_RUN_PATTERNS decide when a
+                      # legacy change is too broad to narrow.
                       skip=true
                   elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
                       # Conservative — turbo-discover failed.
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
-                  # Surface the inputs behind an untrusted skip so the telemetry can
-                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "reason=$reason" >> "$GITHUB_OUTPUT"
+                  # Surface the raw inputs too, so the telemetry can audit the decision.
                   echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "run_legacy_reason=${RUN_LEGACY_REASON:-}" >> "$GITHUB_OUTPUT"
                   echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.fallback.outputs.skip == 'false'
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              if: steps.fallback.outputs.skip == 'false'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
 
             - name: Run shadow selector
               id: select
               # continue-on-error so a selector or git fetch failure doesn't fail this
               # job — a failed select-tests would leave MODE empty and build_django_matrix
               # would fall back to an expensive full matrix on a draft. Classify reads
-              # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
+              # steps.select.outcome (pre-continue-on-error) and emits the fallback mode
+              # for this PR instead.
               continue-on-error: true
               if: steps.fallback.outputs.skip == 'false'
               env:
@@ -696,7 +733,15 @@ jobs:
               id: classify
               env:
                   FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
+                  FALLBACK_REASON: ${{ steps.fallback.outputs.reason }}
                   SELECT_OUTCOME: ${{ steps.select.outcome }}
+                  # Guards the empty-selection backstop below. select-tests only runs on
+                  # pull_request, so the bare filter output is the whole story here.
+                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+                  # What an untrusted selection falls back to. A ready PR has no later
+                  # run to defer to, so it must run everything; a draft still skips and
+                  # leans on the ready run, which is the cheaper of the two mistakes.
+                  FALLBACK_MODE: ${{ github.event.pull_request.draft && 'skip' || 'full' }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -722,34 +767,35 @@ jobs:
                       } >> "$GITHUB_OUTPUT"
                   }
 
-                  # Untrusted selection on a draft skips the heavy matrices (the
-                  # pre-selection draft behavior); the ready-for-review run is full.
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                  # Untrusted selection runs the full matrices on a ready PR and skips
+                  # them on a draft (the pre-selection draft behavior).
+                  fall_back() {
+                      echo "mode=$FALLBACK_MODE" >> "$GITHUB_OUTPUT"
                       echo "core_files=" >> "$GITHUB_OUTPUT"
                       echo "poe_files=" >> "$GITHUB_OUTPUT"
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
+                      echo "compat_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
                       emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip untrusted
+                      fall_back "${FALLBACK_REASON:-untrusted}"
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
-                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip selector_error
+                      echo "::warning::shadow selector did not produce output; falling back to mode=$FALLBACK_MODE"
+                      fall_back selector_error
                       exit 0
                   fi
 
                   full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                   if [[ "$full_run_reasons" -gt 0 ]]; then
-                      echo "Selector requested a full run; draft defers it to ready for review:"
+                      echo "Selector requested a full run (mode=$FALLBACK_MODE):"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip full_run_requested
+                      fall_back full_run_requested
                       exit 0
                   fi
 
@@ -761,14 +807,26 @@ jobs:
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
+                  #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
                   # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
                   # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
+                  compat=()
                   while IFS= read -r f; do
                       [[ -z "$f" ]] && continue
+                      # Compat overlaps the POE scope rather than partitioning with it, so
+                      # it is collected separately from the segment case below. Driven by the
+                      # same env var the compat pytest invocation uses, so widening one can't
+                      # silently under-select the other.
+                      for compat_target in $CLICKHOUSE_COMPAT_PYTEST_TARGETS; do
+                          if [[ "$f" == "${compat_target%/}/"* ]]; then
+                              compat+=("$f")
+                              break
+                          fi
+                      done
                       case "$f" in
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
@@ -786,15 +844,29 @@ jobs:
                       esac
                   done < <(jq -r '.combined.tests[]?' /tmp/selection.json)
 
+                  # Backstop: a diff that touched legacy code but selected no Django test at
+                  # all means the selector had no rule for it, not that there is nothing to
+                  # run — a non-Python legacy file (C++ parser sources, a JSON config) reaches
+                  # no import edge. Narrowing to zero would silently gate on nothing, so treat
+                  # it as untrusted. FULL_RUN_PATTERNS covers the known cases; this catches the
+                  # ones that get added to the `legacy` paths filter and forgotten there.
+                  # Products-only diffs legitimately select nothing here and are not legacy.
+                  if [[ "$LEGACY_CHANGED" == "true" && ${#core[@]} -eq 0 && ${#temporal[@]} -eq 0 ]]; then
+                      echo "::warning::legacy files changed but no Django test was selected; falling back to mode=$FALLBACK_MODE"
+                      fall_back empty_selection
+                      exit 0
+                  fi
+
                   echo "mode=selected" >> "$GITHUB_OUTPUT"
                   echo "core_files=${core[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "poe_files=${poe[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "compat_files=${compat[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   emit_metrics true ""
 
-                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
+                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal, ${#compat[@]} compat"
 
     build-product-test-matrix:
         name: Build product test matrix
@@ -926,10 +998,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
@@ -1385,6 +1462,7 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # select-tests deliberately does not run for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -1397,8 +1475,8 @@ jobs:
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
 
-                  # A draft PR must never fall back to the full matrix. select-tests only
-                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
+                  # A draft PR must never fall back to the full matrix. select-tests sets
+                  # MODE to "skip"/"full"/"selected"; an empty MODE on a
                   # draft means select-tests was cancelled or failed (typically
                   # ready_for_review superseding it mid-flight). Skip here and defer to the
                   # ready run. The run-ci-backend label intentionally forces full on a draft.
@@ -1415,8 +1493,8 @@ jobs:
                       exit 0
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: collapse to one shard per active segment, skip
-                      # segments with no selected files, drop compat entirely.
+                      # Selected mode: collapse to one shard per active segment and skip
+                      # segments with no selected files.
                       core_count=0
                       [[ -n "$CORE_FILES" ]] && core_count=1
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
@@ -1501,7 +1579,31 @@ jobs:
                           compat: false
                         }]
                       ')
-                      compat="[]"
+                      # Compat covers the older supported ClickHouse versions over
+                      # CLICKHOUSE_COMPAT_PYTEST_TARGETS. Selection can drop it only when the
+                      # diff touches none of those paths — otherwise a narrowed run would
+                      # silently lose the one signal the full matrix has about old servers.
+                      # One unsharded entry per version, over the selected compat files.
+                      if [[ -n "$COMPAT_FILES" ]]; then
+                          compat=$(jq -cn --argjson compat "${COMPAT_MATRIX_JSON:-[]}" '
+                            [ $compat
+                              | map(."clickhouse-server-image") | unique | to_entries[]
+                              | {
+                                  "clickhouse-server-image": .value,
+                                  segment: "Core",
+                                  "person-on-events": false,
+                                  "new-events-schema": false,
+                                  "python-version": "3.13.13",
+                                  concurrency: 1,
+                                  group: 1,
+                                  compat: true,
+                                  artifact_key: ("compat-" + ((.key + 1)|tostring))
+                                }
+                            ]
+                          ')
+                      else
+                          compat="[]"
+                      fi
                   else
                       # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
@@ -1849,10 +1951,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
@@ -1937,9 +2044,12 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
+                  # Mirrors canonical: the coverage report skips narrowed runs, so
+                  # instrumenting one is pure overhead.
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.select-tests.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
@@ -1970,7 +2080,9 @@ jobs:
                       # No --splits/--group (no sharding), and no --reruns anywhere, mirroring
                       # canonical: retries mask the raw flake signal Trunk needs (the shadow
                       # strips the quarantine gate itself).
-                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                      if [[ "${{ matrix.compat }}" == "true" ]]; then
+                          targets="$COMPAT_FILES"
+                      elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
                           targets="$CORE_FILES"

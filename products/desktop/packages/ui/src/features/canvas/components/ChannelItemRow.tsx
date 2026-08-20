@@ -19,6 +19,7 @@ import { formatRelativeTimeShort } from "@posthog/shared";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
+  type TaskRowBulkMenu,
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
@@ -37,6 +38,7 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import {
   type DragEvent,
@@ -53,6 +55,8 @@ import {
 export interface ChannelItemActions {
   open: (item: ChannelItemModel) => void;
   togglePin: (item: ChannelItemModel) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
@@ -243,6 +247,8 @@ export function ChannelItemRow({
   onEditCancel,
   onDragStart,
   onDragEnd,
+  bulk,
+  onContextMenuOpenChange,
 }: {
   item: ChannelItemModel;
   /** The space this row is listed under, ticked in the menu's "File to…". */
@@ -265,6 +271,13 @@ export function ChannelItemRow({
   /** Only the space sidebar passes these; they drive its pin/unpin drag. */
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
+  /**
+   * Present when this row is inside a multi-session selection, which its
+   * right-click menu then acts on instead of the row alone. The confirm behind
+   * `onArchive` belongs to the list, which owns the selection.
+   */
+  bulk?: TaskRowBulkMenu | null;
+  onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -272,7 +285,7 @@ export function ChannelItemRow({
     (event: DragEvent) => {
       if (item.kind !== "task") return;
 
-      event.dataTransfer.setData("text/x-task-id", item.id);
+      writeTaskDragData(event.dataTransfer, item.id);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
       // asks for `move`; a source that permits only one resolves the other
       // pairing to no drop, and the tile silently stops accepting the row.
@@ -351,7 +364,13 @@ export function ChannelItemRow({
   // definition, so the two can't drift.
   return (
     <>
-      <TaskRowContextMenu menu={menu}>{tipped}</TaskRowContextMenu>
+      <TaskRowContextMenu
+        menu={menu}
+        bulk={bulk}
+        onOpenChange={onContextMenuOpenChange}
+      >
+        {tipped}
+      </TaskRowContextMenu>
       {/* The same confirm the artifacts grid and the canvas header show: a
           canvas goes for everyone in the space, so it isn't a one-click action
           however small the row is. The undo window still follows. */}

@@ -674,6 +674,9 @@ accounts: PostgresTable = PostgresTable(
         "churned_at": DateTimeDatabaseField(
             name="churned_at", nullable=True, description="When the account churned; NULL if it has not churned."
         ),
+        "ignored_at": DateTimeDatabaseField(
+            name="ignored_at", nullable=True, description="When Track Rules ignored the account; NULL if tracked."
+        ),
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
         "custom_properties": account_custom_properties_lazy_join,

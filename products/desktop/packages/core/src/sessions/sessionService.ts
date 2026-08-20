@@ -21,6 +21,7 @@ import {
   type AcpMessage,
   type Adapter,
   type AgentSession,
+  type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
   type ExecutionMode,
@@ -502,6 +503,7 @@ export interface SessionServiceDeps {
     rtkEnabledCloud?: boolean;
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
+    bedrockGatewayVariant?: BedrockGatewayVariant;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -2228,14 +2230,19 @@ export class SessionService {
           this.d.log.warn("Failed to verify workspace", { taskId, err });
         });
 
-      const { customInstructions, rtkEnabledLocal, spokenNarrationEnabled } =
-        this.d.settings;
+      const {
+        customInstructions,
+        rtkEnabledLocal,
+        spokenNarrationEnabled,
+        bedrockGatewayVariant,
+      } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
         spokenNarration: spokenNarrationEnabled === true,
+        bedrockGatewayVariant,
         apiHost: auth.apiHost,
         projectId: auth.projectId,
         logUrl,
@@ -2580,6 +2587,7 @@ export class SessionService {
       customInstructions: startCustomInstructions,
       rtkEnabledLocal,
       spokenNarrationEnabled,
+      bedrockGatewayVariant,
     } = this.d.settings;
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
@@ -2593,6 +2601,7 @@ export class SessionService {
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
+      bedrockGatewayVariant,
       effort: effortLevelSchema.safeParse(reasoningLevel).success
         ? (reasoningLevel as EffortLevel)
         : undefined,
