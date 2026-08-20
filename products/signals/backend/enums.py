@@ -1,5 +1,7 @@
 from enum import StrEnum
 
+from django.utils.functional import Promise
+
 # Source-of-truth taxonomy for signals. Django-free (plain StrEnum) so it stays cheap to import
 # from contracts.py, the model layer, and the frontend-types codegen alike. StrEnum members compare
 # equal to their string value, so they drop into `==` checks and ORM filters unchanged.
@@ -163,5 +165,5 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
 # The Django model's `source_product` choices. Callable so adding a product never lands in migration
 # state as a no-op AlterField. Plain `str` values (not enum members) keep the state stable; order
 # follows SIGNAL_SOURCE_PRODUCT_LABELS, which matches the original declaration order.
-def signal_source_product_choices() -> list[tuple[str, str]]:
+def signal_source_product_choices() -> list[tuple[str, str | Promise]]:
     return [(product.value, label) for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()]

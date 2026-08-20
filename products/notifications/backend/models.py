@@ -1,16 +1,17 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.utils import UUIDModel
 
 from products.notifications.backend.facade.enums import NotificationType, Priority, TargetType
 
 
-def notification_type_choices() -> list[tuple[str, str]]:
+def notification_type_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return [(t.value, t.name) for t in NotificationType]
 
 
-def priority_choices() -> list[tuple[str, str]]:
+def priority_choices() -> list[tuple[str, str | Promise]]:
     return [(p.value, p.name) for p in Priority]
 
 
