@@ -45,14 +45,11 @@ use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluati
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
-/// Fraction of empty replica reads that are re-checked against the primary. Low enough that the
-/// extra load is a rounding error on the writer pool, high enough to size a rate that nobody has
-/// measured yet.
+/// Enough to size a rate nobody has measured, small enough that the extra primary load is noise.
 const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
 
-/// Ceiling on the primary re-check, covering both the connection acquisition and the query. The
-/// check runs on the request path, so this is what stops a slow primary from lengthening the
-/// request that happened to be sampled.
+/// The check runs on the request path, so a slow primary must not lengthen the sampled request.
+/// Covers connection acquisition as well as the query.
 const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
@@ -959,13 +956,11 @@ async fn try_get_feature_flag_hash_key_overrides(
     Ok(feature_flag_hash_key_overrides)
 }
 
-/// Re-reads the primary after the replica returned no overrides, to tell apart the two causes of
-/// an empty result: the person genuinely has no override, or the row has not replicated yet. Only
-/// the second is a wrong answer, and the served metrics cannot distinguish them.
+/// Tells apart the two causes of an empty result: the person has no override, or the row has not
+/// replicated. Only the second is wrong, and the served metrics cannot separate them.
 ///
-/// The answer is counted and thrown away. Serving it would turn this into a partial fix, and the
-/// rate would then measure the fix rather than the problem. Every failure is swallowed into the
-/// counter, so a broken check can never fail the lookup that triggered it.
+/// The answer is counted and thrown away. Serving it would make this a partial fix, and the rate
+/// would then measure the fix.
 ///
 /// Diagnostic. Remove once the rate is known.
 async fn check_primary_for_stale_empty(
@@ -995,11 +990,8 @@ async fn check_primary_for_stale_empty(
     );
 }
 
-/// Runs the hash key override query on an already-acquired connection.
-///
-/// The served read and the staleness check both go through here, so neither can end up querying
-/// different tables or filters than the other. A disagreement between them has to mean the data
-/// differed, not the question.
+/// Both the served read and the staleness check run this, so a disagreement between them means
+/// the data differed, not the question.
 async fn fetch_override_rows(
     conn: &mut PgConnection,
     team_id: TeamId,
@@ -1038,8 +1030,7 @@ async fn primary_has_override(
     let mut conn = get_connection_with_metrics(
         persons_writer,
         pool_names::PERSONS_WRITER,
-        // Its own operation name, so these connections stay out of the metrics for the read that
-        // is actually served.
+        // Its own operation name, so these stay out of the served read's metrics.
         "get_feature_flag_hash_key_overrides_replica_check",
     )
     .await?;
@@ -2395,8 +2386,8 @@ mod tests {
             .await
             .unwrap();
 
-        // A wrong query here would report no override every time, the check would read as fully
-        // healthy, and the rate it exists to measure would silently be zero.
+        // A wrong query here reports no override every time: the check reads healthy and the
+        // rate it exists to measure is silently zero.
         assert_eq!(found, expected);
     }
 
