@@ -16,8 +16,6 @@ function headerText(key: string): string {
 }
 
 describe('renderColumnMeta', () => {
-    // A trailing `-- label` is the column's display name, and the header is the only place it is
-    // resolved, so it has to win over the `properties.` and `person.properties.` branches.
     it.each([
         ["properties.plan_tier ? 'paid' : 'free' -- Plan", 'Plan'],
         ["properties.$browser IN ('Chrome', 'Firefox') ? 'yes' : 'no' -- Major browser", 'Major browser'],
@@ -28,8 +26,6 @@ describe('renderColumnMeta', () => {
         expect(headerText(key)).toBe(expected)
     })
 
-    // Without a label the property branches still own the header, so a bare property renders its
-    // taxonomy name rather than the raw `properties.` expression the fallback would produce.
     it.each([
         ['properties.plan_tier', 'plan_tier'],
         ['person.properties.signup_source', 'signup_source'],
