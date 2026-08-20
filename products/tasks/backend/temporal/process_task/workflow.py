@@ -336,6 +336,11 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
+# Cold agent servers consume the pending message during startup, while prewarmed servers
+# need the workflow to deliver it after activation. Pre-patch histories retain the old
+# workflow delivery so their recorded activity sequence remains deterministic on replay.
+_PATCH_ID_AGENT_SERVER_OWNS_COLD_START_PROMPT = "tasks-agent-server-owns-cold-start-prompt"
+
 # Defers stream completion to cleanup without breaking existing histories.
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
@@ -2094,9 +2099,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
-        # Cold agent servers consume the pending message during startup. Prewarmed servers skip
-        # that startup turn, so the workflow must deliver their first message after activation.
-        return self._prewarmed and self.context.mode != "interactive" and not is_resume
+        should_forward = self.context.mode != "interactive" and not is_resume
+        if not workflow.patched(_PATCH_ID_AGENT_SERVER_OWNS_COLD_START_PROMPT):
+            return should_forward
+        return self._prewarmed and should_forward
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
         track_input = TrackWorkflowEventInput(

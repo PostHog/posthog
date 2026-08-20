@@ -923,11 +923,12 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._pending_permission_responses == []
 
     @pytest.mark.parametrize(
-        "state, prewarmed, expected",
+        "state, prewarmed, patched, expected",
         [
-            ({"mode": "interactive", "pending_user_message": "this is nice"}, True, False),
-            ({"mode": "background", "pending_user_message": "this is nice"}, False, False),
-            ({"mode": "background", "pending_user_message": "this is nice"}, True, True),
+            ({"mode": "interactive", "pending_user_message": "this is nice"}, True, True, False),
+            ({"mode": "background", "pending_user_message": "this is nice"}, False, False, True),
+            ({"mode": "background", "pending_user_message": "this is nice"}, False, True, False),
+            ({"mode": "background", "pending_user_message": "this is nice"}, True, True, True),
             (
                 {
                     "mode": "background",
@@ -936,10 +937,14 @@ class TestProcessTaskWorkflowUnit:
                 },
                 True,
                 False,
+                False,
             ),
         ],
     )
-    def test_should_forward_pending_message(self, state: dict, prewarmed: bool, expected: bool):
+    def test_should_forward_pending_message(
+        self, monkeypatch, state: dict, prewarmed: bool, patched: bool, expected: bool
+    ):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
         workflow = ProcessTaskWorkflow()
         workflow._prewarmed = prewarmed
         workflow._context = _build_context(
