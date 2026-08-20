@@ -1231,11 +1231,20 @@ jobs:
             - name: Generate snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   git add -N '*.ambr' || true
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
+                  # Same leg scoping as the django job: a leg may only ship its own
+                  # schema mode's snapshot files (see the comment there).
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-Products-${{ strategy.job-index }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
@@ -2698,9 +2707,9 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      # Unlabeled PRs skip the doubled schema matrix; note their snapshot
-                      # bot commits then leave [new_events_schema] .ambr blocks untouched,
-                      # so those blocks only refresh on labeled PRs and stay stale between.
+                      # Unlabeled PRs skip the doubled schema matrix; their snapshot
+                      # bot commits leave *.new_events_schema.ambr files untouched, so
+                      # those only refresh on labeled PRs / dispatch and stay stale between.
                       echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
@@ -3091,9 +3100,10 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               # --snapshot-warn-unused: pytest-split shards individual tests across
-              # runners, so each shard only exercises a subset of snapshots per file.
-              # Without this flag, --snapshot-update deletes "unused" snapshots that
-              # belong to other shards, causing cross-shard data loss.
+              # runners, so a shard reports other shards' snapshots as "unused". The flag
+              # downgrades that from a failure to a warning. It does NOT prevent deletion:
+              # --snapshot-update only spares a snapshot when syrupy matches it to a test
+              # (by file and name) that did not run on this shard.
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
@@ -3415,13 +3425,24 @@ jobs:
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   # Stage any new/modified .ambr files so they appear in git diff
                   git add -N '*.ambr' || true
+                  # Each schema leg may only ship its own snapshot files. A leg still
+                  # *claims* the other schema mode's snapshot names without writing them,
+                  # so syrupy deletes them from the working tree as unused; scoping the
+                  # patch keeps those deletions out of the committed diff.
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
                   # Generate patch if there are changes
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
