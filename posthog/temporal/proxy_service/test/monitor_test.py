@@ -214,8 +214,8 @@ class TestCheckProxyIsLive(TestCase):
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_reports_cloudflare_1014(self, mock_get_record, mock_post):
-        # A 403 whose body carries Cloudflare error 1014 must surface a hostname authorization
-        # problem, not a bare status code.
+        # A 403 body with Cloudflare error 1014 must report a hostname authorization problem,
+        # not a bare status code.
         mock_get_record.return_value = self.proxy_record
         mock_response = Mock(status_code=403, text="<h1>Error 1014</h1>")
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
@@ -303,7 +303,7 @@ class TestCheckCloudflareCertificateStatus(TestCase):
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
     async def test_blocked_hostname_is_error_even_when_cert_active(self, _name, status, mock_get):
-        # An active SSL certificate must not mask a hostname that the edge has blocked or moved.
+        # An active SSL certificate must not mask a hostname that the edge blocked or moved.
         mock_get.return_value = _hostname(status=status, ssl_status=CustomHostnameSSLStatus.ACTIVE)
 
         result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())

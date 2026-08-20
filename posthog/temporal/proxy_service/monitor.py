@@ -223,8 +223,8 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
                 warnings=[],
             )
 
-        # A blocked or moved hostname rejects traffic at the edge even when the certificate reads
-        # active, so it is an error in its own right — not a certificate warning.
+        # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+        # active, so it is an error, not a certificate warning.
         if hostname_info.status in BLOCKED_HOSTNAME_STATUSES:
             return CheckActivityOutput(
                 errors=[describe_blocked_hostname_status(hostname_info.status, proxy_record.domain)],
@@ -412,8 +412,8 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
             warnings=[],
         )
     except requests.exceptions.HTTPError as e:
-        # Read the Cloudflare error code out of the 403 body so a cross-user CNAME ban (1014)
-        # is reported as a hostname authorization problem rather than a bare status code.
+        # Parse the Cloudflare error code from the 403 body. The check then reports a cross-user
+        # CNAME ban (1014) as a hostname authorization problem, not a bare status code.
         response = e.response
         cf_code = parse_cloudflare_error_code(response.text) if response is not None else None
         if cf_code == CLOUDFLARE_ERROR_CROSS_USER_BANNED:

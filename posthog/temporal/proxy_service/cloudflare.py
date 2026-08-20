@@ -98,11 +98,11 @@ class CustomHostnameStatus(CloudflareStatus):
 
 
 # Custom Hostname statuses where Cloudflare stops serving traffic for the hostname, even when
-# the SSL certificate itself reads active. `blocked`/`pending_blocked`: the edge rejects requests
-# with a cross-user ban, error 1014 — commonly a zone hold on the customer's own Cloudflare zone,
-# which forbids other accounts from activating the domain. `moved`: the hostname no longer
-# points at our zone. `pending_migration`: the hostname is mid-migration and not yet serving.
-# All four fail the certificate check.
+# the SSL certificate is active. `blocked` and `pending_blocked` mean the edge rejects requests
+# with a cross-user ban (error 1014). The usual cause is a zone hold on the customer's own
+# Cloudflare zone, which forbids other accounts from activating the domain. `moved` means the
+# hostname no longer points at our zone. `pending_migration` means the hostname is mid-migration
+# and does not serve traffic yet. All four statuses cause the certificate check to fail.
 BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
     {
         CustomHostnameStatus.BLOCKED,
@@ -116,16 +116,16 @@ BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
 # across accounts. See Cloudflare's 1xxx error reference.
 CLOUDFLARE_ERROR_CROSS_USER_BANNED = 1014
 
-# Cloudflare renders the code as "Error 1014" in its HTML error page and as
-# "error code: 1014" in the plain-text body the edge returns to API clients.
+# Cloudflare's HTML error page shows the code as "Error 1014". The plain-text
+# body sent to API clients shows "error code: 1014".
 _CF_ERROR_CODE_RE = re.compile(r"error(?:\s+code)?[ :]+(\d{4})", re.IGNORECASE)
 
 
 def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:
     """Extract the Cloudflare error code from a 403 or 5xx error page body.
 
-    Returns the first four-digit code found, or None when the body is not a string or holds
-    no recognizable Cloudflare error code.
+    Returns the first four-digit code found, or None when the body is not a string or
+    contains no Cloudflare error code.
     """
     if not isinstance(body, str):
         return None

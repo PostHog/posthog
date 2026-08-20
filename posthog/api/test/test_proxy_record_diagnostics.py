@@ -279,7 +279,7 @@ class TestCheckLiveEvent(TestCase):
 
     @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_403_with_cloudflare_1014_fails_with_authorization_message(self, post_mock):
-        # A 403 carrying Cloudflare error 1014 is a hostname authorization problem, not a blip.
+        # A 403 with Cloudflare error 1014 must fail the check with the authorization message.
         post_mock.return_value = MagicMock(status_code=403, text="<h1>Error 1014</h1>")
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "failed")

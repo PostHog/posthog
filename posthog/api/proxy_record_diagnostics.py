@@ -416,8 +416,9 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             None,
         )
 
-    # A blocked or moved hostname rejects traffic at the edge even when the certificate reads
-    # active, so check it before the SSL status — otherwise an active cert masks the block.
+    # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+    # active. Check the hostname status before the SSL status, or an active certificate masks
+    # the block.
     if info.status in BLOCKED_HOSTNAME_STATUSES:
         moved = info.status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION)
         return (
@@ -692,8 +693,8 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
             detail=f"Live probe got HTTP {response.status_code} — proxy is up but failing.",
         )
     if response.status_code >= 400:
-        # A 403 carrying Cloudflare error 1014 is a hostname authorization problem, not a
-        # transient blip — report it as a failure with the actionable message.
+        # A 403 that carries Cloudflare error 1014 is a hostname authorization problem, not a
+        # transient failure. Report it as failed with the remediation message.
         if parse_cloudflare_error_code(response.text) == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
             return CheckResult(
                 id="live_event",
