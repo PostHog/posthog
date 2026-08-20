@@ -12685,6 +12685,83 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Key is freed up for reuse
         assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
+    def test_bulk_delete_blocks_a_flag_used_in_session_replay(self):
+        # bulk_delete bypasses the serializer, so it needs its own replay guard; without one,
+        # this delete would silently stop the linking team's recording.
+        linked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        unlinked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        self.team.session_recording_linked_flag = {"id": linked_flag.id, "key": "replay_gate"}
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [linked_flag.id, unlinked_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # The rest of the batch still deletes, so one linked flag does not block the whole call.
+        assert {d["id"] for d in data["deleted"]} == {unlinked_flag.id}
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == linked_flag.id
+        assert "session replay settings" in data["errors"][0]["reason"]
+
+        linked_flag.refresh_from_db()
+        unlinked_flag.refresh_from_db()
+        assert linked_flag.deleted is False
+        assert unlinked_flag.deleted is True
+
+    def test_bulk_delete_blocks_a_flag_a_sibling_team_links(self):
+        # Replay links are project-scoped: a team can gate recording on a flag owned by a sibling
+        # team, so a team-scoped lookup would let this delete through.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        sibling_team.session_recording_linked_flag = {"id": flag.id, "key": "replay_gate"}
+        sibling_team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        flag.refresh_from_db()
+        assert flag.deleted is False
+
+    @parameterized.expand(
+        [
+            ("bool_id", lambda flag_id: {"id": True, "key": "replay_gate"}),
+            ("string_id", lambda flag_id: {"id": "abc", "key": "replay_gate"}),
+            ("missing_id", lambda flag_id: {"key": "replay_gate"}),
+            # A text id matching the flag's number is malformed, not linked: the team API
+            # normalizes numeric-string ids to ints at write time (see
+            # validate_session_recording_linked_flag), so jsonb's type-sensitive equality
+            # can safely ignore it, same as the single-flag guard's containment check.
+            ("numeric_string_id", lambda flag_id: {"id": str(flag_id), "key": "replay_gate"}),
+        ]
+    )
+    def test_bulk_delete_ignores_a_malformed_replay_link(self, _case, stored_link_factory):
+        # One team's malformed stored link must not block or 500 the project's bulk deletes:
+        # the guard's jsonb filter matches no flag for these shapes, so it ignores them.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        self.team.session_recording_linked_flag = stored_link_factory(flag.id)
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert {d["id"] for d in data["deleted"]} == {flag.id}
+        assert data["errors"] == []
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
         response = self.client.post(
