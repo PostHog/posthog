@@ -100,6 +100,7 @@ import {
     getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isFailureMessage,
     isHumanMessage,
     isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
@@ -1495,15 +1496,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
-                        if (values.conversation?.status === ConversationStatus.InProgress) {
-                            if (generationAttempt > 15) {
-                                relevantErrorMessage.content = offlineMessage
-                            } else {
-                                await retry()
-                                return
-                            }
-                        } else {
+                        // Retry on the error itself. The first message of a new conversation has no
+                        // local conversation object yet, so gating retry on ConversationStatus.InProgress
+                        // sent that dropped stream straight to the offline message without a retry.
+                        if (generationAttempt > 15) {
                             relevantErrorMessage.content = offlineMessage
+                        } else {
+                            await retry()
+                            return
                         }
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
@@ -3219,6 +3219,13 @@ export async function onEventImplementation(
             actions.addMessage({
                 ...parsedResponse,
                 status: 'completed',
+            })
+        } else if (isFailureMessage(parsedResponse)) {
+            // A server-emitted failure is a failed turn. Mark it 'error' so hasGenerationError
+            // sees it and the turn is captured as a failure, not a success.
+            actions.addMessage({
+                ...parsedResponse,
+                status: 'error',
             })
         } else {
             if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {

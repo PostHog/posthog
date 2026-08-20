@@ -1399,6 +1399,38 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('network error retry', () => {
+        it('retries a dropped stream on the first message of a new conversation instead of showing the offline message', async () => {
+            jest.useFakeTimers()
+            try {
+                // The first message of a new conversation has no local conversation object yet.
+                // A dropped stream here used to skip retry and dead-end on the offline message.
+                const streamSpy = mockStream()
+                streamSpy.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+                logic.unmount()
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('hello')
+
+                // retry() waits breakpoint(1000 * (0 + 1)) before re-sending the message.
+                await jest.advanceTimersByTimeAsync(1100)
+
+                expect(streamSpy).toHaveBeenCalledTimes(2)
+                expect(
+                    logic.values.threadRaw.some(
+                        (msg) =>
+                            msg.type === AssistantMessageType.Failure && /offline/i.test((msg as any).content ?? '')
+                    )
+                ).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
             router.actions.push(urls.ai())
@@ -2168,6 +2200,36 @@ describe('maxThreadLogic', () => {
                     status: 'loading',
                 },
             ])
+        })
+
+        it('marks a server-emitted failure message as errored so the turn counts as a failure', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'failure-1',
+                        type: AssistantMessageType.Failure,
+                        content: 'Oops! Something went wrong. Please try again.',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+            })
+
+            const failure = logic.values.threadRaw.find((msg) => msg.type === AssistantMessageType.Failure)
+            expect(failure?.status).toEqual('error')
+            expect(logic.values.threadRaw.some((msg) => msg.status === 'error')).toBe(true)
         })
 
         it('handles streaming message with temp- ID by replacing it on subsequent updates', async () => {
