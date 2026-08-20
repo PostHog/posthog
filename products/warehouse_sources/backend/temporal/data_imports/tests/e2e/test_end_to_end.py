@@ -141,12 +141,6 @@ def pipeline_mode(request, _clean_sourcebatch_tables):
     _current_pipeline_mode = "non_dlt"
 
 
-# TODO: remove _KafkaMessageCapture once Postgres producer is fully validated
-# class _KafkaMessageCapture:
-#     ...
-# _kafka_capture = _KafkaMessageCapture()
-
-
 def _get_test_database_url() -> str:
     """Build a psycopg-compatible DSN from Django's active test database connection."""
     from django.db import connection
@@ -4074,9 +4068,8 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
-    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
-    # module instead of a per-instance `_get_kafka_producer` method; patch the async
-    # context manager at its import site.
+    # CDPProducer takes its producer from `async_producer_scope(profile=CYCLOTRON)` in the routing
+    # module, so patch that async context manager at its import site rather than the producer class.
     @contextlib.asynccontextmanager
     async def _fake_scope(*args, **kwargs):
         yield mock_kafka_producer
@@ -4907,8 +4900,8 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
-    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
-    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    # The table was rebuilt from scratch under xmin (the first xmin run reads the whole table),
+    # so both rows land and the `_ph_xmin` column is present.
     res = await sync_to_async(execute_hogql_query)(
         "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
     )

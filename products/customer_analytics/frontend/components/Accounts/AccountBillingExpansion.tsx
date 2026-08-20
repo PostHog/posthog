@@ -8,6 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
+import { InsightShortId } from '~/types'
 
 import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
@@ -92,6 +93,12 @@ export function AccountBillingExpansion({
                                     // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
                                     // root) so the loaded results survive tab switches instead of refetching on return.
                                     attachTo={logic}
+                                    context={{
+                                        insightProps: {
+                                            dashboardItemId: queryKey as InsightShortId,
+                                            dataNodeCollectionId: queryKey,
+                                        },
+                                    }}
                                 />
                             </div>
                         )}

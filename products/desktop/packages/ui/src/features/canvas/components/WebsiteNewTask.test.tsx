@@ -21,7 +21,10 @@ const { track, useFolderInstructions, taskInputProps } = vi.hoisted(() => ({
 // TaskInput is a huge hook-heavy component; stub it down to just the surface
 // this test cares about — a button that fires onContextChipClick when wired.
 vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
-  TaskInput: (props: { onContextChipClick?: () => void }) => {
+  TaskInput: (props: {
+    allowNoRepo?: boolean;
+    onContextChipClick?: () => void;
+  }) => {
     taskInputProps(props);
     return (
       <button
@@ -44,6 +47,8 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
         name: "project-bluebird",
         channel_type: "public",
         starred: false,
+        repositories: ["PostHog/posthog"],
+        github_integration: 7,
       },
     ],
   }),
@@ -119,6 +124,19 @@ describe("WebsiteNewTask context panel", () => {
       expect.objectContaining({
         channelId: "chan-1",
         channelContextId: "chan-1",
+      }),
+    );
+  });
+
+  it("passes the space's repository defaults so cloud tasks can span repos", () => {
+    useFolderInstructions.mockReturnValue({ data: undefined });
+    renderNewTask();
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        allowNoRepo: true,
+        channelRepositories: ["PostHog/posthog"],
+        channelGithubIntegration: 7,
       }),
     );
   });

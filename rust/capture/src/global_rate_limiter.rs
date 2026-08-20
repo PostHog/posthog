@@ -82,6 +82,7 @@ impl GlobalRateLimiter {
                 .global_rate_limit_token_distinctid_overrides_csv
                 .as_ref(),
             config.global_rate_limit_token_distinctid_local_cache_max_entries,
+            config.global_rate_limit_min_sync_floor,
             &prefix,
             &metrics_scope,
             config.global_rate_limit_custom_threshold_key.is_some(),
@@ -102,6 +103,7 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_threshold,
             config.global_rate_limit_token_overrides_csv.as_ref(),
             config.global_rate_limit_token_local_cache_max_entries,
+            config.global_rate_limit_min_sync_floor,
             &prefix,
             &metrics_scope,
             // The token-only limiter is not wired to the dynamic refresh source.
@@ -136,6 +138,7 @@ impl GlobalRateLimiter {
         threshold: u64,
         custom_keys_csv: Option<&String>,
         local_cache_max_entries: u64,
+        min_sync_floor: u64,
         redis_key_prefix: &str,
         metrics_scope: &str,
         enable_dynamic_source: bool,
@@ -197,6 +200,18 @@ impl GlobalRateLimiter {
             ),
             local_cache_max_entries,
             metrics_scope: metrics_scope.to_string(),
+            min_sync_floor,
+            max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
+            max_keys_per_command: config.global_rate_limit_max_keys_per_command,
+            max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
+            max_write_batch_entries: config.global_rate_limit_max_write_batch_entries,
+            max_pending_sync_entries: config.global_rate_limit_max_pending_sync_entries,
+            global_read_timeout: Duration::from_millis(config.global_rate_limit_read_timeout_ms),
+            global_write_timeout: Duration::from_millis(config.global_rate_limit_write_timeout_ms),
+            local_cache_ttl: Duration::from_secs(config.global_rate_limit_local_cache_ttl_secs),
+            local_cache_idle_timeout: Duration::from_secs(
+                config.global_rate_limit_local_cache_idle_timeout_secs,
+            ),
             ..Default::default()
         };
 

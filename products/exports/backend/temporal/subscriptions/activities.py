@@ -42,7 +42,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
     UpdateDeliveryRecordInputs,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
