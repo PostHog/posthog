@@ -23,6 +23,7 @@ use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
 };
+use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::ai::emit_ai_failure_warning;
@@ -32,7 +33,9 @@ use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::{
+    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+};
 use crate::v1::gateway_provenance as gp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,7 +306,8 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts = retrieve_multipart_parts(&mut multipart, event_metadata).await?;
+    let parts =
+        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
@@ -355,6 +359,29 @@ async fn ai_handler_inner(
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let (accepted_parts, mut processed_event) =
         build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
+
+    // Step 8a: Charge the AI lane's per-project byte budget. This endpoint
+    // builds its event at the handler and reaches the sink through neither
+    // analytics pipeline, so without this a sender could spend an unbounded
+    // number of bytes here while the same bytes on `/i/v0/ai/batch` are capped.
+    //
+    // Charged on the serialized event the sink would produce, which is the
+    // measure the legacy path charges, and after restrictions, quota, and the
+    // combined-size ceiling — nothing that was never going to publish spends
+    // the project's budget.
+    //
+    // An over-budget event answers 200 with no accepted parts, the shape this
+    // handler already uses for the token dropper and for a `DropEvent`
+    // restriction. A rate drop is ops-imposed, so it is reported to the client
+    // only as "nothing was accepted", never as a request failure.
+    if let Some(ref limiter) = state.ai_byte_rate_limiter {
+        if charge_ai_bytes(limiter, token, processed_event.event.data.len()).await {
+            report_dropped_events("ai_byte_rate_limited", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+    }
 
     // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
     // pipeline stamps overflow reasons inside `process_events`, but AI
@@ -556,7 +583,7 @@ fn build_kafka_event(
 
     // Create metadata
     let metadata = ProcessedEventMetadata {
-        data_type: DataType::AnalyticsMain,
+        data_type: DataType::AiEvents,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
@@ -644,10 +671,8 @@ fn process_properties_part(
 async fn retrieve_multipart_parts(
     multipart: &mut Multipart<'_>,
     event_metadata: EventMetadata,
+    max_event_bytes: u64,
 ) -> Result<RetrievedMultipartParts, AiRejection> {
-    // Size limits
-    const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
-
     let mut part_count = 0;
     let mut accepted_parts = Vec::new();
     let mut properties_json: Option<Value> = None;
@@ -702,12 +727,15 @@ async fn retrieve_multipart_parts(
         }
     }
 
-    // Check combined size limit
+    // The event and its properties are merged into one event downstream, so the
+    // deployment's per-event ceiling applies to their sum. Rejecting here keeps
+    // an oversized event off the producer, whose own cap would refuse it only
+    // after the whole body had been read.
     let combined_size = event_size + properties_size;
-    if combined_size > MAX_COMBINED_SIZE {
+    if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
         return Err(AiRejection::EventAndPropertiesTooBig {
             size: combined_size,
-            max: MAX_COMBINED_SIZE,
+            max: max_event_bytes as usize,
         });
     }
 
