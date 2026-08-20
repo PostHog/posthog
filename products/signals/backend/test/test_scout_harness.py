@@ -1627,6 +1627,9 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     # task_run_id is the join key into LLM analytics for the richer per-run metrics.
     assert props["task_run_id"] == str(session.task_run.id)
     assert isinstance(props["runtime_seconds"], float)
+    # The prompt-shape fork reaches the lifecycle event too (this team has no knowledge base),
+    # so an event-based A/B readout can segment on it without joining back to the run row.
+    assert props["business_knowledge_maintained"] is False
 
 
 @pytest.mark.asyncio
@@ -2374,6 +2377,24 @@ class TestRunRowProvenanceStamps(BaseTest):
         assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
         assert stamped["report_channel"] == expected_channel
         assert stamped["skill_origin"] == expected_origin
+        # Always-present provenance key: absence would mean a run predating the field, so a False
+        # default must still be stamped, not omitted.
+        assert stamped["business_knowledge_maintained"] is False
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
+
+    def test_stamps_business_knowledge_fork_when_maintained(self) -> None:
+        # The section rides on every run and the flag/source state behind it can change, so the
+        # resolved boolean is stamped write-once — an eval or A/B compares only runs given the
+        # same prompt, and re-deriving it later would read the wrong (current) state.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+            business_knowledge_maintained=True,
+        )
+        assert (run.metadata or {})["business_knowledge_maintained"] is True
