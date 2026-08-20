@@ -5764,10 +5764,10 @@ snapshots:
         hash: v1.k794b7964.4b8d5226ee154debdf333ff93d65a90ca766bcb25951e1baf36affb8b84b548d.dWZSHssPc83RkHVE-JPJA562bJR7MUim2yfqhjfNE50
     scenes-app-customer-analytics-accounts--feature-gate-off--light:
         hash: v1.k794b7964.e8b91bf6a0dd1b5d31064f4cbb94e9791e999c210831c455a498d0c7cc7e6bbb.IkZPJrJz33sKS8zzKwoy8V3s0GvmKpe5EGYTCIljhLs
-    scenes-app-customer-analytics-accounts--row-expanded-email-threads--dark:
-        hash: v1.k794b7964.0b52a6a4b48bc77bd2f0cf6d4550c4ec9d5262aaf9ac1a1aee9e2e57f311bbf1.moW1nKPfmZWFyn0i-N8hewBU7i250wMB4P8xCmMt9w8
-    scenes-app-customer-analytics-accounts--row-expanded-email-threads--light:
-        hash: v1.k794b7964.da52699aac9e503b896aefe6f2b8926c4c01b2e13c3a4d258a7de31588b206e8.6CQEFoPFDYN-apCszpwMzOkbxEc8eK4Fvp4KJHaM9Dk
+    scenes-app-customer-analytics-accounts--row-expanded-conversations--dark:
+        hash: v1.k794b7964.eb11e3e57318a64f00f2787930b0166cb4d0097e5331dda546d334957ab1cebd.zetLxjVqgzk7MOztZFxtX1iPBWQErA0Q-611MnOLSaA
+    scenes-app-customer-analytics-accounts--row-expanded-conversations--light:
+        hash: v1.k794b7964.e091729fb045a322490cbdb642b777c3f80f0b26db64eef74b35c63716d45a9d.Krd-pMnQ6xCttmsjdME-65PxLEt2-KnBPnVF_2rNNIo
     scenes-app-customer-analytics-accounts--row-expanded-empty--dark:
         hash: v1.k794b7964.89995158723a826e4604ddfcf9681dc0c9b50f33219cfccd06ccce637fe1b65b.i40Oi8tI3Ey-wqAdh3EekF8ti9WEdjq6dx-6JQPSvA0
     scenes-app-customer-analytics-accounts--row-expanded-empty--light:
