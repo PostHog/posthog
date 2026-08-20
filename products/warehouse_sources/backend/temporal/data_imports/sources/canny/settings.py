@@ -15,7 +15,7 @@ CANNY_API_VERSION_V1 = "v1"
 CANNY_API_VERSION_V2 = "v2"
 
 
-@dataclass
+@dataclass(frozen=False)
 class CannyEndpointConfig:
     # v1 path under the API base (https://canny.io/api), with skip/limit offset pagination.
     path: str

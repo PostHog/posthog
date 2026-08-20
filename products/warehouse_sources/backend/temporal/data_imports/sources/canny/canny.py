@@ -30,7 +30,7 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CannyResumeConfig:
     # Offset into the current endpoint's list, for v1 skip/limit pagination. Each schema syncs
     # independently, so a single skip value is enough to resume.
