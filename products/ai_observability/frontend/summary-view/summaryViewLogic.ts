@@ -125,6 +125,9 @@ function bodylessStatusMessage(error: ApiError): string {
     if (error.status === 413) {
         return 'This trace is too large to summarize. Open a single generation and summarize that instead.'
     }
+    if (error.status === 504) {
+        return 'Generating this summary took too long. Try again in a moment.'
+    }
     if (isTransientServerError(error)) {
         return 'The summary service is busy right now. Try again in a moment.'
     }
