@@ -380,8 +380,7 @@ describe("ChannelItemRow", () => {
   });
 
   it("offers Hand off… only to the task's owner", async () => {
-    // The one action that hands control away can never be a one-click offer
-    // to someone who would only ever 404 it.
+    // The API 404s a non-owner's handoff, so the menu must not offer it to one.
     const ownerItem = item({
       authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
       task: {

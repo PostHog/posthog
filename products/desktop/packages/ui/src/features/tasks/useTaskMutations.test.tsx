@@ -398,8 +398,8 @@ describe("useHandoffTask", () => {
     });
 
     expect(mockHandoffTask).toHaveBeenCalledWith(TASK_ID, 7);
-    // No invalidation here would leave the old owner staring at a task (and a
-    // channel) the backend already moved to the recipient's space.
+    // Skipping these would leave the old owner staring at a task (and a channel)
+    // the backend already moved to the recipient's space.
     const invalidatedKeys = invalidateSpy.mock.calls.map(
       ([options]) => options?.queryKey,
     );

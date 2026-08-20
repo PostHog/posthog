@@ -67,8 +67,7 @@ function renderDialog(task: Task, open = true) {
 
 describe("HandoffTaskDialog", () => {
   it("keeps the confirm disabled until a person is picked", async () => {
-    // The dialog is the only thing standing between a menu click and an
-    // ownership transfer the actor can't undo, so a stray confirm must not fire.
+    // Only the recipient can undo a handoff, so a confirm with no pick must not fire.
     mockHandoffMutate.mockClear();
     const user = userEvent.setup();
     renderDialog(createTask());
@@ -94,7 +93,6 @@ describe("HandoffTaskDialog", () => {
   });
 
   it("filters people by name or email in the search input", async () => {
-    // Catches a dialog that would force scrolling an entire org by eye.
     const user = userEvent.setup();
     renderDialog(createTask());
 

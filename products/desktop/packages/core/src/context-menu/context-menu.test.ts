@@ -153,8 +153,7 @@ describe("ContextMenuService.showTaskContextMenu", () => {
   });
 
   it("offers Hand off only to callers that mark it available", async () => {
-    // Ownership transfer is irreversible from the actor's side, so the item
-    // must never appear for a viewer who could only ever 404 it.
+    // The API 404s a non-owner's handoff, so the item must stay hidden from one.
     const owner = new FakeContextMenu();
     const handedOff = makeService(owner).showTaskContextMenu({
       ...baseTask,

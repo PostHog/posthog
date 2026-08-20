@@ -123,7 +123,7 @@ export function HandoffTaskDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Hand off task</AlertDialogTitle>
           <AlertDialogDescription>
-            &quot;{task.title}&quot; goes to the person you pick: they steer it
+            &quot;{task.title}&quot; goes to the person you pick. They steer it
             and get its notifications.
             {movesToTheRecipient
               ? " It moves into their personal space, so you lose access."

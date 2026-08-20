@@ -335,8 +335,8 @@ export function ChannelItemRow({
             onArchive: () => actions.archive(item),
             ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    // canHandoff rides on currentUser, which the cartel of queries above
-    // repolls; both belong in deps so a sign-in refresh re-evaluates.
+    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // sign-in refresh to re-evaluate.
     [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
   );
 
