@@ -709,21 +709,30 @@ describe("ExitPlanMode plan resolution", () => {
     },
   );
 
-  it("approves the plan as the user left it after editing during review", async () => {
+  it("requests approval again when the plan changes during review", async () => {
     const edited =
       "# Add the CTA\n\nPut it in the nav instead, and add a test.";
     await fs.writeFile(planFilePath, PLAN);
+    let requestCount = 0;
+    const requestPermission = vi.fn().mockImplementation(async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fs.writeFile(planFilePath, edited);
+      }
+      return { outcome: { outcome: "selected", optionId: "default" } };
+    });
     const context = exitPlanModeContext(
       new Set(["test-tool-use-id"]),
       planSession({ lastPlanFilePath: planFilePath }),
-      vi.fn().mockImplementation(async () => {
-        await fs.writeFile(planFilePath, edited);
-        return { outcome: { outcome: "selected", optionId: "default" } };
-      }),
+      requestPermission,
     );
 
     const result = await canUseTool(context);
 
+    expect(requestPermission).toHaveBeenCalledTimes(2);
+    expect(requestPermission.mock.calls[1]?.[0].toolCall.rawInput.plan).toBe(
+      edited,
+    );
     expect(result.behavior).toBe("allow");
     if (result.behavior === "allow") {
       expect(result.updatedInput.plan).toBe(edited);

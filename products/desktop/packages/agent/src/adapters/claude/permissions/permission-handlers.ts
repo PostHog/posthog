@@ -303,27 +303,12 @@ async function applyPlanApproval(
       response.outcome.optionId === "acceptEdits" ||
       response.outcome.optionId === "bypassPermissions")
   ) {
-    const approvedInput = await resolvePlanInput({
-      ...context,
-      toolInput: updatedInput,
-    });
-    const approvedPlan = extractPlanText(approvedInput);
-    const reviewedPlan = extractPlanText(updatedInput);
-
-    if (approvedPlan !== reviewedPlan) {
-      await publishPlanUpdate(
-        context,
-        approvedInput,
-        toolInfoFromToolUse({ name: context.toolName, input: approvedInput }),
-      );
-    }
-
     await context.applySessionMode(response.outcome.optionId);
     await context.updateConfigOption("mode", response.outcome.optionId);
 
     return {
       behavior: "allow",
-      updatedInput: approvedInput,
+      updatedInput,
       updatedPermissions: context.suggestions ?? [
         {
           type: "setMode",
@@ -362,19 +347,41 @@ async function handleEnterPlanModeTool(
 async function handleExitPlanModeTool(
   context: ToolHandlerContext,
 ): Promise<ToolPermissionResult> {
-  const updatedInput = await resolvePlanInput(context);
-  const planText = extractPlanText(updatedInput);
+  let updatedInput = await resolvePlanInput(context);
 
-  const validationResult = await validatePlanContent(planText, context);
-  if (!validationResult.valid) {
-    return validationResult.error;
-  }
+  while (true) {
+    const validationResult = await validatePlanContent(
+      extractPlanText(updatedInput),
+      context,
+    );
+    if (!validationResult.valid) {
+      return validationResult.error;
+    }
 
-  const response = await requestPlanApproval(context, updatedInput);
-  if (context.signal?.aborted || response.outcome?.outcome === "cancelled") {
-    throw new Error("Tool use aborted");
+    const response = await requestPlanApproval(context, updatedInput);
+    if (context.signal?.aborted || response.outcome?.outcome === "cancelled") {
+      throw new Error("Tool use aborted");
+    }
+
+    if (
+      response.outcome?.outcome === "selected" &&
+      (response.outcome.optionId === "auto" ||
+        response.outcome.optionId === "default" ||
+        response.outcome.optionId === "acceptEdits" ||
+        response.outcome.optionId === "bypassPermissions")
+    ) {
+      const latestInput = await resolvePlanInput({
+        ...context,
+        toolInput: updatedInput,
+      });
+      if (extractPlanText(latestInput) !== extractPlanText(updatedInput)) {
+        updatedInput = latestInput;
+        continue;
+      }
+    }
+
+    return await applyPlanApproval(response, context, updatedInput);
   }
-  return await applyPlanApproval(response, context, updatedInput);
 }
 
 function buildQuestionOptions(question: QuestionItem) {
