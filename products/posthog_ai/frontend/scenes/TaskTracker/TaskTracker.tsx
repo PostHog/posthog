@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { type ReactNode } from 'react'
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -21,8 +20,6 @@ import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 export interface TaskTrackerProps {
     /** From the `/tasks/:taskId` route. A UUID selects a task; `new` or absent shows the composer. */
     taskId?: string
-    /** Passed to the composer's welcome header. Set by an embedding host; the `/tasks` route never sets it. */
-    welcomeAction?: ReactNode
 }
 
 export const scene: SceneExport<TaskTrackerProps> = {
@@ -32,7 +29,7 @@ export const scene: SceneExport<TaskTrackerProps> = {
     paramsToProps: ({ params: { taskId } }) => ({ taskId }),
 }
 
-export function TaskTracker({ taskId, welcomeAction }: TaskTrackerProps): JSX.Element {
+export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('lg')
     const { activeCreation } = useValues(taskTrackerSceneLogic)
@@ -44,7 +41,7 @@ export function TaskTracker({ taskId, welcomeAction }: TaskTrackerProps): JSX.El
     const composerPane = activeCreation ? (
         <TaskCreateThread streamKey={activeCreation.streamKey} isMobile={isMobile} />
     ) : (
-        <TaskComposer welcomeAction={welcomeAction} />
+        <TaskComposer />
     )
     const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} isMobile={false} /> : composerPane
 
@@ -86,7 +83,7 @@ export function TaskTracker({ taskId, welcomeAction }: TaskTrackerProps): JSX.El
                     />
                     <AllowTrainingCallout featureName="Tasks" />
                     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-                        <TaskComposer welcomeAction={welcomeAction} />
+                        <TaskComposer />
                     </div>
                 </SceneContent>
             )

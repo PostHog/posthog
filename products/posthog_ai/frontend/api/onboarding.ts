@@ -3,9 +3,8 @@
 //
 // `AiOnboarding` is the lazy wrapper: the dialog pulls quill's dialog chunk and the step media, and the host
 // that mounts it (`GlobalModals`) is downloaded on every logged-in page, so the impl is reached only through
-// its dynamic `import()`. The logic and the replay button are light and exported eagerly, since both are
-// reached from already-split host chunks: the button is rendered by the surfaces that mount the takeover and
-// handed to the runner as its `welcomeAction`, so it only appears where the takeover can actually open.
+// its dynamic `import()`. The logic and the replay button are light and exported eagerly — the button lives
+// inside the already-loaded composer, and the logic is what the host reads to decide whether to render.
 //
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface — import from here, not from deep
 // `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.

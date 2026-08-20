@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { type ReactNode } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -17,8 +16,6 @@ import { TaskRunChat } from './TaskRunChat'
 export interface SidePanelRunnerImplProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
-    /** Passed to the composer's welcome header, for an affordance this surface shouldn't know about. */
-    welcomeAction?: ReactNode
 }
 
 /**
@@ -28,15 +25,15 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId, welcomeAction }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent welcomeAction={welcomeAction} />
+            <SidePanelRunnerContent />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent({ welcomeAction }: Pick<SidePanelRunnerImplProps, 'welcomeAction'>): JSX.Element {
+function SidePanelRunnerContent(): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
 
@@ -74,7 +71,7 @@ function SidePanelRunnerContent({ welcomeAction }: Pick<SidePanelRunnerImplProps
                 {/* No `items-center` (unlike the legacy welcome block): `TaskComposer` must stretch to full
                 width — it centers its own content, same as under the `/tasks` scene's wrapper. */}
                 <div className="grow min-h-0 flex flex-col">
-                    <TaskComposer welcomeAction={welcomeAction} />
+                    <TaskComposer />
                 </div>
                 <TaskHistoryPreview />
             </div>

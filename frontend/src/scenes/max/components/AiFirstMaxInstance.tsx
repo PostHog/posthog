@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
-import { OnboardingReplayButton } from 'products/posthog_ai/frontend/api/onboarding'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { Intro } from '../Intro'
@@ -110,12 +109,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                 </div>
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        {/* Temporary migration affordance, to be deleted with the rest of the onboarding
-                            takeover once everyone is on the new PostHog AI. It is passed from here rather
-                            than rendered inside the runner because the takeover mounts only where
-                            `effectivePhaiView` is 'new', so on the runner's own `/tasks` scene the button
-                            would open nothing. */}
-                        <EmbeddedRunner welcomeAction={<OnboardingReplayButton />} />
+                        <EmbeddedRunner />
                     </BindLogic>
                 </div>
             </div>
