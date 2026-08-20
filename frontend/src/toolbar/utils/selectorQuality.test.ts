@@ -1,4 +1,4 @@
-import { checkSelectorFragility } from './selectorQuality'
+import { checkSelectorBreadth, checkSelectorFragility } from './selectorQuality'
 
 describe('checkSelectorFragility', () => {
     describe('fragile selectors', () => {
@@ -51,5 +51,43 @@ describe('checkSelectorFragility', () => {
             const result = checkSelectorFragility('.container > .row > .button')
             expect(result.isFragile).toBe(false)
         })
+    })
+})
+
+describe('checkSelectorBreadth', () => {
+    it.each([
+        ['a class-only selector', '.chakra-button'],
+        ['a scoped class-only selector', '.P2PDisplayModal_content .chakra-button'],
+        ['a tag-only selector', 'button'],
+        ['a tag and class selector', 'button.chakra-button'],
+    ])('flags %s as broad', (_label, selector) => {
+        const result = checkSelectorBreadth(selector)
+        expect(result.isBroad).toBe(true)
+        expect(result.reason).not.toBeNull()
+    })
+
+    it.each([
+        ['an id qualifier', '#signup-button'],
+        ['a data attribute qualifier', 'button[data-attr="signup"]'],
+        ['a nested id qualifier', '.modal #close'],
+        ['a bare attribute qualifier', '[type="submit"]'],
+    ])('does not flag %s as broad', (_label, selector) => {
+        const result = checkSelectorBreadth(selector)
+        expect(result.isBroad).toBe(false)
+    })
+
+    it('does not flag a position-based selector as broad (fragility check owns it)', () => {
+        const result = checkSelectorBreadth('.container > button:nth-child(2)')
+        expect(result.isBroad).toBe(false)
+    })
+
+    it('ignores a hash inside an attribute value', () => {
+        const result = checkSelectorBreadth('a[href="#section"]')
+        expect(result.isBroad).toBe(false)
+    })
+
+    it.each([[null], [undefined], ['']])('treats %p as not broad', (selector) => {
+        const result = checkSelectorBreadth(selector)
+        expect(result.isBroad).toBe(false)
     })
 })
