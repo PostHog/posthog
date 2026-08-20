@@ -978,4 +978,16 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
+    # Self-declared crawlers observed in production `$http_log` traffic (concentrated machine
+    # traffic, absent from the JS-pageview stream). Each key anchors on the operator's declared
+    # token, never a pattern that could match a real browser.
+    "SofyaBot": BotDefinition("Sofya", "search_crawler", "Bot", "Sofya", documentation_url="https://sofya.co/bot"),
+    "VlexStatusBot": BotDefinition(
+        "Vlex Status", "monitoring", "Bot", "sboi.online", documentation_url="https://sboi.online/bot"
+    ),
+    "MardiiBot": BotDefinition("Mardii", "search_crawler", "Bot", "Mardii", documentation_url="https://mardii.com/bot"),
+    "PkgSeer": BotDefinition("PkgSeer", "ai_crawler", "AI Agent", "PkgSeer", documentation_url="https://pkgseer.com"),
+    "usehardal-analytics-crawler": BotDefinition("Hardal", "search_crawler", "Bot", "Hardal"),
+    "AnalyticsKnowledgeBot": BotDefinition("AnalyticsKnowledgeBot", "ai_crawler", "AI Agent", "Unknown"),
+    "HanaleiBot": BotDefinition("HanaleiBot", "search_crawler", "Bot", "Unknown"),
 }
