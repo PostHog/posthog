@@ -227,15 +227,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(function_id, listed_ids)
 
-    def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
-        ordinary = HogFunction.objects.create(
-            team=self.team,
-            name="Ordinary destination",
-            hog="return event",
-            type="destination",
-            enabled=False,
-            filters={},
-        )
+    def test_generic_api_lists_but_cannot_patch_managed_alert_destinations(self):
         managed = HogFunction.objects.create(
             team=self.team,
             name="Billing alert destination",
@@ -249,7 +241,6 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
-        ordinary_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{ordinary.id}/")
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
@@ -258,11 +249,30 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         listed_ids = {item["id"] for item in list_response.json()["results"]}
-        self.assertEqual(ordinary_response.status_code, status.HTTP_200_OK, ordinary_response.json())
-        self.assertIn(str(ordinary.id), listed_ids)
-        self.assertNotIn(str(managed.id), listed_ids)
-        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn(str(managed.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertIn("managed through the alert API", patch_response.json()["detail"])
+
+    def test_functions_filtered_on_all_events_are_listed_and_retrievable(self):
+        # An explicit "All events" filter persists as a JSON-null event id, which queryset-level
+        # JSON lookups (isnull, regex) silently miss, dropping the row from every read path.
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Drop events",
+            hog="return null",
+            type="transformation",
+            enabled=True,
+            filters={"events": [{"id": None, "name": "All events", "type": "events"}]},
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=transformation")
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertIn(str(function.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
