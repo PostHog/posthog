@@ -3506,7 +3506,8 @@ def presign_task_run_artifact_download(
         return None, None
 
     entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
-    if entry is None:
+    # Reference entries carry no file, so there is nothing to download for them.
+    if entry is None or not entry.get("storage_path"):
         return None, "not_found"
 
     filename = str(entry.get("name") or "artifact")

@@ -8190,6 +8190,33 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         self.assertEqual(events.count(), 1)
         self.assertEqual(events.get().payload["reference_type"], "posthog_object")
 
+    def test_download_of_reference_artifact_returns_404(self) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        run.refresh_from_db()
+        artifact_id = run.artifacts[0]["id"]
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
     def _create_run_with_artifacts(self) -> tuple[Task, TaskRun]:
