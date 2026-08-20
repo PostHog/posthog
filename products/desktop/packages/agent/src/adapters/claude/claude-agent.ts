@@ -378,6 +378,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   override async closeSession(): Promise<void> {
     try {
+      // A /btw fork runs on its own controller that the base close path never
+      // touches, so without this an in-flight side question keeps streaming
+      // (and burning tokens) until its own timeout fires after the session is
+      // gone.
+      this.sideQuestionAbort?.abort();
       await super.closeSession();
     } finally {
       this.enrichment?.dispose();

@@ -263,6 +263,35 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     await first.catch(() => {});
   });
 
+  it("aborts an in-flight side question when the session closes", async () => {
+    const agent = makeAgent();
+    installFakeSession(agent, "s-8");
+
+    let release: () => void = () => {};
+    nextQueryGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    nextQueryMessages = [
+      assistantText("answer"),
+      { type: "result", subtype: "success" },
+    ];
+
+    const inflight = agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, {
+      question: "still going?",
+    });
+    await vi.waitFor(() =>
+      expect(lastQueryCall.options?.abortController).toBeDefined(),
+    );
+    const forkAbort = lastQueryCall.options?.abortController as AbortController;
+
+    await agent.closeSession();
+
+    expect(forkAbort.signal.aborted).toBe(true);
+
+    release();
+    await inflight.catch(() => {});
+  });
+
   it("wraps SDK failures (e.g. nothing to resume) in a clear RequestError", async () => {
     const agent = makeAgent();
     installFakeSession(agent, "s-7");
