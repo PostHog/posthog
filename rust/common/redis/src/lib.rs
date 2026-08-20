@@ -290,6 +290,14 @@ pub trait Client: Send + Sync {
         &self,
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError>;
+
+    /// Attempt to repair a dead underlying connection.
+    ///
+    /// Callers that see `CustomRedisError::is_unrecoverable_error()` may call
+    /// this; implementations that self-heal (or have nothing to heal) keep the
+    /// default no-op. Must be cheap to call repeatedly -- implementations own
+    /// their own cooldown.
+    async fn heal(&self) {}
 }
 
 /// Extension trait providing the `.pipeline()` builder method.

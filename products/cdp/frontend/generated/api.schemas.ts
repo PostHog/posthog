@@ -281,6 +281,9 @@ export const HogFunctionTypeEnumApi = {
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
  * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+ * * `task_model` - task_model
+ * * `task_repository` - task_repository
+ * * `task_mcp_installations` - task_mcp_installations
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -302,6 +305,9 @@ export const InputsSchemaItemTypeEnumApi = {
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+    TaskModel: 'task_model',
+    TaskRepository: 'task_repository',
+    TaskMcpInstallations: 'task_mcp_installations',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -329,6 +335,7 @@ export interface InputsSchemaItemApi {
  * * `events` - events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
+ * * `data-warehouse-view` - data-warehouse-view
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
@@ -337,6 +344,7 @@ export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
+    DataWarehouseView: 'data-warehouse-view',
 } as const
 
 export type HogFunctionFiltersApiActionsItem = { [key: string]: unknown }
@@ -664,6 +672,11 @@ export interface HogInvocationRerunFilterApi {
     status?: HogInvocationRerunFilterStatusEnumApi[]
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
+    /**
+     * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Skip invocations that have already been attempted this many times or more.
      * @minimum 1

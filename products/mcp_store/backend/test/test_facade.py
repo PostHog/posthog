@@ -139,6 +139,27 @@ class TestGetActiveInstallations(BaseTest):
 
         assert len(results) == 0
 
+    def test_include_shared_adds_team_shared_but_not_teammates_personal(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation()
+        shared = self._create_installation(scope="shared", user=other_user, url="https://mcp.shared.com/mcp")
+        self._create_installation(user=other_user, url="https://mcp.theirs.com/mcp")
+
+        results = get_active_installations(self.team.id, self.user.id, include_shared=True)
+
+        assert {result.id for result in results} == {str(own_personal.id), str(shared.id)}
+
+    def test_include_shared_still_applies_readiness_checks(self) -> None:
+        self._create_installation(scope="shared", is_enabled=False)
+        self._create_installation(
+            scope="shared",
+            url="https://mcp.pending.com/mcp",
+            auth_type="oauth",
+            sensitive_configuration={},
+        )
+
+        assert get_active_installations(self.team.id, self.user.id, include_shared=True) == []
+
     @parameterized.expand(
         [
             ("enabled_api_key", True, "api_key", {}, True),

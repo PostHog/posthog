@@ -28,13 +28,11 @@ class TestLinkedinAdsClient:
         self.account_id = "12345"
 
     def test_init_with_empty_token_raises_error(self):
-        """Test client initialization with empty token raises ValueError."""
         with pytest.raises(ValueError, match="Access token required"):
             LinkedinAdsClient("")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_success(self, mock_restli_client):
-        """Test successful accounts retrieval."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [{"id": "123", "name": "Test Account"}]
@@ -87,7 +85,6 @@ class TestLinkedinAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_api_error(self, mock_restli_client):
-        """Test accounts retrieval with API error."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 401
         mock_response.response.text = "Unauthorized"
@@ -102,7 +99,6 @@ class TestLinkedinAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_campaigns_pagination(self, mock_restli_client):
-        """Test successful campaigns retrieval with pagination."""
         # First page response
         mock_response1 = mock.MagicMock()
         mock_response1.status_code = 200
@@ -349,7 +345,6 @@ class TestLinkedinAdsClient:
         }
 
     def test_format_date_range(self):
-        """Test date range formatting for LinkedIn API."""
         client = LinkedinAdsClient(self.access_token)
         result = client._format_date_range("2024-01-15", "2024-02-20")
 

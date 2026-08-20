@@ -23,7 +23,7 @@ from posthog.hogql.parser import parse_select
 from posthog.models import EventDefinition, PropertyDefinition
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 

@@ -23,6 +23,11 @@
         "description": {
             "type": "string"
         },
+        "grid_spacing": {
+            "description": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
+            "type": "string"
+        },
         "include_dashboards": {
             "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
             "type": "boolean"

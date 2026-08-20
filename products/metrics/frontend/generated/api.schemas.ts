@@ -456,6 +456,16 @@ export interface _MetricSamplesBodyApi {
      * @maxLength 255
      */
     traceId?: string
+    /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
+     *
+     * * `gauge` - gauge
+     * * `sum` - sum
+     * * `histogram` - histogram
+     * * `exponential_histogram` - exponential_histogram
+     * * `summary` - summary */
+    metricType?: OtelMetricTypeEnumApi | null
+    /** Label predicates ANDed together, matched against each emission's series. Pass the same filters used for the chart so the emissions listed are the ones behind it. */
+    filters?: _MetricFilterApi[]
     /**
      * Max emissions to return, newest first. Defaults to 100, capped at 1000.
      * @minimum 1

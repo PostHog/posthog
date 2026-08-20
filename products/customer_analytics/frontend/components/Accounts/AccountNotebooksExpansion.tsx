@@ -39,6 +39,7 @@ import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { AccountEmailThreadsExpansion } from './AccountEmailThreadsExpansion'
 import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
+import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { accountLinksLogic } from './accountLinksLogic'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { accountMeetingsLogic } from './accountMeetingsLogic'
@@ -322,6 +323,11 @@ export function AccountNotebooksExpansion({
                                 key: 'relationships',
                                 label: 'Relationships',
                                 content: <AccountRelationshipsExpansion accountId={accountId} />,
+                            },
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS] && {
+                                key: 'feature_requests' as const,
+                                label: 'Feature requests',
+                                content: <AccountFeatureRequestsExpansion accountId={accountId} />,
                             },
                             {
                                 key: 'usage',

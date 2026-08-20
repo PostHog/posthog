@@ -167,6 +167,8 @@ pub struct UpsertStats {
     pub rewrite_ms: u64,
     #[pyo3(get)]
     pub commit_ms: u64,
+    #[pyo3(get)]
+    pub columns_relaxed: usize,
 }
 
 #[pymethods]
@@ -206,6 +208,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             plan_ms: s.plan_ms,
             rewrite_ms: s.rewrite_ms,
             commit_ms: s.commit_ms,
+            columns_relaxed: s.columns_relaxed,
         }
     }
 }

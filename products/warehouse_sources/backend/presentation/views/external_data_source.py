@@ -100,7 +100,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -317,17 +316,98 @@ def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
     return kinds
 
 
-def _add_name_variants(target: set[str], name: str) -> None:
-    """Add a field name and its underscore variant to a set.
+def _name_variants(name: str) -> tuple[str, ...]:
+    """The spellings a declared field name can be stored under, declared spelling first.
 
     Source field names may use hyphens (e.g. "temporary-dataset") while
     dataclasses.asdict() persists the snake_case field name ("temporary_dataset").
+    """
+    normalised = name.replace("-", "_")
+    return (name,) if normalised == name else (name, normalised)
+
+
+def _add_name_variants(target: set[str], name: str) -> None:
+    """Add a field name and its underscore variant to a set.
+
     We need to recognise both forms when classifying persisted job_inputs.
     """
-    target.add(name)
-    normalised = name.replace("-", "_")
-    if normalised != name:
-        target.add(normalised)
+    target.update(_name_variants(name))
+
+
+def _stored_key(data: Mapping[str, Any], name: str) -> str | None:
+    """The key `data` holds a declared field under, or None when it holds neither spelling.
+
+    Prefers the declared spelling when both are present, matching how config parsing
+    resolves the alias.
+    """
+    return next((key for key in _name_variants(name) if key in data), None)
+
+
+def _stored_value(data: Mapping[str, Any], name: str) -> Any:
+    """The value `data` holds for a declared field under either spelling."""
+    key = _stored_key(data, name)
+    return data[key] if key is not None else None
+
+
+@frozen
+class DeclaredFieldNames:
+    """Declared field names that need special handling when reading or merging job_inputs.
+
+    `hyphenated` are names the source declares with a hyphen. `dataclasses.asdict()` persists
+    the Python attribute name instead, so stored configs can hold either spelling.
+    `switch_groups` are switch-group container names, whose stored value is a nested dict.
+    """
+
+    hyphenated: set[str]
+    switch_groups: set[str]
+
+
+def get_declared_field_names(fields: list[FieldType]) -> DeclaredFieldNames:
+    """Collect hyphenated and switch-group field names, flattened across all nesting levels."""
+    hyphenated: set[str] = set()
+    switch_groups: set[str] = set()
+
+    for field in fields:
+        if "-" in field.name:
+            hyphenated.add(field.name)
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            switch_groups.add(field.name)
+            nested = get_declared_field_names(field.fields)
+            hyphenated.update(nested.hyphenated)
+            switch_groups.update(nested.switch_groups)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    nested = get_declared_field_names(option.fields)
+                    hyphenated.update(nested.hyphenated)
+                    switch_groups.update(nested.switch_groups)
+
+    return DeclaredFieldNames(hyphenated=hyphenated, switch_groups=switch_groups)
+
+
+def restore_declared_field_names(data: dict, hyphenated: set[str]) -> dict:
+    """Return a copy of data re-keyed to the names the source config declares.
+
+    A hyphenated field round-trips through `dataclasses.asdict()`, which writes the Python
+    attribute name ("temporary_dataset") rather than the declared one ("temporary-dataset").
+    Clients key off the declared name, so restore it. When both spellings are present the
+    declared one wins, matching how config parsing prefers the alias.
+    """
+    if not hyphenated:
+        return data
+
+    variants = {name.replace("-", "_"): name for name in hyphenated}
+    result: dict = {}
+    for key, value in data.items():
+        declared = variants.get(key)
+        if declared is not None:
+            if declared in data:
+                continue
+            key = declared
+        if isinstance(value, dict):
+            value = restore_declared_field_names(value, hyphenated)
+        result[key] = value
+    return result
 
 
 @frozen
@@ -455,24 +535,34 @@ _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 _CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
 
 
-def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
+def has_preserved_credentials(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+    sensitive_fields: set[str],
+    nested_containers: Iterable[str] = _NESTED_AUTH_CONTAINERS,
+) -> bool:
     """True if any stored secret would be reused because the update didn't re-supply it.
 
-    Checks both top-level secret fields and the nested auth containers where sources like
+    Checks both top-level secret fields and the nested containers where sources like
     ServiceNow, Stripe and Snowflake keep their credentials. Used to force credential
     re-entry when the connection target changes, so a redirected host can't receive a
     preserved secret. A secret only counts as preserved when it would survive the merge:
     an absent container carries the whole existing block over, a same-selection container
     preserves any field the update omits, and a selection switch replaces the block wholesale.
+
+    Switch groups merge the same way, so callers pass their names too. A switch group carries
+    no `selection`, which reads as unchanged and lands on the omitted-field check — the branch
+    that matches how the merge treats them. A group declared with a hyphen can be stored under
+    either spelling, so containers are resolved the same way the merge resolves them.
     """
     if any(existing.get(key) and not incoming.get(key) for key in sensitive_fields):
         return True
 
-    for container_key in _NESTED_AUTH_CONTAINERS:
-        existing_container = existing.get(container_key)
+    for container_key in nested_containers:
+        existing_container = _stored_value(existing, container_key)
         if not isinstance(existing_container, dict):
             continue
-        incoming_container = incoming.get(container_key)
+        incoming_container = _stored_value(incoming, container_key)
         if not isinstance(incoming_container, dict):
             # Container not re-supplied — the existing secrets carry over wholesale.
             if any(existing_container.get(key) for key in sensitive_fields):
@@ -1011,7 +1101,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
+        stripped = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
+        declared = get_declared_field_names(source.get_source_config.fields)
+        representation["job_inputs"] = restore_declared_field_names(stripped, declared.hyphenated)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
@@ -1126,6 +1218,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = get_sensitive_field_names(source.get_source_config.fields)
+        declared_field_names = get_declared_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
@@ -1187,7 +1280,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = has_preserved_credentials(
-                existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
+                existing_job_inputs,
+                incoming_job_inputs,
+                gate_sensitive_fields,
+                nested_containers=(*_NESTED_AUTH_CONTAINERS, *declared_field_names.switch_groups),
             )
             if preserved_credentials or preserved_row_backed_credentials:
                 if ssh_tunnel_changed:
@@ -1224,6 +1320,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     if existing_container.get(key) and not incoming_container.get(key):
                         merged_container[key] = existing_container[key]
                 new_job_inputs[container_key] = merged_container
+
+        # Switch groups are nested containers too. The settings form submits only the fields the
+        # user touched and skips a disabled group's children, so a payload that just flips
+        # `enabled` would otherwise replace the whole stored group and drop a required nested
+        # value that validation then rejects. Switching a group off keeps its stored value —
+        # the user hasn't asked to forget it, and consumers gate on `enabled` before reading it.
+        for group_key in declared_field_names.switch_groups:
+            # A group declared with a hyphen can be stored under either spelling (see
+            # `restore_declared_field_names`), so resolve both sides by declared name.
+            incoming_key = _stored_key(incoming_job_inputs, group_key)
+            if incoming_key is None:
+                continue
+            incoming_group = incoming_job_inputs[incoming_key]
+            if not isinstance(incoming_group, dict):
+                raise ValidationError({"job_inputs": {group_key: "Must be an object."}})
+            existing_group = _stored_value(existing_job_inputs, group_key)
+            if not isinstance(existing_group, dict):
+                continue
+            merged_group = {**existing_group, **incoming_group}
+            # No switch group declares a secret today, but keep the carry-over so one could.
+            for key in sensitive_fields:
+                if existing_group.get(key) and not incoming_group.get(key):
+                    merged_group[key] = existing_group[key]
+            # Drop the other spelling so parsing can't see two competing groups.
+            for key in _name_variants(group_key):
+                new_job_inputs.pop(key, None)
+            new_job_inputs[incoming_key] = merged_group
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
@@ -1793,7 +1916,7 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
-    payload: dict
+    payload: dict = dataclasses.field(repr=False)
     credential: PendingSourceCredential | None
     error_response: Response | None
 
@@ -2209,6 +2332,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.SELF_DRIVING: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
             # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
@@ -4706,21 +4830,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
-        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
-        managed_source = None
-        if managed_warehouse_enabled:
-            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
-                "id",
-                "team_id",
-                "prefix",
-                "description",
-                "connection_metadata",
-                "source_type",
-                "access_method",
-                "direct_query_enabled",
-                "job_inputs",
-            )
-            managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
+            "id",
+            "team_id",
+            "prefix",
+            "description",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        managed_source = next(
+            (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+            None,
+        ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        if managed_source is not None:
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)

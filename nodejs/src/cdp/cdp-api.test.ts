@@ -1825,6 +1825,115 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow cancel batch job auth', () => {
+        let mockCancelJobs: jest.Mock
+
+        // Built with the raw audience literal and Python claim names: this is the wire contract
+        // with Django's WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE, so drift on either side breaks here.
+        const batchFlowId = new UUIDT().toString()
+        const batchJobId = new UUIDT().toString()
+
+        const mintBatchToken = (
+            teamId: number,
+            hogFlowId: string,
+            {
+                secret = 'local-dev-workflows-reschedule-jwt',
+                audience = 'posthog:workflows:cancel_batch',
+                batchJob = batchJobId,
+            } = {}
+        ) =>
+            jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId, batch_job_id: batchJob }, secret, {
+                audience,
+                expiresIn: '2m',
+            })
+        const batchAuth = (teamId: number, hogFlowId: string) => ({
+            Authorization: `Bearer ${mintBatchToken(teamId, hogFlowId)}`,
+        })
+        const batchCancelUrl = (teamId: number) =>
+            `/api/projects/${teamId}/hog_flows/${batchFlowId}/batch_jobs/${batchJobId}/cancel`
+
+        beforeEach(() => {
+            mockCancelJobs = jest.fn().mockResolvedValue({ marked: 2, remaining: 0, done: true })
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: mockCancelJobs,
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('accepts a Django-minted token and sweeps the batch run', async () => {
+            const res = await supertest(app).post(batchCancelUrl(team.id)).set(batchAuth(team.id, batchFlowId)).send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ marked: 2, remaining: 0, done: true })
+            expect(mockCancelJobs).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, functionId: batchFlowId, parentRunId: batchJobId })
+            )
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({
+                    Authorization: `Bearer ${mintBatchToken(team.id, batchFlowId, { secret: 'wrong-key' })}`,
+                }),
+            ],
+            [
+                "another workflow's token",
+                () => ({ Authorization: `Bearer ${mintBatchToken(team.id, new UUIDT().toString())}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintBatchToken(team.id + 1, batchFlowId)}` })],
+            [
+                // A captured token must not be replayable against a sibling batch run of the
+                // same workflow: the batch_job_id claim has to match the URL.
+                "another batch run's token",
+                () => ({
+                    Authorization: `Bearer ${mintBatchToken(team.id, batchFlowId, {
+                        batchJob: new UUIDT().toString(),
+                    })}`,
+                }),
+            ],
+            [
+                // The batch purpose shares its signing key with the other workflows purposes, so
+                // the audience is the only thing keeping an invocations-cancel token out of here.
+                'an invocations-cancel-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintBatchToken(team.id, batchFlowId, {
+                        audience: 'posthog:workflows:cancel_invocations',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app).post(batchCancelUrl(team.id)).set(headers()).send({})
+
+            expect(res.status).toEqual(401)
+            expect(mockCancelJobs).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the batch cancel JWT key is not provisioned', async () => {
+            const savedJwt = api['cancelBatchJwt']
+            api['cancelBatchJwt'] = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH, '')
+            try {
+                const res = await supertest(app)
+                    .post(batchCancelUrl(team.id))
+                    .set(batchAuth(team.id, batchFlowId))
+                    .send({})
+
+                expect(res.status).toEqual(503)
+                expect(mockCancelJobs).not.toHaveBeenCalled()
+            } finally {
+                api['cancelBatchJwt'] = savedJwt
+            }
+        })
+    })
+
     // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
     // it never enqueues into cyclotron. If the executor routes an email action onto the
     // dedicated email queue, nothing services that job and the workflow stalls on a

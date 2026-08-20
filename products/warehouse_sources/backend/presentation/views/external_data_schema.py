@@ -139,21 +139,23 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         removes=["cdc_last_log_position", "cdc_deferred_runs"],
     )
     instance.initial_sync_complete = False
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["initial_sync_complete", "status", "updated_at"])
+    instance.save(update_fields=["initial_sync_complete", "updated_at"])
 
     try:
         trigger_external_data_workflow(instance)
     except temporalio.service.RPCError as e:
+        # Leave the status untouched so the Syncs UI doesn't show RUNNING for a workflow that never
+        # started. The sync_type_config mutations stay; the schema's intent is still "do a
+        # re-snapshot next run".
         logger.exception(
             "Could not trigger external data workflow after re-snapshot reset",
             schema_id=str(instance.id),
             exc_info=e,
         )
-        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
-        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
-        instance.status = ExternalDataSchema.Status.FAILED
-        instance.save(update_fields=["status"])
+        return
+
+    instance.status = ExternalDataSchema.Status.RUNNING
+    instance.save(update_fields=["status", "updated_at"])
 
 
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
@@ -842,7 +844,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
-                    # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(incremental_field)
                     if max_value:
                         instance.update_incremental_field_value(max_value, save=False)
@@ -1468,6 +1469,19 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
         return Response(LogEntrySerializer(data, many=True).data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="The sync was triggered."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The sync could not be started.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1481,8 +1495,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             trigger_external_data_workflow(instance)
         except temporalio.service.RPCError as e:
+            # Only mark the schema Running once the trigger succeeded: a Running status with no
+            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-
+            return Response(
+                data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
@@ -1491,6 +1510,19 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="The full resync was triggered."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The resync could not be started.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1531,13 +1563,21 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         if cdc_resync:
             instance.initial_sync_complete = False
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
 
         try:
             trigger_external_data_workflow(instance)
         except temporalio.service.RPCError as e:
+            # Only mark the schema Running once the trigger succeeded: a Running status with no
+            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
+            # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+            return Response(
+                data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance.status = ExternalDataSchema.Status.RUNNING
+        instance.save(update_fields=["status", "updated_at"])
 
         return Response(status=status.HTTP_200_OK)
 
@@ -1545,8 +1585,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={
             200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
                 description="The running sync was cancelled. v3 pipeline jobs are marked Failed immediately; "
-                "for older pipeline versions the cancelled workflow records the final status.",
+                "for older pipeline versions the cancelled workflow records the final status. When no sync "
+                "was actually running but the schema was stuck reporting Running, the schema status is "
+                "corrected instead and the response says so.",
             ),
             400: OpenApiResponse(
                 response={
@@ -1568,6 +1614,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         if not latest_running_job or latest_running_job.status != "Running" or not latest_running_job.workflow_id:
+            job_is_running = latest_running_job is not None and latest_running_job.status == "Running"
+            # A schema reporting Running with no running job is stale (e.g. a trigger that never
+            # started a run): nothing will ever repaint it, so the stop button is the user's only
+            # way out. Mirror the latest job's terminal status. CDC halted markers absorb status
+            # updates (see update_external_job_status), so honor them here too.
+            if instance.status == ExternalDataSchema.Status.RUNNING and not job_is_running and not instance.cdc_halted:
+                if latest_running_job is not None:
+                    instance.status = ExternalDataSchema.Status(latest_running_job.status)
+                    instance.latest_error = latest_running_job.latest_error
+                else:
+                    instance.status = ExternalDataSchema.Status.FAILED
+                instance.save(update_fields=["status", "latest_error", "updated_at"])
+                return Response(
+                    data={"detail": "No sync was running. The sync status has been updated."},
+                    status=status.HTTP_200_OK,
+                )
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"detail": "No running sync to cancel."},
