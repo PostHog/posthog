@@ -181,7 +181,23 @@ export function copyPiRpcHost(): Plugin {
           `[copy-pi-rpc-host] Unable to find Pi RPC host, required at runtime by createPiRpcClient. Build @posthog/agent first. Checked:\n  ${candidates.join("\n  ")}`,
         );
       }
-      copyFileSync(source, join(__dirname, ".vite/build/rpc-host.js"));
+      const buildDirectory = join(__dirname, ".vite/build");
+      const productEngineerResources = join(
+        dirname(source),
+        "product-engineer",
+      );
+      if (!existsSync(productEngineerResources)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find product engineer resources at ${productEngineerResources}. Build @posthog/agent first.`,
+        );
+      }
+
+      copyFileSync(source, join(buildDirectory, "rpc-host.js"));
+      cpSync(
+        productEngineerResources,
+        join(buildDirectory, "product-engineer"),
+        { recursive: true },
+      );
     },
   };
 }

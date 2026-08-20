@@ -1092,6 +1092,9 @@ importers:
       '@posthog/shared':
         specifier: workspace:*
         version: link:../shared
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       lru-cache:
         specifier: ^11.1.0
         version: 11.2.5
