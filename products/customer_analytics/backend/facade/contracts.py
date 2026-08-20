@@ -815,6 +815,9 @@ class CustomPropertySourceView:
     external_data_schema: UUID | None = None
     source_column: str | None = ""
     key_column: str = ""
+    # Person path: how ``key_column`` resolves to a person — "distinct_id" or "email". Ignored for
+    # account and group sources.
+    match_mode: str = "distinct_id"
     column_property_map: dict | None = None
     column_descriptions: dict | None = None
     is_enabled: bool = True

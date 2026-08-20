@@ -1320,7 +1320,18 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         max_length=400,
         help_text=(
             "Column whose value identifies the target: an account's external_id for account sources, "
-            "the person's distinct_id for person sources, or the group key for group sources."
+            "the person's distinct_id (or email, see match_mode) for person sources, or the group key "
+            "for group sources."
+        ),
+    )
+    match_mode = serializers.ChoiceField(
+        choices=[("distinct_id", "distinct_id"), ("email", "email")],
+        required=False,
+        default="distinct_id",
+        help_text=(
+            "Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as "
+            "a PostHog distinct ID; 'email' matches an existing person by their email property. "
+            "Create-only. Ignored for account and group sources."
         ),
     )
     is_enabled = serializers.BooleanField(
@@ -1404,6 +1415,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "column_property_map",
             "column_descriptions",
             "key_column",
+            "match_mode",
             "is_enabled",
             "consecutive_failures",
             "last_synced_at",

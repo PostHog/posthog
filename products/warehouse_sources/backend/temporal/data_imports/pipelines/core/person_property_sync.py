@@ -4,10 +4,12 @@ Runs in a post-run Temporal activity (see data_imports/person_property_sync_job.
 person-target source for the binding it:
 
 1. reads the staged parquet (already just this run's changed rows),
-2. builds each row's {property: value} bundle keyed by distinct_id,
+2. builds each row's {property: value} bundle keyed by the row's key column (a distinct id or, in
+   email match mode, an email),
 3. diffs against the source's last-sent snapshot (S3) so unchanged values are skipped even on a
    full refresh,
-4. drops distinct_ids that don't resolve to an existing person (personhog),
+4. resolves each key to an existing person (by distinct id, or by email) or group, dropping the ones
+   that don't resolve,
 5. produces one $set intent per survivor to Kafka (a throttling consumer sends them to capture),
 6. updates the snapshot, stamps provenance on the person PropertyDefinitions, and clears the staged
    files.
@@ -41,7 +43,7 @@ from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_team
-from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.person.util import get_distinct_ids_mapped_by_email, get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -52,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     WarehouseBinding,
     person_property_sync_sources_for,
     record_person_property_sync_run,
+    warehouse_column_root,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
@@ -67,6 +70,10 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 # target_type value for group sources (kept as a literal so this module doesn't import the
 # customer_analytics config models, matching the isolation the hooks already preserve).
 _GROUP_TARGET = "group"
+
+# match_mode value for person sources that resolve their key column as an email rather than a
+# distinct id (kept as a literal for the same isolation reason as _GROUP_TARGET).
+_MATCH_EMAIL = "email"
 
 
 def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
@@ -140,17 +147,59 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _decode_json_maybe(value: Any) -> Any:
+    """A JSON string decoded to its object, or the value unchanged when it isn't a string. A string
+    that isn't valid JSON becomes None so a path walk into it stops cleanly."""
+    if isinstance(value, str | bytes | bytearray):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return None
+    return value
+
+
+def _walk_json_path(value: Any, segments: tuple[str, ...]) -> Any:
+    """Walk ``segments`` into a nested value (a dict or a JSON string that decodes to one). Any missing
+    or non-object step yields None, so a misconfigured path degrades to no value rather than erroring."""
+    for segment in segments:
+        value = _decode_json_maybe(value)
+        if not isinstance(value, dict):
+            return None
+        value = value.get(segment)
+        if value is None:
+            return None
+    return value
+
+
 def build_bundles(rows: list[dict], key_column: str, column_property_map: dict[str, str]) -> list[tuple[str, dict]]:
-    """(distinct_id, {person_property: value}) for each row with a non-null key and at least one
-    non-null mapped value. Missing columns are simply absent (a misconfigured source degrades to
-    fewer properties rather than erroring). Values are coerced to JSON-safe scalars so a timestamp or
-    numeric column doesn't crash the downstream Kafka produce."""
+    """(key, {person_property: value}) for each row with a non-null key and at least one non-null
+    mapped value. The key is the row's ``key_column`` (a distinct id or an email, per the source's
+    match mode). A map key is either a plain column ("plan") or a dotted JSON path into a nested column
+    ("custom_attributes.plan"), so one nested column (e.g. Intercom's ``custom_attributes``) can feed
+    several properties. Missing columns and JSON paths are simply absent (a misconfigured source
+    degrades to fewer properties rather than erroring). Values are coerced to JSON-safe scalars so a
+    timestamp or numeric column doesn't crash the downstream Kafka produce."""
+    # (root_column, path_segments, property_name), computed once for the whole batch.
+    mappings = [
+        (warehouse_column_root(key), tuple(key.split(".")[1:]), prop) for key, prop in column_property_map.items()
+    ]
     bundles: list[tuple[str, dict]] = []
     for row in rows:
         key = row.get(key_column)
         if key is None:
             continue
-        bundle = {prop: _json_safe(row[col]) for col, prop in column_property_map.items() if row.get(col) is not None}
+        # Decode each nested root column at most once per row, even when several paths share it.
+        decoded_roots: dict[str, Any] = {}
+        bundle: dict[str, Any] = {}
+        for root, segments, prop in mappings:
+            if not segments:
+                value = row.get(root)
+            else:
+                if root not in decoded_roots:
+                    decoded_roots[root] = _decode_json_maybe(row.get(root))
+                value = _walk_json_path(decoded_roots[root], segments)
+            if value is not None:
+                bundle[prop] = _json_safe(value)
         if bundle:
             bundles.append((str(key), bundle))
     return bundles
@@ -349,6 +398,37 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
     return existing
 
 
+def _resolve_targets(
+    team_id: int, source: PersonPropertySyncSource, changed: list[tuple[str, dict]]
+) -> tuple[list[tuple[str, dict]], set[str]]:
+    """Turn changed ``(key, bundle)`` pairs into the ``(produce_key, bundle)`` intents to send, and the
+    set of source keys that resolved to an existing entity.
+
+    Distinct-id and group sources produce on the key directly (the distinct id or group key), keeping
+    the ones that exist. An email source resolves each email to a single existing person's distinct id;
+    the distinct id becomes the produce key, and an email matching no person — or more than one — is
+    dropped. The returned source-key set stays keyed by the row key (the email), so the snapshot the
+    caller advances still recognizes an unchanged row on the next run."""
+    if not changed:
+        return [], set()
+
+    if source.target != _GROUP_TARGET and source.match_mode == _MATCH_EMAIL:
+        # get_distinct_ids_mapped_by_email keys by lowercased email, so match rows case-insensitively.
+        distinct_id_by_email = get_distinct_ids_mapped_by_email(team_id, [key for key, _ in changed])
+        to_send: list[tuple[str, dict]] = []
+        resolved: set[str] = set()
+        for key, bundle in changed:
+            distinct_id = distinct_id_by_email.get(key.lower())
+            if distinct_id is not None:
+                to_send.append((distinct_id, bundle))
+                resolved.add(key)
+        return to_send, resolved
+
+    existing = _filter_existing_ids(team_id, source, [key for key, _ in changed])
+    to_send = [(key, bundle) for key, bundle in changed if key in existing]
+    return to_send, {key for key, _ in to_send}
+
+
 def _group_type_name(team_id: int, group_type_index: int) -> str | None:
     # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
     for group_type in get_group_types_for_team(team_id):
@@ -461,12 +541,11 @@ async def _process_source_bundles(
     if not changed:
         return ps
 
-    existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
-        team_id, source, [key for key, _ in changed]
+    to_send, resolved_keys = await database_sync_to_async(_resolve_targets, thread_sensitive=False)(
+        team_id, source, changed
     )
-    to_send = [(key, bundle) for key, bundle in changed if key in existing]
-    ps.existing = len(to_send)
-    ps.skipped_missing_person = len(changed) - len(to_send)
+    ps.existing = len(resolved_keys)
+    ps.skipped_missing_person = len(changed) - len(resolved_keys)
     if not to_send:
         logger.info(
             "person-property sync: no existing entities among changed rows for source",
@@ -506,9 +585,9 @@ async def _process_source_bundles(
         team_id, binding, source, list((source.column_property_map or {}).values())
     )
 
-    # Record only the distinct_ids we actually produced, as this run's snapshot file.
-    sent_ids = {distinct_id for distinct_id, _ in to_send}
-    produced_hashes = {d: h for d, h in new_hashes.items() if d in sent_ids}
+    # Record only the source keys we actually produced, as this run's snapshot file. Keyed by the row
+    # key (distinct id, group key, or email), matching new_hashes so an unchanged row is skipped next run.
+    produced_hashes = {key: h for key, h in new_hashes.items() if key in resolved_keys}
     await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, produced_hashes)
 
     logger.info(
@@ -518,7 +597,7 @@ async def _process_source_bundles(
         source_id=str(source.source_id),
         bundles=len(bundles),
         changed=len(changed),
-        existing=len(to_send),
+        existing=ps.existing,
         produced=produced,
     )
     return ps
@@ -605,7 +684,12 @@ def _read_delta_bundles(
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
     wanted = {
-        column for source in sources for column in (source.key_column, *(source.column_property_map or {}).keys())
+        column
+        for source in sources
+        for column in (
+            source.key_column,
+            *(warehouse_column_root(key) for key in (source.column_property_map or {})),
+        )
     }
     # Project only columns that exist — a misconfigured column drops out rather than erroring.
     project = sorted(wanted & available)

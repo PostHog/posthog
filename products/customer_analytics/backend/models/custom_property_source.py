@@ -4,6 +4,12 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
+class MatchMode(models.TextChoices):
+    # How a person-target source resolves each row's key column to a PostHog person.
+    DISTINCT_ID = "distinct_id", "Distinct ID"
+    EMAIL = "email", "Email"
+
+
 class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
@@ -31,6 +37,10 @@ class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Up
     # Account path: single view column -> the definition's value.
     source_column = models.CharField(max_length=400, null=True, blank=True)
     key_column = models.CharField(max_length=400)
+    # Person path: how key_column resolves to a person. "distinct_id" treats the key as a PostHog
+    # distinct ID; "email" matches an existing person by their email property. Ignored for account
+    # and group sources.
+    match_mode = models.CharField(max_length=20, choices=MatchMode.choices, default=MatchMode.DISTINCT_ID)
     # Person path: {warehouse_column: person_property_name} for the columns this source maps.
     column_property_map = models.JSONField(null=True, blank=True, default=None)
     # Person path: {warehouse_column: description} — the human-facing description for each mapped

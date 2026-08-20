@@ -133,6 +133,7 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     EventStream,
     EventStreamMember,
+    MatchMode,
     Meeting,
     SyncStatus,
     SyncTrigger,
@@ -1557,6 +1558,7 @@ def _to_custom_property_source_view(
         external_data_schema=source.external_data_schema_id,
         source_column=source.source_column,
         key_column=source.key_column,
+        match_mode=source.match_mode,
         column_property_map=source.column_property_map,
         column_descriptions=source.column_descriptions if warehouse_status_visible else {},
         is_enabled=source.is_enabled,
@@ -1697,6 +1699,18 @@ def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
         if not isinstance(property_name, str) or not property_name:
             raise CustomPropertySourceValidationError("column_property_map values must be non-empty property names.")
     return column_property_map
+
+
+def _validate_match_mode(match_mode: Any, target_type: str) -> str:
+    """How a person source resolves its key column to a person. "email" matches an existing person by
+    their email property; only person sources support it. Group sources always match by group key."""
+    if match_mode is None:
+        return MatchMode.DISTINCT_ID.value
+    if match_mode not in MatchMode.values:
+        raise CustomPropertySourceValidationError(f"match_mode must be one of {', '.join(MatchMode.values)}.")
+    if match_mode == MatchMode.EMAIL.value and target_type != TargetType.PERSON.value:
+        raise CustomPropertySourceValidationError("match_mode 'email' is only valid for a person source.")
+    return match_mode
 
 
 def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[str]) -> dict[str, str]:
@@ -2070,6 +2084,7 @@ def create_custom_property_source(
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
     column_descriptions: dict | None = None,
+    match_mode: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
@@ -2099,6 +2114,7 @@ def create_custom_property_source(
         create_kwargs["column_descriptions"] = _validate_column_descriptions(
             column_descriptions, set(validated_map.keys())
         )
+        create_kwargs["match_mode"] = _validate_match_mode(match_mode, definition.target_type)
         if saved_query_id is not None:
             # An unmaterialized view has no table to read, so the source could never sync — reject it
             # here rather than creating a mapping that stays silently empty.
@@ -2125,6 +2141,8 @@ def create_custom_property_source(
             raise CustomPropertySourceValidationError(
                 "An account property source uses saved_query + source_column, not external_data_schema."
             )
+        if match_mode is not None and match_mode != MatchMode.DISTINCT_ID.value:
+            raise CustomPropertySourceValidationError("match_mode is only valid for a person source.")
         if not _saved_query_belongs_to_team(team_id, saved_query_id):
             raise CustomPropertySourceValidationError("Saved query not found for this team.")
         create_kwargs["saved_query_id"] = saved_query_id

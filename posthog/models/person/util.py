@@ -370,6 +370,63 @@ def get_persons_mapped_by_distinct_id(
     )
 
 
+# Case-insensitive batch email lookup over the HogQL persons table. Identified persons sort first so
+# that when several persons share an email, the one carrying resolvable distinct_ids wins;
+# created_at/id break ties for a fully deterministic pick. Mirrors conversations' person_lookup.
+_PERSON_EMAIL_LOOKUP_QUERY = """
+SELECT id, properties.email
+FROM persons
+WHERE lower(properties.email) IN {emails}
+ORDER BY is_identified DESC, created_at ASC, id ASC
+"""
+
+
+def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[str, str]:
+    """Map each lowercased email to one existing person's distinct_id, for warehouse person-property
+    matching by email.
+
+    Case-insensitive. When several persons share an email, the identified, oldest person wins, so the
+    match is deterministic. An email with no matching person — or whose person has no resolvable
+    distinct_id — is absent. Reads the email via the HogQL ``persons`` table and resolves the person
+    through personhog (``get_persons_by_uuids``).
+    """
+    from posthog.hogql import ast  # noqa: PLC0415 — keeps the heavy HogQL stack off the import path
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    from posthog.models.team import Team  # noqa: PLC0415 — avoids a person/team import cycle at module load
+
+    lowered = list({email.lower() for email in emails if email})
+    if not lowered:
+        return {}
+
+    team = Team.objects.get(id=team_id)
+    response = execute_hogql_query(
+        _PERSON_EMAIL_LOOKUP_QUERY,
+        placeholders={"emails": ast.Constant(value=lowered)},
+        team=team,
+        query_type="warehouse_person_property_email_lookup",
+    )
+
+    # First uuid per email wins (results are ordered so the best-matching person comes first).
+    uuid_by_email: dict[str, str] = {}
+    for person_uuid, prop_email in response.results or []:
+        if prop_email:
+            uuid_by_email.setdefault(prop_email.lower(), str(person_uuid))
+    if not uuid_by_email:
+        return {}
+
+    distinct_id_by_uuid: dict[str, str] = {}
+    for person in get_persons_by_uuids(team_id, list(set(uuid_by_email.values()))):
+        if person.distinct_ids:
+            distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
+
+    return {
+        email: distinct_id_by_uuid[person_uuid]
+        for email, person_uuid in uuid_by_email.items()
+        if person_uuid in distinct_id_by_uuid
+    }
+
+
 def get_distinct_ids_for_persons(
     team_id: int,
     person_ids: list[int],

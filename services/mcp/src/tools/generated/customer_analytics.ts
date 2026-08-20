@@ -906,6 +906,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
+        if (params.match_mode !== undefined) {
+            body['match_mode'] = params.match_mode
+        }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
         }

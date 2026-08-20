@@ -10,6 +10,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    get_distinct_ids_mapped_by_email,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
@@ -591,3 +592,32 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "id" in mask
         assert "team_id" in mask
         assert "properties" not in mask
+
+
+class TestGetDistinctIdsMappedByEmail(BaseTest):
+    def _run(self, results, persons, emails):
+        with (
+            patch("posthog.hogql.query.execute_hogql_query", return_value=MagicMock(results=results)),
+            patch("posthog.models.person.util.get_persons_by_uuids", return_value=persons) as by_uuids,
+        ):
+            result = get_distinct_ids_mapped_by_email(self.team.id, emails)
+        return result, by_uuids
+
+    def test_matches_case_insensitively_and_picks_the_first_person_per_email(self):
+        # The persons query orders best-match first, so the first uuid seen for an email wins.
+        results = [("u1", "a@x.com"), ("u2", "a@x.com")]
+        persons = [MagicMock(uuid="u1", distinct_ids=["did1"])]
+        result, _ = self._run(results, persons, ["A@X.com", "none@x.com"])
+
+        assert result == {"a@x.com": "did1"}
+
+    def test_drops_email_whose_person_has_no_distinct_id(self):
+        persons = [MagicMock(uuid="u1", distinct_ids=[])]
+        result, _ = self._run([("u1", "a@x.com")], persons, ["a@x.com"])
+
+        assert result == {}
+
+    def test_empty_input_skips_the_query(self):
+        with patch("posthog.hogql.query.execute_hogql_query") as execute:
+            assert get_distinct_ids_mapped_by_email(self.team.id, ["", ""]) == {}
+        execute.assert_not_called()
