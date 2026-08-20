@@ -17,7 +17,11 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-compression = { path = "../common/compression" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 opentelemetry-proto = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tonic = { workspace = true }
 jsonwebtoken = "8.3"
 serde = { workspace = true }

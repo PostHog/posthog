@@ -2,9 +2,12 @@ use axum::http::HeaderMap;
 use base64::Engine;
 use chrono::{DateTime, TimeZone};
 use common_types::RawEvent;
+use opentelemetry::trace::TraceContextExt;
 use rand::RngCore;
 use std::collections::HashSet;
 use tracing::debug;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 use crate::{
@@ -19,6 +22,32 @@ pub const MAX_CHARS_TO_CHECK: usize = 128;
 pub const MAX_PAYLOAD_SNIPPET_SIZE: usize = 20;
 
 pub const FORM_MIME_TYPE: &str = "application/x-www-form-urlencoded";
+
+/// W3C `traceparent` (`version-traceid-spanid-flags`) for a span context, or
+/// `None` when the context is invalid (all-zero ids). Kept separate from
+/// [`current_traceparent`] so the formatting is unit-testable without an
+/// installed OpenTelemetry layer.
+fn format_traceparent(span_context: &opentelemetry::trace::SpanContext) -> Option<String> {
+    if !span_context.is_valid() {
+        return None;
+    }
+    Some(format!(
+        "00-{}-{}-{:02x}",
+        span_context.trace_id(),
+        span_context.span_id(),
+        span_context.trace_flags().to_u8()
+    ))
+}
+
+/// W3C `traceparent` for the active span's OpenTelemetry context, or `None` when
+/// there is no valid span context (OTel disabled, or no span installed). Stamped
+/// onto Kafka headers so ingestion can join capture's distributed trace via
+/// standard W3C propagation.
+pub fn current_traceparent() -> Option<String> {
+    let context = Span::current().context();
+    let span = context.span();
+    format_traceparent(span.span_context())
+}
 
 #[derive(PartialEq, Eq)]
 pub enum Base64Option {
@@ -255,10 +284,38 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
 
     // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
     fn uuid_time_millis(uuid: Uuid) -> u128 {
         uuid.as_u128() >> 80
+    }
+
+    #[test]
+    fn format_traceparent_renders_w3c_string() {
+        let span_context = SpanContext::new(
+            TraceId::from_hex("0af7651916cd43dd8448eb211c80319c").unwrap(),
+            SpanId::from_hex("b7ad6b7169203331").unwrap(),
+            TraceFlags::SAMPLED,
+            false,
+            TraceState::default(),
+        );
+        assert_eq!(
+            format_traceparent(&span_context).as_deref(),
+            Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+        );
+    }
+
+    #[test]
+    fn format_traceparent_none_for_invalid_context() {
+        assert_eq!(format_traceparent(&SpanContext::empty_context()), None);
+    }
+
+    #[test]
+    fn current_traceparent_none_without_otel_layer() {
+        // No OpenTelemetry layer is installed in unit tests, so the active span
+        // has no valid span context and no header should be emitted.
+        assert_eq!(current_traceparent(), None);
     }
 
     #[test]

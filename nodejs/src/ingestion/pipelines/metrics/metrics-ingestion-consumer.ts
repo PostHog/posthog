@@ -7,7 +7,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { instrumentFn, instrumented, linksFromTraceparents } from '~/common/tracing/tracing-utils'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -458,7 +458,15 @@ export class MetricsIngestionConsumer {
                 size: messages.length,
             })
 
-            return await instrumentFn('metricsIngestionConsumer.handleEachBatch', async () => {
+            // Link the batch span to every capture-logs trace that fed it, so the
+            // batch is a sibling of those traces rather than adopting one as parent.
+            const links = linksFromTraceparents(
+                messages
+                    .map((message) => parseKafkaHeaders(message.headers).traceparent)
+                    .filter((traceparent): traceparent is string => traceparent !== undefined)
+            )
+
+            return await instrumentFn({ key: 'metricsIngestionConsumer.handleEachBatch', links }, async () => {
                 return await this.processKafkaBatch(messages)
             })
         })

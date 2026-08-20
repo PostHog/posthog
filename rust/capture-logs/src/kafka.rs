@@ -366,6 +366,9 @@ impl KafkaSink {
             timestamp: None,
             headers: Some({
                 let created_at = Utc::now().to_rfc3339();
+                // Trace context of the capture-logs request span, so the ingestion
+                // consumers can link their batch back to this service's trace.
+                let traceparent = capture::utils::current_traceparent();
                 let mut headers = OwnedHeaders::new()
                     .insert(Header {
                         key: "token",
@@ -375,6 +378,12 @@ impl KafkaSink {
                         key: "bytes_uncompressed",
                         value: Some(&uncompressed_bytes.to_string()),
                     });
+                if let Some(traceparent) = traceparent.as_deref() {
+                    headers = headers.insert(Header {
+                        key: "traceparent",
+                        value: Some(traceparent),
+                    });
+                }
                 // Records-based size next to the payload-based `bytes_uncompressed`, so
                 // billing can compare the two before switching to the records-based value.
                 if let Some(records_bytes) = records_uncompressed_bytes {
