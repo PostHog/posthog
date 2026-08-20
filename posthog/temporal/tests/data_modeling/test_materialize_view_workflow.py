@@ -17,6 +17,7 @@ from posthog.temporal.data_modeling.activities import (
     fail_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from posthog.temporal.data_modeling.activities.materialize_view import _clear_account_property_staging
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -329,6 +330,20 @@ class TestFinalizeOrphanedDuckgresJob:
         ):
             # a failure to finalize must never propagate out of the shadow path
             await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
+
+
+class TestAccountPropertyStagingCleanup:
+    async def test_clear_failure_stops_the_materialization_attempt(self):
+        sink = MagicMock()
+        sink.clear = AsyncMock(side_effect=PermissionError("access denied"))
+        logger = MagicMock()
+        logger.awarning = AsyncMock()
+
+        with (
+            pytest.raises(PermissionError, match="access denied"),
+            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception"),
+        ):
+            await _clear_account_property_staging(sink, logger)
 
 
 class TestMaybeSyncAccountProperties:

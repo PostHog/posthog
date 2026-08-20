@@ -720,6 +720,7 @@ async def _clear_account_property_staging(sink: AccountPropertyRowSink, logger: 
     except Exception as error:
         await logger.awarning(f"Could not clear stale account-property staging: {error}")
         capture_exception(error)
+        raise
 
 
 async def _stage_person_property_batch(
