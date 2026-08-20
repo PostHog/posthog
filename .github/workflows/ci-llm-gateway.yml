@@ -20,7 +20,10 @@ on:
     workflow_dispatch:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Push is keyed per-SHA so master pushes never cancel each other, and so a master push
+    # never shares a group with the scheduled or dispatched integration run (all three
+    # resolve to refs/heads/master otherwise, and the later one would cancel the pending one).
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
