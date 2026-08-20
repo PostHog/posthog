@@ -11,7 +11,7 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
+import { ProjectNoticeRestriction, eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
@@ -120,8 +120,11 @@ function storeNoticeDismissal(key: string): void {
 // hiding the benign skip-person-processing notice never also suppresses a later drop-event warning.
 // The restriction is per-project, so the key is scoped to the team too — dismissing it in one
 // project must not hide the same restriction in another project the user also has.
-function eventIngestionRestrictionDismissKey(hasDropEventRestriction: boolean, currentTeamId: number | null): string {
-    const type = hasDropEventRestriction ? 'drop' : 'skip'
+function eventIngestionRestrictionDismissKey(
+    restriction: ProjectNoticeRestriction,
+    currentTeamId: number | null
+): string {
+    const type = restriction === 'drop' ? 'drop' : 'skip'
     return `event_ingestion_restriction.${type}.${currentTeamId}`
 }
 
@@ -237,8 +240,7 @@ export interface projectNoticeLogicMeta {
             user: UserType | null,
             memberCount: number,
             internetConnectionIssue: boolean,
-            hasProjectNoticeRestriction: boolean,
-            hasDropEventRestriction: boolean,
+            projectNoticeRestriction: ProjectNoticeRestriction,
             proxyRecords: ProxyRecord[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
@@ -258,7 +260,7 @@ export interface projectNoticeLogicMeta {
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
-            hasDropEventRestriction: boolean,
+            projectNoticeRestriction: ProjectNoticeRestriction,
             currentTeamId: number | null
         ) => string | null
         projectNotice: (
@@ -277,7 +279,7 @@ export interface projectNoticeLogicMeta {
                 searchParams: Record<string, any>
             },
             activeSceneProductKey: ProductKey | null,
-            hasDropEventRestriction: boolean
+            projectNoticeRestriction: ProjectNoticeRestriction
         ) => ProjectNoticeBlueprint | null
     }
 }
@@ -370,8 +372,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 userLogic.selectors.user,
                 s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
-                eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
-                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
+                eventIngestionRestrictionLogic.selectors.projectNoticeRestriction,
                 s.proxyRecords,
                 s.effectiveBillingAlert,
                 router.selectors.currentLocation,
@@ -390,8 +391,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 user: UserType | null,
                 memberCount: number,
                 internetConnectionIssue: boolean,
-                hasEventIngestionRestriction: boolean,
-                hasDropEventRestriction: boolean,
+                projectNoticeRestriction: ProjectNoticeRestriction,
                 proxyRecords: ProxyRecord[] | null,
                 effectiveBillingAlert: BillingAlertConfig | null,
                 currentLocation: {
@@ -449,9 +449,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 ) {
                     return 'real_project_with_no_events'
                 } else if (
-                    hasEventIngestionRestriction &&
+                    projectNoticeRestriction !== null &&
                     !isNoticeDismissed(
-                        eventIngestionRestrictionDismissKey(hasDropEventRestriction, currentTeam?.id ?? null)
+                        eventIngestionRestrictionDismissKey(projectNoticeRestriction, currentTeam?.id ?? null)
                     )
                 ) {
                     return 'event_ingestion_restriction'
@@ -479,13 +479,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             (s) => [
                 s.projectNoticeVariant,
                 s.effectiveBillingAlert,
-                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
+                eventIngestionRestrictionLogic.selectors.projectNoticeRestriction,
                 teamLogic.selectors.currentTeamId,
             ],
             (
                 variant: ProjectNoticeVariant | null,
                 effectiveBillingAlert: BillingAlertConfig | null,
-                hasDropEventRestriction: boolean,
+                projectNoticeRestriction: ProjectNoticeRestriction,
                 currentTeamId: number | null
             ): string | null => {
                 switch (variant) {
@@ -494,7 +494,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             ? `billing_alert.${effectiveBillingAlert.dismissKey}`
                             : null
                     case 'event_ingestion_restriction':
-                        return eventIngestionRestrictionDismissKey(hasDropEventRestriction, currentTeamId)
+                        return eventIngestionRestrictionDismissKey(projectNoticeRestriction, currentTeamId)
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
@@ -515,7 +515,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
-                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
+                eventIngestionRestrictionLogic.selectors.projectNoticeRestriction,
             ],
             (
                 variant: ProjectNoticeVariant | null,
@@ -533,7 +533,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     searchParams: Record<string, any>
                 },
                 activeSceneProductKey: ProductKey | null,
-                hasDropEventRestriction: boolean
+                projectNoticeRestriction: ProjectNoticeRestriction
             ): ProjectNoticeBlueprint | null => {
                 if (!variant) {
                     return null
@@ -664,7 +664,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                         }
                     case 'event_ingestion_restriction':
-                        if (hasDropEventRestriction) {
+                        if (projectNoticeRestriction === 'drop') {
                             return {
                                 message:
                                     'Some events sent to this project are being dropped before ingestion. Contact support if you did not expect this.',

@@ -45,8 +45,7 @@ describe('eventIngestionRestrictionLogic', () => {
                         distinct_ids: ['user1', 'user2'],
                     },
                 ],
-                hasProjectNoticeRestriction: true,
-                hasDropEventRestriction: true,
+                projectNoticeRestriction: 'drop',
             })
     })
 
@@ -70,8 +69,7 @@ describe('eventIngestionRestrictionLogic', () => {
                         distinct_ids: ['user3'],
                     },
                 ],
-                hasProjectNoticeRestriction: true,
-                hasDropEventRestriction: false,
+                projectNoticeRestriction: 'skip',
             })
     })
 
@@ -95,7 +93,7 @@ describe('eventIngestionRestrictionLogic', () => {
                         distinct_ids: ['user4'],
                     },
                 ],
-                hasProjectNoticeRestriction: false,
+                projectNoticeRestriction: null,
             })
     })
 
@@ -109,7 +107,7 @@ describe('eventIngestionRestrictionLogic', () => {
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
             .toMatchValues({
                 eventIngestionRestrictions: [],
-                hasProjectNoticeRestriction: false,
+                projectNoticeRestriction: null,
             })
     })
 
@@ -125,7 +123,7 @@ describe('eventIngestionRestrictionLogic', () => {
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
             .toMatchValues({
                 eventIngestionRestrictions: [],
-                hasProjectNoticeRestriction: false,
+                projectNoticeRestriction: null,
             })
     })
 })
