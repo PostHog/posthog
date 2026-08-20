@@ -14,7 +14,13 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailService, SMTP_MAX_SEND_ATTEMPTS, parseAddressList, sanitizeEmailSubject } from './email.service'
+import {
+    EmailService,
+    SMTP_MAX_SEND_ATTEMPTS,
+    parseAddressList,
+    raceWithTimeout,
+    sanitizeEmailSubject,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
@@ -47,6 +53,23 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('raceWithTimeout', () => {
+    it('passes the value through when the promise settles before the deadline', async () => {
+        await expect(raceWithTimeout(Promise.resolve('ok'), 1_000, 'too slow')).resolves.toBe('ok')
+    })
+
+    it('rejects with the given message when the deadline passes first, and swallows the late rejection', async () => {
+        let rejectLate: (error: Error) => void = () => {}
+        const hung = new Promise<never>((_, reject) => {
+            rejectLate = reject
+        })
+        await expect(raceWithTimeout(hung, 10, 'too slow')).rejects.toThrow('too slow')
+        // The losing promise failing later must not surface as an unhandled rejection
+        rejectLate(new Error('late'))
+        await new Promise((resolve) => setImmediate(resolve))
     })
 })
 
@@ -831,6 +854,20 @@ describe('EmailService', () => {
             expect(scheduledMs).toBeLessThan(before + 31_000)
             // No business metric on reschedule — the eventual retry produces email_sent
             expect(result.metrics ?? []).toEqual([])
+        })
+
+        it('fails a test send immediately when the relay answers 4xx, instead of rescheduling', async () => {
+            // "Run test" executes inline and never re-enqueues, so a reschedule would end the
+            // test run with neither a result nor an error shown in the panel.
+            smtpServer.setResponses({ MAIL: '451 4.7.1 Greylisted, try again later' })
+
+            const result = await service.executeSendEmail(invocation, true)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toMatch(/451/)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            // Test sends never record business metrics
+            expect(result.metrics).toEqual([])
         })
 
         it('gives up after the max attempts when the relay answers 4xx forever, with escalating delays', async () => {

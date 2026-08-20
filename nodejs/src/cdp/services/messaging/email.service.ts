@@ -96,6 +96,30 @@ export class SMTPTransientError extends EmailTransientError {
 export const SMTP_MAX_SEND_ATTEMPTS = 8
 const SMTP_MAX_RETRY_DELAY_MS = 5 * 60_000
 
+// Hard deadline for the editor's "Run test" sends, which block a synchronous request. The
+// transport's production timeouts (10s connect / 30s socket) are far too generous for a person
+// staring at a test panel.
+export const SMTP_TEST_SEND_TIMEOUT_MS = 8_000
+
+// Bounded await for the inline test-send path. The underlying socket keeps its own timeouts;
+// this only stops the caller from waiting on it.
+export async function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            // The losing promise may still reject later (e.g. on its own socket timeout) —
+            // swallow that so it doesn't surface as an unhandled rejection.
+            promise.catch(() => {})
+            reject(new Error(message))
+        }, timeoutMs)
+    })
+    try {
+        return await Promise.race([promise, timeout])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
 function pickSmtpRetryDelayMs(): number {
     return 15_000 + Math.floor(Math.random() * 15_000)
 }
@@ -234,7 +258,14 @@ export class EmailService {
             // Read the counter off the incoming invocation: `createInvocationResult` clones with
             // the queue fields reset, so `result.invocation` never carries the previous attempt.
             const priorAttempts = Number(invocation.queueMetadata?.smtpSendAttempts) || 0
-            if (error instanceof SMTPTransientError && priorAttempts + 1 >= SMTP_MAX_SEND_ATTEMPTS) {
+            if (error instanceof EmailTransientError && isTest) {
+                // "Run test" executes inline and never re-enqueues, so a transient "come back
+                // later" from the provider must fail the test immediately — rescheduling would
+                // end the run with neither a result nor an error in the test panel.
+                addLog('error', error.message)
+                result.error = error.message
+                result.finished = true
+            } else if (error instanceof SMTPTransientError && priorAttempts + 1 >= SMTP_MAX_SEND_ATTEMPTS) {
                 const message = `${error.message} (gave up after ${SMTP_MAX_SEND_ATTEMPTS} attempts)`
                 addLog('error', message)
                 result.error = message
@@ -374,6 +405,23 @@ export class EmailService {
     // pixel/redirect endpoints (direct tracking) since there is no delivery webhook — which also
     // means delivered/bounced/complaint metrics don't exist for this provider.
     private async sendEmailWithSMTP(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string },
+        integration: IntegrationType,
+        isTest = false
+    ): Promise<void> {
+        if (isTest) {
+            return raceWithTimeout(
+                this.sendEmailWithSMTPUnbounded(result, params, from, integration, isTest),
+                SMTP_TEST_SEND_TIMEOUT_MS,
+                `The SMTP relay did not respond within ${SMTP_TEST_SEND_TIMEOUT_MS / 1000} seconds. Check the host, port, and encryption mode — a mismatched port or encryption mode usually hangs the connection rather than failing it.`
+            )
+        }
+        return this.sendEmailWithSMTPUnbounded(result, params, from, integration, isTest)
+    }
+
+    private async sendEmailWithSMTPUnbounded(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
