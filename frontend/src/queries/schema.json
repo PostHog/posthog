@@ -25930,7 +25930,8 @@
                 "IronSourceAds",
                 "MicrosoftExcel",
                 "Profound",
-                "Airwallex"
+                "Airwallex",
+                "Polymarket"
             ],
             "type": "string"
         },
