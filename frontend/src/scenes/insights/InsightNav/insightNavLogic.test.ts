@@ -897,6 +897,49 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('keeps event property filters on a retention target through a trends round trip', async () => {
+                const targetEntity: RetentionEntity = {
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    id: 'purchase',
+                    name: 'purchase',
+                    properties: [
+                        {
+                            key: '$browser',
+                            type: PropertyFilterType.Event,
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                }
+                const retentionFiltered: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: { targetEntity, returningEntity: targetEntity },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionFiltered)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                // Without copying `properties` across the conversion the target would return unfiltered,
+                // silently widening the retention count.
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity?.properties).toEqual([
+                    expect.objectContaining({ key: '$browser', value: 'Chrome' }),
+                ])
+            })
+
             it('does not carry a trends-only display into stickiness', async () => {
                 const trendsPie: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,

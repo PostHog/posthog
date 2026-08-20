@@ -295,6 +295,7 @@ const seriesEntityToRetentionEntity = (
             ...(entity.event != null ? { id: entity.event } : {}),
             ...(entity.name ? { name: entity.name } : {}),
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
         }
     }
     if (entity.kind === NodeKind.ActionsNode) {
@@ -304,6 +305,7 @@ const seriesEntityToRetentionEntity = (
             id: entity.id,
             ...(entity.name ? { name: entity.name } : {}),
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
         }
     }
     return undefined
@@ -319,6 +321,7 @@ const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): Eve
             id: typeof entity.id === 'string' ? parseInt(entity.id, 10) : (entity.id ?? 0),
             ...(entity.name ? { name: entity.name } : {}),
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
         }
     }
     // A data warehouse target carries table_name/timestamp_field that no EventsNode can hold, and a
@@ -333,6 +336,7 @@ const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): Eve
         ...(entity.id != null ? { event: String(entity.id) } : {}),
         ...(entity.name ? { name: entity.name } : {}),
         ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+        ...(entity.properties?.length ? { properties: entity.properties } : {}),
     }
 }
 
