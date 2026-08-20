@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     SIMILARWEB_ENDPOINTS,
     TRAFFIC_SOURCES,
     V5_ENGAGEMENT_PATH,
+    V5_WORLDWIDE_COUNTRY,
     SimilarwebEndpointConfig,
 )
 
@@ -143,7 +144,8 @@ def _prepare_request(
     if _uses_v5_engagement(config, api_version):
         params: dict[str, Any] = {"domain": domain, "metrics": config.v5_metric, "format": "json"}
         if config.accepts_country:
-            params["country"] = country
+            # V5 spells the worldwide breakdown `ww`; the legacy `world` sentinel is rejected there.
+            params["country"] = V5_WORLDWIDE_COUNTRY if country == DEFAULT_COUNTRY else country
         if config.accepts_granularity:
             params["granularity"] = granularity
         if start_month and end_month:

@@ -35,6 +35,9 @@ CHUNK_ROWS = 5000
 PAGE_LIMIT = 100
 
 DEFAULT_COUNTRY = "world"
+# V5 documents the worldwide breakdown as `ww`, where the legacy API used `world`; the sentinel is
+# translated only on the V5 request wire, so stored rows keep the configured `world` value.
+V5_WORLDWIDE_COUNTRY = "ww"
 
 GRANULARITY_OPTIONS = (
     ("monthly", "Monthly"),

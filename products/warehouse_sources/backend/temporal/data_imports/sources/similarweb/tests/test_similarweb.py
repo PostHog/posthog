@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     TRAFFIC_BY_COUNTRY,
     TRAFFIC_SOURCES,
     V5_ENGAGEMENT_PATH,
+    V5_WORLDWIDE_COUNTRY,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.similarweb import (
@@ -245,6 +246,23 @@ class TestSimilarwebTransport:
         assert _urls(session) == [f"{BASE_URL}/v1/website/a.com/global-rank/global-rank"]
         assert _params(session)["api_key"] == "key-123"
         assert _headers(session) is None
+
+    @parameterized.expand(
+        [
+            # V5 rejects the legacy `world` sentinel and documents `ww`; legacy keeps sending `world`.
+            ("legacy_worldwide_stays_world", API_VERSION_LEGACY, None, "world"),
+            ("v5_worldwide_becomes_ww", API_VERSION_V5, None, V5_WORLDWIDE_COUNTRY),
+            ("v5_explicit_country_passes_through", API_VERSION_V5, "gb", "gb"),
+        ]
+    )
+    def test_worldwide_country_is_translated_only_for_v5(
+        self, _name: str, api_version: str, country: Optional[str], expected_param: str
+    ) -> None:
+        session = _session(_response(json_body={"visits": [], "data": []}))
+
+        _run(VISITS, session, domains="a.com", country=country, api_version=api_version)
+
+        assert _params(session)["country"] == expected_param
 
     def test_global_rank_takes_no_filters_and_parses_month_dates(self) -> None:
         session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
