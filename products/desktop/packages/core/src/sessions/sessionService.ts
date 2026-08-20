@@ -1807,7 +1807,11 @@ export class SessionService {
   /** References whose registration failed, kept for retry keyed by task run. */
   private pendingReferenceRegistrations = new Map<
     string,
-    { taskId: string; references: Map<string, PostHogObjectReferenceInput> }
+    {
+      taskId: string;
+      references: Map<string, PostHogObjectReferenceInput>;
+      inflight: Promise<void> | null;
+    }
   >();
   /** In-flight hydrations keyed by `${taskRunId}:${hydrationMode}` */
   private cloudHydrationPromises = new Map<
@@ -3279,21 +3283,22 @@ export class SessionService {
         source_message_id: sourceMessageId,
       }),
     );
-    void this.registerPostHogReferences(session.taskId, taskRunId, inputs);
+    this.registerPostHogReferences(session.taskId, taskRunId, inputs);
   }
 
   // References enter the pending map before the attempt and leave it only on
   // a confirmed registration, so an offline endpoint, a transient network
   // error, or auth that is not ready yet loses nothing: the next turn on the
   // run and the next hydration both retry whatever is still pending.
-  private async registerPostHogReferences(
+  private registerPostHogReferences(
     taskId: string,
     taskRunId: string,
     references: PostHogObjectReferenceInput[],
-  ): Promise<void> {
+  ): void {
     const pending = this.pendingReferenceRegistrations.get(taskRunId) ?? {
       taskId,
       references: new Map<string, PostHogObjectReferenceInput>(),
+      inflight: null,
     };
     for (const reference of references) {
       pending.references.set(
@@ -3302,38 +3307,55 @@ export class SessionService {
       );
     }
     this.pendingReferenceRegistrations.set(taskRunId, pending);
-    const attempted = [...pending.references.keys()];
-    if (attempted.length === 0) return;
-    try {
-      const authStatus = await this.getAuthCredentialsStatus();
-      if (authStatus.kind !== "ready") return;
-      const artifacts =
-        await authStatus.auth.client.registerTaskRunPostHogReferences(
-          taskId,
+    this.flushPendingReferenceRegistrations(taskRunId);
+  }
+
+  private flushPendingReferenceRegistrations(taskRunId: string): void {
+    const pending = this.pendingReferenceRegistrations.get(taskRunId);
+    if (!pending || pending.inflight || pending.references.size === 0) return;
+    const batch = new Map(pending.references);
+    pending.inflight = (async () => {
+      let registered = false;
+      try {
+        const authStatus = await this.getAuthCredentialsStatus();
+        if (authStatus.kind !== "ready") return;
+        const artifacts =
+          await authStatus.auth.client.registerTaskRunPostHogReferences(
+            pending.taskId,
+            taskRunId,
+            [...batch.values()],
+          );
+        registered = true;
+        const current = this.pendingReferenceRegistrations.get(taskRunId);
+        if (current) {
+          for (const key of batch.keys()) current.references.delete(key);
+          if (current.references.size === 0 && !current.inflight) {
+            this.pendingReferenceRegistrations.delete(taskRunId);
+          }
+        }
+        this.d.store.updateSession(taskRunId, { cloudArtifacts: artifacts });
+      } catch (error) {
+        this.d.log.warn("Failed to register PostHog object references", {
+          taskId: pending.taskId,
           taskRunId,
-          [...pending.references.values()],
-        );
-      const current = this.pendingReferenceRegistrations.get(taskRunId);
-      if (current) {
-        for (const key of attempted) current.references.delete(key);
-        if (current.references.size === 0) {
-          this.pendingReferenceRegistrations.delete(taskRunId);
+          error: String(error),
+        });
+      } finally {
+        const current = this.pendingReferenceRegistrations.get(taskRunId);
+        if (current) {
+          current.inflight = null;
+          if (current.references.size === 0) {
+            this.pendingReferenceRegistrations.delete(taskRunId);
+          } else if (registered) {
+            this.flushPendingReferenceRegistrations(taskRunId);
+          }
         }
       }
-      this.d.store.updateSession(taskRunId, { cloudArtifacts: artifacts });
-    } catch (error) {
-      this.d.log.warn("Failed to register PostHog object references", {
-        taskId,
-        taskRunId,
-        error: String(error),
-      });
-    }
+    })();
   }
 
   private retryPendingReferenceRegistrations(taskRunId: string): void {
-    const pending = this.pendingReferenceRegistrations.get(taskRunId);
-    if (!pending || pending.references.size === 0) return;
-    void this.registerPostHogReferences(pending.taskId, taskRunId, []);
+    this.flushPendingReferenceRegistrations(taskRunId);
   }
 
   private updatePromptStateFromEvents(

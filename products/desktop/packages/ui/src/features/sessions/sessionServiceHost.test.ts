@@ -3051,88 +3051,46 @@ describe("SessionService", () => {
       });
     });
 
-    it("retries a failed reference registration on the next turn", async () => {
-      const service = getSessionService();
+    it("retries a failed registration batch on the next flush", async () => {
+      const service = getSessionService() as unknown as {
+        registerPostHogReferences(
+          taskId: string,
+          taskRunId: string,
+          references: Array<Record<string, string>>,
+        ): void;
+      };
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       mockAuthenticatedClient.registerTaskRunPostHogReferences
         .mockRejectedValueOnce(new Error("endpoint missing"))
         .mockResolvedValue([]);
-      const session = createMockSession({
-        taskRunId: "run-retry",
-        taskId: "task-retry",
-        isCloud: true,
-        currentPromptId: 42,
+      const reference = (id: string) => ({
+        name: id,
+        object_kind: "insight",
+        object_id: id,
+        source_message_id: "turn-1",
       });
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
-      mockSessionStoreSetters.getSessions.mockReturnValue({
-        "run-retry": session,
-      });
-      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
-      mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
-      const turn = (id: number, ts: number, text: string) => [
-        {
-          type: "acp_message",
-          ts,
-          message: {
-            jsonrpc: "2.0",
-            id,
-            method: "session/prompt",
-            params: { prompt: [{ type: "text", text: "check" }] },
-          },
-        },
-        {
-          type: "acp_message",
-          ts: ts + 1,
-          message: {
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text },
-              },
-            },
-          },
-        },
-        {
-          type: "acp_message",
-          ts: ts + 2,
-          message: {
-            jsonrpc: "2.0",
-            method: "_posthog/turn_complete",
-            params: { sessionId: "acp-session", stopReason: "end_turn" },
-          },
-        },
-      ];
-      mockConvertStoredEntriesToEvents.mockReturnValueOnce([
-        ...turn(
-          42,
-          1700000000,
-          '<insight id="9pQx3">Checkout funnel</insight>',
-        ),
-        ...turn(43, 1700000100, '<flag id="new-flow">New flow</flag>'),
-      ] as AcpMessage[]);
 
-      service.watchCloudTask(
-        "task-retry",
-        "run-retry",
-        "https://api.anthropic.com",
-        123,
-        undefined,
-        "https://logs.example.com/run-retry",
-      );
+      service.registerPostHogReferences("task-retry", "run-retry", [
+        reference("9pQx3"),
+      ]);
+      await vi.waitFor(() => {
+        expect(
+          mockAuthenticatedClient.registerTaskRunPostHogReferences,
+        ).toHaveBeenCalledTimes(1);
+      });
+      service.registerPostHogReferences("task-retry", "run-retry", [
+        reference("new-flow"),
+      ]);
 
       await vi.waitFor(() => {
         expect(
-          mockAuthenticatedClient.registerTaskRunPostHogReferences.mock.calls
-            .length,
-        ).toBeGreaterThanOrEqual(2);
+          mockAuthenticatedClient.registerTaskRunPostHogReferences,
+        ).toHaveBeenCalledTimes(2);
       });
-      const retried =
+      expect(
         mockAuthenticatedClient.registerTaskRunPostHogReferences.mock
-          .calls[1][2];
-      expect(retried).toEqual(
+          .calls[1][2],
+      ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ object_id: "9pQx3" }),
           expect.objectContaining({ object_id: "new-flow" }),
