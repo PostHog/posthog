@@ -3,7 +3,7 @@ use std::time::Duration;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
@@ -165,7 +165,14 @@ pub struct Config {
     // ---- Consumer liveness ----
     /// How long the consumer loop may go without a liveness heartbeat before
     /// the lifecycle manager counts it as stalled (milliseconds).
-    #[envconfig(default = "60000")]
+    ///
+    /// Must outlive `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`, because a wedged
+    /// flush has two possible endings and only one of them is diagnosable: the
+    /// flush timeout fails the batch with a reason and replays from uncommitted
+    /// offsets, while the liveness monitor just exits the process. Whichever
+    /// fires first wins, so [`Config::consumer_liveness_deadline`] floors this
+    /// value rather than trusting the two numbers to stay ordered.
+    #[envconfig(default = "90000")]
     pub consumer_liveness_deadline_ms: u64,
 
     /// Consecutive stalled health checks before the lifecycle manager shuts the
@@ -410,6 +417,29 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
+    /// Liveness deadline for the consumer component, floored so it always
+    /// outlives the deferred-flush timeout.
+    ///
+    /// The floor is that timeout plus two [`LIVENESS_HEARTBEAT_INTERVAL`]s:
+    /// one for how stale the loop's last heartbeat can already be when a flush
+    /// starts, one as scheduling margin. Under it, a flush that hits its own
+    /// timeout races the liveness monitor, and the process can exit before the
+    /// timeout turns the wedge into a batch error naming what was stuck.
+    pub fn consumer_liveness_deadline(&self) -> Duration {
+        let floor_ms = self
+            .consumer_deferred_flush_timeout_ms
+            .saturating_add(2 * LIVENESS_HEARTBEAT_INTERVAL.as_millis() as u64);
+        if self.consumer_liveness_deadline_ms < floor_ms {
+            warn!(
+                configured_ms = self.consumer_liveness_deadline_ms,
+                applied_ms = floor_ms,
+                deferred_flush_timeout_ms = self.consumer_deferred_flush_timeout_ms,
+                "CONSUMER_LIVENESS_DEADLINE_MS does not clear the deferred flush timeout; raising it"
+            );
+        }
+        Duration::from_millis(self.consumer_liveness_deadline_ms.max(floor_ms))
+    }
+
     pub fn worker_urls(&self) -> Vec<String> {
         self.worker_addresses
             .split(',')
@@ -477,5 +507,58 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn config_with(overrides: &[(&str, &str)]) -> Config {
+        let env: HashMap<String, String> = overrides
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        Config::init_from_hashmap(&env).expect("config from defaults")
+    }
+
+    #[test]
+    fn liveness_deadline_clears_the_deferred_flush_timeout() {
+        // (flush timeout, configured deadline, expected deadline)
+        let cases = [
+            // Shipped defaults already clear the floor.
+            (None, None, 90_000),
+            // A deadline under the floor is raised to it.
+            (Some("60000"), Some("30000"), 80_000),
+            // A longer flush timeout raises the floor with it.
+            (Some("300000"), Some("90000"), 320_000),
+            // A deadline above the floor is left alone.
+            (Some("60000"), Some("600000"), 600_000),
+        ];
+
+        for (flush_timeout_ms, deadline_ms, expected_ms) in cases {
+            let mut overrides = Vec::new();
+            if let Some(value) = flush_timeout_ms {
+                overrides.push(("CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS", value));
+            }
+            if let Some(value) = deadline_ms {
+                overrides.push(("CONSUMER_LIVENESS_DEADLINE_MS", value));
+            }
+            let config = config_with(&overrides);
+
+            assert_eq!(
+                config.consumer_liveness_deadline(),
+                Duration::from_millis(expected_ms),
+                "flush timeout {flush_timeout_ms:?}, deadline {deadline_ms:?}"
+            );
+            assert!(
+                config.consumer_liveness_deadline()
+                    > Duration::from_millis(config.consumer_deferred_flush_timeout_ms)
+                        + LIVENESS_HEARTBEAT_INTERVAL,
+                "deadline must outlive the flush timeout plus heartbeat staleness"
+            );
+        }
     }
 }
