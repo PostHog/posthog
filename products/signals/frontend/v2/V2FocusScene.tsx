@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
@@ -78,7 +79,7 @@ const SHORTCUT_HELP: { id: string; keys: JSX.Element; description: string }[] = 
         ),
         description: 'Show the full report',
     },
-    { id: 'collapse', keys: <KeyboardShortcut escape />, description: 'Collapse the report' },
+    { id: 'collapse', keys: <KeyboardShortcut escape />, description: 'Collapse the report, or leave focus mode' },
     { id: 'acknowledge', keys: <KeyboardShortcut a />, description: 'Acknowledge and advance' },
     { id: 'primary-action', keys: <KeyboardShortcut i />, description: 'Run the primary action' },
     { id: 'dismiss', keys: <KeyboardShortcut d />, description: 'Dismiss and advance' },
@@ -183,14 +184,20 @@ export function V2FocusScene(): JSX.Element {
             d: { action: () => dismiss(), disabled: triageDisabled },
             s: { action: () => setAgentMenuOpen(true), disabled: triageDisabled },
             escape: {
+                // Escape peels back one layer: the agent menu, then the expanded report, then focus mode itself
                 action: () => {
-                    setAgentMenuOpen(false)
-                    setExpanded(false)
+                    if (agentMenuOpen) {
+                        setAgentMenuOpen(false)
+                    } else if (expanded) {
+                        setExpanded(false)
+                    } else {
+                        router.actions.push(urls.v2Inbox())
+                    }
                 },
                 disabled: modalOpen,
             },
         },
-        [triageDisabled, modalOpen]
+        [triageDisabled, modalOpen, agentMenuOpen, expanded]
     )
 
     const report = currentReport
@@ -392,7 +399,7 @@ export function V2FocusScene(): JSX.Element {
                 <HintBarItem shortcut={<KeyboardShortcut i />} label="fix & monitor" />
                 <HintBarItem shortcut={<KeyboardShortcut d />} label="dismiss" />
                 <HintBarItem shortcut={<KeyboardShortcut s />} label="send to agent" />
-                <HintBarItem shortcut={<KeyboardShortcut escape />} label="collapse" />
+                <HintBarItem shortcut={<KeyboardShortcut escape />} label="back" />
             </footer>
 
             <CreatePrModal
