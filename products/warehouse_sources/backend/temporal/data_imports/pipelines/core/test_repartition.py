@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import datetime
 import itertools
@@ -31,6 +32,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
+    _redis_client,
+    run_key,
+    workload_reporting,
 )
 
 logger = structlog.get_logger(__name__)
@@ -525,6 +531,33 @@ class TestRewriteIntoTemp:
         # Partition keys recomputed under the new (day) scheme — values are %Y-%m-%d.
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
+
+    def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
+        # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+
+        with workload_reporting(team_id=1, schema_id="s-rw", run_id="repartition:rw-test", host="pod-rw"):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=1,
+                    logger=logger,
+                )
+            )
+
+        redis = _redis_client()
+        assert redis is not None
+        sample = json.loads(redis.get(run_key("repartition:rw-test")))
+        assert sample["peak_buffer_bytes"] > 0
 
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [

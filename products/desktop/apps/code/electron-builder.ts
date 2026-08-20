@@ -49,6 +49,7 @@ const config: Configuration = {
     ".vite/build/plugins/posthog/**",
     ".vite/build/codex-acp/**",
     ".vite/build/grammars/**",
+    ".vite/build/product-engineer/**",
     ".vite/build/rpc-host.js",
     ".vite/build/rpc-host.js.map",
     ...asarUnpackGlobs,

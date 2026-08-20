@@ -123,6 +123,13 @@ export class Agent {
             anthropicAuthToken: gatewayConfig.apiKey,
             openaiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
             openaiApiKey: gatewayConfig.apiKey,
+            // Thread the selected project explicitly so the session scopes to it
+            // rather than the shared POSTHOG_PROJECT_ID global, which a
+            // concurrent session start can clobber.
+            posthogProjectId:
+              this.posthogApiConfig?.projectId != null
+                ? String(this.posthogApiConfig.projectId)
+                : undefined,
           }
         : undefined;
 

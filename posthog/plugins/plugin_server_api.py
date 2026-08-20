@@ -180,6 +180,38 @@ def _mint_cancel_invocations_jwt(team_id: int, hog_flow_id: str) -> str:
     return WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
+# Same shared workflows signing key as the purposes above, on its own audience.
+WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_cancel_batch_jwt(team_id: int, hog_flow_id: str, batch_job_id: str) -> str:
+    """Short-lived scoped JWT for one batch_jobs/:id/cancel call — a leaked token can only stop
+    this one batch run of this one team + workflow. Raises when unprovisioned so the call fails
+    closed. Verified in the plugin server's CdpApi.postHogFlowCancelBatchJob."""
+    if not WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot stop the batch run")
+    return WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+
+
+def cancel_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Flag a batch run's resolver job and all its child runs for cancellation — they share
+    parent_run_id, so the CDP side sweeps both with one selector. Bounded like the invocation
+    cancel: `done: false` means another call is needed for the rest. The timeout covers the
+    endpoint's worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/cancel",
+        json={},
+        headers={"Authorization": f"Bearer {_mint_cancel_batch_jwt(team_id, hog_flow_id, batch_job_id)}"},
+        timeout=30,
+    )
+
+
 def cancel_hog_flow_invocations(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
     """Flag a workflow's in-flight invocations for cancellation. `payload` carries exactly one
     selector: {"invocation_ids": [...]} or {"all": true}. The Node side only marks rows and wakes

@@ -3,6 +3,7 @@ import {
     DateRange,
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
+    ErrorTrackingFingerprintProjectionQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
@@ -183,6 +184,11 @@ export const errorTrackingIssueEventsQuery = ({
     return eventsQuery
 }
 
+export const errorTrackingFingerprintProjectionQuery = (issueId: string): ErrorTrackingFingerprintProjectionQuery => ({
+    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery,
+    issueId,
+})
+
 export const errorTrackingIssueCorrelationQuery = ({
     events,
 }: {
@@ -288,12 +294,14 @@ export const errorTrackingBreakdownsQuery = ({
     issueId,
     breakdownProperties,
     dateRange,
+    filterGroup,
     filterTestAccounts,
     maxValuesPerProperty = LIMIT_ITEMS,
 }: {
     issueId: string
     breakdownProperties: string[]
     dateRange: DateRange
+    filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
     maxValuesPerProperty?: number
 }): ErrorTrackingBreakdownsQuery => {
@@ -302,6 +310,7 @@ export const errorTrackingBreakdownsQuery = ({
         issueId,
         breakdownProperties,
         dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         maxValuesPerProperty,
         tags: {

@@ -18,6 +18,8 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
+
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import {
@@ -149,6 +151,8 @@ export function FeatureFlagReleaseConditionsReadonly({
             {filters.early_exit && <EarlyExitIndicator />}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+
+            <FractionalRolloutWarning filterGroups={filterGroups} />
 
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (

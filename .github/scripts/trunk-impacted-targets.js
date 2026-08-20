@@ -339,6 +339,9 @@ const COMMON_FRONTEND = ['esbuilder', 'storybook', 'tailwind', 'replay-shared', 
 // spec and recorded by a Python script sitting beside them.
 const COMMON_FULLSTACK = ['fixtures']
 
+// The pr-approval-agent engine's home inside the stamphog product.
+const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
 // backend lanes, which keeps a newly added tool over-reporting until someone
@@ -352,7 +355,6 @@ const TOOLS_INDEPENDENT = [
     'hogbox-preview',
     'traffic-sim',
     'hedgebox-dummy',
-    'pr-approval-agent',
     'query-performance-ai',
     'infra-scripts',
 ]
@@ -1208,8 +1210,8 @@ function addPythonLanes(targets, context) {
     for (const product of context.products) {
         targets.add(pyProduct(product))
     }
-    // pyproject.toml roots products, but Python also lives under tools/, and
-    // tools/pr-approval-agent holds a lane of its own through .stamphog.
+    // pyproject.toml roots products, but Python also lives under tools/, and the
+    // pr-approval-agent engine holds a lane of its own through .stamphog.
     for (const tool of TOOLS_INDEPENDENT) {
         targets.add(`tools:${tool}`)
     }
@@ -1457,6 +1459,14 @@ function computeTargets(changedFiles, context) {
         // product lane its own directory rule would give it, a policy change and
         // a parser change would be free to merge in parallel.
         if (segments[segments.length - 1] === 'AGENT_APPROVALS.md') {
+            targets.add('tools:pr-approval-agent')
+            continue
+        }
+        // The engine sits inside the stamphog product, but no product suite imports it. ci-python
+        // runs its tests directly, and those are the same tests that .stamphog/ and every
+        // AGENT_APPROVALS.md feed into. All three share one lane, so a policy change and an engine
+        // change cannot merge in parallel against each other.
+        if (file.startsWith(`${PR_APPROVAL_AGENT_DIR}/`)) {
             targets.add('tools:pr-approval-agent')
             continue
         }

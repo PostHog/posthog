@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -19,6 +20,7 @@ from llm_gateway.products.config import (
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
     PRODUCTS,
+    SIGNALS_DEV_APP_ID,
     TWIG_EU_APP_ID,
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
@@ -712,6 +714,7 @@ class TestModelAccessFlag:
     def test_every_gated_model_has_its_own_flag(self):
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
+        assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):
@@ -734,3 +737,24 @@ class TestModelAccessFlag:
             assert suffixed not in BASETEN_MODELS
             assert not is_modal_served_model(suffixed)
             assert suffixed not in CLOUDFLARE_ALLOWED_MODELS
+
+
+class TestSignalsApplicationIsolation:
+    @pytest.mark.parametrize(
+        ("product", "expected_allowed"),
+        [
+            ("signals", True),
+            ("posthog_code", False),
+            ("background_agents", False),
+            ("slack_app", False),
+        ],
+    )
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False))
+    def test_signals_app_reaches_only_the_signals_product(
+        self, mock_get_settings: MagicMock, product: str, expected_allowed: bool
+    ):
+        # The point of the separate application: a Signals run's token must not be spendable as
+        # posthog_code (which bills the customer) or as background_agents (a looser budget), both
+        # of which it could reach while Signals shared the Desktop app.
+        allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
+        assert allowed is expected_allowed

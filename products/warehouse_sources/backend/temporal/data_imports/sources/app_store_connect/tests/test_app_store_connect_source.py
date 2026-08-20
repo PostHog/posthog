@@ -12,6 +12,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     AppStoreConnectResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
@@ -22,12 +25,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source import (
     AppStoreConnectSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
     AppStoreConnectSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source"
+
+
+def _resolve_friendly_error(error_message: str) -> str | None:
+    # Mirrors external_data_job: the first matching key's friendly message is the one shown.
+    errors = AppStoreConnectSource().get_non_retryable_errors()
+    for key, friendly in errors.items():
+        if error_message_matches(error_message, [key]):
+            return friendly
+    return None
 
 
 def _config(vendor_number: str | None = "85234567") -> AppStoreConnectSourceConfig:
@@ -51,12 +64,12 @@ class TestAppStoreConnectSource:
     def test_source_type(self) -> None:
         assert AppStoreConnectSource().source_type == ExternalDataSourceType.APPSTORECONNECT
 
-    def test_source_is_visible_and_labelled_alpha(self) -> None:
+    def test_source_is_visible_and_labelled_beta(self) -> None:
         config = AppStoreConnectSource().get_source_config
 
         # `unreleasedSource` hides a source from users entirely; a finished source must not set it.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.docsUrl is not None
 
@@ -204,6 +217,26 @@ class TestAppStoreConnectSource:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
         assert all(message for message in errors.values())
+
+    @parameterized.expand(
+        [
+            ("analytics_create", APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
+            ("analytics_inactive", APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR),
+            ("read", APP_STORE_CONNECT_READ_FORBIDDEN_ERROR),
+        ]
+    )
+    def test_each_forbidden_case_resolves_to_its_own_copy(self, _name: str, constant: str) -> None:
+        # The source raises `<constant> (Apple said: ... (HTTP 403))`; the mapping must resolve each
+        # distinct case to its own copy, so the analytics create and inactivity cases never inherit
+        # the read wording that names Finance or Sales — the roles the failing key already holds.
+        raised = f"{constant} (Apple said: FORBIDDEN_ERROR (HTTP 403))"
+
+        friendly = _resolve_friendly_error(raised)
+
+        assert friendly == constant
+        if constant is not APP_STORE_CONNECT_READ_FORBIDDEN_ERROR:
+            assert friendly is not None
+            assert "Finance" not in friendly and "Sales" not in friendly
 
     @parameterized.expand(
         [

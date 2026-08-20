@@ -67,7 +67,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
-    _delete_personless_distinct_ids_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
     _delete_group_type_mappings_for_teams(team_ids)
@@ -173,34 +172,6 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
         _fn,
         caller_tag="team-delete/hash-key-overrides",
     )
-
-
-def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
-    """Delete posthog_personlessdistinctid rows for teams via personhog RPC."""
-    from functools import partial
-
-    from posthog.personhog_client.client import personhog_call
-
-    for team_id in team_ids:
-        personhog_call(
-            "delete_personless_distinct_ids_for_team",
-            partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
-        )
-
-
-def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
-    from posthog.personhog_client.client import require_personhog_client
-    from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
-
-    client = require_personhog_client()
-
-    while True:
-        resp = client.delete_personless_distinct_ids_batch_for_team(
-            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
-            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
-        )
-        if resp.deleted_count == 0:
-            break
 
 
 def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:

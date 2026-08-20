@@ -75,9 +75,10 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
 // Incremented once per request that supplied a `$geoip_*` value disagreeing with the MaxMind
-// lookup. The lookup currently wins, so this only sizes the population that a pending change to
-// let request values win would affect. Removable once that change has shipped and settled.
-// Per-team and per-SDK attribution lives in the canonical log line via Loki.
+// lookup. Supplied values win over the lookup, so this counts the requests that evaluate
+// differently than they would under lookup-wins precedence. Removable once the precedence
+// change has shipped and settled. Per-team and per-SDK attribution lives in the canonical log
+// line via Loki.
 pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
     "flags_geoip_properties_differ_from_lookup_total";
 

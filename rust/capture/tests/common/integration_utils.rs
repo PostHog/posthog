@@ -1110,12 +1110,14 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400,       // 25MB default for AI endpoint
+            983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
             None,             // body_chunk_read_timeout_ms
             256,              // body_read_chunk_size_kb
             10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
             50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
             None,             // overflow_limiter
             None,             // ai_events_overflow_limiter
+            None,             // ai_byte_rate_limiter
             None,             // replay_overflow_limiter
             None,             // v1_sink_router
             8,                // capture_v1_scatter_gather_min_batch

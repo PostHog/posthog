@@ -677,7 +677,9 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
         return
     message = EmailMessage(
         campaign_key=f"email_sending_suspended_{team_id}_{suspended_at}",
-        subject=f"[Action required] Email sending has been suspended for project '{team}'",
+        # No urgency prefix in the subject. A bracketed "[Action required]" got these filtered to
+        # junk in production, while the plainer re-enabled email reached the same address.
+        subject=f"Email sending has been suspended for project '{team}'",
         template_name="email_sending_suspended",
         template_context={
             "team": team,
@@ -707,8 +709,9 @@ def send_email_sending_reputation_finding(
     if not memberships_to_email:
         return
     high_impact = impact == "HIGH"
+    # Kept free of an urgency prefix for the same deliverability reason as the suspension email.
     subject = (
-        f"[Action required] Email sending for project '{team}' is at risk of being paused"
+        f"Email sending for project '{team}' is at risk of being paused"
         if high_impact
         else f"Reputation warning for email sending in project '{team}'"
     )

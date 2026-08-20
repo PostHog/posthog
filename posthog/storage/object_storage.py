@@ -433,6 +433,10 @@ def object_storage_client() -> ObjectStorageClient:
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
+            # Bounds socket inactivity, not total transfer time, so slow-but-flowing large
+            # objects still complete; the botocore default leaves callers blocked for 60s
+            # when the store accepts a connection but stops sending bytes.
+            read_timeout=5,
             retries={"max_attempts": 1},
         )
         aws_client = client(
