@@ -210,20 +210,16 @@ pub async fn extract_body_with_timeout(
     Ok(buf.freeze())
 }
 
+/// Test-only stream builders shared by the readers' test modules.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::body::Body;
+pub(crate) mod test_support {
     use bytes::Bytes;
-    use futures::stream;
+    use futures::{stream, Stream, StreamExt};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::time::Duration;
-
-    const TEST_CHUNK_SIZE_KB: usize = 256;
 
     /// A stream of `count` ten-byte chunks that records how many were pulled.
-    fn counted_chunks(
+    pub(crate) fn counted_chunks(
         count: usize,
     ) -> (
         impl Stream<Item = Result<Bytes, axum::Error>> + Unpin,
@@ -239,6 +235,19 @@ mod tests {
         }));
         (stream, pulled)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::counted_chunks;
+    use super::*;
+    use axum::body::Body;
+    use bytes::Bytes;
+    use futures::stream;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    const TEST_CHUNK_SIZE_KB: usize = 256;
 
     #[tokio::test]
     async fn drain_rejected_body_consumes_the_whole_stream() {
@@ -286,7 +295,10 @@ mod tests {
         let outcome =
             drain_rejected_body(&mut stream, 1024, Duration::from_secs(30), "/test").await;
 
-        assert_eq!(outcome, DrainOutcome::Abandoned(DrainAbandoned::StreamError));
+        assert_eq!(
+            outcome,
+            DrainOutcome::Abandoned(DrainAbandoned::StreamError)
+        );
     }
 
     #[tokio::test(start_paused = true)]

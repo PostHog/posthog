@@ -81,9 +81,11 @@ pub async fn extract_body_with_timeout(
                 buf.put(chunk);
             }
             Some(Err(e)) => {
-                // A body wrapped by axum's DefaultBodyLimit surfaces over-limit
-                // reads as a LengthLimitError in the stream; report those as 413
-                // rather than a generic decoding failure.
+                // A LengthLimitError reaches us only when something wraps the body
+                // in http_body_util::Limited. Nothing does on this route today:
+                // the v1 DefaultBodyLimit layer only inserts a request extension,
+                // and the `Body` extractor never reads it. Kept so the status stays
+                // correct if a limited body is ever introduced upstream.
                 if error_chain_has_length_limit(&e) {
                     return Err(Error::PayloadTooLarge(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
@@ -269,20 +271,14 @@ mod tests {
 
     #[tokio::test]
     async fn extract_body_drains_an_oversize_body_before_rejecting() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
+        use crate::extractors::test_support::counted_chunks;
+        use std::sync::atomic::Ordering;
 
         // Four ten-byte chunks against a 25-byte limit: the third trips it, and the
         // fourth must still be pulled so hyper can deliver the 413 on a live
         // connection instead of resetting.
-        let pulled = Arc::new(AtomicUsize::new(0));
-        let counter = pulled.clone();
-        let chunks: Vec<Result<Bytes, axum::Error>> = (0..4)
-            .map(|_| Ok(Bytes::from_static(b"0123456789")))
-            .collect();
-        let body = Body::from_stream(stream::iter(chunks).inspect(move |_| {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
+        let (stream, pulled) = counted_chunks(4);
+        let body = Body::from_stream(stream);
 
         let result = extract_body_with_timeout(body, 25, None, TEST_CHUNK_SIZE_KB, "/test").await;
 
