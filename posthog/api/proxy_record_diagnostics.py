@@ -431,7 +431,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
                     type="config",
                     summary="Contact support to restore this domain."
                     if moved
-                    else "Release the Cloudflare zone hold on this domain, or contact support.",
+                    else "Check for a Cloudflare zone hold on this domain, or contact support.",
                 ),
             ),
             info,
