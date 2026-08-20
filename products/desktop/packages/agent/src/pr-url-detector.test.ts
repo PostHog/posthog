@@ -179,6 +179,22 @@ describe("wasCreatedByThisRun", () => {
     [
       "fresh PR from another branch, author matches login",
       { headRefName: "other/branch", ghLogin: "me", author: "me" },
+      false,
+    ],
+    [
+      "fresh PR, head known but no branches pushed, author matches login",
+      { ownedBranches: [], ghLogin: "me", author: "me" },
+      true,
+    ],
+    [
+      "fresh PR, only branches in other repositories known, author matches login",
+      {
+        ownedBranches: [
+          { repository: "posthog/posthog.com", branch: "run/branch" },
+        ],
+        ghLogin: "me",
+        author: "me",
+      },
       true,
     ],
     [

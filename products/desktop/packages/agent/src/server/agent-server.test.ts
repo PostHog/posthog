@@ -4310,8 +4310,19 @@ describe("AgentServer HTTP Mode", () => {
       expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
-    it("attributes a fresh PR the run's own identity authored from a branch it is no longer on", async () => {
-      const s = setup(justNow(), GH_LOGIN, "another-branch-of-ours");
+    it("does not attribute a fresh PR the run's own identity opened from a branch the run never pushed", async () => {
+      // On a desktop run the login is the person's, and they author most PRs in
+      // the repo. A known branch mismatch outranks the author match.
+      const s = setup(justNow(), GH_LOGIN, "another-branch-of-theirs");
+      s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
+      await flush();
+      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.detectedPrUrl).toBeNull();
+    });
+
+    it("falls back to the author match when the run has no branch evidence", async () => {
+      const s = setup(justNow(), GH_LOGIN, "branch-we-cannot-see");
+      s.getCurrentCheckout = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
       expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);

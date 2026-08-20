@@ -66,24 +66,28 @@ export function parsePrRepository(prUrl: string): string | null {
 // Whether a PR URL seen in the agent's output is a PR this run opened, rather than
 // one it read while checking GitHub for in-flight work. Recency is necessary but
 // never sufficient on its own: a research run listing open PRs sees every PR the
-// repo opened in the last few minutes. Ownership needs one positive signal on top,
-// either the PR's head branch is a branch this run pushed in that same repository,
-// or the PR author is the identity this run pushes as. A run sitting on the base
-// branch cannot own a same-repo PR, so a head ref equal to the base is rejected,
-// and so is any fork PR, whose head branch name is not ours to trust.
+// repo opened in the last few minutes. A fork PR never qualifies, because its head
+// branch name is chosen by the fork owner, and neither does a head ref equal to
+// the base branch, because a run sitting on the base cannot own a same-repo PR.
+//
+// With branch evidence on both sides (the PR's head, and branches this run pushed
+// in that repository) the branch decides: a match is ownership, a mismatch is a PR
+// the run only read, even when the author is this run's own login. On a desktop
+// run the login is the person's, who authors most PRs in the repo, so a fresh PR
+// of theirs from another branch would otherwise be re-attributed, which is the
+// bug this gate exists to stop. The author match is the fallback only when branch
+// evidence is missing on either side.
 export function wasCreatedByThisRun(evidence: PrOwnershipEvidence): boolean {
   if (!wasCreatedRecently(evidence.createdAt, evidence.nowMs)) return false;
   if (evidence.isCrossRepository) return false;
   const { headRefName, baseBranch, prRepository } = evidence;
   if (headRefName && baseBranch && headRefName === baseBranch) return false;
-  const branchOwned =
-    !!headRefName &&
-    evidence.ownedBranches.some(
-      (owned) =>
-        owned.branch === headRefName &&
-        (!owned.repository ||
-          !prRepository ||
-          owned.repository === prRepository),
-    );
-  return branchOwned || wasCreatedByLogin(evidence.author, evidence.ghLogin);
+  const comparable = evidence.ownedBranches.filter(
+    (owned) =>
+      !owned.repository || !prRepository || owned.repository === prRepository,
+  );
+  if (headRefName && comparable.length > 0) {
+    return comparable.some((owned) => owned.branch === headRefName);
+  }
+  return wasCreatedByLogin(evidence.author, evidence.ghLogin);
 }
