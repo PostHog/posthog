@@ -120,7 +120,7 @@ class TestRateLimits(StripeProvisioningTestBase):
                 return 30
 
         # Minted before the patch, since it spends the token endpoint.
-        token = self._get_bearer_token() if endpoint == "resources" else None
+        token = self._get_bearer_token() if endpoint == "resources" else ""
 
         with patch(
             "ee.partners.stripe.api.provisioning.views.StripeProvisioningAPIView.get_throttles",
