@@ -171,8 +171,11 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 // `breakpoint` cancels this invocation if a newer `loadTasks` action has been
                 // dispatched, so filter changes don't overwrite state with stale responses.
-                loadTasks: async (params: TaskListParams = {}, breakpoint) => {
-                    const response = await api.tasks.list(params)
+                // A caller that passes nothing wants a plain refresh, not an unfiltered list: refresh
+                // sites like `taskLogic`'s update/delete reload every mounted list without knowing what
+                // it is showing, and `{}` there would swap the active filter for the whole visible set.
+                loadTasks: async (params: TaskListParams | undefined, breakpoint) => {
+                    const response = await api.tasks.list(params ?? values.taskListParams)
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
                     return response.results
