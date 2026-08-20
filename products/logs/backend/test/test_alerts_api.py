@@ -1033,8 +1033,6 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
 
-    # --- List destinations ---
-
     def _create_destination(self, alert_id: str, payload: dict) -> list[str]:
         response = self.client.post(self._destinations_url(alert_id), payload, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
