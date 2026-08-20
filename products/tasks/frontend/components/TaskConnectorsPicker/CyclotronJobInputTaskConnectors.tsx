@@ -10,7 +10,12 @@ export default function CyclotronJobInputTaskConnectors({ value, onChange }: Cus
     const { installations, installationsLoading } = useValues(taskConnectorsPickerLogic)
 
     const selectedIds: string[] = Array.isArray(value) ? value : []
-    const enabledInstallations = installations.filter((installation) => installation.is_enabled !== false)
+    // The task runs as the workflow creator, and the server only accepts their ready personal
+    // installations — so shared or teammate-owned connectors would pass the picker but fail the run.
+    const enabledInstallations = installations.filter(
+        (installation) =>
+            installation.is_enabled !== false && installation.scope === 'personal' && installation.is_owner
+    )
 
     const options = enabledInstallations.map((installation) => {
         const label = installation.display_name || installation.name
