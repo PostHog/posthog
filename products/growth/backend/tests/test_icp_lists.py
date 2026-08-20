@@ -213,3 +213,47 @@ class TestIcpLists(BaseTest):
                 "--list-version",
                 "fresh",
             )
+
+    def test_sync_command_refuses_a_row_that_would_produce_only_empty_buckets(self):
+        tempdir = tempfile.mkdtemp()
+        tags_path = os.path.join(tempdir, "tags.csv")
+        with open(tags_path, "w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["tag", "recommendation"])
+            writer.writeheader()
+            writer.writerow({"tag": "Plug and Play", "recommendation": "ignore"})
+            writer.writerow({"tag": "Some Vertical", "recommendation": "banana"})
+        _, investors_path = self._write_exports()
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "sync_icp_scoring_lists",
+                "--tags-csv",
+                tags_path,
+                "--investors-csv",
+                investors_path,
+                "--list-version",
+                "empty-buckets",
+            )
+        assert not IcpScoringConfig.objects.filter(version="empty-buckets").exists()
+
+    def test_sync_command_warns_but_succeeds_when_no_investor_has_aliases(self):
+        tags_path, _ = self._write_exports()
+        tempdir = tempfile.mkdtemp()
+        investors_path = os.path.join(tempdir, "investors.csv")
+        with open(investors_path, "w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["investor", "aliases", "notes"])
+            writer.writeheader()
+            writer.writerow({"investor": "Y Combinator", "aliases": "", "notes": ""})
+            writer.writerow({"investor": "Sequoia Capital", "aliases": "", "notes": ""})
+
+        call_command(
+            "sync_icp_scoring_lists",
+            "--tags-csv",
+            tags_path,
+            "--investors-csv",
+            investors_path,
+            "--list-version",
+            "no-aliases",
+        )
+
+        assert IcpScoringConfig.objects.filter(version="no-aliases").exists()
