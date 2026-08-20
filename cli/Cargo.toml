@@ -85,6 +85,7 @@ unit_bindings = "deny"
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
+debug = "line-tables-only"
 lto = "thin"
 
 [package.metadata.dist]
