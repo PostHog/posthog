@@ -772,6 +772,7 @@ export interface sourceCatalogLogicMeta {
                       | 'K6Cloud'
                       | 'Kafka'
                       | 'Kajabi'
+                      | 'Kalshi'
                       | 'Kameleoon'
                       | 'Kandji'
                       | 'KapaAI'

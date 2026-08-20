@@ -1211,6 +1211,7 @@ export interface sourceWizardLogicActions {
             | 'K6Cloud'
             | 'Kafka'
             | 'Kajabi'
+            | 'Kalshi'
             | 'Kameleoon'
             | 'Kandji'
             | 'KapaAI'
