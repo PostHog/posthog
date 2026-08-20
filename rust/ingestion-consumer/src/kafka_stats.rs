@@ -36,7 +36,7 @@
 //! [`fetch_queue`].
 
 use metrics::gauge;
-use rdkafka::Statistics;
+use rdkafka::{ClientConfig, Statistics};
 
 /// Messages sitting in librdkafka's shared fetch queue. See [`fetch_queue`] for
 /// why this is a max across partitions rather than a sum.
@@ -70,6 +70,29 @@ const BROKER_WAITRESP_REQUESTS: &str = "kafka_consumer_broker_waitresp_requests"
 /// it with `changes()` or `delta()` rather than `rate()`. Reads `0` until the
 /// client joins its consumer group.
 const REBALANCE_TOTAL: &str = "kafka_consumer_rebalance_total";
+
+/// Cap on [`FETCHQ_BYTES`], from the resolved `queued.max.messages.kbytes`.
+/// A config mirror, set once at startup.
+const FETCHQ_BYTES_LIMIT: &str = "kafka_consumer_fetchq_bytes_limit";
+
+/// Cap on [`FETCHQ_MESSAGES`], from the resolved `queued.min.messages`.
+/// A config mirror, set once at startup.
+const FETCHQ_MESSAGES_LIMIT: &str = "kafka_consumer_fetchq_messages_limit";
+
+/// Cap on `consumer_batch_size`, in messages, from `CONSUMER_BATCH_SIZE`.
+/// A config mirror, set once at startup.
+const BATCH_SIZE_LIMIT: &str = "consumer_batch_size_limit";
+
+/// Cap on `consumer_batch_size_kb`, from `CONSUMER_BATCH_SIZE_KB`. A config
+/// mirror, set once at startup. `0` means the byte bound is off, so a dashboard
+/// can tell "unset" from a real cap.
+const BATCH_SIZE_KB_LIMIT: &str = "consumer_batch_size_kb_limit";
+
+/// librdkafka's own default for `queued.max.messages.kbytes`.
+const DEFAULT_QUEUED_MAX_MESSAGES_KBYTES: f64 = 102_400.0;
+
+/// librdkafka's own default for `queued.min.messages`.
+const DEFAULT_QUEUED_MIN_MESSAGES: f64 = 100_000.0;
 
 /// Export the gauges described in the module docs from one statistics snapshot.
 pub fn export(stats: &Statistics) {
@@ -126,6 +149,42 @@ fn fetch_queue(stats: &Statistics) -> FetchQueue {
         }
     }
     FetchQueue { messages, bytes }
+}
+
+/// Publish the configured caps that bound the live gauges above.
+///
+/// Config mirrors, set once at startup because none of them change while the
+/// process runs. They exist so a dashboard can compute utilization against the
+/// cap per deployment, rather than hardcoding limits that differ per lane.
+///
+/// The librdkafka caps come from the built [`ClientConfig`], not from the typed
+/// settings that seeded it. The generic `KAFKA_CONSUMER_*` passthrough can
+/// override any property, so only the built config states what the client
+/// actually runs with.
+pub fn export_limits(client_config: &ClientConfig, batch_size: usize, batch_size_kb: usize) {
+    let queued_max_kbytes = property(
+        client_config,
+        "queued.max.messages.kbytes",
+        DEFAULT_QUEUED_MAX_MESSAGES_KBYTES,
+    );
+    gauge!(FETCHQ_BYTES_LIMIT).set(queued_max_kbytes * 1024.0);
+    gauge!(FETCHQ_MESSAGES_LIMIT).set(property(
+        client_config,
+        "queued.min.messages",
+        DEFAULT_QUEUED_MIN_MESSAGES,
+    ));
+    gauge!(BATCH_SIZE_LIMIT).set(batch_size as f64);
+    gauge!(BATCH_SIZE_KB_LIMIT).set(batch_size_kb as f64);
+}
+
+/// Read a numeric librdkafka property from the built config, falling back to
+/// librdkafka's own default when the key is unset. A value librdkafka would
+/// reject also falls back here, and fails the client creation that follows.
+fn property(client_config: &ClientConfig, key: &str, default: f64) -> f64 {
+    client_config
+        .get(key)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
 }
 
 #[cfg(test)]
