@@ -2560,6 +2560,8 @@ class ExternalDataSourceType(StrEnum):
     SAM_CART = "SamCart"
     IRON_SOURCE_ADS = "IronSourceAds"
     MICROSOFT_EXCEL = "MicrosoftExcel"
+    PROFOUND = "Profound"
+    AIRWALLEX = "Airwallex"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3086,6 +3088,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
 class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
+    ROAS = "ROAS"
     CONST_ = "const:"
 
 
