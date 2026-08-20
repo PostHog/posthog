@@ -103,6 +103,16 @@ class TestForkThreadPayload(TestCase):
         assert posted_channels == ["U_ALICE"]
         ephemeral.assert_called_once()
 
+    def test_typed_question_becomes_the_runs_request(self):
+        start, _ = self._run(self._payload(fork_prompt="why is the retry loop double-counting?"), self._slack_mock())
+
+        assert start.call_args.args[0]["text"] == "why is the retry loop double-counting?"
+
+    def test_without_a_question_the_run_opens_with_the_default_ask(self):
+        start, _ = self._run(self._payload(), self._slack_mock())
+
+        assert start.call_args.args[0]["text"] == FORK_DEFAULT_PROMPT
+
     def test_inherits_repository_from_forked_threads_task(self):
         from django.apps import apps
 
@@ -270,6 +280,101 @@ class TestForkThreadInteractivityDispatch(TestCase):
             HTTP_X_SLACK_SIGNATURE=signed.signature,
             HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
+
+        assert response.status_code == 200
+        mock_connect.assert_not_called()
+
+
+class TestForkCommandParsing(TestCase):
+    def test_fork_parses_from_both_surfaces(self):
+        from products.slack_app.backend.api import parse_rules_command
+
+        for text in ("fork", "FORK", "<@UBOT> fork"):
+            parsed = parse_rules_command(text)
+            assert parsed is not None, text
+            assert parsed.action == "fork", text
+
+    def test_trailing_text_becomes_the_forked_runs_question(self):
+        from products.slack_app.backend.api import parse_rules_command
+
+        parsed = parse_rules_command("fork why does the retry loop double-count?")
+        assert parsed is not None
+        assert parsed.action == "fork"
+        assert parsed.fork_prompt == "why does the retry loop double-count?"
+
+    def test_bare_fork_carries_no_question(self):
+        # `None` is what makes the activity fall back to the default "catch me up" ask.
+        from products.slack_app.backend.api import parse_rules_command
+
+        parsed = parse_rules_command("fork")
+        assert parsed is not None and parsed.fork_prompt is None
+
+    def test_a_word_merely_starting_with_fork_is_not_the_command(self):
+        from products.slack_app.backend.api import parse_rules_command
+
+        assert parse_rules_command("forking hell") is None
+
+
+class TestForkButtonDispatch(TestCase):
+    """The button under a finished reply is the no-configuration trigger: it needs no
+    manifest change, and a `block_actions` payload already carries the channel, the
+    thread the reply sits in, and a private `response_url`."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.signing_secret = "posthog-code-test-secret"
+        self.org = Organization.objects.create(name="TestOrg")
+        self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T12345", config={})
+
+    def _click(self, integration_id: int, team_id: str = "T12345"):
+        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID
+
+        payload = {
+            "type": "block_actions",
+            "team": {"id": team_id},
+            "user": {"id": "U_ALICE"},
+            "channel": {"id": "C_SOURCE"},
+            "message": {"ts": "222.1", "thread_ts": "111.1"},
+            "response_url": "https://hooks.slack.test/resp",
+            "actions": [
+                {
+                    "action_id": FORK_THREAD_ACTION_ID,
+                    "value": json.dumps({"integration_id": integration_id}),
+                }
+            ],
+        }
+        body_str = f"payload={json.dumps(payload)}"
+        signed = sign_slack_request(body_str.encode(), self.signing_secret)
+        return self.client.post(
+            "/slack/interactivity-callback/",
+            data=body_str,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
+        )
+
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.sync_connect")
+    def test_click_dispatches_keyed_on_the_thread_the_reply_sits_in(self, mock_connect, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_client = MagicMock()
+        mock_connect.return_value = mock_client
+
+        response = self._click(self.integration.id)
+
+        assert response.status_code == 200
+        mock_client.start_workflow.assert_called_once()
+        # Keyed on the source thread, not the bot reply the button is attached to, so
+        # clicking the button on two replies in one thread is one fork.
+        assert mock_client.start_workflow.call_args.kwargs["id"] == "slack-app-fork-thread:T12345:U_ALICE:111.1"
+
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.sync_connect")
+    def test_click_from_an_unknown_workspace_is_not_claimed(self, mock_connect, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        response = self._click(self.integration.id, team_id="T_UNKNOWN")
 
         assert response.status_code == 200
         mock_connect.assert_not_called()

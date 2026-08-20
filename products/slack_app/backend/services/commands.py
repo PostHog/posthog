@@ -34,6 +34,7 @@ def _handle_help(
             f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
             f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
             f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
+            "`@PostHog fork [question]` — Tag me in a thread to dig into it with me in a DM, without adding noise there",
         ]
     )
 

@@ -45,7 +45,11 @@ from posthog.temporal.ai.slack_app import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
-from posthog.temporal.ai.slack_app.slack_app_fork import FORK_THREAD_CALLBACK_ID, SlackAppForkThreadWorkflow
+from posthog.temporal.ai.slack_app.slack_app_fork import (
+    FORK_THREAD_CALLBACK_ID,
+    SlackAppForkThreadWorkflow,
+    build_fork_payload,
+)
 from posthog.temporal.ai.slack_app.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
@@ -84,7 +88,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_opened as _handle_app_home_opened,
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, post_slack_thread_reply
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -243,6 +247,7 @@ class RulesCommand:
         "remove",
         "help",
         "deprecated_default_repo",
+        "fork",
         "project_show",
         "project_set",
         "project_set_workspace",
@@ -251,6 +256,9 @@ class RulesCommand:
     repository: str | None = None
     rule_numbers: list[int] | None = None
     project_team_id: int | None = None
+    # `fork`'s trailing text — the question to open the forked DM with. ``None``
+    # for a bare `fork`, which gets a default "catch me up" ask instead.
+    fork_prompt: str | None = None
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -820,6 +828,13 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
+
+    # `fork` takes the rest of the line as the question to open the forked DM with.
+    # Bare `fork` gets a default ask, so the trailing text is optional.
+    fork_match = re.fullmatch(r"fork(?:\s+(.*))?", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    if fork_match is not None:
+        prompt = (fork_match.group(1) or "").strip()
+        return RulesCommand(action="fork", fork_prompt=prompt or None)
 
     # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
     # fall through into the explicit-repo cascade and spawn a junk task.
@@ -2202,7 +2217,31 @@ def route_posthog_code_event_to_relevant_region(
 
         # Rules command is meaningful only when the user actually typed
         # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
+        if untagged_followup_mapping is None and (parsed_command := parse_rules_command(event.get("text", ""))):
+            # `fork` acts on the thread it was typed in and answers in a DM, so it
+            # takes the fork workflow rather than the command workflow, which replies
+            # in-thread. At the channel root there is no discussion to fork.
+            if parsed_command.action == "fork":
+                if channel_str and thread_ts_str and thread_ts_str != event.get("ts"):
+                    _start_fork_workflow(
+                        build_fork_payload(
+                            channel=channel_str,
+                            thread_ts=thread_ts_str,
+                            slack_user_id=slack_user_id_str,
+                            slack_team_id=slack_team_id,
+                            prompt=parsed_command.fork_prompt,
+                        ),
+                        workflow_key=thread_ts_str,
+                    )
+                elif channel_str:
+                    _post_slack_user_ephemeral(
+                        SlackIntegration(probe),
+                        channel_str,
+                        slack_user_id_str,
+                        None,
+                        "`@PostHog fork` works inside a thread — tag me on the discussion you want to dig into.",
+                    )
+                return ROUTE_HANDLED_LOCALLY
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
@@ -4556,20 +4595,17 @@ def _is_fork_thread_interactivity(payload: dict, payload_type: str) -> bool:
     return payload_type == "message_action" and payload.get("callback_id") == FORK_THREAD_CALLBACK_ID
 
 
-def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
-    """Hand the fork to Temporal and ack immediately.
+def _start_fork_workflow(payload: dict, *, workflow_key: str) -> None:
+    """Hand a fork request to Temporal.
 
-    Everything the fork needs to do — resolving the user, reading the thread,
-    opening the DM — is too slow for Slack's 3-second interactivity budget, so
-    this does nothing but dispatch. The workflow id is derived from the message
-    that was forked, so double-clicking the shortcut reuses the running fork
-    instead of opening a second DM thread about the same conversation.
+    Every fork surface acks Slack within three seconds and does the real work —
+    resolving the user, reading the thread, opening the DM — durably. ``workflow_key``
+    identifies the thread being forked, so asking twice for the same thread reuses
+    the running fork instead of opening a second DM about the same conversation.
     """
     team_id = payload.get("team", {}).get("id", "")
     user_id = payload.get("user", {}).get("id", "")
-    message = payload.get("message", {}) or {}
-    source_ts = message.get("thread_ts") or message.get("ts", "")
-    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
+    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{workflow_key}"
     try:
         client = sync_connect()
         asyncio.run(
@@ -4584,6 +4620,12 @@ def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
         )
     except Exception as e:
         logger.warning("slack_app_fork_submit_start_failed", workflow_id=workflow_id, error=str(e))
+
+
+def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
+    message = payload.get("message", {}) or {}
+    source_ts = message.get("thread_ts") or message.get("ts", "")
+    _start_fork_workflow(payload, workflow_key=source_ts)
     return HttpResponse(status=200)
 
 
@@ -4619,6 +4661,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
+    fork_button_integration_id, _ = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -4672,6 +4715,15 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # based on the workspace integration alone; if we own *any* Integration
         # for this Slack team, the click is ours to handle.
         local = Integration.objects.filter(
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and fork_button_integration_id:
+        # The fork button rides on a bot reply anyone in the thread can see, so any
+        # reader may click it. Routing only claims the workspace; who the fork runs as,
+        # and whether they may, is settled in the fork activity.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=fork_button_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4770,6 +4822,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
+            if action_id == FORK_THREAD_ACTION_ID:
+                return _handle_fork_thread_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_DENY:

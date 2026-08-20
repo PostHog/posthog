@@ -22,12 +22,14 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.integration import SlackIntegration, SlackIntegrationError, validate_slack_request
+from posthog.temporal.ai.slack_app.slack_app_fork import build_fork_payload
 
 from products.slack_app.backend.api import (
     ROUTE_NO_INTEGRATION,
     ROUTE_PROXY_FAILED,
     SLACK_INTEGRATION_KIND,
     _start_command_workflow,
+    _start_fork_workflow,
     cross_region_routing_enabled,
     is_us_host,
     other_region_domain,
@@ -126,6 +128,35 @@ def slack_app_command_handler(request: HttpRequest) -> HttpResponse:
         # and will post the bot's reply through its own Slack client. Ack with 200.
         return HttpResponse(status=200)
 
+    # Forking needs the thread the request came from, which this surface cannot supply:
+    # Slack refuses to run app-defined slash commands inside a message thread at all
+    # (https://docs.slack.dev/interactivity/implementing-slash-commands/), and `thread_ts`
+    # is not among the documented payload fields. So `fork` is only ever reachable here
+    # from the channel root, where there is no discussion to fork — answer with the
+    # mention form, whose `app_mention` event does carry a documented `thread_ts`.
+    #
+    # The dispatch below stays for the case where a payload does arrive with a
+    # `thread_ts`; it costs nothing and is correct if Slack ever permits it.
+    if parsed.action == "fork":
+        if not thread_ts:
+            return _ephemeral_response(
+                "Forking works on a thread, and Slack doesn't allow app slash commands inside threads. "
+                "Tag `@PostHog fork` in the thread you want to dig into instead — add a question after "
+                "it to open with, or leave it off and I'll catch you up."
+            )
+        _start_fork_workflow(
+            build_fork_payload(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                slack_user_id=slack_user_id,
+                slack_team_id=slack_team_id,
+                response_url=payload.get("response_url"),
+                prompt=parsed.fork_prompt,
+            ),
+            workflow_key=trigger_id or f"{channel_id}:{thread_ts}",
+        )
+        return _ephemeral_response("Forking this thread — I'll DM you as soon as it's ready. :hedgehog:")
+
     # Synthesise a mention-shaped event and hand off to the durable workflow;
     # ``user_id=None`` defers the slow user resolution off the request path.
     event: dict[str, Any] = {"channel": channel_id, "user": slack_user_id, "text": sub_command_text}
@@ -154,5 +185,6 @@ def _unknown_command_help(command_name: str) -> str:
         f"• `{command_name} rules list`\n"
         f'• `{command_name} rules add "description" org/repo`\n'
         f"• `{command_name} rules remove <number(s)>`\n"
-        f"• `{command_name} project [<id>]`"
+        f"• `{command_name} project [<id>]`\n"
+        f"• `@PostHog fork [question]` — tag me in a thread to dig into it privately with me"
     )

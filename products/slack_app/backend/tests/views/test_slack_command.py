@@ -182,3 +182,46 @@ class TestSlashCommandWorkspaceMissing(_SlashCommandTestBase):
         body = response.json()
         assert body["response_type"] == "ephemeral"
         assert "isn't connected" in body["text"]
+
+
+class TestSlashCommandFork(_SlashCommandTestBase):
+    """`/posthog fork` acts on the thread it was run in and answers in a DM, so it
+    takes the fork workflow rather than the command workflow (which replies in-thread)."""
+
+    def test_fork_in_a_thread_dispatches_and_promises_a_dm(self) -> None:
+        with patch("products.slack_app.backend.views.slack_command._start_fork_workflow") as start:
+            response = self._post_slash_command(self._default_payload(text="fork", thread_ts="111.1"))
+
+        assert response.status_code == 200
+        assert response.json()["response_type"] == "ephemeral"
+        assert "DM you" in response.json()["text"]
+
+        start.assert_called_once()
+        payload = start.call_args.args[0]
+        assert payload["channel"]["id"] == "C001"
+        assert payload["message"]["thread_ts"] == "111.1"
+        assert payload["user"]["id"] == "U123"
+        # The slash surface hands us a private reply channel; the fork uses it for
+        # refusals too, so nothing about the fork reaches the channel.
+        assert payload["response_url"] == "https://hooks.slack.example/abc"
+
+    def test_fork_from_the_channel_root_points_at_the_mention_form(self) -> None:
+        # Slack blocks app slash commands inside threads outright, so this is the only
+        # way `fork` can reach this surface. A bare "run it in a thread" would send the
+        # user somewhere Slack won't let them go.
+        with patch("products.slack_app.backend.views.slack_command._start_fork_workflow") as start:
+            response = self._post_slash_command(self._default_payload(text="fork"))
+
+        assert response.status_code == 200
+        assert "@PostHog fork" in response.json()["text"]
+        start.assert_not_called()
+
+    def test_fork_does_not_take_the_command_workflow(self) -> None:
+        # The command workflow replies in-thread, which would defeat the point.
+        with (
+            patch("products.slack_app.backend.views.slack_command._start_fork_workflow"),
+            patch("products.slack_app.backend.views.slack_command._start_command_workflow") as command,
+        ):
+            self._post_slash_command(self._default_payload(text="fork", thread_ts="111.1"))
+
+        command.assert_not_called()

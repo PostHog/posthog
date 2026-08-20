@@ -8,12 +8,17 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_model_classifier_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_forking_enabled,
+    is_slack_app_home_enabled,
+    is_slack_app_model_classifier_enabled,
+)
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
+    fork_button_block,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -215,6 +220,33 @@ class SlackThreadHandler:
             configure_url = None
         return reply_footer_block(footer, configure_url)
 
+    def _fork_button(self) -> dict[str, Any] | None:
+        """The "Fork to DM" button for this reply, or `None` outside the rollout.
+
+        Only ever asked for once a footer exists, which is what keeps a reply with
+        nothing to describe off the integration lookup behind the flag — the same
+        bargain `_footer_block` makes.
+        """
+        integration = self._get_integration()
+        if not is_slack_app_forking_enabled(integration):
+            return None
+        return fork_button_block(integration.id)
+
+    def _append_fork_button(self, ts: str) -> None:
+        """Add the fork button to a streamed reply. Best-effort by design: losing the
+        button costs a convenience, and the caller keeps it off the answer's own flush."""
+        button = self._fork_button()
+        if not button:
+            return
+        try:
+            self._get_client().chat_appendStream(
+                channel=self.context.channel,
+                ts=ts,
+                chunks=[{"type": "blocks", "blocks": [button]}],
+            )
+        except Exception as e:
+            logger.warning("slack_app_fork_button_append_failed", error=str(e))
+
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
             try:
@@ -383,6 +415,12 @@ class SlackThreadHandler:
                 )
             except Exception as e:
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+        # Deliberately its own call. Slack documents no block-type restriction on a
+        # streamed `blocks` chunk but does not confirm interactive blocks are allowed
+        # either, and the append above carries the answer itself — bundling an
+        # unproven block with it would risk losing the reply to a rejected request.
+        if footer:
+            self._append_fork_button(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -521,8 +559,12 @@ class SlackThreadHandler:
         footer = self._footer_block()
         if not footer:
             return
+        blocks = [footer]
+        button = self._fork_button()
+        if button:
+            blocks.append(button)
         try:
-            self._post_in_thread(text=footer["elements"][0]["text"], blocks=[footer])
+            self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 

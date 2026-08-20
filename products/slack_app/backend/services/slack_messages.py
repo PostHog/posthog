@@ -20,6 +20,7 @@ without one.
 """
 
 import re
+import json
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -517,6 +518,34 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     if not segments:
         return None
     return context_block(" · ".join(segments))
+
+
+FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+
+
+def fork_button_block(integration_id: int) -> dict[str, Any]:
+    """The "Fork to DM" affordance that sits under a finished reply.
+
+    An `actions` block rather than a link in the footer's `context` line: Block Kit
+    context blocks hold only text and images, and a `<url|label>` link navigates
+    rather than calling back, so a button is the only way to reach our interactivity
+    endpoint from a message.
+
+    The value carries the integration so the cross-region interactivity router can
+    tell whose click this is. Everything else the fork needs — the channel and the
+    thread the reply is sitting in — rides on the `block_actions` payload itself.
+    """
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                "action_id": FORK_THREAD_ACTION_ID,
+                "value": json.dumps({"integration_id": integration_id}),
+            }
+        ],
+    }
 
 
 def context_block(text: str) -> dict[str, Any]:

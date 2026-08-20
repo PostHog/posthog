@@ -70,22 +70,67 @@ def process_slack_app_fork_thread_activity(inputs: SlackAppForkThreadInputs) -> 
     process_slack_app_fork_thread_payload(inputs.payload)
 
 
-def _ephemeral(response_url: str | None, text: str) -> None:
-    """Answer the clicker, and only the clicker.
+def build_fork_payload(
+    *,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_team_id: str,
+    response_url: str | None = None,
+    prompt: str | None = None,
+) -> dict[str, Any]:
+    """Shape a fork request the way the activity reads it.
+
+    The activity was written against Slack's ``message_action`` payload; the
+    ``/posthog fork`` and ``@PostHog fork`` surfaces synthesise the same shape
+    rather than teach it a second one. Mirrors what the slash-command view does
+    for the mention pipeline.
+
+    ``prompt`` is the trailing text of ``fork <question>``. The shortcut surface
+    has nowhere to type one, so it stays ``None`` and the run opens with the
+    default ask.
+    """
+    return {
+        "channel": {"id": channel},
+        "message": {"thread_ts": thread_ts, "ts": thread_ts},
+        "user": {"id": slack_user_id},
+        "team": {"id": slack_team_id},
+        "response_url": response_url,
+        "fork_prompt": prompt,
+    }
+
+
+def _ephemeral(response_url: str | None, text: str, *, slack: Any = None, **target: str) -> None:
+    """Answer whoever asked, and only them.
 
     Forking must leave no trace in the source channel — half the point is asking
-    a question you would rather not ask in front of everyone. ``response_url``
-    is the only reply channel a message shortcut offers that is private by
-    construction, so every outcome, including refusals, goes through here.
-    """
-    if not response_url:
-        return
-    import requests  # noqa: PLC0415 — keeps the HTTP dep off the module import path
+    a question you would rather not ask in front of everyone, so every outcome,
+    including refusals, goes through here.
 
+    ``response_url`` is the private reply channel the shortcut and slash surfaces
+    hand us, and it works even where the bot isn't a member. A bare ``@PostHog
+    fork`` mention has none, so those callers pass a Slack client plus
+    ``channel``/``thread_ts``/``user`` and get an ephemeral post instead.
+    """
+    if response_url:
+        import requests  # noqa: PLC0415 — keeps the HTTP dep off the module import path
+
+        try:
+            requests.post(response_url, json={"response_type": "ephemeral", "text": text}, timeout=5)
+        except requests.RequestException:
+            logger.warning("slack_app_fork_ephemeral_failed")
+        return
+    if slack is None or not target.get("channel"):
+        return
     try:
-        requests.post(response_url, json={"response_type": "ephemeral", "text": text}, timeout=5)
-    except requests.RequestException:
-        logger.warning("slack_app_fork_ephemeral_failed")
+        slack.client.chat_postEphemeral(
+            channel=target["channel"],
+            user=target.get("user", ""),
+            thread_ts=target.get("thread_ts", ""),
+            text=text,
+        )
+    except Exception:
+        logger.warning("slack_app_fork_ephemeral_post_failed")
 
 
 def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
@@ -105,6 +150,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
     response_url = payload.get("response_url")
+    fork_prompt = (payload.get("fork_prompt") or "").strip() or FORK_DEFAULT_PROMPT
 
     if not (source_channel and source_thread_ts and slack_user_id and slack_team_id):
         logger.warning(
@@ -135,6 +181,10 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         return
 
     probe = workspace_result.resolved_or_first()
+    # Where to speak when there is no ``response_url`` (the bare ``@PostHog fork``
+    # mention). Built off the probe so refusals before project resolution can still
+    # answer the asker.
+    reply_to: dict[str, Any] = {"channel": source_channel, "thread_ts": source_thread_ts, "user": slack_user_id}
     if probe is None or not is_slack_app_forking_enabled(probe):
         # Outside the rollout the shortcut is inert rather than apologetic — a
         # workspace that never opted in should not learn the feature exists.
@@ -155,7 +205,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
             reason="user_unresolved" if resolution.user is None else "no_single_project",
             slack_team_id=slack_team_id,
         )
-        _ephemeral(response_url, _SEED_UNAVAILABLE)
+        _ephemeral(response_url, _SEED_UNAVAILABLE, slack=SlackIntegration(probe), **reply_to)
         return
 
     slack = SlackIntegration(integration)
@@ -171,6 +221,8 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
             response_url,
             "This is a Slack Connect channel that hasn't been approved for PostHog yet. "
             "`@PostHog` in the channel to approve it first, then fork.",
+            slack=slack,
+            **reply_to,
         )
         return
 
@@ -182,6 +234,8 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
             response_url,
             f"I can't read <#{source_channel}> — invite `@PostHog` to the channel and fork again "
             "and I'll pick up the whole thread.",
+            slack=slack,
+            **reply_to,
         )
         return
 
@@ -205,7 +259,12 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         )
     except Exception:
         logger.exception("slack_app_fork_seed_post_failed", slack_team_id=slack_team_id)
-        _ephemeral(response_url, "I couldn't open a DM — check that you allow DMs from apps, then try again.")
+        _ephemeral(
+            response_url,
+            "I couldn't open a DM — check that you allow DMs from apps, then try again.",
+            slack=slack,
+            **reply_to,
+        )
         return
 
     dm_channel = seed.get("channel")
@@ -215,14 +274,16 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         return
 
     # Mention-shaped so the existing pipeline takes it without special-casing — the
-    # same trick the slash-command surface uses.
+    # same trick the slash-command surface uses. The text is whatever the user typed
+    # after `fork`, which becomes the run's actual request; without one they get the
+    # default "catch me up" ask.
     event = {
         "type": "message",
         "channel": dm_channel,
         "ts": seed_ts,
         "thread_ts": seed_ts,
         "user": slack_user_id,
-        "text": FORK_DEFAULT_PROMPT,
+        "text": fork_prompt,
     }
 
     _start_mention_workflow(
@@ -245,7 +306,12 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         dm_channel=dm_channel,
         inherited_repository=bool(fork_repository),
     )
-    _ephemeral(response_url, "Forked to our DM — I'm reading the thread now. Only you can see this.")
+    _ephemeral(
+        response_url,
+        "Forked to our DM — I'm reading the thread now. Only you can see this.",
+        slack=slack,
+        **reply_to,
+    )
 
     # Reported as its own event rather than folded into the mention funnel: a fork is a
     # different intent and would otherwise inflate mention counts.
