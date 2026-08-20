@@ -174,8 +174,9 @@ export const tasksLogic = kea<tasksLogicType>([
                 // A caller that passes nothing wants a plain refresh, not an unfiltered list: refresh
                 // sites like `taskLogic`'s update/delete reload every mounted list without knowing what
                 // it is showing, and `{}` there would swap the active filter for the whole visible set.
-                loadTasks: async (params: TaskListParams | undefined, breakpoint) => {
-                    const response = await api.tasks.list(params ?? values.taskListParams)
+                // The default is evaluated per call, so it picks up the filter active at refresh time.
+                loadTasks: async (params: TaskListParams = values.taskListParams, breakpoint) => {
+                    const response = await api.tasks.list(params)
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
                     return response.results
