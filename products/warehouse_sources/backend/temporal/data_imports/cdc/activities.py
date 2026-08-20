@@ -1058,10 +1058,16 @@ class CDCExtractActivity:
             self.pk_columns_by_table.update(queried_pks)
             # Persist discovered PKs to avoid re-querying
             for schema in self.cdc_schemas:
-                if schema.name in queried_pks:
-                    self._update_schema_sync_type_config(
-                        schema, updates={"primary_key_columns": queried_pks[schema.name]}
-                    )
+                if schema.name not in queried_pks:
+                    continue
+                # Only schemas with no stored key reach here, so this is always a first write. Its
+                # table merged on an empty key until now, which means the rows already in it were
+                # never keyed. Log it so an operator can decide whether that table needs a
+                # re-snapshot rather than having the merge key appear from nowhere.
+                self._schema_log(schema).warning(
+                    "cdc_pk_columns_first_write", table=schema.name, discovered=queried_pks[schema.name]
+                )
+                self._update_schema_sync_type_config(schema, updates={"primary_key_columns": queried_pks[schema.name]})
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 

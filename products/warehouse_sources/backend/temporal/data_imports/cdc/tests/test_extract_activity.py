@@ -2945,6 +2945,8 @@ class TestPKColumnLoading:
         assert act.reader.get_primary_key_columns.call_args.args == ("cdc_test", ["orders"])
         assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert "cdc_pk_columns_first_write" in warnings
 
     def test_bare_name_falls_back_to_the_source_namespace(self):
         schema = _make_schema("orders")
