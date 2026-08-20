@@ -234,13 +234,17 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                             count() as value_count,
                             max(timestamp) as latest_seen
                         FROM (
+                            -- No ORDER BY on purpose: timestamp is not a sort-key prefix of the
+                            -- events table, so ordering here forces a full sort of the window with
+                            -- properties materialized per row, which OOMs on high-volume events.
+                            -- An unordered in-window sample is enough for taxonomy; latest_seen
+                            -- above still ranks fresher values first.
                             SELECT
                                 JSONExtractKeysAndValues({properties_doc}, 'String') as kv,
                                 timestamp
                             FROM
                                 events
                             WHERE {subquery_filter}
-                            ORDER BY timestamp desc
                             LIMIT 100
                         )
                         ARRAY JOIN kv.1 AS key, kv.2 AS value
