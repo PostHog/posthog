@@ -90,34 +90,25 @@ pub struct EagerFlush {
     pub sub_batch: SubBatch,
 }
 
-/// Event-count bands for splitting a worker's share of a batch into several
-/// sub-batches ("chunks") rather than one. A key-group is never split across
-/// chunks — that is what keeps per-key ordering intact — so a group larger than
-/// `max_events` becomes an over-sized chunk of its own.
+/// Cap for splitting a worker's share of a batch into several sub-batches
+/// ("chunks") rather than one. A key-group is never split across chunks — that
+/// is what keeps per-key ordering intact — so a group larger than `max_events`
+/// becomes an over-sized chunk of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ChunkConfig {
     /// Cap on events per chunk, honored except by a single over-sized
     /// key-group. `0` disables chunking, giving each worker exactly one
     /// sub-batch per batch.
     max_events: usize,
-    /// Soft target, not a lower bound: an under-filled chunk stays open instead
-    /// of closing early because the next key-group doesn't fit. Chunks below it
-    /// still ship — nothing is ever held back to reach it.
-    min_events: usize,
 }
 
 impl ChunkConfig {
-    /// A `min_events` above `max_events` is clamped — a target above the cap
-    /// could never be met.
-    pub fn new(max_events: usize, min_events: usize) -> Self {
-        Self {
-            max_events,
-            min_events: min_events.min(max_events),
-        }
+    pub fn new(max_events: usize) -> Self {
+        Self { max_events }
     }
 
     pub fn disabled() -> Self {
-        Self::new(0, 0)
+        Self::new(0)
     }
 
     pub fn enabled(&self) -> bool {
@@ -226,29 +217,21 @@ impl WorkerAssignments {
                 self.close_if_full(&worker, idx);
                 return;
             }
-            if open_events < self.chunking.min_events {
-                // Keep the under-filled sub-batch open for later groups and
-                // give this one its own, rather than splitting early.
-                self.push_sub_batch(worker, group, false);
-                return;
-            }
             self.open.remove(&worker);
         }
 
-        self.push_sub_batch(worker, group, true);
+        self.push_sub_batch(worker, group);
     }
 
-    /// Start a sub-batch for `worker` holding `group`. `keep_open` decides
-    /// whether later groups may still be added to it.
-    fn push_sub_batch(&mut self, worker: WorkerId, group: MessageGroup, keep_open: bool) {
+    /// Start a sub-batch for `worker` holding `group`, and leave it open for
+    /// later groups unless it already fills the cap.
+    fn push_sub_batch(&mut self, worker: WorkerId, group: MessageGroup) {
         let mut builder = WorkerSubBatchBuilder::new();
         builder.push(group);
         self.sub_batches.push((worker.clone(), builder));
-        if keep_open {
-            let idx = self.sub_batches.len() - 1;
-            self.open.insert(worker.clone(), idx);
-            self.close_if_full(&worker, idx);
-        }
+        let idx = self.sub_batches.len() - 1;
+        self.open.insert(worker.clone(), idx);
+        self.close_if_full(&worker, idx);
     }
 
     /// Stop filling a sub-batch that has reached the cap, so the next group
@@ -1502,9 +1485,9 @@ mod tests {
             .collect()
     }
 
-    fn chunked_dispatcher(workers: usize, max_events: usize, min_events: usize) -> Dispatcher {
+    fn chunked_dispatcher(workers: usize, max_events: usize) -> Dispatcher {
         let mut dispatcher = Dispatcher::new(healthy_registry(workers));
-        dispatcher.set_chunking(ChunkConfig::new(max_events, min_events));
+        dispatcher.set_chunking(ChunkConfig::new(max_events));
         dispatcher
     }
 
@@ -1522,72 +1505,53 @@ mod tests {
         /// Event count of each key-group, in the order they reach the worker.
         group_events: &'static [usize],
         max_events: usize,
-        min_events: usize,
         /// Expected event count of each sub-batch the worker ends up with.
         expected_sub_batches: &'static [usize],
     }
 
     #[test]
-    fn test_sub_batch_packing_bands() {
+    fn test_sub_batch_packing() {
         let cases = [
             PackCase {
                 name: "no cap merges everything into one sub-batch",
                 group_events: &[2, 2, 2],
                 max_events: 0,
-                min_events: 0,
                 expected_sub_batches: &[6],
             },
             PackCase {
                 name: "fills to the cap",
                 group_events: &[2, 2, 2, 2],
                 max_events: 4,
-                min_events: 0,
                 expected_sub_batches: &[4, 4],
             },
             PackCase {
-                name: "remainder under the target still ships",
+                name: "the tail ships as a smaller sub-batch",
                 group_events: &[4, 1],
                 max_events: 4,
-                min_events: 3,
                 expected_sub_batches: &[4, 1],
             },
             PackCase {
-                name: "whole batch under the target is one sub-batch",
+                name: "a whole share under the cap is one sub-batch",
                 group_events: &[1, 1, 1],
                 max_events: 100,
-                min_events: 50,
                 expected_sub_batches: &[3],
             },
             PackCase {
                 name: "a group over the cap stays whole",
                 group_events: &[9, 1],
                 max_events: 4,
-                min_events: 0,
                 expected_sub_batches: &[9, 1],
             },
             PackCase {
-                name: "target keeps an under-filled sub-batch open past a heavy group",
-                // Without the target the 90-event group would close the
-                // 30-event sub-batch early, emitting a runt request.
+                name: "a group that doesn't fit closes the open sub-batch",
                 group_events: &[30, 90, 30, 30],
                 max_events: 100,
-                min_events: 80,
-                expected_sub_batches: &[90, 90],
-            },
-            PackCase {
-                name: "a target above the cap is clamped, not stalled",
-                group_events: &[2, 2, 2],
-                max_events: 4,
-                min_events: 100,
-                expected_sub_batches: &[4, 2],
+                expected_sub_batches: &[30, 90, 60],
             },
         ];
 
         for case in cases {
-            let sizes = packed_sizes(
-                case.group_events,
-                ChunkConfig::new(case.max_events, case.min_events),
-            );
+            let sizes = packed_sizes(case.group_events, ChunkConfig::new(case.max_events));
 
             assert_eq!(sizes, case.expected_sub_batches, "{}", case.name);
         }
@@ -1598,7 +1562,7 @@ mod tests {
         // The reason routing is per group: a worker keeps one open sub-batch,
         // so a small pinned remainder is topped up by fresh keys routed to the
         // same worker instead of going out as a request of its own.
-        let dispatcher = chunked_dispatcher(1, 10, 0);
+        let dispatcher = chunked_dispatcher(1, 10);
 
         // Pin "a" and leave it in flight so the next batch honors the pin.
         dispatcher.assign("batch-1", make_msgs(&[("t", "a")]));
@@ -1617,7 +1581,7 @@ mod tests {
     fn test_chunking_splits_a_batch_into_capped_sub_batches() {
         // One worker, so every chunk lands on it: the split is the dispatcher's,
         // not the router's.
-        let dispatcher = chunked_dispatcher(1, 3, 0);
+        let dispatcher = chunked_dispatcher(1, 3);
         let specs: Vec<(&str, &str)> = vec![
             ("t", "a"),
             ("t", "b"),
@@ -1668,7 +1632,7 @@ mod tests {
     fn test_chunking_keeps_each_key_in_exactly_one_sub_batch() {
         // The ordering invariant: a key-group is never split, so all of a
         // distinct_id's messages ride one chunk to one worker.
-        let dispatcher = chunked_dispatcher(3, 4, 0);
+        let dispatcher = chunked_dispatcher(3, 4);
         let specs: Vec<(&str, &str)> = ["a", "b", "c", "d", "e"]
             .iter()
             .flat_map(|d| std::iter::repeat_n(("t", *d), 3))
@@ -1696,7 +1660,7 @@ mod tests {
 
     #[test]
     fn test_chunked_pinned_groups_stay_on_their_pinned_worker() {
-        let dispatcher = chunked_dispatcher(2, 2, 0);
+        let dispatcher = chunked_dispatcher(2, 2);
         let specs: Vec<(&str, &str)> = vec![("t", "a"), ("t", "b"), ("t", "c"), ("t", "d")];
 
         // First batch pins the four keys; leave it in flight so the pins live.
@@ -1727,7 +1691,7 @@ mod tests {
     fn test_chunk_resolution_drains_load_and_pins() {
         // Commit accounting is per chunk: the batch's messages are spread over
         // several sub-batches, and resolving each must leave nothing behind.
-        let dispatcher = chunked_dispatcher(1, 3, 0);
+        let dispatcher = chunked_dispatcher(1, 3);
         let specs: Vec<(String, String)> = (0..10)
             .map(|i| ("t".to_string(), format!("u{i}")))
             .collect();

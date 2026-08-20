@@ -259,17 +259,6 @@ pub struct Config {
     #[envconfig(from = "INGESTION_SUB_BATCH_MAX_EVENTS", default = "0")]
     pub sub_batch_max_events: usize,
 
-    /// Soft target that suppresses runt requests: a sub-batch still under this
-    /// many events is not closed just because the next key-group doesn't fit —
-    /// that group gets a sub-batch of its own and the under-filled one keeps
-    /// taking later groups. It is not a lower bound and never holds messages
-    /// back: sub-batches below it still ship (a worker's tail, a share smaller
-    /// than this, or the group shipped on its own). Only the max is a real cap.
-    /// `0` (the default) means no target; values above
-    /// `INGESTION_SUB_BATCH_MAX_EVENTS` are clamped to it.
-    #[envconfig(from = "INGESTION_SUB_BATCH_MIN_EVENTS", default = "0")]
-    pub sub_batch_min_events: usize,
-
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
