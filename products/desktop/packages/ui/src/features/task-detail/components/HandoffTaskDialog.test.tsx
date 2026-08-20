@@ -92,51 +92,41 @@ describe("HandoffTaskDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens a search popover from the select and filters people by name or email", async () => {
+  it("filters people by name or email as you type in the field", async () => {
     const user = userEvent.setup();
     renderDialog(createTask());
-    const dialog = await screen.findByRole("alertdialog");
+    await screen.findByRole("alertdialog");
 
-    await user.click(
-      within(dialog).getByRole("combobox", { name: /pick a person/i }),
-    );
-    const searchInput =
-      await within(dialog).findByPlaceholderText(/search people/i);
-    await user.type(searchInput, "pepp");
+    // The field is the search box: clicking it opens the roster, typing narrows it.
+    await user.click(screen.getByRole("combobox", { name: /hand off to/i }));
+    expect(await screen.findByText("Col")).toBeInTheDocument();
+    await user.keyboard("pepp");
 
-    expect(await within(dialog).findByText("Pepper")).toBeInTheDocument();
-    expect(within(dialog).queryByText("Col")).not.toBeInTheDocument();
+    expect(await screen.findByText("Pepper")).toBeInTheDocument();
+    expect(screen.queryByText("Col")).not.toBeInTheDocument();
   });
 
   it("does not offer the current owner as a handoff target", async () => {
     const user = userEvent.setup();
     renderDialog(createTask());
-    const dialog = await screen.findByRole("alertdialog");
+    await screen.findByRole("alertdialog");
 
-    await user.click(
-      within(dialog).getByRole("combobox", { name: /pick a person/i }),
-    );
-    expect(
-      within(dialog).queryByText("owner@example.com"),
-    ).not.toBeInTheDocument();
-    expect(await within(dialog).findByText("Col")).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: /hand off to/i }));
+    expect(await screen.findByText("Col")).toBeInTheDocument();
+    expect(screen.queryByText("owner@example.com")).not.toBeInTheDocument();
   });
 
-  it("shows the picked person in the select trigger", async () => {
+  it("shows the picked person in the field", async () => {
     const user = userEvent.setup();
     renderDialog(createTask());
-    const dialog = await screen.findByRole("alertdialog");
+    await screen.findByRole("alertdialog");
 
-    await user.click(
-      within(dialog).getByRole("combobox", { name: /pick a person/i }),
+    await user.click(screen.getByRole("combobox", { name: /hand off to/i }));
+    await user.click(await screen.findByText("Col"));
+
+    expect(screen.getByRole("combobox", { name: /hand off to/i })).toHaveValue(
+      "Col",
     );
-    await user.click(await within(dialog).findByText("Col"));
-
-    // Base UI keeps the popup mounted once it was open, only hidden — so the
-    // readable signal that selection landed is the trigger content itself.
-    expect(
-      within(dialog).getByRole("combobox", { name: /pick a person/i }),
-    ).toHaveTextContent("Col");
   });
 
   it("hands off to the selected member only after the acknowledge checkbox", async () => {
@@ -145,10 +135,8 @@ describe("HandoffTaskDialog", () => {
     renderDialog(createTask());
     const dialog = await screen.findByRole("alertdialog");
 
-    await user.click(
-      within(dialog).getByRole("combobox", { name: /pick a person/i }),
-    );
-    await user.click(await within(dialog).findByText("Col"));
+    await user.click(screen.getByRole("combobox", { name: /hand off to/i }));
+    await user.click(await screen.findByText("Col"));
     // A pick alone isn't enough: the checkbox is what says they really read it.
     expect(
       within(dialog).getByRole("button", { name: "Hand off" }),

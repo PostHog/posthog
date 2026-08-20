@@ -1,4 +1,3 @@
-import { CaretDown } from "@phosphor-icons/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -10,14 +9,15 @@ import {
   Button,
   Checkbox,
   Combobox,
+  ComboboxContent,
   ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxTrigger,
   DialogBody,
   Field,
   FieldLabel,
+  InputGroupAddon,
 } from "@posthog/quill";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -25,9 +25,8 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { ModalInlineComboboxContent } from "@posthog/ui/features/settings/ModalInlineComboboxContent";
 import { useHandoffTask } from "@posthog/ui/features/tasks/useTaskMutations";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
 
@@ -40,11 +39,11 @@ interface PersonItem {
 }
 
 /**
- * The confirm step of a handoff. The picker is a plain select anchored to the
- * dialog, the consequence copy reads as short GitHub-style sentences, and the
- * commit stays locked until a colleague is picked AND the acknowledge box is
- * checked. Only the recipient can reverse a handoff, so the menu item that
- * opens this carries an ellipsis.
+ * The confirm step of a handoff. The recipient is picked from a search-first
+ * combobox — the field itself is the search box, so clicking it opens the
+ * roster and typing narrows it. The commit stays locked until a colleague is
+ * picked AND the acknowledge box is checked. Only the recipient can reverse a
+ * handoff, so the menu item that opens this carries an ellipsis.
  */
 export function HandoffTaskDialog({
   task,
@@ -59,9 +58,6 @@ export function HandoffTaskDialog({
   const { mutate: handoffTask, isPending } = useHandoffTask();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const anchorRef = useRef<HTMLDivElement>(null);
 
   const { members, isLoading: membersLoading } = useOrgMembers();
   const { channels } = useChannels();
@@ -81,13 +77,12 @@ export function HandoffTaskDialog({
     if (open) {
       setSelectedId(null);
       setAcknowledged(false);
-      setPickerOpen(false);
-      setSearchQuery("");
     }
   }
 
-  // ids as values — Base UI drops object items, and the selected label comes
-  // straight from the item lookup.
+  // ids as values — the members query repolls and rebuilds its objects, so a
+  // selected object stops matching the list by identity and the combobox
+  // silently drops the selection. Ids compare by value.
   const items = useMemo<PersonItem[]>(
     () =>
       members.flatMap((member) =>
@@ -103,24 +98,12 @@ export function HandoffTaskDialog({
       ),
     [members, currentUser.data?.id],
   );
-  // Filtering is client-side over the org roster: name or email substring.
-  const needle = searchQuery.trim().toLowerCase();
-  const visibleItems = useMemo(
-    () =>
-      needle
-        ? items.filter(
-            (item) =>
-              item.label.toLowerCase().includes(needle) ||
-              (item.member.email ?? "").toLowerCase().includes(needle),
-          )
-        : items,
-    [items, needle],
+  const byId = useMemo(
+    () => new Map(items.map((item) => [item.id, item])),
+    [items],
   );
-  const itemIds = useMemo(
-    () => visibleItems.map((item) => item.id),
-    [visibleItems],
-  );
-  const selected = items.find((item) => item.id === selectedId);
+  const itemIds = useMemo(() => items.map((item) => item.id), [items]);
+  const selected = selectedId ? byId.get(selectedId) : undefined;
   const canHandOff = selected !== undefined && acknowledged;
 
   const handleConfirm = () => {
@@ -167,77 +150,47 @@ export function HandoffTaskDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <DialogBody viewportClassName="flex flex-col gap-3 px-4 pb-3">
-          <div ref={anchorRef}>
-            <Combobox
+          <Field>
+            <FieldLabel htmlFor="handoff-person">Hand off to</FieldLabel>
+            <Combobox<string>
               items={itemIds}
-              filter={null}
               value={selectedId}
-              onValueChange={(value) => {
-                setSelectedId(value as string | null);
-                setPickerOpen(false);
-                setSearchQuery("");
+              onValueChange={(value) => setSelectedId(value)}
+              itemToStringLabel={(id) => byId.get(id)?.label ?? ""}
+              // Name or email substring, so searching by handle works even
+              // when the roster shows full names.
+              filter={(id, query) => {
+                const needle = query.trim().toLowerCase();
+                if (!needle) return true;
+                const item = byId.get(id);
+                if (!item) return false;
+                return (
+                  item.label.toLowerCase().includes(needle) ||
+                  (item.member.email ?? "").toLowerCase().includes(needle)
+                );
               }}
-              open={pickerOpen}
-              onOpenChange={(next) => {
-                setPickerOpen(next);
-                if (!next) setSearchQuery("");
-              }}
-              inputValue={searchQuery}
-              onInputValueChange={(value) => setSearchQuery(value ?? "")}
+              autoHighlight
               disabled={isPending}
-              modal={false}
             >
-              <ComboboxTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={isPending}
-                    aria-label="Pick a person to hand the task off to"
-                    className="w-full justify-between"
-                  >
-                    {selected ? (
-                      <span className="flex min-w-0 items-center gap-2">
-                        <UserAvatar
-                          user={selected.member}
-                          size="xs"
-                          className="shrink-0"
-                        />
-                        <span className="min-w-0 truncate">
-                          {userDisplayName(selected.member)}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">
-                        Pick someone…
-                      </span>
-                    )}
-                    <CaretDown
-                      size={10}
-                      weight="bold"
-                      className="shrink-0 text-muted-foreground"
-                    />
-                  </Button>
-                }
-              />
-              <ModalInlineComboboxContent
-                anchor={anchorRef}
-                side="bottom"
-                sideOffset={4}
-                className="w-[var(--anchor-width)] min-w-[240px]"
+              <ComboboxInput
+                id="handoff-person"
+                placeholder="Search people…"
+                disabled={isPending}
+                className="w-full"
               >
-                <ComboboxInput
-                  placeholder="Search people…"
-                  showTrigger={false}
-                />
+                {selected ? (
+                  <InputGroupAddon align="inline-start">
+                    <UserAvatar user={selected.member} size="xs" />
+                  </InputGroupAddon>
+                ) : null}
+              </ComboboxInput>
+              <ComboboxContent className="w-[var(--anchor-width)] min-w-[240px]">
                 <ComboboxEmpty>
-                  {membersLoading ? "Loading people…" : "No people."}
+                  {membersLoading ? "Loading people…" : "No people match."}
                 </ComboboxEmpty>
-                <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-5rem))]">
+                <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-2rem))]">
                   {(itemId: string) => {
-                    const item = visibleItems.find(
-                      (entry) => entry.id === itemId,
-                    );
+                    const item = byId.get(itemId);
                     if (!item) return null;
                     return (
                       <ComboboxItem key={item.id} value={item.id}>
@@ -254,9 +207,9 @@ export function HandoffTaskDialog({
                     );
                   }}
                 </ComboboxList>
-              </ModalInlineComboboxContent>
+              </ComboboxContent>
             </Combobox>
-          </div>
+          </Field>
           <Field orientation="horizontal" className="items-center gap-2">
             <Checkbox
               id="handoff-acknowledge"
