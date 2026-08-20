@@ -662,6 +662,68 @@ def _record_last_slack_message(
         capture_exception(e, {"team_id": getattr(team, "id", None), "slack_channel_id": channel})
 
 
+def _slack_message_permalink(team: Team, channel: str, message_ts: str) -> str | None:
+    """A deep link to a single Slack message, or None when Slack can't resolve one."""
+    try:
+        result = get_slack_client(team).chat_getPermalink(channel=channel, message_ts=message_ts)
+    except Exception:
+        logger.warning("slack_support_permalink_failed", channel=channel, message_ts=message_ts)
+        return None
+    permalink = result.get("permalink")
+    return permalink if isinstance(permalink, str) and permalink else None
+
+
+def _handle_slack_message_edited(event: dict, team: Team, channel: str) -> None:
+    """Flag on the ticket that an already-synced Slack reply was edited after it was sent.
+
+    A ``message_changed`` event carries no fresh content to sync. The stored comment keeps the
+    original text, so a support agent can answer a reply the customer has replaced. Post a
+    private note that points at the Slack thread instead. The note is deduped on the edited
+    message's ts, so repeat edits of the same message post at most one note.
+    """
+    message = event.get("message") or {}
+    previous = event.get("previous_message") or {}
+
+    # Our own prompt and confirmation edits (chat_update) and other bots' posts arrive here
+    # too. They aren't customer replies, so leave them alone.
+    if message.get("bot_id") or message.get("subtype") == "bot_message":
+        return
+
+    # message_changed also fires for link unfurls and other non-text changes. Only a real
+    # text edit makes the stored reply stale.
+    if (message.get("text") or "") == (previous.get("text") or ""):
+        return
+
+    edited_ts = message.get("ts")
+    if not edited_ts:
+        return
+
+    # The ticket is keyed on the thread root; a top-level edit has no thread_ts, so fall back
+    # to the message's own ts.
+    thread_root = message.get("thread_ts") or edited_ts
+    ticket = Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=thread_root).first()
+    if not ticket:
+        return
+
+    permalink = _slack_message_permalink(team, channel, edited_ts)
+    note = (
+        "A reply in the connected Slack thread was edited after it was sent. "
+        "The message above may show the old text, so open the Slack thread for the current version."
+    )
+    if permalink:
+        note += f"\n\n[Open the Slack thread]({permalink})"
+
+    # Deferred: the facade imports this module, so a top-level import would be circular.
+    from products.conversations.backend.facade.api import post_ticket_internal_note  # noqa: PLC0415
+
+    post_ticket_internal_note(
+        _get_team_id(team),
+        str(ticket.id),
+        note,
+        dedupe_key=f"slack_message_edited:{edited_ts}",
+    )
+
+
 def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'message' event for configured support channels.
@@ -673,6 +735,12 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
     channel = event.get("channel")
     if not channel:
+        return
+
+    # A Slack edit arrives as a message_changed event. It carries no new ticket content, but
+    # the already-synced reply is now stale, so flag it on the ticket rather than drop it.
+    if event.get("subtype") == "message_changed":
+        _handle_slack_message_edited(event, team, channel)
         return
 
     is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")

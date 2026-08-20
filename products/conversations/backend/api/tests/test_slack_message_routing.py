@@ -10,6 +10,7 @@ from django.test import override_settings
 from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
 
+from posthog.models.comment import Comment
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.conversations.backend.cache import is_nudge_suppressed
@@ -453,6 +454,85 @@ class TestSlackMessageRouting(BaseTest):
         )
 
         mock_create_or_update.assert_not_called()
+
+
+class TestSlackMessageEdited(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"slack_enabled": True, "slack_channel_id": "C_CONFIG"}
+        self.team.save()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+
+    def _edit_event(self, **message_overrides) -> dict:
+        message = {
+            "user": "U123",
+            "ts": "1700000000.000200",
+            "thread_ts": "1700000000.000100",
+            "text": "the edited text",
+            **message_overrides,
+        }
+        return {
+            "type": "message",
+            "subtype": "message_changed",
+            "channel": "C_CONFIG",
+            "message": message,
+            "previous_message": {"text": "the original text"},
+        }
+
+    def _private_notes(self) -> list[Comment]:
+        return list(
+            Comment.objects.filter(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                item_context__is_private=True,
+            )
+        )
+
+    @patch(f"{MODULE}.get_slack_client")
+    def test_edit_posts_one_private_note_and_dedupes_repeat_edits(self, mock_get_client):
+        mock_get_client.return_value.chat_getPermalink.return_value = {"permalink": "https://acme.slack.com/p1"}
+
+        handle_support_message(self._edit_event(), self.team, "T123")
+        # A repeat delivery of the same edit must not post a second note.
+        handle_support_message(self._edit_event(text="edited again"), self.team, "T123")
+
+        notes = self._private_notes()
+        assert len(notes) == 1
+        assert "https://acme.slack.com/p1" in notes[0].content
+        assert notes[0].item_context["author_type"] == "AI"
+
+        # A different message edited in the same thread is a distinct note.
+        handle_support_message(self._edit_event(ts="1700000000.000300"), self.team, "T123")
+        assert len(self._private_notes()) == 2
+
+    @parameterized.expand(
+        [
+            # No ticket bound to the thread — nothing to annotate.
+            ("no_ticket", {"thread_ts": "1700000000.999999", "ts": "1700000000.999999"}, {}, False),
+            # Our own prompt/confirmation edits (chat_update) arrive here too.
+            ("bot_edit", {"bot_id": "B_OWN"}, {}, False),
+            # Unfurls and other non-text changes leave the reply text intact.
+            ("text_unchanged", {"text": "the original text"}, {"text": "the original text"}, False),
+        ]
+    )
+    @patch(f"{MODULE}.get_slack_client")
+    def test_non_edit_message_changed_events_post_no_note(
+        self, _name, message_overrides, previous_overrides, expect_note, mock_get_client
+    ):
+        event = self._edit_event(**message_overrides)
+        event["previous_message"] = {"text": "the original text", **previous_overrides}
+
+        handle_support_message(event, self.team, "T123")
+
+        assert bool(self._private_notes()) is expect_note
 
 
 class TestSlackLastCustomerMessage(BaseTest):
