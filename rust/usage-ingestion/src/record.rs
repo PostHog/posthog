@@ -31,8 +31,6 @@ pub enum ValidationError {
     InvalidTimestamp,
     #[error("mode must be delta or snapshot")]
     InvalidMode,
-    #[error("organization_id must be a UUID")]
-    InvalidOrganizationId,
     #[error("too many dimensions")]
     TooManyDimensions,
     #[error("dimension keys and values must not exceed the maximum length")]
@@ -97,9 +95,6 @@ impl KafkaBillingUsageRecord {
             BillingUsageMode::Snapshot => "snapshot",
             BillingUsageMode::Unspecified => return Err(ValidationError::InvalidMode),
         };
-        if let Some(value) = record.organization_id.as_deref() {
-            Uuid::parse_str(value).map_err(|_| ValidationError::InvalidOrganizationId)?;
-        }
         // Outside DateTime64's range the Kafka engine table cannot parse the row, and
         // with no kafka_skip_broken_messages that stalls every record behind it.
         let event_timestamp = DateTime::from_timestamp_millis(record.event_timestamp_ms)

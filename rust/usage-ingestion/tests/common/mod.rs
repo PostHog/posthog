@@ -45,12 +45,14 @@ impl SyncLivenessReporter for TestLiveness {
     fn report_unhealthy(&self) {}
 }
 
-struct UnusedResolver;
+/// The service resolves every organization itself, so these tests stand in for the
+/// HyperCache/PostgreSQL lookup rather than seeding a team row.
+struct FixedResolver(Uuid);
 
 #[async_trait]
-impl OrganizationResolver for UnusedResolver {
+impl OrganizationResolver for FixedResolver {
     async fn resolve(&self, _team_id: i64) -> Result<Uuid, ResolveError> {
-        Err(ResolveError::Missing)
+        Ok(self.0)
     }
 }
 
@@ -100,7 +102,7 @@ pub struct Service {
 }
 
 impl Service {
-    pub async fn start(max_batch_size: usize) -> Self {
+    pub async fn start(max_batch_size: usize, organization_id: Uuid) -> Self {
         let producer = create_kafka_producer(
             &KafkaConfig {
                 kafka_hosts: kafka_hosts(),
@@ -112,8 +114,12 @@ impl Service {
         )
         .await
         .expect("failed to create the Kafka producer");
-        let service =
-            UsageIngestionService::new(producer, Arc::new(UnusedResolver), max_batch_size, topic());
+        let service = UsageIngestionService::new(
+            producer,
+            Arc::new(FixedResolver(organization_id)),
+            max_batch_size,
+            topic(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

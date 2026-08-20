@@ -37,14 +37,13 @@ const USAGE_KEYS: [(&str, &str); 4] = [
 
 /// A `retry` must leave every field of the table's sorting key — team_id, producer_id,
 /// record_id, version — identical to the original, or it becomes a separate row.
-fn record(run: &str, organizations: &[Uuid], index: usize, retry: bool) -> BillingUsageRecord {
+fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
     BillingUsageRecord {
         record_id: format!("{run}:{index}"),
         producer_id: "usage-ingestion-load".to_string(),
         team_id: 1 + (index % 8) as i64,
-        organization_id: Some(organizations[index % organizations.len()].to_string()),
         usage_key: usage_key.to_string(),
         mode: if index.is_multiple_of(7) {
             BillingUsageMode::Snapshot as i32
@@ -82,11 +81,10 @@ async fn sustains_thousands_of_concurrent_requests() {
     let retries = requests / 10;
     let unique = requests - retries;
     let run = Uuid::new_v4().to_string();
-    let organizations: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
 
     let clickhouse_url = clickhouse_url();
     let table = table();
-    let service = Service::start(500).await;
+    let service = Service::start(500, Uuid::new_v4()).await;
 
     // Measured here, not hardcoded, so the throughput assertion is not a hardware guess.
     let mut baseline_client = service.client().await;
@@ -96,7 +94,7 @@ async fn sustains_thousands_of_concurrent_requests() {
         let started = Instant::now();
         baseline_client
             .ingest_billing_usage(IngestBillingUsageRequest {
-                records: vec![record(&run, &organizations, index, false)],
+                records: vec![record(&run, index, false)],
             })
             .await
             .expect("a baseline ingest failed");
@@ -106,8 +104,8 @@ async fn sustains_thousands_of_concurrent_requests() {
     baseline_latencies.sort();
 
     let mut plan: Vec<BillingUsageRecord> = (0..unique)
-        .map(|index| record(&run, &organizations, index, false))
-        .chain((0..retries).map(|index| record(&run, &organizations, index, true)))
+        .map(|index| record(&run, index, false))
+        .chain((0..retries).map(|index| record(&run, index, true)))
         .collect();
     // Arrival order must not match event order: a retry landing first still has to win.
     plan.sort_by_key(|record| {

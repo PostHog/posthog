@@ -48,12 +48,6 @@ impl UsageIngestionService {
                 "team_id must be a positive 32-bit integer",
             ));
         }
-        let provided_organization = record
-            .organization_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()
-            .map_err(|_| Status::invalid_argument("organization_id must be a UUID"))?;
         let organization_id = match resolved.get(&record.team_id) {
             Some(value) => *value,
             None => {
@@ -66,14 +60,6 @@ impl UsageIngestionService {
                 value
             }
         };
-        // A producer-supplied organization is a claim to check, not a shortcut past the
-        // resolver: trusting it would let any caller attribute a team's billable usage
-        // to another tenant.
-        if provided_organization.is_some_and(|provided| provided != organization_id) {
-            return Err(Status::invalid_argument(
-                "organization_id does not own team_id",
-            ));
-        }
 
         KafkaBillingUsageRecord::from_proto(record, organization_id, Utc::now())
             .map_err(|error| Status::invalid_argument(error.to_string()))
@@ -156,7 +142,6 @@ mod tests {
     use super::*;
 
     const TEAM_ORGANIZATION: &str = "018f7c8e-4c08-7c5e-9bc0-15c9f5cc9f42";
-    const OTHER_ORGANIZATION: &str = "018f7c8e-4c08-7c5e-9bc0-15c9f5cc9f43";
 
     #[derive(Clone, Copy)]
     struct AlwaysHealthy;
@@ -176,8 +161,7 @@ mod tests {
     }
 
     fn service() -> UsageIngestionService {
-        // Never produces: every case here fails in prepare, which runs before the
-        // produce loop, so the producer only has to exist.
+        // prepare() never produces, so the producer only has to exist.
         let producer = ClientConfig::new()
             .set("bootstrap.servers", "localhost:9092")
             .create_with_context(KafkaContext::new(AlwaysHealthy))
@@ -190,12 +174,11 @@ mod tests {
         )
     }
 
-    fn record(organization_id: Option<&str>) -> BillingUsageRecord {
+    fn record() -> BillingUsageRecord {
         BillingUsageRecord {
             record_id: "018f7c8e-4c08-7c5e-9bc0-15c9f5cc9f44".to_string(),
             producer_id: "feature-flags".to_string(),
             team_id: 42,
-            organization_id: organization_id.map(str::to_string),
             usage_key: "feature_flag_requests".to_string(),
             mode: usage_ingestion_proto::usage_ingestion::v1::BillingUsageMode::Delta as i32,
             unit: "request".to_string(),
@@ -210,26 +193,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn organization_from_another_tenant_is_rejected() {
+    async fn the_resolved_organization_is_stamped_on_the_record() {
         let prepared = service()
-            .prepare(record(Some(OTHER_ORGANIZATION)), &mut HashMap::new())
-            .await;
+            .prepare(record(), &mut HashMap::new())
+            .await
+            .expect("the record should be accepted");
 
-        let status = prepared.expect_err("a foreign organization must not be accepted");
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
-        assert_eq!(status.message(), "organization_id does not own team_id");
-    }
-
-    #[tokio::test]
-    async fn resolved_organization_wins_whether_or_not_the_producer_supplies_it() {
-        let expected = Uuid::parse_str(TEAM_ORGANIZATION).unwrap();
-
-        for supplied in [None, Some(TEAM_ORGANIZATION)] {
-            let prepared = service()
-                .prepare(record(supplied), &mut HashMap::new())
-                .await
-                .expect("the record should be accepted");
-            assert_eq!(prepared.organization_id, expected);
-        }
+        assert_eq!(
+            prepared.organization_id,
+            Uuid::parse_str(TEAM_ORGANIZATION).unwrap()
+        );
     }
 }

@@ -24,22 +24,21 @@ message BillingUsageRecord {
   // version instead.
   string record_id = 1;
   string producer_id = 2;
+
+  // The service owns organization attribution: it resolves the organization from
+  // team_id, so producers cannot supply one.
   int64 team_id = 3;
 
-  // Optional for producers. The service always resolves the organization from
-  // team_id and rejects a supplied value that does not match.
-  optional string organization_id = 4;
-
-  string usage_key = 5;
-  BillingUsageMode mode = 6;
-  string unit = 7;
-  int64 quantity = 8;
-  uint64 version = 9;
-  int64 event_timestamp_ms = 10;
-  optional string source_ref = 11;
-  optional string user_id = 12;
-  optional string variant = 13;
-  map<string, string> dimensions = 14;
+  string usage_key = 4;
+  BillingUsageMode mode = 5;
+  string unit = 6;
+  int64 quantity = 7;
+  uint64 version = 8;
+  int64 event_timestamp_ms = 9;
+  optional string source_ref = 10;
+  optional string user_id = 11;
+  optional string variant = 12;
+  map<string, string> dimensions = 13;
 }
 
 message IngestBillingUsageRequest {

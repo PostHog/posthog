@@ -8,7 +8,6 @@ fn record() -> BillingUsageRecord {
         record_id: "record-1".to_string(),
         producer_id: "feature-flags".to_string(),
         team_id: 42,
-        organization_id: None,
         usage_key: "feature_flag_requests".to_string(),
         mode: BillingUsageMode::Delta as i32,
         unit: "request".to_string(),

@@ -15,12 +15,11 @@ use uuid::Uuid;
 const FIRST_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
 const RETRY_EVENT_TIMESTAMP_MS: i64 = FIRST_EVENT_TIMESTAMP_MS + 1_000;
 
-fn record(record_id: &str, organization_id: Uuid, event_timestamp_ms: i64) -> BillingUsageRecord {
+fn record(record_id: &str, event_timestamp_ms: i64) -> BillingUsageRecord {
     BillingUsageRecord {
         record_id: record_id.to_string(),
         producer_id: "usage-ingestion-e2e".to_string(),
         team_id: 1,
-        organization_id: Some(organization_id.to_string()),
         usage_key: "e2e_records".to_string(),
         mode: BillingUsageMode::Delta as i32,
         unit: "record".to_string(),
@@ -39,18 +38,14 @@ fn record(record_id: &str, organization_id: Uuid, event_timestamp_ms: i64) -> Bi
 async fn retried_record_deduplicates_to_the_latest_event_timestamp() {
     let clickhouse_url = clickhouse_url();
     let table = table();
-    let service = Service::start(500).await;
+    let organization_id = Uuid::new_v4();
+    let service = Service::start(500, organization_id).await;
     let mut client = service.client().await;
 
     let record_id = Uuid::new_v4().to_string();
-    let organization_id = Uuid::new_v4();
     client
         .ingest_billing_usage(IngestBillingUsageRequest {
-            records: vec![record(
-                &record_id,
-                organization_id,
-                FIRST_EVENT_TIMESTAMP_MS,
-            )],
+            records: vec![record(&record_id, FIRST_EVENT_TIMESTAMP_MS)],
         })
         .await
         .expect("the first ingest failed");
@@ -59,11 +54,7 @@ async fn retried_record_deduplicates_to_the_latest_event_timestamp() {
     let between_ingests = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f000").to_string();
     client
         .ingest_billing_usage(IngestBillingUsageRequest {
-            records: vec![record(
-                &record_id,
-                organization_id,
-                RETRY_EVENT_TIMESTAMP_MS,
-            )],
+            records: vec![record(&record_id, RETRY_EVENT_TIMESTAMP_MS)],
         })
         .await
         .expect("the retried ingest failed");
