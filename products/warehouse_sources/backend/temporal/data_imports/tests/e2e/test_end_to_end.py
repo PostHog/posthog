@@ -4136,6 +4136,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "table_name": "stripe.customer",
+        "table_type": "source",
         "properties": expected_properties,
     }
 
