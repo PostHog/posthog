@@ -1,3 +1,4 @@
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudTaskEvent } from "./schemas";
 
@@ -353,6 +354,85 @@ describe("CloudTaskEngine", () => {
       }),
     );
   });
+
+  it.each([
+    { name: "active", status: "in_progress" as const },
+    { name: "terminal", status: "completed" as const },
+  ])(
+    "bootstraps a long $name run from the tail window with the chain total",
+    async ({ status }) => {
+      const updates: unknown[] = [];
+      service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+      const chain = Array.from({ length: 4500 }, (_, i) => ({
+        type: "notification",
+        timestamp: "2026-01-01T00:00:00Z",
+        notification: { jsonrpc: "2.0", method: `entry-${i}` },
+      }));
+      const tailStart = chain.length - TRANSCRIPT_TAIL_WINDOW;
+      const logRequests: Array<{ offset: number; limit: number }> = [];
+      mockNetFetch.mockImplementation((input: string | URL | Request) => {
+        const url = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url,
+        );
+        if (!url.pathname.includes("/session_logs/")) {
+          return Promise.resolve(
+            createJsonResponse({
+              id: "run-1",
+              status,
+              stage: null,
+              output: null,
+              error_message: null,
+              branch: null,
+              updated_at: "2026-01-01T00:00:00Z",
+            }),
+          );
+        }
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const limit = Number(url.searchParams.get("limit"));
+        logRequests.push({ offset, limit });
+        const page = chain.slice(offset, offset + limit);
+        return Promise.resolve(
+          createJsonResponse(page, 200, {
+            "X-Has-More": String(offset + page.length < chain.length),
+            "X-Matching-Count": String(chain.length),
+          }),
+        );
+      });
+      mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+      service.watch({
+        taskId: "task-1",
+        runId: "run-1",
+        apiHost: "https://app.example.com",
+        teamId: 2,
+      });
+
+      await waitFor(() =>
+        updates.some((u) => (u as { kind?: string }).kind === "snapshot"),
+      );
+
+      const snapshot = updates.find(
+        (u) => (u as { kind?: string }).kind === "snapshot",
+      ) as {
+        newEntries: unknown[];
+        totalEntryCount: number;
+        windowStart?: number;
+      };
+      expect(snapshot.windowStart).toBe(tailStart);
+      expect(snapshot.totalEntryCount).toBe(chain.length);
+      expect(snapshot.newEntries).toHaveLength(TRANSCRIPT_TAIL_WINDOW);
+      expect(snapshot.newEntries[0]).toEqual(chain[tailStart]);
+      expect(logRequests).toEqual([
+        { offset: 0, limit: 1 },
+        { offset: tailStart, limit: TRANSCRIPT_TAIL_WINDOW },
+      ]);
+    },
+  );
 
   it("replays a resumed run stream so hydration cannot miss its live tail", async () => {
     const updates: unknown[] = [];
