@@ -506,16 +506,17 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "merge_queue_trunk_available": {
                 "help_text": "Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint "
-                "synced. When false, every merge_queue_ejected_* and merge_queue_skip_the_line_* field is null; "
+                "synced and readable by the requesting user. When false, every "
+                "merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; "
                 "fall back to merge_queue_failed_gate_merge_share."
             },
-            "merge_queue_ejected_share": {
+            "merge_queue_failed_or_cancelled_share": {
                 "help_text": "Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that "
                 "ended failed or cancelled, from the queue's own records. Windowed on each entry's last state "
                 "change. Null when the Trunk source isn't synced or nothing concluded.",
                 "allow_null": True,
             },
-            "merge_queue_ejected_share_prev": {
+            "merge_queue_failed_or_cancelled_share_prev": {
                 "help_text": "The same fraction over the previous window. Null when the Trunk source isn't "
                 "synced or nothing concluded.",
                 "allow_null": True,

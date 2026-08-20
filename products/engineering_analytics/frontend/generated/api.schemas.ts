@@ -1041,18 +1041,18 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_failed_gate_merge_share_prev: number | null
-    /** Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint synced. When false, every merge_queue_ejected_* and merge_queue_skip_the_line_* field is null; fall back to merge_queue_failed_gate_merge_share. */
+    /** Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint synced and readable by the requesting user. When false, every merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; fall back to merge_queue_failed_gate_merge_share. */
     merge_queue_trunk_available: boolean
     /**
      * Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or cancelled, from the queue's own records. Windowed on each entry's last state change. Null when the Trunk source isn't synced or nothing concluded.
      * @nullable
      */
-    merge_queue_ejected_share: number | null
+    merge_queue_failed_or_cancelled_share: number | null
     /**
      * The same fraction over the previous window. Null when the Trunk source isn't synced or nothing concluded.
      * @nullable
      */
-    merge_queue_ejected_share_prev: number | null
+    merge_queue_failed_or_cancelled_share_prev: number | null
     /**
      * Queue entries flagged skip-the-line (prioritized past the queue order) in the window, whatever state they reached. Null when the Trunk source isn't synced.
      * @nullable

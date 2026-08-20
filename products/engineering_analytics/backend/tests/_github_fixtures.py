@@ -1,4 +1,4 @@
-"""GitHub source and warehouse-table fixtures shared across this product's test files."""
+"""GitHub and Trunk source warehouse fixtures shared across this product's test files."""
 
 import os
 import json
