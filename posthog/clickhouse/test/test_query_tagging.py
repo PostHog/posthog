@@ -419,7 +419,9 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         marker = str(uuid.uuid4())
         reset_query_tags()
         tag_queries(kind="request", id="test")
-        execute_hogql_query(f"SELECT '{marker}'", team=self.team, query_type="HogQLQuery")  # noqa: S608
+        # now() keeps the query off the constant-only local evaluator, so it reaches ClickHouse
+        # and lands in system.query_log where the tags are read from.
+        execute_hogql_query(f"SELECT '{marker}', now()", team=self.team, query_type="HogQLQuery")  # noqa: S608
 
         comment = self._get_log_comment(marker)
 
@@ -529,7 +531,9 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         reset_query_tags()
         tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
 
-        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT '{marker}'"), team=self.team)  # noqa: S608
+        # now() keeps the query off the constant-only local evaluator, so it reaches ClickHouse
+        # and lands in system.query_log where the tags are read from.
+        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT '{marker}', now()"), team=self.team)  # noqa: S608
         runner._calculate()
 
         comment = self._get_log_comment(marker)
