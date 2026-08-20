@@ -226,6 +226,16 @@ def select_changed(
     return changed, new_hashes
 
 
+def _normalize_keys(source: PersonPropertySyncSource, bundles: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """Lowercase the row key for an email-matched source so case-variant rows for one person
+    (``User@x.com`` vs ``user@x.com``) collapse to a single snapshot key. Email resolution is already
+    case-insensitive; without this each variant diffs and produces independently, so the value a
+    person ends up with drifts across runs and a casing-only edit re-sends every run."""
+    if source.target != _GROUP_TARGET and source.match_mode == _MATCH_EMAIL:
+        return [(key.lower(), bundle) for key, bundle in bundles]
+    return bundles
+
+
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
 
 
@@ -536,7 +546,7 @@ async def _process_source_bundles(
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
     prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
-    changed, new_hashes = select_changed(bundles, prior)
+    changed, new_hashes = select_changed(_normalize_keys(source, bundles), prior)
     ps.changed = len(changed)
     if not changed:
         return ps

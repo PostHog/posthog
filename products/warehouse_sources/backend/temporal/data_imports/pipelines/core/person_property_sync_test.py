@@ -203,6 +203,37 @@ class TestRunOrchestration:
         assert set(write_snapshot.await_args.args[4]) == {"e1@x.com"}
 
     @pytest.mark.asyncio
+    async def test_email_case_variant_rows_collapse_to_one_person(self):
+        # Two rows whose email differs only by case resolve to the same person. They must collapse to a
+        # single produce with a deterministic last-row winner, and one lowercased snapshot key — else
+        # each variant diffs independently and the surviving value drifts across runs.
+        team = MagicMock(api_token="tok", project_id=7)
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="email",
+            column_property_map={"plan": "plan_tier"},
+            match_mode="email",
+        )
+        rows = [{"email": "User@X.com", "plan": "pro"}, {"email": "user@x.com", "plan": "enterprise"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}.get_distinct_ids_mapped_by_email", return_value={"user@x.com": "did1"}),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert produce.call_args.args[3] == [("did1", {"plan_tier": "enterprise"})]
+        assert set(write_snapshot.await_args.args[4]) == {"user@x.com"}
+
+    @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=None),
