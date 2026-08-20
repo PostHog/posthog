@@ -201,7 +201,7 @@ class TestEnrichmentWriter(BaseTest):
         assert record.data["icp_fit_score"] == 72
         assert "icp_fit_dq_reason" not in record.data
 
-    def test_fit_mirror_writes_the_person_only_with_a_numeric_score(self):
+    def test_fit_mirror_carries_status_through_a_scored_to_insufficient_data_transition(self):
         pha_client = MagicMock()
         write_organization_enrichment(
             organization_id=str(self.organization.id),
@@ -211,7 +211,8 @@ class TestEnrichmentWriter(BaseTest):
             fit_mirror_distinct_id="signer",
         )
         pha_client.set.assert_called_once_with(
-            distinct_id="signer", properties={"icp_fit_score": 55, "icp_fit_version": "v0.5"}
+            distinct_id="signer",
+            properties={"icp_fit_score": 55, "icp_fit_version": "v0.5", "icp_fit_status": "scored"},
         )
 
         pha_client.reset_mock()
@@ -222,7 +223,7 @@ class TestEnrichmentWriter(BaseTest):
             fit=IcpFitResult(status="insufficient_data"),
             fit_mirror_distinct_id="signer",
         )
-        pha_client.set.assert_not_called()
+        pha_client.set.assert_called_once_with(distinct_id="signer", properties={"icp_fit_status": "insufficient_data"})
 
     def test_record_signup_work_email_merges_without_clobbering_provider_data(self):
         record_signup_work_email(organization_id=str(self.organization.id), work_email=False)

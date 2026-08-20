@@ -139,8 +139,8 @@ class TestEnrichmentCore(BaseTest):
 
     def test_clay_scores_from_our_fields_the_signup_role_and_clays_columns(self):
         # First attempt: Clay's bridge columns are already present, so they feed the clay
-        # score too — but the clay person mirror is recheck-only, and the fit evaluation of
-        # this payload is score-less (insufficient), so `set` stays unused.
+        # score too — but the clay person mirror is recheck-only, so the only person write
+        # is the fit mirror, and this payload's fit evaluation is score-less (insufficient).
         pha_client = MagicMock()
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021, ownership_status="PRIVATE")
         self._enrich(
@@ -157,7 +157,9 @@ class TestEnrichmentCore(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 21
         assert properties["icp_score_version"] == "clay-parity-2"
-        pha_client.set.assert_not_called()
+        pha_client.set.assert_called_once_with(
+            distinct_id="signer-distinct-id", properties={"icp_fit_status": "insufficient_data"}
+        )
 
     def test_clay_first_attempt_scores_without_waiting_for_clay(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
@@ -188,7 +190,9 @@ class TestEnrichmentCore(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_score"] == 12
         assert record.data["company_type_deterministic"] == "yc"
-        pha_client.set.assert_not_called()
+        pha_client.set.assert_called_once_with(
+            distinct_id="signer-distinct-id", properties={"icp_fit_status": "not_found"}
+        )
 
     @parameterized.expand(
         [
@@ -228,8 +232,9 @@ class TestEnrichmentCore(BaseTest):
         ]
     )
     def test_clay_recheck_mirror_policy(self, _name, person, expect_mirror):
-        # Empty-shell payload keeps the fit evaluation score-less, so the only possible
-        # person write is the guarded clay mirror.
+        # Empty-shell payload keeps the fit evaluation score-less, and the fit mirror always
+        # sends its status regardless of person state, so isolate the guarded clay mirror by
+        # its own key rather than asserting on `set` calls overall.
         pha_client = MagicMock()
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         self._enrich(
@@ -240,9 +245,8 @@ class TestEnrichmentCore(BaseTest):
             person=person,
         )
 
-        assert pha_client.set.called is expect_mirror
-        if expect_mirror:
-            assert "icp_score" in pha_client.set.call_args.kwargs["properties"]
+        clay_calls = [c for c in pha_client.set.call_args_list if "icp_score" in c.kwargs["properties"]]
+        assert bool(clay_calls) is expect_mirror
 
     def test_first_attempt_does_not_look_up_the_person(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
@@ -360,7 +364,8 @@ class TestEnrichmentCore(BaseTest):
 
         person_mock.assert_not_called()
         pha_client.set.assert_called_once_with(
-            distinct_id="signer-distinct-id", properties={"icp_fit_score": 100, "icp_fit_version": "v0.5"}
+            distinct_id="signer-distinct-id",
+            properties={"icp_fit_score": 100, "icp_fit_version": "v0.5", "icp_fit_status": "scored"},
         )
 
     def test_student_role_disqualifies_fit_regardless_of_the_payload(self):
@@ -482,7 +487,7 @@ class TestEnrichmentCore(BaseTest):
         assert record.data["icp_score"] == 12
         assert "icp_fit_score" not in record.data
 
-    def test_scoreless_fit_never_mirrors(self):
+    def test_scoreless_fit_mirrors_status_only(self):
         pha_client = MagicMock()
         fields = EnrichmentFields(company_type="STARTUP")
         self._enrich(
@@ -491,4 +496,6 @@ class TestEnrichmentCore(BaseTest):
             distinct_id="signer-distinct-id",
         )
 
-        pha_client.set.assert_not_called()
+        pha_client.set.assert_called_once_with(
+            distinct_id="signer-distinct-id", properties={"icp_fit_status": "insufficient_data"}
+        )

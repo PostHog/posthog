@@ -315,51 +315,6 @@ describe("PostHogAPIClient", () => {
     );
   });
 
-  it("uses the configured fetch implementation for task log URLs", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          '{"type":"notification","timestamp":"2026-07-21T00:00:00Z"}\n',
-          { status: 200 },
-        ),
-      );
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-      { fetch },
-    );
-    vi.spyOn(client, "getTask").mockResolvedValue({
-      id: "task-1",
-      task_number: 1,
-      slug: "task-1",
-      title: "Task",
-      description: "Task",
-      created_at: "2026-07-21T00:00:00Z",
-      updated_at: "2026-07-21T00:00:00Z",
-      origin_product: "user_created",
-      latest_run: {
-        id: "run-1",
-        task: "task-1",
-        team: 123,
-        branch: null,
-        status: "in_progress",
-        log_url: "https://logs.posthog.test/run-1.jsonl",
-        error_message: null,
-        output: null,
-        state: {},
-        created_at: "2026-07-21T00:00:00Z",
-        updated_at: "2026-07-21T00:00:00Z",
-        completed_at: null,
-      },
-    });
-
-    await expect(client.getTaskLogs("task-1")).resolves.toHaveLength(1);
-    expect(fetch).toHaveBeenCalledWith("https://logs.posthog.test/run-1.jsonl");
-  });
-
   it.each([
     {
       label: "desktop default",
@@ -1038,6 +993,80 @@ describe("PostHogAPIClient", () => {
           body: JSON.stringify({
             pending_user_message: "Read the attached file first",
             pending_user_artifact_ids: ["artifact-1"],
+          }),
+        },
+      }),
+    );
+  });
+
+  it("registers PostHog references without file upload fields", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        artifacts: [
+          {
+            id: "phref-1",
+            name: "Checkout funnel",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "insight",
+              object_id: "9pQx3",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    });
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+
+    await expect(
+      client.registerTaskRunPostHogReferences("task-123", "run-123", [
+        {
+          name: "Checkout funnel",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_id: "turn-1",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "phref-1",
+        type: "reference",
+        source: "posthog_object",
+        metadata: expect.objectContaining({ object_id: "9pQx3" }),
+      }),
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "post",
+        path: "/api/projects/123/tasks/task-123/runs/run-123/artifacts/references/",
+        overrides: {
+          body: JSON.stringify({
+            references: [
+              {
+                name: "Checkout funnel",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_id: "turn-1",
+              },
+            ],
           }),
         },
       }),
@@ -2139,7 +2168,7 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("getTaskRunSessionLogs", () => {
+  describe("getTaskRunSessionLogsResult", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(
         "http://localhost:8000",
@@ -2203,11 +2232,9 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page(makeEntries(3, "a"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs(
-        "task-1",
-        "run-1",
-        options,
-      );
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", options)
+      ).entries;
 
       expect(result).toHaveLength(3);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2224,9 +2251,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(10, "c"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(210);
       expect(fetch).toHaveBeenCalledTimes(3);
@@ -2247,9 +2276,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(1000, "b"), true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 6000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 6000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(6000);
       expect(fetch).toHaveBeenCalledTimes(2);
@@ -2266,7 +2297,7 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(5, "b"), false));
       const client = makeClient(fetch);
 
-      await client.getTaskRunSessionLogs("task-1", "run-1", {
+      await client.getTaskRunSessionLogsResult("task-1", "run-1", {
         limit: 100000,
         after: "2026-07-01T00:00:00Z",
       });
@@ -2496,9 +2527,11 @@ describe("PostHogAPIClient", () => {
       });
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(10);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2508,9 +2541,11 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page([], true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(0);
       expect(fetch).toHaveBeenCalledTimes(1);

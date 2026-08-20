@@ -122,7 +122,11 @@ async def enrich_signup_organization_activity(
         filled = fields.to_dict() if fields else {}
         matched = fields is not None
 
-        if not is_recheck:
+        # No later backfill re-attempts this snapshot, so claiming it while fit scoring was
+        # skipped (fit is None — no active IcpScoringConfig row, or an unexpected scoring
+        # error; see EnrichmentOutcome) would permanently strand the org without an
+        # at-signup fit score.
+        if not is_recheck and fit is not None:
             deterministic = await sync_to_async(_deterministic_company_type)(inputs.organization_id)
             snapshot = SignupEnrichmentSnapshot(
                 company_type=(fields.company_type if fields else None) or deterministic,
@@ -135,9 +139,9 @@ async def enrich_signup_organization_activity(
                 is_yc_company=fields.is_yc_company if fields else None,
                 # A numeric fit score snapshots with its version; a score-less evaluation
                 # snapshots the status alone (see SignupEnrichmentSnapshot).
-                icp_fit_score=fit.score if fit else None,
-                icp_fit_version=fit.version if fit and fit.score is not None else None,
-                icp_fit_status=fit.status if fit else None,
+                icp_fit_score=fit.score,
+                icp_fit_version=fit.version if fit.score is not None else None,
+                icp_fit_status=fit.status,
             )
             await sync_to_async(capture_signup_enrichment_snapshot)(
                 pha_client,

@@ -13,6 +13,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
 from products.growth.backend.enrichment.icp_lists import (
+    TAG_BUCKETS,
+    build_curated_lists,
     clear_lists_cache,
     parse_investors_csv_rows,
     parse_tags_csv_rows,
@@ -63,6 +65,18 @@ class Command(BaseCommand):
         if not investors:
             raise CommandError("investors export parsed to zero rows; refusing to create an empty list version")
 
+        curated = build_curated_lists(IcpScoringConfig(version=version, tags=tags, quality_investors=investors))
+        bucket_counts = {field: len(getattr(curated, field)) for field in sorted(TAG_BUCKETS)}
+        if not any(bucket_counts.values()):
+            raise CommandError(
+                f"tags export for version {version!r} parsed to buckets that are all empty "
+                "(vocabulary drift, a wrong delimiter, or a shifted column?); refusing to create it"
+            )
+        if not curated.quality_investors:
+            raise CommandError(
+                f"investors export for version {version!r} parsed to zero quality investors; refusing to create it"
+            )
+
         with transaction.atomic():
             if options["activate"]:
                 IcpScoringConfig.objects.filter(is_active=True).update(is_active=False)
@@ -74,12 +88,26 @@ class Command(BaseCommand):
             )
         clear_lists_cache()
 
+        investors_with_aliases = sum(1 for investor in investors if investor["aliases"])
         state = "active" if config.is_active else "inactive (activate via admin or --activate)"
         self.stdout.write(
             self.style.SUCCESS(
-                f"created IcpScoringConfig {version}: {len(tags)} tag rows, {len(investors)} investors — {state}"
+                f"created IcpScoringConfig {version}: {len(tags)} tag rows, {len(investors)} investors "
+                f"({investors_with_aliases} with aliases) — {state}"
             )
         )
+        self.stdout.write(
+            "buckets: "
+            + ", ".join(f"{field}={count}" for field, count in bucket_counts.items())
+            + f", quality_investors={len(curated.quality_investors)}"
+        )
+
+        if investors_with_aliases == 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    "no investor has any aliases — check whether the aliases column was renamed or dropped"
+                )
+            )
 
         unrecognized = unrecognized_recommendation_tokens(tags)
         if unrecognized:
