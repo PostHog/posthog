@@ -10,6 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
 
 from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.utils.anthropic import add_cache_control
 
 from .prompts import SYSTEM_PROMPT, USER_PROMPT
 
@@ -81,7 +82,13 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
         )
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):
-        """Removes cache_control headers."""
+        """Strip the main agent's breakpoints, then cache the conversation prefix.
+
+        These messages arrive carrying the main agent's own `cache_control` breakpoints, which
+        do not line up with the summarizer's prompt. We drop them and set a single breakpoint on
+        the last conversation message. A long agent run summarizes the same growing conversation
+        many times, so the cached prefix is reused instead of paying full input cost each call.
+        """
         messages_without_cache: list[BaseMessage] = []
         for message in messages:
             if isinstance(message.content, list):
@@ -90,5 +97,8 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
                     if isinstance(content, dict) and "cache_control" in content:
                         content.pop("cache_control")
             messages_without_cache.append(message)
+
+        if messages_without_cache:
+            messages_without_cache[-1] = add_cache_control(messages_without_cache[-1].model_copy(deep=True))
 
         return super()._construct_messages(messages_without_cache)

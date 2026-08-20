@@ -16,6 +16,8 @@ class TestAnthropicConversationSummarizer(BaseTest):
         super().setUp()
         self.summarizer = AnthropicConversationSummarizer(team=self.team, user=self.user)
 
+    FRESH_BREAKPOINT = {"type": "ephemeral", "ttl": "5m"}
+
     @parameterized.expand(
         [
             (
@@ -27,7 +29,7 @@ class TestAnthropicConversationSummarizer(BaseTest):
                         ]
                     )
                 ],
-                [[{"type": "text", "text": "Hello"}]],
+                [[{"type": "text", "text": "Hello", "cache_control": FRESH_BREAKPOINT}]],
             ),
             (
                 "multiple_items_with_cache_control",
@@ -39,7 +41,12 @@ class TestAnthropicConversationSummarizer(BaseTest):
                         ]
                     )
                 ],
-                [[{"type": "text", "text": "First"}, {"type": "text", "text": "Second"}]],
+                [
+                    [
+                        {"type": "text", "text": "First"},
+                        {"type": "text", "text": "Second", "cache_control": FRESH_BREAKPOINT},
+                    ]
+                ],
             ),
             (
                 "mixed_items_some_with_cache_control",
@@ -51,7 +58,12 @@ class TestAnthropicConversationSummarizer(BaseTest):
                         ]
                     )
                 ],
-                [[{"type": "text", "text": "With cache"}, {"type": "text", "text": "Without cache"}]],
+                [
+                    [
+                        {"type": "text", "text": "With cache"},
+                        {"type": "text", "text": "Without cache", "cache_control": FRESH_BREAKPOINT},
+                    ]
+                ],
             ),
             (
                 "multiple_messages_with_cache_control",
@@ -69,12 +81,12 @@ class TestAnthropicConversationSummarizer(BaseTest):
                 ],
                 [
                     [{"type": "text", "text": "Message 1"}],
-                    [{"type": "text", "text": "Message 2"}],
+                    [{"type": "text", "text": "Message 2", "cache_control": FRESH_BREAKPOINT}],
                 ],
             ),
         ]
     )
-    def test_removes_cache_control(self, name, input_messages, expected_contents):
+    def test_strips_inherited_breakpoints_and_caches_last_message(self, name, input_messages, expected_contents):
         result = self.summarizer._construct_messages(input_messages)
 
         # Extract the actual messages from the prompt template
@@ -165,11 +177,11 @@ class TestAnthropicConversationSummarizer(BaseTest):
         result = self.summarizer._construct_messages(input_messages)
         messages = result.messages[1:-1]
 
-        # Verify other fields are preserved
+        # Sibling fields survive stripping; the last message keeps a fresh breakpoint.
         content = messages[0].content[0]
         self.assertEqual(content["custom_field"], "custom_value")
         self.assertEqual(content["another_field"], 123)
-        self.assertNotIn("cache_control", content)
+        self.assertEqual(content["cache_control"], self.FRESH_BREAKPOINT)
 
     def test_empty_messages_list(self):
         result = self.summarizer._construct_messages([])
