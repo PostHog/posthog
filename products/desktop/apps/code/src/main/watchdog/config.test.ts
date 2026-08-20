@@ -35,16 +35,33 @@ describe("loadWatchdogConfig", () => {
     expect(config.thresholdBytes).toBe(4096 * MB);
   });
 
-  it("reports an unparseable override and falls back to the default", () => {
+  it.each([
+    ["no digits at all", "lots"],
+    // parseInt would take the numeric prefix and clamp 8 up to the 256MB
+    // minimum, quietly giving the opposite of the 8GB that was asked for.
+    ["a unit suffix", "8GB"],
+    ["a decimal", "1.5"],
+    ["exponent notation", "1e3"],
+  ])("warns and falls back when an override has %s", (_name, value) => {
     const { config, warnings } = loadWatchdogConfig(
-      { POSTHOG_CODE_WATCHDOG_THRESHOLD_MB: "lots" },
+      { POSTHOG_CODE_WATCHDOG_THRESHOLD_MB: value },
       16 * GB,
     );
 
     expect(config.thresholdBytes).toBe(8 * GB);
     expect(warnings).toEqual([
-      { variable: "POSTHOG_CODE_WATCHDOG_THRESHOLD_MB", value: "lots" },
+      { variable: "POSTHOG_CODE_WATCHDOG_THRESHOLD_MB", value },
     ]);
+  });
+
+  it("accepts a value padded with whitespace", () => {
+    const { config, warnings } = loadWatchdogConfig(
+      { POSTHOG_CODE_WATCHDOG_THRESHOLD_MB: " 4096 " },
+      16 * GB,
+    );
+
+    expect(config.thresholdBytes).toBe(4096 * MB);
+    expect(warnings).toEqual([]);
   });
 
   it("keeps the sample interval within a sane range", () => {

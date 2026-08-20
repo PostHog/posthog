@@ -52,6 +52,8 @@ export interface LoadedWatchdogConfig {
   warnings: ConfigWarning[];
 }
 
+const WHOLE_INTEGER = /^\d+$/;
+
 function readFlag(name: string, env: NodeJS.ProcessEnv): boolean {
   const raw = env[name];
   if (!raw) return false;
@@ -75,14 +77,18 @@ export function loadWatchdogConfig(
     min: number,
     max: number,
   ): number => {
-    const raw = env[name];
+    const raw = env[name]?.trim();
     if (!raw) return fallback;
 
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed)) {
+    // The whole value has to be digits. `Number.parseInt` stops at the first
+    // non-digit, so "8GB" would quietly become 8 and then clamp up to the
+    // minimum — the opposite of what was asked for, with no warning.
+    if (!WHOLE_INTEGER.test(raw)) {
       warnings.push({ variable: name, value: raw });
       return fallback;
     }
+
+    const parsed = Number.parseInt(raw, 10);
 
     return Math.min(Math.max(parsed, min), max);
   };
