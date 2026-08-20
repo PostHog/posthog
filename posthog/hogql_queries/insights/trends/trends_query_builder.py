@@ -88,11 +88,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 SELECT
                     breakdown_value as breakdown_value,
                     sum(count) as total,
-                    row_number() OVER (ORDER BY sum(count) DESC, breakdown_value ASC) as row_number
+                    row_number() OVER (
+                        ORDER BY {breakdown_order_by} ASC, sum(count) DESC, breakdown_value ASC
+                    ) as row_number
                 FROM {inner_query}
                 GROUP BY breakdown_value
                 """,
-                placeholders={"inner_query": inner_query},
+                placeholders={
+                    "inner_query": inner_query,
+                    "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
+                },
             ),
         )
 
