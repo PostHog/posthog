@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import uuid as uuid_mod
 from contextlib import contextmanager
@@ -806,6 +807,48 @@ class TestPersonsDedupVerify:
     def test_apply_is_rejected_for_read_only_modes(self, persons_conn, tmp_path):
         with pytest.raises(CommandError, match="meaningless"):
             _run("verify", tmp_path, apply=True)
+
+
+class TestPersonsDedupTargetGuard:
+    def test_refuses_to_run_when_the_persons_url_is_unset(self, monkeypatch, tmp_path):
+        # Unset, posthog.persons_db builds a localhost URL from PG*. On a deployed pod those
+        # point at the main cluster, so a silent fallback aims a destructive command at the
+        # wrong database. It must refuse rather than connect.
+        monkeypatch.delenv("PERSONS_DB_WRITER_URL", raising=False)
+        monkeypatch.delenv("PERSONS_DB_READER_URL", raising=False)
+
+        with pytest.raises(CommandError, match="PERSONS_DB_WRITER_URL is not set"):
+            _run("repair", tmp_path, apply=True)
+
+    def test_logs_the_host_and_dbname_it_is_about_to_modify(self, persons_conn, tmp_path):
+        # The operator drives this by hand against production; host plus dbname is how they
+        # confirm the toolbox is pointed at persons and not the main cluster.
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        target = [entry for entry in logs if entry["event"] == "persons_dedup.target"]
+        assert len(target) == 1, "every run must say which database it targets"
+        assert target[0]["dbname"]
+        assert "password" not in str(target[0]), "the log line must not carry credentials"
+
+
+class TestPersonsDedupPrivilegePreflight:
+    def test_every_table_the_command_deletes_from_is_probed_for_delete(self):
+        # The preflight exists so a missing grant aborts before any work. It is only worth
+        # that if it covers every table written to -- a DELETE added without a matching
+        # probe fails mid-transaction on the first team whose data reaches it, which is
+        # exactly how the reconciliation-backup delete shipped.
+        deleted_tables = set()
+        for name, sql in vars(persons_dedup_command).items():
+            if not name.startswith("DELETE_") or not isinstance(sql, str):
+                continue
+            match = re.search(r"DELETE\s+FROM\s+([a-z_]+)", sql, re.IGNORECASE)
+            assert match, f"{name} does not look like a DELETE statement"
+            deleted_tables.add(match.group(1))
+        assert deleted_tables, "no DELETE_* constants found -- did they get renamed?"
+
+        probed = {t for t, p in persons_dedup_command.REQUIRED_PRIVILEGES if p == "DELETE"}
+        assert deleted_tables <= probed, f"deletes without a DELETE grant probe: {sorted(deleted_tables - probed)}"
 
 
 class TestPersonsDedupConnectionRouting:

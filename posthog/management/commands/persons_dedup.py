@@ -138,13 +138,14 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.core.management.base import BaseCommand, CommandError
 
 import psycopg
 import structlog
 
-from posthog.persons_db import persons_db_connection
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 logger = structlog.get_logger(__name__)
 
@@ -505,7 +506,11 @@ REQUIRED_PRIVILEGES = (
     ("posthog_cohortpeople", "SELECT"),
     ("posthog_cohortpeople", "DELETE"),
     ("posthog_person_reconciliation_backup", "SELECT"),
+    ("posthog_person_reconciliation_backup", "DELETE"),
 )
+# posthog_featureflaghashkeyoverride needs only SELECT: its rows go via the FK's
+# ON DELETE CASCADE, and Postgres runs referential actions with the privileges of the
+# referencing table's owner rather than the caller's, so no DELETE grant is required.
 
 
 def _check_privileges(conn: psycopg.Connection) -> list[str]:
@@ -575,6 +580,37 @@ class Command(BaseCommand):
             help="pause between batches so writers blocked on our row locks drain (0 disables)",
         )
 
+    def _assert_explicit_target(self, use_writer: bool) -> None:
+        """Refuse to run against a silently defaulted database, and log the one chosen.
+
+        posthog.persons_db falls back to a localhost URL built from PG* when the persons
+        URL is unset. That default is right for a developer and wrong for this command: in
+        a deployed pod PG* usually point at the main cluster, so an unset variable turns a
+        destructive run against the persons database into a destructive run against
+        whatever `posthog_persons` resolves to there -- or a confusing connection error.
+        The variable is injected by the charts in every deployment, so requiring it costs
+        nothing operationally and removes the failure mode entirely. Tests set it in
+        conftest; a developer without it gets told which variable to set.
+        """
+        var = "PERSONS_DB_WRITER_URL" if use_writer else "PERSONS_DB_READER_URL"
+        if not os.getenv("PERSONS_DB_WRITER_URL") and not os.getenv("PERSONS_DB_READER_URL"):
+            raise CommandError(
+                f"{var} is not set, so the persons-DB URL would fall back to a localhost "
+                "default built from PG*. Refusing to run: on a deployed pod that default "
+                "points somewhere else entirely. Set the variable explicitly."
+            )
+        # Say out loud which database is about to be modified. The operator is driving this
+        # by hand against production, and host plus dbname is what tells them the toolbox
+        # is pointed at persons rather than the main cluster.
+        parts = urlsplit(persons_db_url(writer=use_writer))
+        logger.info(
+            "persons_dedup.target",
+            host=parts.hostname,
+            port=parts.port,
+            dbname=(parts.path or "/").lstrip("/"),
+            role="writer" if use_writer else "reader",
+        )
+
     def handle(self, *args: Any, **options: Any) -> None:
         team: int = options["team"]
         mode: str = options["mode"]
@@ -598,6 +634,7 @@ class Command(BaseCommand):
         # load-bearing: a duplicate minted after the read escapes a primary read too,
         # and the unique index build is the authoritative duplicate check either way.
         use_writer = mode not in ("classify", "verify") or options["writer"]
+        self._assert_explicit_target(use_writer)
 
         with persons_db_connection(writer=use_writer, autocommit=True) as conn:
             with conn.cursor() as cur:
