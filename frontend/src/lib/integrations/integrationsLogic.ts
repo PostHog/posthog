@@ -7,7 +7,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
-import { appendOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
+import { appendOAuthCallbackError, describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { fromParamsGivenUrl } from 'lib/utils/url'
@@ -981,6 +981,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }, 'oauthCallbackTimeout')
 
             if (error) {
+                // The banner that reads integration_error only renders on the integration landing
+                // page, but most callbacks redirect elsewhere (settings, a destination config
+                // editor). Toast the reason too so it reaches the user wherever they land, while the
+                // URL param still gives the landing page a message that survives the redirect.
+                lemonToast.error(describeOAuthCallbackError(String(error)))
                 redirect(appendOAuthCallbackError(replaceUrl, String(error)))
                 return
             }
