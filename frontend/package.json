@@ -99,6 +99,7 @@
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-data-catalog": "workspace:*",
         "@posthog/products-data-modeling": "workspace:*",
+        "@posthog/products-data-quality": "workspace:*",
         "@posthog/products-data-tools": "workspace:*",
         "@posthog/products-data-warehouse": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",

@@ -689,6 +689,9 @@ importers:
       '@posthog/products-data-modeling':
         specifier: workspace:*
         version: link:../products/data_modeling
+      '@posthog/products-data-quality':
+        specifier: workspace:*
+        version: link:../products/data_quality
       '@posthog/products-data-tools':
         specifier: workspace:*
         version: link:../products/data_tools
