@@ -7,6 +7,7 @@ import { ChartDataPoint } from './LiveWebAnalyticsMetricsTypes'
 
 // Fixed base so the HH:mm axis/tooltip labels — and therefore the snapshots — stay deterministic.
 const BASE_TS = dayjs('2024-08-13T08:00:00Z').valueOf()
+const TIMEZONE = 'UTC'
 
 const NEW = [4, 6, 3, 8, 5, 9, 7, 11, 6, 10, 8, 12, 9, 14, 10, 13, 11, 15, 12, 9, 7, 10, 8, 6, 9, 11, 7, 5, 8, 6]
 const RETURNING = [2, 3, 5, 4, 6, 3, 7, 5, 8, 6, 9, 7, 5, 8, 6, 9, 7, 10, 8, 11, 9, 6, 8, 5, 7, 9, 6, 4, 7, 5]
@@ -49,7 +50,7 @@ export default meta
 export const UsersPerMinute: Story = {
     render: () => (
         <Sized>
-            <UsersPerMinuteChart data={DATA} />
+            <UsersPerMinuteChart data={DATA} timezone={TIMEZONE} />
         </Sized>
     ),
 }
@@ -57,7 +58,7 @@ export const UsersPerMinute: Story = {
 export const UsersPerMinuteEmpty: Story = {
     render: () => (
         <Sized>
-            <UsersPerMinuteChart data={EMPTY} />
+            <UsersPerMinuteChart data={EMPTY} timezone={TIMEZONE} />
         </Sized>
     ),
 }
@@ -65,7 +66,7 @@ export const UsersPerMinuteEmpty: Story = {
 export const BotEventsPerMinute: Story = {
     render: () => (
         <Sized>
-            <BotEventsPerMinuteChart data={DATA} />
+            <BotEventsPerMinuteChart data={DATA} timezone={TIMEZONE} />
         </Sized>
     ),
 }
@@ -73,7 +74,7 @@ export const BotEventsPerMinute: Story = {
 export const BotEventsPerMinuteEmpty: Story = {
     render: () => (
         <Sized>
-            <BotEventsPerMinuteChart data={EMPTY} />
+            <BotEventsPerMinuteChart data={EMPTY} timezone={TIMEZONE} />
         </Sized>
     ),
 }

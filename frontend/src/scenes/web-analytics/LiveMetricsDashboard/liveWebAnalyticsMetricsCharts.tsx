@@ -22,16 +22,12 @@ const EmptyState = ({ message }: { message: string }): JSX.Element => (
     <div className="h-full flex items-center justify-center text-muted text-sm">{message}</div>
 )
 
-// Matches the "shown in your local timezone" note on the cards, and is what the axis resolves
-// the ISO labels against.
-const LOCAL_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
-
 // Buckets are minute-aligned absolute timestamps; labels stay ISO so the time axis formats them
 // rather than printing baked display strings verbatim.
 const useMinuteLabels = (data: ChartDataPoint[]): string[] =>
     useMemo(() => data.map((d) => dayjs(d.timestamp).toISOString()), [data])
 
-export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
+export const UsersPerMinuteChart = ({ data, timezone }: { data: ChartDataPoint[]; timezone: string }): JSX.Element => {
     const hasData = data.some((d) => d.users > 0)
     const theme = useChartTheme()
     const labels = useMinuteLabels(data)
@@ -52,11 +48,11 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            xAxis: { timezone: LOCAL_TIMEZONE, interval: 'minute' },
+            xAxis: { timezone, interval: 'minute' },
             yAxis: { format: 'short' },
             legend: { show: true },
         }),
-        []
+        [timezone]
     )
 
     if (!hasData) {
@@ -88,7 +84,13 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
     )
 }
 
-export const BotEventsPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
+export const BotEventsPerMinuteChart = ({
+    data,
+    timezone,
+}: {
+    data: ChartDataPoint[]
+    timezone: string
+}): JSX.Element => {
     const hasData = data.some((d) => d.botEvents > 0)
     const theme = useChartTheme()
     const labels = useMinuteLabels(data)
@@ -100,10 +102,10 @@ export const BotEventsPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): J
 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: { timezone: LOCAL_TIMEZONE, interval: 'minute' },
+            xAxis: { timezone, interval: 'minute' },
             yAxis: { format: 'short' },
         }),
-        []
+        [timezone]
     )
 
     if (!hasData) {
