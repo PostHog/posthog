@@ -395,6 +395,7 @@ describe('customPropertyDefinitionsLogic', () => {
 
     describe('mapping every column at once', () => {
         const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
             useMocks(defaultMocks())
             mountLogic()
             await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
