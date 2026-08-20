@@ -147,7 +147,13 @@ def parse_tags_csv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         recommendation = (row.get("recommendation") or "").strip()
         if norm(tag).startswith("ai grant batch"):
-            effective = {bucket for bucket in recommendation.split("+") if bucket in TAG_BUCKETS}
+            # Normalize tokens the same way build_curated_lists does, so a cased/spaced
+            # sheet export ("Capital_Quality ") keeps its buckets through this rewrite.
+            effective = {
+                normalized
+                for bucket in recommendation.split("+")
+                if (normalized := bucket.strip().lower()) in TAG_BUCKETS
+            }
             effective.update({"capital_quality", "ai_positive"})
             recommendation = "+".join(sorted(effective))
         stored.append(

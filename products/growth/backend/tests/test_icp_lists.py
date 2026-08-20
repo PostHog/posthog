@@ -109,6 +109,22 @@ class TestIcpLists(BaseTest):
         )
         assert rows[0]["recommendation"] == "ai_positive+capital_quality"
 
+    def test_ai_grant_rewrite_keeps_cased_tokens_from_a_reformatted_export(self):
+        # The rewrite must normalize tokens like build_curated_lists does, or a cased
+        # export would silently drop buckets from the stored recommendation.
+        rows = parse_tags_csv_rows(
+            [
+                {
+                    "tag": "AI Grant Batch 1",
+                    "type": "ACCELERATOR",
+                    "recommendation": " Software_Positive +AI_POSITIVE",
+                    "reason": "",
+                    "note": "",
+                }
+            ]
+        )
+        assert rows[0]["recommendation"] == "ai_positive+capital_quality+software_positive"
+
     def _write_exports(self):
         tempdir = tempfile.mkdtemp()
         tags_path = os.path.join(tempdir, "tags.csv")
