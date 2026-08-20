@@ -1,11 +1,55 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ChannelIdentity,
   channelDisplayLabel,
   channelDisplayReference,
+  isGeneralChannel,
+  isPersonalChannel,
   normalizeChannelName,
   normalizeChannelNameInput,
   validateChannelName,
 } from "./channelName";
+
+describe("isPersonalChannel / isGeneralChannel", () => {
+  it.each([
+    [
+      "system_role wins over channel_type/name when present (personal)",
+      { system_role: "personal", channel_type: "public", name: "not-me" },
+      true,
+      false,
+    ],
+    [
+      "system_role wins over channel_type/name when present (general)",
+      { system_role: "general", channel_type: "personal", name: "not-general" },
+      false,
+      true,
+    ],
+    [
+      "null system_role falls back to the legacy checks and matches",
+      { system_role: null, channel_type: "personal", name: "me" },
+      true,
+      false,
+    ],
+    [
+      "null system_role falls back to the legacy checks and matches general",
+      { system_role: null, channel_type: "public", name: "general" },
+      false,
+      true,
+    ],
+    [
+      "neither system_role nor the legacy checks match",
+      { system_role: null, channel_type: "public", name: "growth" },
+      false,
+      false,
+    ],
+  ] satisfies [string, ChannelIdentity, boolean, boolean][])(
+    "%s",
+    (_label, channel, expectedPersonal, expectedGeneral) => {
+      expect(isPersonalChannel(channel)).toBe(expectedPersonal);
+      expect(isGeneralChannel(channel)).toBe(expectedGeneral);
+    },
+  );
+});
 
 describe("normalizeChannelName", () => {
   it.each([

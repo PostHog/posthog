@@ -8,7 +8,7 @@ from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.sandbox import Sandbox
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -89,6 +89,19 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     id=ctx.task_id
                 )
             )
+            context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+            if context_ownership_version != task.ownership_version:
+                logger.info(
+                    "sandbox_credentials_refresh_stopped_ownership_changed",
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                    task_id=ctx.task_id,
+                )
+                return RefreshSandboxCredentialsOutput(
+                    next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS,
+                    refreshed_kinds=[],
+                    no_credentials_left=True,
+                )
             ctx = _with_current_authorship(ctx)
         except Task.DoesNotExist:
             logger.info(
