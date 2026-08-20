@@ -229,6 +229,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -244,6 +245,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
