@@ -557,6 +557,32 @@ def send_email_verification(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_email_verification_code(user_id: int, code: str) -> None:
+    """Send the 6-digit signup email-verification code."""
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email-verification-code-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your email address",
+        template_name="email_verification_code",
+        template_context={
+            "preheader": "Enter this code to verify your email address.",
+            "code": code,
+            "expiration_minutes": CODE_TTL_SECONDS // 60,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="verification code sent",
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
+    )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_code_based_verification(user_id: int, code: str) -> None:
     """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)

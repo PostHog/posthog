@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,6 +44,8 @@ export interface verifyEmailLogicValues {
     uuid: string | null
     validatedEmailToken: ValidatedTokenResponseType | null
     validatedEmailTokenLoading: boolean
+    verificationCode: string
+    verificationCodeError: string | null
     view: 'invalid' | 'pending' | 'success' | 'verify' | null
 }
 
@@ -72,8 +75,35 @@ export interface verifyEmailLogicActions {
     setUuid: (uuid: string | null) => {
         uuid: string | null
     }
+    setVerificationCode: (code: string) => {
+        code: string
+    }
+    setVerificationCodeError: (error: string | null) => {
+        error: string | null
+    }
     setView: (view: 'invalid' | 'pending' | 'success' | 'verify' | null) => {
         view: 'invalid' | 'pending' | 'success' | 'verify' | null
+    }
+    submitVerificationCode: () => {
+        value: true
+    }
+    submitVerificationCodeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    submitVerificationCodeSuccess: (
+        validatedEmailToken: ValidatedTokenResponseType | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        validatedEmailToken: ValidatedTokenResponseType | null
+        payload?: {
+            value: true
+        }
     }
     validateEmailToken: ({ uuid, token }: { token: string; uuid: string }) => {
         uuid: string
@@ -138,6 +168,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
         setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
         requestVerificationLink: (uuid: string) => ({ uuid }),
+        setVerificationCode: (code: string) => ({ code }),
+        setVerificationCodeError: (error: string | null) => ({ error }),
+        submitVerificationCode: true,
     }),
     loaders(({ actions, values }) => ({
         validatedEmailToken: [
@@ -145,10 +178,12 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             {
                 validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }, breakpoint) => {
                     try {
-                        const response = await api.create<{ success: boolean; token?: string; requires_2fa?: boolean }>(
-                            `api/users/verify_email/`,
-                            { token, uuid }
-                        )
+                        const response = await api.create<{
+                            success: boolean
+                            token?: string
+                            requires_2fa?: boolean
+                            requires_login?: boolean
+                        }>(`api/users/verify_email/`, { token, uuid })
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
 
@@ -157,6 +192,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             lemonToast.success(
                                 'Email verified! Please log in with your password to complete two-factor authentication.'
                             )
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, token, uuid }
+                        }
+                        if (response.requires_login) {
+                            lemonToast.success('Email verified! Log in to continue.')
                             router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
                             return { success: true, token, uuid }
                         }
@@ -184,6 +224,54 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
+                submitVerificationCode: async (_, breakpoint) => {
+                    const uuid = values.uuid
+                    const code = normalizeVerificationCode(values.verificationCode)
+                    if (!uuid) {
+                        return values.validatedEmailToken
+                    }
+                    if (!isValidVerificationCode(code)) {
+                        actions.setVerificationCodeError('Enter the 6-digit code from your email.')
+                        return values.validatedEmailToken
+                    }
+                    try {
+                        const response = await api.create<{
+                            success: boolean
+                            requires_2fa?: boolean
+                            requires_login?: boolean
+                        }>(`api/users/verify_email/`, { uuid, code })
+                        actions.setView('success')
+                        await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
+                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+                        if (response.requires_2fa) {
+                            lemonToast.success(
+                                'Email verified! Please log in with your password to complete two-factor authentication.'
+                            )
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, uuid }
+                        }
+                        if (response.requires_login) {
+                            lemonToast.success('Email verified! Log in to continue.')
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, uuid }
+                        }
+                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
+                        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
+                        location.href = nextUrl || resolvePostVerifyDefault(values)
+                        return { success: true, uuid }
+                    } catch (e: any) {
+                        if (e.code === 'too_many_attempts') {
+                            actions.setVerificationCodeError(
+                                'Too many incorrect attempts. Request a new code and try again.'
+                            )
+                        } else if (e.code === 'throttled') {
+                            actions.setVerificationCodeError('Too many attempts. Wait a few minutes and try again.')
+                        } else {
+                            actions.setVerificationCodeError(e.detail || 'This code is invalid or has expired.')
+                        }
+                        return values.validatedEmailToken
+                    }
+                },
             },
         ],
         newlyRequestedVerificationLink: [
@@ -193,8 +281,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     try {
                         await api.create(`api/users/request_email_verification/`, { uuid })
                         lemonToast.success(
-                            'A new verification link has been sent to the associated email address. Please check your inbox.'
+                            'A new verification email has been sent to the associated email address. Please check your inbox.'
                         )
+                        // The pending view carries the code entry form, so a resend from the
+                        // expired-link view still leaves the user somewhere they can act.
+                        actions.setView('pending')
                         return true
                     } catch (e: any) {
                         if (e.code === 'throttled') {
@@ -223,6 +314,20 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             null as string | null,
             {
                 setUuid: (_, { uuid }) => uuid,
+            },
+        ],
+        verificationCode: [
+            '',
+            {
+                setVerificationCode: (_, { code }) => code,
+            },
+        ],
+        verificationCodeError: [
+            null as string | null,
+            {
+                setVerificationCode: () => null,
+                submitVerificationCode: () => null,
+                setVerificationCodeError: (_, { error }) => error,
             },
         ],
     }),

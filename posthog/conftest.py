@@ -491,6 +491,22 @@ def mock_code_based_verifier(request, mocker):
     )
 
 
+@pytest.fixture(autouse=True)
+def mock_signup_email_code_verification(request, mocker):
+    """
+    Keep the pre-existing email-verification tests on the link flow: signup verification sends a
+    6-digit code by default, which would bypass every mock of the link-email sender. Tests covering
+    the code flow opt out with @pytest.mark.disable_mock_signup_email_code_verification.
+    """
+    if "disable_mock_signup_email_code_verification" in request.keywords:
+        return
+
+    mocker.patch(
+        "posthog.api.email_verification.EmailVerifier.use_verification_code",
+        return_value=False,
+    )
+
+
 class _JUnitTimingsPlugin:
     """Capture wall-clock offsets and surface them as JUnit `<testsuite>` properties.
 

@@ -980,6 +980,23 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
+    scope = "user_verify_email"
+    rate = "6/20minutes"
+
+    def get_cache_key(self, request, view):
+        # Key on the target user's uuid from the request body: verification is unauthenticated, so
+        # the base class would key on IP, letting a distributed guesser spread code attempts across
+        # addresses. Per-target keying caps the total guess budget against any one account; the
+        # Redis attempt counter on the code itself is the hard limit underneath.
+        target_uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
+        if target_uuid:
+            ident = hashlib.sha256(str(target_uuid).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class OnboardingDelegationThrottle(UserRateThrottle):
     # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
     # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint

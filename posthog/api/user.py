@@ -46,7 +46,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
+from posthog.api.email_verification import EmailVerifier, email_verification_token_generator, signup_email_code_verifier
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -92,7 +92,11 @@ from posthog.helpers.email_utils import (
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.session_cache import SessionCache
-from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import (
+    has_passkeys,
+    normalize_verification_code,
+    set_two_factor_verified_in_session,
+)
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
@@ -119,6 +123,7 @@ from posthog.rate_limit import (
     ToolbarOAuthRefreshThrottle,
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
+    UserVerifyEmailThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
@@ -186,6 +191,22 @@ class PendingInviteSerializer(serializers.Serializer):
     organization_id = serializers.CharField()
     organization_name = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+class VerifyEmailRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/users/verify_email/. Documentation only; the action validates
+    manually because token and code follow an either-or rule serializer fields can't express."""
+
+    uuid = serializers.UUIDField(help_text="UUID of the user whose email is being verified.")
+    token = serializers.CharField(
+        required=False,
+        help_text="Verification token from the emailed link. Required unless a code is provided.",
+    )
+    code = serializers.CharField(
+        required=False,
+        help_text="The 6-digit verification code emailed at signup. Whitespace, invisible characters, "
+        "and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.",
+    )
 
 
 class OnboardingSkipRequestSerializer(serializers.Serializer):
@@ -1128,12 +1149,14 @@ class UserViewSet(
         revoked_count = revoke_other_sessions(user, request.session.session_key)
         return Response({"revoked_count": revoked_count})
 
-    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
+    @extend_schema(request=VerifyEmailRequestSerializer)
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny], throttle_classes=[UserVerifyEmailThrottle])
     def verify_email(self, request, **kwargs):
-        token = request.data["token"] if "token" in request.data else None
+        token = request.data.get("token") or None
+        code = request.data.get("code") or None
         user_uuid = request.data["uuid"]
 
-        if not token:
+        if not token and not code:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
         # Special handling for E2E tests
@@ -1145,7 +1168,36 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
 
-        if not user or not EmailVerifier.check_token(user, token):
+        # A repeat visit with an already-spent token or code (double click, link prefetched by an
+        # email scanner) must not read as failure: the address is verified, so say so and send the
+        # user to log in. No credential was presented, so no session is handed out here.
+        if user and user.is_email_verified is True and not user.pending_email:
+            return Response({"success": True, "requires_login": True})
+
+        if code and not token:
+            if not user or user.pending_email:
+                # Codes are only ever issued for signup verification; an email change needs its link.
+                raise serializers.ValidationError(
+                    {"code": ["This verification code is invalid or has expired."]},
+                    code="invalid_code",
+                )
+            attempts = signup_email_code_verifier.reserve_attempt(user)
+            if signup_email_code_verifier.attempts_exceeded(attempts):
+                signup_email_code_verifier.invalidate(user)
+                raise serializers.ValidationError(
+                    {"code": ["Too many incorrect attempts. Request a new code."]},
+                    code="too_many_attempts",
+                )
+            normalized_code = normalize_verification_code(code)
+            if not re.fullmatch(r"\d{6}", normalized_code) or not signup_email_code_verifier.check_code(
+                user, normalized_code
+            ):
+                raise serializers.ValidationError(
+                    {"code": ["This verification code is invalid or has expired."]},
+                    code="invalid_code",
+                )
+            signup_email_code_verifier.invalidate(user)
+        elif not user or not token or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
                 {"token": ["This verification token is invalid or has expired."]},
                 code="invalid_token",
