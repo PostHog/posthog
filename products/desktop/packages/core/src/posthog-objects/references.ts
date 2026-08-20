@@ -1,30 +1,8 @@
-import { unescapeXmlAttr } from "@posthog/shared";
-
-const OBJECT_KINDS = new Set([
-  "insight",
-  "hogql",
-  "dashboard",
-  "error",
-  "replay",
-  "flag",
-  "experiment",
-  "survey",
-  "ticket",
-  "trace",
-  "eval",
-  "event",
-  "cohort",
-  "action",
-  "person",
-]);
-
-const OBJECT_ALIASES: Record<string, string> = {
-  "session-replay": "replay",
-  recording: "replay",
-  "feature-flag": "flag",
-  feature_flag: "flag",
-  sql: "hogql",
-};
+import {
+  buildObjectTagRef,
+  parseObjectTagAttrs,
+  resolveObjectKindName,
+} from "@posthog/core/inbox/objectTags";
 
 // Opening tags and closing tags are matched separately so an unmatched opener
 // costs one regex step instead of a lazy scan to the end of the message; the
@@ -32,7 +10,6 @@ const OBJECT_ALIASES: Record<string, string> = {
 const OPEN_TAG_PATTERN =
   /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(\/>|>)/g;
 const CLOSE_TAG_PATTERN = /<\/([a-z][\w-]*)\s*>/g;
-const ATTR_PATTERN = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g;
 const MAX_REFERENCES = 50;
 const MAX_OBJECT_ID_LENGTH = 16_384;
 const MAX_LABEL_LENGTH = 255;
@@ -121,19 +98,6 @@ function stripCode(markdown: string): string {
     .join("\n");
 }
 
-function parseAttributes(raw: string): Record<string, string> {
-  const attributes: Record<string, string> = {};
-  for (const match of raw.matchAll(ATTR_PATTERN)) {
-    attributes[match[1]] = unescapeXmlAttr(match[2]);
-  }
-  return attributes;
-}
-
-function normalizeKind(value: string): string | null {
-  const kind = OBJECT_ALIASES[value] ?? value;
-  return OBJECT_KINDS.has(kind) ? kind : null;
-}
-
 interface TagMatch {
   name: string;
   rawAttributes: string;
@@ -190,25 +154,21 @@ export function extractPostHogObjectReferences(
   const references: PostHogObjectReference[] = [];
   const seen = new Set<string>();
   for (const match of scanTags(stripCode(markdown))) {
-    const kind = normalizeKind(match.name);
+    const kind = resolveObjectKindName(match.name);
     if (!kind) continue;
-    const attributes = parseAttributes(match.rawAttributes);
-    const body = match.body.trim();
-    const id = (kind === "hogql" ? body : (attributes.id ?? "")).trim();
-    if (!id || id.length > MAX_OBJECT_ID_LENGTH) continue;
-    const key = `${kind}\0${id}`;
+    const ref = buildObjectTagRef(
+      kind,
+      parseObjectTagAttrs(match.rawAttributes),
+      match.body,
+    );
+    if (!ref || ref.id.length > MAX_OBJECT_ID_LENGTH) continue;
+    const key = `${ref.kind}\0${ref.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const label = (
-      attributes.label ??
-      attributes.title ??
-      body.replace(/\s+/g, " ") ??
-      id
-    ).trim();
     references.push({
-      kind,
-      id,
-      label: (label || id).slice(0, MAX_LABEL_LENGTH),
+      kind: ref.kind,
+      id: ref.id,
+      label: ref.label.replace(/\s+/g, " ").trim().slice(0, MAX_LABEL_LENGTH),
     });
     if (references.length >= MAX_REFERENCES) break;
   }
