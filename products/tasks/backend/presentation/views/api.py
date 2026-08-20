@@ -113,6 +113,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskCommentsQuerySerializer,
     TaskCommentsResponseSerializer,
     TaskCreateSerializer,
+    TaskHandoffRequestSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
@@ -679,6 +680,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pinned is None:
             raise NotFound()
         return Response({"task_id": pk, "pinned": pinned})
+
+    @extend_schema(
+        request=TaskHandoffRequestSerializer,
+        responses={200: TaskSerializer},
+        summary="Hand a task off to a colleague",
+        description=(
+            "Transfer ownership of a task to another member of the project: they take over driving it "
+            "(steering, archiving, running), and future runs resolve GitHub authorship and notification "
+            "recipients from them. Only the task's current owner can hand it off. A task in a private "
+            "space moves into the recipient's private space; a task in a shared space stays there."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskHandoffRequestSerializer)
+    def handoff(self, request, pk=None, **kwargs):
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        try:
+            task = tasks_facade.handoff_task(pk, self.team_id, user_id, target_user_id=request.validated_data["user"])
+        except tasks_facade.TaskHandoffError as e:
+            raise ValidationError({"user": str(e)}) from e
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
 
     @extend_schema(
         responses={
