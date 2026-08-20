@@ -25,6 +25,7 @@ export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff
  * For example: async migrations settings are handled in their own page.
  */
 const EDITABLE_INSTANCE_SETTINGS = [
+    'QUERY_BLOCKING_DEDUP_ENABLED',
     'RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS',
     'EMAIL_ENABLED',
     'EMAIL_HOST',

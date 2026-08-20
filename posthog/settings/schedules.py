@@ -1,5 +1,5 @@
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
@@ -42,6 +42,13 @@ CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
 TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
+
+# Fallback for the QUERY_BLOCKING_DEDUP_ENABLED instance setting when Postgres is unreachable;
+# the instance setting (seeded from the same env var) is what operators actually flip.
+QUERY_BLOCKING_DEDUP_ENABLED = get_from_env("QUERY_BLOCKING_DEDUP_ENABLED", False, type_cast=str_to_bool)
+
+# How long a blocking run waits on another run's computation before computing anyway.
+QUERY_BLOCKING_DEDUP_MAX_WAIT_SECONDS = get_from_env("QUERY_BLOCKING_DEDUP_MAX_WAIT_SECONDS", 90, type_cast=int)
 
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this

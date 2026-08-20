@@ -251,6 +251,12 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "QUERY_BLOCKING_DEDUP_ENABLED": (
+        get_from_env("QUERY_BLOCKING_DEDUP_ENABLED", False, type_cast=str_to_bool),
+        "When one request is already computing a query, other blocking requests for the same query "
+        "wait for its result instead of running the query again.",
+        bool,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -382,6 +388,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
+    "QUERY_BLOCKING_DEDUP_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",

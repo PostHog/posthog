@@ -151,11 +151,18 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
+from posthog.query_cache.inflight import (
+    WaitOutcome,
+    acquire_claim,
+    blocking_dedup_enabled,
+    release_claim,
+    wait_for_cached_result,
+)
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
-from posthog.slo.context import JsonValue, SloSpec, slo_operation
+from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -2180,7 +2187,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # cache_hit is left unset on this path: either the caller passed
                     # CALCULATE_BLOCKING_ALWAYS (cache skipped) or the cache returned nothing.
                     slo.tag(execution_path="blocking", calculation_trigger=trigger)
-                    return self._execute_and_cache_blocking(
+                    return self._execute_blocking_with_dedup(
                         cache_key=cache_key,
                         cache_manager=cache_manager,
                         execution_mode=execution_mode,
@@ -2221,6 +2228,108 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
                             )
                     raise
+
+    def _blocking_dedup_applies(self) -> bool:
+        # Exports skip the cache write, so there is no shared result to wait for; runners that
+        # must reflect live state cannot serve another run's result, however fresh.
+        if self.limit_context == LimitContext.EXPORT or self.requires_fresh_calculation():
+            return False
+        return blocking_dedup_enabled()
+
+    def _joined_cached_response(self, cache_manager: QueryCache) -> Optional[CR]:
+        """The cached response another run just stored, or None to fall back to computing."""
+        CachedResponse: type[CR] = self.cached_response_type
+        entry = cache_manager.lookup().entry
+        if entry is None:
+            return None
+        candidate = entry.as_full_response()
+        if not self.is_cached_response(candidate):
+            return None
+        candidate["is_cached"] = True
+        try:
+            response = CachedResponse(**candidate)
+        except Exception:
+            # A rolling deploy can store a shape this code can't validate; recompute instead.
+            return None
+        response, _ = self.apply_series_custom_names(response)
+        response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
+        return response
+
+    def _execute_blocking_with_dedup(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCache,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional[AnalyticsProps] = None,
+    ) -> CR:
+        """One computation per cache key: claim it, or join the run that holds the claim.
+
+        Deduplication is best-effort. Whenever joining fails (the claim holder died, its
+        result never became readable, or the wait hit its deadline) this falls back to
+        computing, so the worst case is the undeduplicated behavior plus a bounded wait.
+        """
+
+        def compute() -> CR:
+            return self._execute_and_cache_blocking(
+                cache_key=cache_key,
+                cache_manager=cache_manager,
+                execution_mode=execution_mode,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                trigger=trigger,
+                user=user,
+                start_time=start_time,
+                analytics_props=analytics_props,
+            )
+
+        if not self._blocking_dedup_applies():
+            return compute()
+
+        deadline = monotonic() + settings.QUERY_BLOCKING_DEDUP_MAX_WAIT_SECONDS
+        while True:
+            claim = acquire_claim(cache_key)
+            if claim is not None:
+                try:
+                    return compute()
+                finally:
+                    release_claim(claim)
+            outcome = wait_for_cached_result(cache_key, self.team.pk, deadline=deadline)
+            if outcome == WaitOutcome.CLAIM_RELEASED:
+                # The other run ended without caching a result (an error, or a dead process);
+                # loop back and try to claim the computation ourselves.
+                continue
+            if outcome == WaitOutcome.RESULT_READY:
+                joined = self._joined_cached_response(cache_manager)
+                if joined is not None:
+                    tag_current_slo(execution_path="blocking_dedup_join", cache_hit=True)
+                    report_user_or_team_action(
+                        "query executed",
+                        {
+                            "insight_id": insight_id,
+                            "dashboard_id": dashboard_id,
+                            "cache_hit": True,
+                            "dedup_joined": True,
+                            "cache_key": cache_key,
+                            "calculation_trigger": joined.calculation_trigger,
+                            "execution_mode": execution_mode.value,
+                            "query_type": getattr(self.query, "kind", "Other"),
+                            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                        },
+                        user=user,
+                        team=self.team,
+                        organization=self.team.organization,
+                        analytics_props=analytics_props,
+                    )
+                    return joined
+                # The entry disappeared or failed validation between the freshness probe and
+                # the read; compute rather than spin on an unreadable entry.
+            return compute()
 
     def _execute_and_cache_blocking(
         self,

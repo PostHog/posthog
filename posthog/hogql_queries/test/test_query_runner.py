@@ -62,6 +62,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
@@ -74,6 +75,7 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
+from posthog.query_cache.inflight import WaitOutcome, acquire_claim, release_claim
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
 
@@ -1989,3 +1991,83 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+class TestBlockingDedup(BaseTest):
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def test_second_blocking_run_joins_instead_of_computing(self):
+        runner_class = setup_test_query_runner_class()
+        with override_instance_config("QUERY_BLOCKING_DEDUP_ENABLED", True):
+            first = runner_class(query={"some_attr": "bla"}, team=self.team)
+            first.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            cache_key = first.get_cache_key()
+
+            claim = acquire_claim(cache_key)
+            assert claim is not None
+            try:
+                second = runner_class(query={"some_attr": "bla"}, team=self.team)
+                with (
+                    mock.patch(
+                        "posthog.hogql_queries.query_runner.wait_for_cached_result",
+                        return_value=WaitOutcome.RESULT_READY,
+                    ),
+                    mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate,
+                ):
+                    response = second.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            finally:
+                release_claim(claim)
+
+        mock_calculate.assert_not_called()
+        assert response.is_cached is True
+        assert response.cache_key == cache_key
+        assert response.results
+
+    def test_dedup_disabled_computes_despite_held_claim(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        claim = acquire_claim(runner.get_cache_key())
+        assert claim is not None
+        try:
+            with mock.patch(
+                "posthog.hogql_queries.query_runner.wait_for_cached_result",
+                side_effect=AssertionError("waited with deduplication disabled"),
+            ):
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            release_claim(claim)
+        assert response.is_cached is False
+
+    def test_export_computes_despite_held_claim(self):
+        runner_class = setup_test_query_runner_class()
+        with override_instance_config("QUERY_BLOCKING_DEDUP_ENABLED", True):
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.EXPORT)
+            claim = acquire_claim(runner.get_cache_key())
+            assert claim is not None
+            try:
+                with mock.patch(
+                    "posthog.hogql_queries.query_runner.wait_for_cached_result",
+                    side_effect=AssertionError("an export waited on a claim"),
+                ):
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            finally:
+                release_claim(claim)
+        assert response.is_cached is False
+
+    def test_wait_timeout_falls_back_to_computing(self):
+        runner_class = setup_test_query_runner_class()
+        with override_instance_config("QUERY_BLOCKING_DEDUP_ENABLED", True):
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+            claim = acquire_claim(runner.get_cache_key())
+            assert claim is not None
+            try:
+                with mock.patch(
+                    "posthog.hogql_queries.query_runner.wait_for_cached_result",
+                    return_value=WaitOutcome.TIMED_OUT,
+                ):
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            finally:
+                release_claim(claim)
+        assert response.is_cached is False
