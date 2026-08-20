@@ -204,7 +204,6 @@ def _fast_return_eligible(
     schema: ExternalDataSchema,
     team: "Team | None",
     team_id: int,
-    table: "DataWarehouseTable | None",
     enrichment_needed: bool,
     statistics_needed: bool,
 ) -> bool:
@@ -379,7 +378,6 @@ def create_external_data_job_model_activity(
             schema=schema,
             team=team,
             team_id=inputs.team_id,
-            table=table,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
         )

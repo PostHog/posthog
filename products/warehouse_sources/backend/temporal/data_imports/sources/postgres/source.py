@@ -1298,6 +1298,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 incremental_field=inputs.incremental_field,
                 incremental_field_type=inputs.incremental_field_type,
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+                row_filters=inputs.row_filters,
             )
             require_ssl = source_requires_ssl(schema.source, config)
             with self.get_implementation.connect(config, require_ssl=require_ssl) as conn:

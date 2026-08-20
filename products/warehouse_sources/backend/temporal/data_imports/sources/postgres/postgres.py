@@ -2161,15 +2161,34 @@ def build_has_new_rows_query(
     incremental_field: str,
     incremental_field_type: IncrementalFieldType,
     db_incremental_field_last_value: Any,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
-    """Existence check sharing `_build_count_query`'s predicate, stopping at the first match."""
-    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
-    return sql.SQL("SELECT 1 FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} LIMIT 1").format(
+    """Existence check carrying `_build_query`'s predicate verbatim.
+
+    Same operator (`>=` for Date), same empty-watermark normalization, same row filters joined
+    the same way. A predicate narrower than the sync's would report "nothing new" for rows the
+    sync would have read, so these must not drift apart. `upper_bound_inclusive` is deliberately
+    absent: it windows a single run's reads rather than defining what counts as new.
+    """
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
+
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    conditions = [
+        sql.SQL("{incremental_field} {op} {last_value}").format(
+            incremental_field=sql.Identifier(incremental_field),
+            op=sql.SQL(incremental_type_to_operator(incremental_field_type)),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        ),
+        *render_psycopg_row_filter_conditions(row_filters or []),
+    ]
+
+    return sql.SQL("SELECT 1 FROM {schema}.{table} WHERE {predicate} LIMIT 1").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        op=operator,
-        last_value=sql.Literal(db_incremental_field_last_value),
+        predicate=and_join(conditions),
     )
 
 

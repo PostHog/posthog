@@ -59,7 +59,6 @@ def _run(
             schema=schema,
             team=object(),
             team_id=1,
-            table=None,
             enrichment_needed=enrichment,
             statistics_needed=statistics,
         )
@@ -129,7 +128,6 @@ class TestFastReturnEligibility:
                 schema=_schema(),
                 team=None,
                 team_id=1,
-                table=None,
                 enrichment_needed=False,
                 statistics_needed=False,
             )
