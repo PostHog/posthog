@@ -290,6 +290,60 @@ class TestTwoFactorReset(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
+class TestTwoFactorResetRequest(APIBaseTest):
+    """Tests for the user-initiated 2FA reset request from the login challenge page."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.logout()
+        self.totp_device = TOTPDevice.objects.create(user=self.user, name="Test Device", confirmed=True)
+
+    def _setup_half_auth_session(self, user=None):
+        if user is None:
+            user = self.user
+        session = self.client.session
+        session["user_authenticated_but_no_2fa"] = user.pk
+        session["user_authenticated_time"] = int(time.time())
+        session.save()
+
+    @patch("posthog.event_usage.report_two_factor_reset_requested")
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_half_authed_user_can_request_reset(self, mock_send_email, mock_report):
+        self._setup_half_auth_session()
+
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response.json()["success"])
+
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.requested_2fa_reset_at)
+        mock_send_email.assert_called_once()
+        self.assertEqual(mock_send_email.call_args[0][0], self.user.pk)
+        mock_report.assert_called_once()
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_request_reset_requires_half_auth_session(self, mock_send_email):
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(response.json()["requires_login"])
+        mock_send_email.assert_not_called()
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_request_reset_sends_no_email_when_no_2fa_configured(self, mock_send_email):
+        # A user with no 2FA device should get a success response but no email, so the
+        # response never reveals the account's 2FA state.
+        TOTPDevice.objects.filter(user=self.user).delete()
+        self._setup_half_auth_session()
+
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["success"])
+        mock_send_email.assert_not_called()
+
+
 class TestTwoFactorResetWithPasskeys(APIBaseTest):
     """Tests for 2FA reset with passkeys enabled."""
 

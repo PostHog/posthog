@@ -18,9 +18,16 @@ import { login2FALogic } from './login2FALogic'
 // elements, so inserting the conditional support link beside a bare text node crashes React
 // (insertBefore / removeChild NotFoundError, see react#11538).
 export function Login2FA(): JSX.Element {
-    const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
-        useValues(login2FALogic)
-    const { beginPasskey2FA } = useActions(login2FALogic)
+    const {
+        isTwofactortokenSubmitting,
+        generalError,
+        passkey2FALoading,
+        passkeysAvailable,
+        totpAvailable,
+        resetEmailSent,
+        resetEmailSentLoading,
+    } = useValues(login2FALogic)
+    const { beginPasskey2FA, requestReset } = useActions(login2FALogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -104,6 +111,29 @@ export function Login2FA(): JSX.Element {
                         No 2FA methods available. Please contact support if you believe this is an error.
                     </LemonBanner>
                 )}
+
+                {(totpAvailable || passkeysAvailable) &&
+                    (resetEmailSent ? (
+                        <LemonBanner type="success">
+                            Check your email for a link to reset two-factor authentication. The link works for 24 hours.
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <p className="text-secondary text-center mb-2">Lost access to your authenticator?</p>
+                            <LemonButton
+                                type="tertiary"
+                                htmlType="button"
+                                data-attr="2fa-reset-request"
+                                onClick={() => requestReset()}
+                                loading={resetEmailSentLoading}
+                                fullWidth
+                                center
+                            >
+                                Email me a reset link
+                            </LemonButton>
+                        </>
+                    ))}
             </div>
         </BridgePage>
     )
