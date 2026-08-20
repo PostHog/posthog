@@ -1848,7 +1848,7 @@ class SafeTimetzLoader(TimetzLoader):
         return _load_time_clamping_hour_24(super().load, data)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class XminBounds:
     """Bounded xmin window captured once at sync start (see §2.2/§2.3 of the design).
 
@@ -1856,6 +1856,11 @@ class XminBounds:
     full 64-bit `pg_snapshot_xmin` we persist as the durable, wraparound-safe cursor; `num_wraparound`
     is its epoch (high 32 bits). `wraparound_or_range` selects the single-wrap `>= lower OR < upper`
     predicate instead of the steady-state `>= lower AND < upper`.
+
+    `full_scan` drops the window and reads every tuple. A backfill has to do that because tuple
+    `xmin` carries no epoch: on a cluster past its first wraparound the rows written in earlier
+    epochs keep 32-bit xids above the current epoch's remainder, so no `[0, ceiling)` window
+    reaches them.
     """
 
     lower: int
@@ -1863,6 +1868,7 @@ class XminBounds:
     ceiling_xid8: int
     num_wraparound: int
     wraparound_or_range: bool
+    full_scan: bool = False
 
 
 def _capture_xmin_ceiling(
@@ -1893,8 +1899,13 @@ def _capture_xmin_ceiling(
     ceiling_xid = ceiling_xid8 & 0xFFFFFFFF
     num_wraparound = ceiling_xid8 >> 32
 
-    # First run (no stored cursor): read everything `< ceiling` once. `lower = 0` is below
-    # FrozenTransactionId (2) so even frozen tuples are captured by the initial snapshot.
+    # First run (no stored cursor): read the whole table, with no xmin predicate. An
+    # `xmin < ceiling` window silently drops most of the table on a wrapped cluster, because
+    # `ceiling_xid` is only the low 32 bits of the ceiling while historical tuples keep raw xids
+    # above it (since PG 9.4 freezing sets HEAP_XMIN_FROZEN in the infomask and leaves `xmin`
+    # alone instead of rewriting it to FrozenTransactionId, so those xids stay large). The
+    # ceiling is still captured here and persisted after the run, so rows committed during the
+    # scan are re-read next run rather than skipped.
     if stored_last_value is None:
         return XminBounds(
             lower=0,
@@ -1902,6 +1913,7 @@ def _capture_xmin_ceiling(
             ceiling_xid8=ceiling_xid8,
             num_wraparound=num_wraparound,
             wraparound_or_range=False,
+            full_scan=True,
         )
 
     delta = num_wraparound - (stored_num_wraparound or 0)
@@ -1922,14 +1934,19 @@ def _capture_xmin_ceiling(
             num_wraparound=num_wraparound,
             wraparound_or_range=True,
         )
-    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely — force a full
-    # re-read of everything `< ceiling`.
+    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely, so re-read the
+    # whole table like a backfill does.
     logger.warning(
         f"xmin epoch advanced by {delta} since the last sync (stored={stored_num_wraparound}, "
         f"current={num_wraparound}); forcing a full re-read."
     )
     return XminBounds(
-        lower=0, upper=ceiling_xid, ceiling_xid8=ceiling_xid8, num_wraparound=num_wraparound, wraparound_or_range=False
+        lower=0,
+        upper=ceiling_xid,
+        ceiling_xid8=ceiling_xid8,
+        num_wraparound=num_wraparound,
+        wraparound_or_range=False,
+        full_scan=True,
     )
 
 
@@ -2057,6 +2074,9 @@ def _build_query(
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     """Bounded predicate over the cast `xmin` (no ordering operators exist on raw `xid`)."""
+    if bounds.full_scan:
+        # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
+        return sql.SQL("TRUE").format()
     xmin_expr = sql.SQL("xmin::text::bigint")
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(

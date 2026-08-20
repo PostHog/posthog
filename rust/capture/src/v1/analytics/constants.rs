@@ -55,6 +55,14 @@ pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop"
 /// Detail tag for events dropped due to uncoercible options fields.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 
+/// Detail tag for AI-lane events dropped because the project is over its
+/// byte budget.
+pub(super) const DETAIL_AI_BYTE_RATE_LIMITED: &str = "ai_byte_rate_limited";
+
+/// Detail tag for AI-lane events dropped for exceeding the deployment's
+/// per-event size ceiling.
+pub(super) const DETAIL_AI_EVENT_TOO_BIG: &str = "ai_event_too_big";
+
 // ---------------------------------------------------------------------------
 // Validation limits
 // ---------------------------------------------------------------------------

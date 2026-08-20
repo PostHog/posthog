@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -10,10 +10,16 @@ import jwt
 from parameterized import parameterized
 
 from products.stamphog.backend.facade.enums import AudienceReason
+from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError, _build_app_jwt
+from products.stamphog.backend.logic.github_client import (
+    MAX_COMPARE_DIFF_BYTES,
+    StamphogGitHubClient,
+    StamphogGitHubError,
+    _build_app_jwt,
+)
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -22,10 +28,10 @@ from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import _generate_app_private_key
 
-# The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
-# own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
-# server-side, so there is no ported copy to test here. What remains server-side is
-# the defensive parsing of the engine's stdout contract.
+# The gate/policy engine lives in packages/pr-approval-agent, and its own suite covers it
+# (test_gates.py, test_policy.py). It runs inside the sandbox rather than server-side, so there is
+# no ported copy to test here. Only the defensive parsing of the engine's stdout contract remains
+# server-side.
 
 
 class ParseReviewerOutputTests(SimpleTestCase):
@@ -114,6 +120,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             check_runs=[],
             pr_reactions=[],
             author_pr_numbers=[],
+            author_team_slugs=[],
             base_sha="base",
             head_sha="head",
             repo="owner/repo",
@@ -513,3 +520,76 @@ class OwnedFileCountTests(SimpleTestCase):
             owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
         assert len(owned.owned_files) == 10
         assert owned.owned_file_count == 200
+
+
+_DIFF = """diff --git a/posthog/api/thing.py b/posthog/api/thing.py
+index aaa..bbb 100644
+--- a/posthog/api/thing.py
++++ b/posthog/api/thing.py
+@@ -1,2 +1,3 @@
+ keep
++added
+"""
+
+_DIFF_MODE_FLIPPED = _DIFF.replace("index aaa..bbb 100644", "old mode 100644\nnew mode 100755\nindex aaa..bbb 100755")
+
+
+class CompareDiffSizeTests(SimpleTestCase):
+    @staticmethod
+    def _streamed(body: bytes) -> MagicMock:
+        response = MagicMock(status_code=200)
+        response.iter_content.return_value = iter([body[i : i + 1024] for i in range(0, len(body), 1024)])
+        return response
+
+    def test_diff_under_the_ceiling_is_returned(self) -> None:
+        response = self._streamed(b"diff --git a/x b/x\n")
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            assert StamphogGitHubClient("42").compare_diff("o/r", "base", "head") == "diff --git a/x b/x\n"
+
+    def test_oversized_diff_raises_instead_of_buffering(self) -> None:
+        # GitHub answers 200 for a diff of any size, and a range that spans thousands of files
+        # returns hundreds of megabytes. This ceiling refuses the cost of reading that into a
+        # worker.
+        response = self._streamed(b"x" * (MAX_COMPARE_DIFF_BYTES + 4096))
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            with pytest.raises(StamphogGitHubError):
+                StamphogGitHubClient("42").compare_diff("o/r", "base", "head")
+
+
+class ApprovalRetentionTests(SimpleTestCase):
+    def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
+        # A merge of the base branch into a PR is the most common push on a long-lived PR. It does
+        # not change the PR's own diff, so there is nothing new to review, and a dismissal would
+        # drop the PR out of merge readiness for no reason.
+        assert approved_diff_unchanged(_DIFF, _DIFF) is True
+
+    def test_content_change_dismisses(self) -> None:
+        assert approved_diff_unchanged(_DIFF, _DIFF.replace("+added", "+something else")) is False
+
+    def test_mode_flip_dismisses(self) -> None:
+        # A blob sha covers a file's contents and not its tree mode, so a per-file sha comparison
+        # missed an executable-bit flip on a file that the PR already edits. The unified diff
+        # carries the mode, and the comparison therefore uses the diff text.
+        assert approved_diff_unchanged(_DIFF, _DIFF_MODE_FLIPPED) is False
+
+    def test_binary_change_fails_closed(self) -> None:
+        # git renders a binary change over an abbreviated blob id and never as content, so two
+        # different binaries whose ids share that prefix produce the same line. An attacker can pad
+        # one binary until its id collides, so a diff that carries this line cannot show whether the
+        # content changed.
+        binary = (
+            "diff --git a/thing.wasm b/thing.wasm\n"
+            "index aaa1234..bbb5678 100644\n"
+            "Binary files a/thing.wasm and b/thing.wasm differ\n"
+        )
+
+        assert approved_diff_unchanged(binary, binary) is False
+        assert approved_diff_unchanged(_DIFF + binary, _DIFF + binary) is False
+
+    @parameterized.expand([("both_empty", "", ""), ("approved_empty", "", _DIFF), ("current_empty", _DIFF, "")])
+    def test_empty_diff_fails_closed(self, _name: str, approved: str, current: str) -> None:
+        # Two blanks compare equal. Retention on that evidence would treat an unreadable answer as
+        # "nothing changed".
+        assert approved_diff_unchanged(approved, current) is False
