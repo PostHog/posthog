@@ -579,6 +579,7 @@ class FeatureRequestEvidenceView:
     evidence_source: str = "conversation"
     source_url: str = ""
     requested_on: date | None = None
+    image_ids: list[UUID] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
@@ -689,6 +690,7 @@ class FeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -707,6 +709,7 @@ class CreateFeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -718,6 +721,7 @@ class UpdateFeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] | None = None
 
 
 @dataclass(frozen=True)

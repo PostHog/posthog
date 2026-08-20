@@ -1,3 +1,4 @@
+import json
 import uuid
 import asyncio
 import datetime
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports import workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -735,6 +737,36 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_completed" in emitted
+
+    def test_rewrite_reports_workload_under_its_own_run_key(self, team):
+        # The import activity reports under the bare job id on this same pod; sharing that key would
+        # let a death during the import read the rewrite's report as its own last words.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "test",
+                "attempts": 0,
+            }
+        )
+        inputs = self._inputs(team, schema)
+        samples: list[dict] = []
+
+        async def rewrite_reading_own_report(**kwargs):
+            reporter = workload_report._current_reporter.get()
+            assert reporter is not None, "rewrite must run inside a workload reporting span"
+            redis = workload_report._redis_client()
+            assert redis is not None
+            reporter._write_sample(redis)
+            samples.append(json.loads(redis.get(workload_report.run_key(f"repartition:{inputs.job_id}"))))
+            return {"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"}
+
+        self._run(inputs, AsyncMock(side_effect=rewrite_reading_own_report))
+
+        assert samples and samples[0]["phase"] == "repartition"
+        assert samples[0]["schema_id"] == str(schema.id)
 
     def test_unpartitionable_clears_pending(self, team):
         schema = _make_schema(team, {})
