@@ -857,16 +857,14 @@ class ConversionGoalProcessor:
             ),
         ]
         for field in TRACKED_FIELDS:
+            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
+            # positionally against it, and a stored row can legitimately carry an empty value for any
+            # field except campaign and source (which the precompute WHERE requires). Filtering the
+            # empties out here shifted every later element onto the wrong touchpoint.
             select_columns.append(
                 ast.Alias(
                     alias=field.utm_array,
-                    expr=ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])),
-                            ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                        ],
-                    ),
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
                 )
             )
 
@@ -1318,7 +1316,17 @@ class ConversionGoalProcessor:
     def _build_utm_pageview_array(
         self, alias: str, utm_campaign_field: str, utm_source_field: str, return_field: str
     ) -> ast.Alias:
-        """Build array for UTM pageview data"""
+        """Build array for UTM pageview data.
+
+        Every array this builds is read positionally against `utm_timestamps`
+        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
+        keep exactly one element per UTM pageview, in the same order. That means **every** array is
+        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
+        never by whether its own value happens to be set. `utm_campaign` and `utm_source` are the
+        touchpoint qualifier, but the other seven tracked fields are routinely empty on a qualifying
+        pageview, and dropping those positions used to shift every later element: touchpoint i's
+        timestamp paired with touchpoint j's value.
+        """
         pageview_with_utm = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -1330,42 +1338,75 @@ class ConversionGoalProcessor:
                 self._build_utm_not_empty_condition(utm_source_field),
             ]
         )
-        return_expr: ast.Expr
-        false_value: ast.Expr
-        filter_expr: ast.Expr
-        if return_field == "timestamp":
-            return_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-            false_value = ast.Constant(value=0)
-            filter_expr = ast.CompareOperation(
-                left=ast.Field(chain=["x"]),
+        timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
+        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
+        qualified = ast.Lambda(
+            args=["_tp"],
+            expr=ast.CompareOperation(
+                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
                 op=ast.CompareOperationOp.Gt,
                 right=ast.Constant(value=0),
-            )
-        else:
-            return_expr = ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(chain=["events", "properties", return_field]),
-                            ast.Constant(value=""),
-                        ],
-                    )
-                ],
-            )
-            false_value = ast.Constant(value="")
-            filter_expr = ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])
+            ),
+        )
 
+        if return_field == "timestamp":
+            return ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                        ),
+                        ast.Call(name="groupArray", args=[qualified_timestamp]),
+                    ],
+                ),
+            )
+
+        value_expr = ast.Call(
+            name="toString",
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=["events", "properties", return_field]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            ],
+        )
+        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
+        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
         return ast.Alias(
             alias=alias,
             expr=ast.Call(
-                name="arrayFilter",
+                name="arrayMap",
                 args=[
-                    ast.Lambda(args=["x"], expr=filter_expr),
+                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
                     ast.Call(
-                        name="groupArray",
-                        args=[ast.Call(name="if", args=[pageview_with_utm, return_expr, false_value])],
+                        name="arrayFilter",
+                        args=[
+                            qualified,
+                            ast.Call(
+                                name="groupArray",
+                                args=[
+                                    ast.Tuple(
+                                        exprs=[
+                                            qualified_timestamp,
+                                            ast.Call(
+                                                name="if",
+                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
+                                            ),
+                                        ]
+                                    )
+                                ],
+                            ),
+                        ],
                     ),
                 ],
             ),
