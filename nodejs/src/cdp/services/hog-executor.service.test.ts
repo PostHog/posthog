@@ -2025,7 +2025,7 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation)
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
@@ -2060,7 +2060,7 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation)
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
 
             expect(result.invocation.queuePriority).toBe(0)
         })
@@ -2098,7 +2098,7 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation)
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
 
             expect(result.invocation.id).toBe(invocation.id)
         })
@@ -2140,6 +2140,44 @@ describe('Hog Executor', () => {
 
             expect(result.invocation.queue).not.toBe('email')
             expect(result.finished).toBe(true)
+        })
+
+        it('should stash the origin queue priority when the send happens mid-run', async () => {
+            // A send from the hogflow queue runs the hog program first, which clones the
+            // invocation and resets queuePriority to 0 before the email is detected and routed.
+            // The stashed origin priority must come from the entry invocation, otherwise the job
+            // returns to the hogflow queue at priority 0 and jumps ahead of every other run.
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction, { inputs: {} }, 'hogflow'),
+                queuePriority: 2,
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName: 'sendEmail',
+                    asyncFunctionArgs: [
+                        {
+                            to: { email: 'user@example.com' },
+                            from: { integrationId: 1 },
+                            subject: 'Test',
+                            text: 'Hello',
+                            html: '<p>Hello</p>',
+                        },
+                    ],
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originPriority).toBe(2)
         })
     })
 })

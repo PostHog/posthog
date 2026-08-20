@@ -142,7 +142,11 @@ export class HogExecutorAsyncService {
                     // never enqueue, so routing would leave the job unworked.
                     const routeToEmailQueue = invocation.queue !== 'email' && !options?.isTest
                     if (routeToEmailQueue) {
-                        result = this.routeEmailToQueue(nextInvocation)
+                        // Stash the entry invocation's priority as the origin, not nextInvocation's:
+                        // an earlier execute()/executeFetch() in this loop cloned the invocation and
+                        // reset its queuePriority to 0, so reading nextInvocation here would restore 0
+                        // on return and jump the run to the front of the origin queue.
+                        result = this.routeEmailToQueue(nextInvocation, invocation.queuePriority)
                     } else {
                         // A flow already on the email queue sends inline, so this send never went
                         // through routeEmailToQueue's classification. Refresh the priority from
@@ -245,7 +249,8 @@ export class HogExecutorAsyncService {
      * original queue so the workflow can continue.
      */
     private routeEmailToQueue(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        originPriority: number
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
         const priorityClass = getEmailQueuePriorityClass(invocation.hogFunction.metadata)
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
@@ -261,7 +266,7 @@ export class HogExecutorAsyncService {
                 queueMetadata: {
                     ...invocation.queueMetadata,
                     originQueue: invocation.queue,
-                    originPriority: invocation.queuePriority,
+                    originPriority,
                 },
             },
             { finished: false }
