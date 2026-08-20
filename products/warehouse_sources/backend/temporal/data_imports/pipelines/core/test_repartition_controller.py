@@ -107,6 +107,30 @@ class TestRepartitionDetection:
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
 
+    def test_transient_db_error_during_measurement_save_is_not_captured(self, team):
+        # A pgbouncer pooler drop (or its server_login_retry cooldown outliving the single retry in
+        # retry_on_db_connection_drop) must not mint an error-tracking issue for a condition nobody
+        # can act on — only a genuine detection bug should reach capture_exception.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(
+                    ExternalDataSchema,
+                    "record_partition_measurement",
+                    side_effect=OperationalError(
+                        "server login has been failing, cached error: server conn crashed? (server_login_retry)"
+                    ),
+                ),
+                patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            ):
+                self._detect(team, schema, delta)
+
+        mock_capture_exception.assert_not_called()
+
     def test_unpartitioned_table_flags_auto_target_scheme(self, team):
         # An unpartitioned table's target legitimately has mode None (auto-detect at rewrite time),
         # but the flagged event must report "auto" — a null here NULL-poisons dashboard strings —
