@@ -61,10 +61,20 @@ class TestDagsterTestSelection(unittest.TestCase):
             "pyproject.toml",
             ".github/workflows/ci-dagster.yml",
             ".github/clickhouse-versions.json",
+            ".github/actions/setup-sqlx-cli/action.yml",
             "tools/dagster_test_selection.py",
             "tools/test_dagster_test_selection.py",
+            "tools/hogli/hogli.py",
+            "tools/hogli-commands/hogli_commands/db_schema.py",
+            "tools/hogli-commands/hogli_commands/prechecks.py",
+            "tools/hogli-commands/hogli_commands/telemetry_props.py",
+            "tools/hogli-commands/hogli_commands/hint_hook.py",
+            "tools/hogli-commands/hogli_commands/hints.py",
             "docker-compose.dev.yml",
             "docker/postgres-init-scripts/init.sql",
+            "rust/persons_migrations/001_initial.sql",
+            "hogli.yaml",
+            "manage.py",
             "posthog/conftest.py",
             "conftest.py",
             "posthog/test/base.py",
@@ -125,16 +135,18 @@ class TestDagsterTestSelection(unittest.TestCase):
 
     def test_fixture_modules_used_by_another_trees_conftest_select_that_tree(self) -> None:
         self._write("posthog/dags/tests/fixtures.py")
-        self._write(
-            "products/web_analytics/dags/tests/conftest.py",
+        for import_line in (
             "from posthog.dags.tests.fixtures import thing  # noqa: F401\n",
-        )
-        selection = self._select(
-            ["posthog/dags/tests/fixtures.py"],
-            snob={"posthog/dags/tests/fixtures.py": ["posthog/dags/tests/test_deletes.py"]},
-        )
-        self.assertIn("products/web_analytics/dags/tests/test_cache_warming.py", selection.tests)
-        self.assertIn("posthog/dags/tests/test_deletes.py", selection.tests)
+            "from posthog.dags.tests import fixtures  # noqa: F401\n",
+        ):
+            with self.subTest(import_line=import_line):
+                self._write("products/web_analytics/dags/tests/conftest.py", import_line)
+                selection = self._select(
+                    ["posthog/dags/tests/fixtures.py"],
+                    snob={"posthog/dags/tests/fixtures.py": ["posthog/dags/tests/test_deletes.py"]},
+                )
+                self.assertIn("products/web_analytics/dags/tests/test_cache_warming.py", selection.tests)
+                self.assertIn("posthog/dags/tests/test_deletes.py", selection.tests)
 
     def test_dynamic_import_tests_run_for_any_change_in_their_tree(self) -> None:
         self._write(

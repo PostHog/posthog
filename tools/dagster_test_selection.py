@@ -50,12 +50,22 @@ DAGS_TREE_PATTERN = re.compile(r"^(posthog/dags|products/[^/]+/dags)/")
 FULL_RUN_PATTERNS = (
     ".github/workflows/ci-dagster.yml",
     ".github/clickhouse-versions.json",
+    ".github/actions/setup-sqlx-cli/",
     "tools/dagster_test_selection.py",
     "tools/test_dagster_test_selection.py",
+    "tools/hogli/",
+    "tools/hogli-commands/hogli_commands/db_schema.py",
+    "tools/hogli-commands/hogli_commands/prechecks.py",
+    "tools/hogli-commands/hogli_commands/telemetry_props.py",
+    "tools/hogli-commands/hogli_commands/hint_hook.py",
+    "tools/hogli-commands/hogli_commands/hints.py",
     "docker-compose",
     "docker/postgres-init-scripts/",
+    "rust/persons_migrations/",
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
+    "hogli.yaml",
+    "manage.py",
     "pytest.ini",
     "pyproject.toml",
     "uv.lock",
@@ -159,6 +169,7 @@ def _imported_modules(path: Path) -> set[str]:
             modules.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             modules.add(node.module)
+            modules.update(f"{node.module}.{alias.name}" for alias in node.names if alias.name != "*")
     return modules
 
 
