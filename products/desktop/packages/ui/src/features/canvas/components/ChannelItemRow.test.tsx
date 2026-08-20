@@ -1,8 +1,13 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,11 +15,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The row's status comes from live session/workspace state and a per-task tRPC
 // query, none of which a unit test has. Stubbed at the module boundary, as
 // ChannelSidebar.test.tsx does for the same reason.
-const mocks = vi.hoisted(() => ({ status: null as TaskStatusInput | null }));
+const mocks = vi.hoisted(() => ({
+  status: null as TaskStatusInput | null,
+  currentUserId: 999 as number | undefined,
+}));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
 }));
-// The row menu's spaces list and filing mutation are tRPC-backed.
+// The row menu's spaces list and filing mutation are tRPC-backed. The
+// handoff dialog's channels lookup rides the same mock.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [{ id: "channel-1", name: "code" }] }),
 }));
@@ -24,6 +36,13 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+// The handoff dialog is tested on its own; here it only opens.
+vi.mock(
+  "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
+  () => ({
+    HandoffTaskDialog: () => null,
+  }),
+);
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
@@ -32,6 +51,7 @@ import { ChannelItemRow } from "./ChannelItemRow";
 const actions = {
   open: () => {},
   togglePin: () => {},
+  setPinned: () => {},
   archive: () => {},
   remove: () => {},
 };
@@ -80,6 +100,10 @@ function renderRow(model: ChannelItemModel) {
 beforeEach(() => {
   mocks.status = null;
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useTaskSelectionStore.setState({
+    selectedTaskIds: [],
+    lastClickedId: null,
+  });
 });
 
 describe("ChannelItemRow", () => {
@@ -258,15 +282,38 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  it("makes tasks draggable into the Command Center", () => {
+  // A pinned row offering only `move` resolves against the Command Center's
+  // `copy` as no drop, so the tile stops accepting it with nothing to show why.
+  it.each([{ pinned: false }, { pinned: true }])(
+    "makes tasks draggable into the Command Center, pinned=$pinned",
+    ({ pinned }) => {
+      renderRow(item({ pinned }));
+      const setData = vi.fn();
+      const dataTransfer = { setData, effectAllowed: "none" };
+
+      fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+      expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+      expect(dataTransfer.effectAllowed).toBe("copyMove");
+    },
+  );
+
+  it("drags every selected task into the Command Center", () => {
+    useTaskSelectionStore.setState({
+      selectedTaskIds: ["task-2", "task-1"],
+    });
     renderRow(item());
     const setData = vi.fn();
     const dataTransfer = { setData, effectAllowed: "none" };
 
     fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-    expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
-    expect(dataTransfer.effectAllowed).toBe("copy");
+    expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+    expect(setData).toHaveBeenCalledWith(
+      TASK_IDS_DRAG_TYPE,
+      JSON.stringify(["task-1", "task-2"]),
+    );
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
   });
 
   it("does not make canvases draggable into the Command Center", () => {
@@ -330,6 +377,42 @@ describe("ChannelItemRow", () => {
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
     }
+  });
+
+  it("offers Hand off… only to the task's owner", async () => {
+    // The API 404s a non-owner's handoff, so the menu must not offer it to one.
+    const ownerItem = item({
+      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
+      task: {
+        id: "task-1",
+        task_number: 1,
+        slug: "task-1",
+        title: "Investigate signup drop-off",
+        description: "",
+        created_at: "2026-07-16T12:00:00.000Z",
+        updated_at: "2026-07-16T12:00:00.000Z",
+        origin_product: "user_created",
+        created_by: { id: 999, uuid: "u-1", email: "owner@example.com" },
+        channel: "channel-1",
+      },
+    });
+
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={ownerItem} />,
+    );
+    await openCard();
+    expect(screen.getByRole("button", { name: "Hand off…" })).not.toBeNull();
+
+    cleanup();
+
+    mocks.currentUserId = 7;
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={ownerItem} />,
+    );
+    await userEvent.hover(screen.getByText("Investigate signup drop-off"));
+    await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 });
+    expect(screen.queryByRole("button", { name: "Hand off…" })).toBeNull();
+    mocks.currentUserId = 999;
   });
 
   it("disables Add to Command Center when there is nowhere to put the task", async () => {

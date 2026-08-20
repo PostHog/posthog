@@ -379,6 +379,12 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'slack-message'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
@@ -490,6 +496,12 @@ export interface hogFlowEditorTestLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'slack-message'
                             }
                           | {
                                 filters: {

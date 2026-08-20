@@ -5,7 +5,6 @@ import { IconChevronDown, IconClock } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -38,12 +37,12 @@ function splitKey(key: string): { kind: string | null; body: string } {
 }
 
 /**
- * One scratchpad note the scout fleet has written about this project. Shares the collapse/expand
+ * One scratchpad entry the scout fleet has written about this project. Shares the collapse/expand
  * grammar of the scout emission cards: a header (chevron · kind · key · updated time) that stays
- * visible, a 2-line markdown preview when collapsed, the full body plus an attribution footer
+ * visible, a 2-line raw-text preview when collapsed, the full body plus an attribution footer
  * (which scout created it, when, and how long it's been carried forward) when open.
  *
- * The list only carries previews, so a long note's tail arrives on expand — until it lands, the
+ * The list only carries previews, so a long entry's tail arrives on expand — until it lands, the
  * preview stays on screen with a skeleton under it rather than the card going blank.
  */
 export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
@@ -90,12 +89,15 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
             </button>
 
             <div className="px-3 pb-2 pl-9">
-                <LemonMarkdown
-                    disableImages
-                    className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}
-                >
-                    {content || '_No content._'}
-                </LemonMarkdown>
+                {content ? (
+                    <pre
+                        className={`m-0 whitespace-pre-wrap break-words font-mono text-xs text-primary ${expanded ? '' : 'line-clamp-2'}`}
+                    >
+                        {content}
+                    </pre>
+                ) : (
+                    <span className="text-xs italic text-muted">No content.</span>
+                )}
 
                 {expanded && isLoadingContent && <LemonSkeleton className="h-4 w-2/3 mt-1" />}
 

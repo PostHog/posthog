@@ -487,6 +487,84 @@ class TestGitHubPRWebhook(TestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
 
+    # The pr: task-list filter reads output.pr_state, so each state-changing
+    # webhook action must land the canonical state on the run that claims the PR.
+    @parameterized.expand(
+        [
+            ("opened", {"draft": False, "merged": False}, "open"),
+            ("opened_as_draft", {"draft": True, "merged": False}, "draft"),
+            ("converted_to_draft", {"merged": False}, "draft"),
+            ("ready_for_review", {"merged": False}, "open"),
+            ("reopened", {"draft": False, "merged": False}, "open"),
+            ("closed", {"merged": False}, "closed"),
+            ("closed", {"merged": True}, "merged"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_action_records_pr_state(self, action_name, pr_fields, expected_state, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        action = "opened" if action_name == "opened_as_draft" else action_name
+
+        payload = {
+            "action": action,
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                **pr_fields,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertEqual(self.task_run.output.get("pr_state"), expected_state)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_state_only_action_records_state_without_analytics(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "converted_to_draft",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": False,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertEqual(self.task_run.output.get("pr_state"), "draft")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_state_not_recorded_for_unclaimed_pr(self, _mock_capture, mock_get_secret):
+        """A same-branch webhook for a different PR must not restate this run's PR."""
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/999",
+                "merged": True,
+                "head": {"ref": "other-branch"},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertNotIn("pr_state", self.task_run.output)
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_backfills_pr_url_on_branch_match(self, mock_capture, mock_get_secret):
@@ -639,6 +717,39 @@ class TestGitHubPRWebhook(TestCase):
             [existing, "https://github.com/posthog/posthog/pull/901"],
         )
 
+    @patch("products.signals.backend.tasks.refresh_report_canvases_for_task.delay")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_refreshes_report_canvas_when_pr_url_already_recorded(
+        self, mock_capture, mock_get_secret, mock_refresh
+    ):
+        # The agent server usually records output.pr_url before the webhook lands, so the webhook
+        # takes the "already recorded" path. The canvas refresh must still fire, otherwise a canvas
+        # built before the PR existed keeps implementation_pr_url null.
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/822"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/canvas-refresh",
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "feature/canvas-refresh", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_refresh.assert_called_once_with(str(self.task.id))
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
         """Test that requests with invalid signatures are rejected."""
@@ -706,7 +817,7 @@ class TestGitHubPRWebhook(TestCase):
         """Test that PR actions other than opened/closed are acknowledged but ignored."""
         mock_get_secret.return_value = self.webhook_secret
 
-        for action in ["edited", "reopened", "synchronize", "labeled"]:
+        for action in ["edited", "synchronize", "labeled"]:
             payload = {
                 "action": action,
                 "pull_request": {
