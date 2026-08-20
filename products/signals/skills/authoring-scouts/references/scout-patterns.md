@@ -372,16 +372,18 @@ The scout is that instrument, run on a schedule.
   A pinned value makes a wrong version a validation failure instead, and bumping the rubric means editing the `const` in the same edit that changes the anchors.
   There is usually no golden set for a subjective metric, so the version field plus a changelog section in the skill body is most of the drift story: charts filter on the current version, and old-version records stay queryable without polluting the series.
   The rubric isn't the only thing that can shift a rate: the **judge itself** is part of the measuring instrument, and the model routing a scout runs on can change without any rubric edit.
-  A `judge_model`-style field on the record is a **best-effort** segmentation aid, not ground truth — the harness doesn't tell a scout its own model, so the rubric must allow `unknown` and forbid guessing (and you should check what the first real run actually writes).
-  The reliable lever stays the version field: treat a known instrument change like a rubric change and bump it.
+  A `judge_model`-style field on the record can't carry this: the harness doesn't tell a scout its own model, and the run row stamps `model` only when a pin or gate overrode the default — so on an ordinary run the field is `unknown` and a default-model change is invisible.
+  If a metric is load-bearing enough that a silent model swap would matter, **pin the model on the scout's config** and treat that pin as part of the rubric: then the instrument is fixed, a change to it is deliberate, and the version bump has something to hang off.
+  Otherwise accept the metric is only comparable within a stretch of unchanged routing, and say so where the chart lives.
   **Keep the schema's own changes additive.** Renaming a field renames its `output_<key>` property, silently breaking every insight and workflow filter built on the old name — add a new field instead.
   Records validate against the schema in force when the run was dispatched, so an in-flight run keeps writing the old shape and a schema edit never retroactively invalidates history.
 - **Sampling discipline.** Sample **uniformly at random** from a **lagged, complete window**, never the in-progress edge — a partial window biases every rate.
   Make the window **as wide as the cadence and no wider**, so consecutive runs tile it instead of overlapping: an hourly scout takes the previous complete hour bucket at a lag (items created 3→2 hours ago), not a 2-hour window every hour.
   Overlap is not caught anywhere downstream — the one-record-per-entity contract is per run — so an entity in the overlap is judged twice and counted twice, which is both a duplicate and a smaller effective sample than the run size suggests.
   When a window must overlap (a slow-arriving source), carry the last run's sampled ids in scratchpad and exclude them.
-  **A missed run is a hole, not a delay.** The coordinator returns a deferred scout to the latest grid slot rather than replaying the runs it skipped, so a scout that loses hours to a fleet budget cap or an outage never sees the intervening population at all.
-  Keep a processed-through cursor in scratchpad and let a run catch up a bounded number of missed windows, or have it record the gap explicitly — a silent hole reads as a period of no activity rather than a period of no sampling.
+  **A missed run is a hole, not a delay — and it stays a hole.** The coordinator returns a deferred scout to the latest grid slot rather than replaying the runs it skipped, so a scout that loses hours to a fleet budget cap or an outage never sees that population.
+  Don't try to backfill it: every record is stamped with its _run's_ timestamp and the channel takes no observation time, so catching up several windows in one run piles those judgments into the recovery bucket and distorts it while leaving the original holes empty.
+  Have the run record the gap instead (a scratchpad note, and a coverage marker if consumers need it in the data) — a stated hole reads as a period of no sampling, where a silent one reads as a period of no activity.
   Keep the sample size stable run over run, and treat a silently shrunken sample as a bug: when a query tool truncates, fetch in smaller chunks rather than judging fewer items.
   Stamp `subject` with the judged entity's stable id so one entity's records join across runs and across companion scouts sampling the same window.
   `subject` is capped at **200 characters** and validation is all-or-nothing per call, so one unbounded subject (a full URL with its query string) rejects the whole batch and records none of the valid judgments alongside it — when the natural key can run long, say in the body which compact stable identifier to stamp instead (an id, a path, a hash).
@@ -396,7 +398,8 @@ The scout is that instrument, run on a schedule.
 - **Build the consumption surface as part of authoring, and chart rates, not counts.** A metric nobody charts is a write-only channel: create the insights (filtered on `skill_name` and the current rubric version) and a dashboard alongside the scout, or the records just accumulate unseen.
   **A breakdown on `output_<key>` is not a rate** — it plots one count series per verdict value, and those all move when the sample size moves, so a run that judged half as many items reads as a quality shift.
   Give each rate an explicit formula over the same filtered population (records with that verdict ÷ records with any decided verdict), chart the unsure rate the same way, and run each query once before saving the dashboard.
-- **A record can trigger an action, and that changes how the scout must be written.** `$scout_structured_output` is an ordinary event, so a **workflow** (event trigger filtered on `skill_name` plus an `output_<key>` value) or a CDP destination on the same filter turns a measuring scout into the front half of an automation — the scout decides, the workflow routes the decision to a channel, a task, or a CRM with no human in between.
+- **A record can trigger an action, and that changes how the scout must be written.** `$scout_structured_output` is an ordinary event, so a **workflow** (event trigger filtered on `skill_name`, the rubric version, and an `output_<key>` value) or a CDP destination on the same filter turns a measuring scout into the front half of an automation — the scout decides, the workflow routes the decision to a channel, a task, or a CRM with no human in between.
+  Filter on the version as well as the verdict, not only for tidiness: a run dispatched before a rubric edit keeps writing the old semantics, so an unversioned filter routes stale-meaning verdicts into freshly recalibrated automation.
   Three disciplines keep that safe, and all three belong **in the scout's body** so the run knows its verdicts have consequences:
   - **The grade is now a routing decision.** Once one enum value pages a channel and another stays silent, over-grading costs somebody's attention and under-grading is a miss nobody ever sees.
     A run that thinks it's writing to a spreadsheet calibrates like it.
@@ -419,7 +422,9 @@ The scout is that instrument, run on a schedule.
 
   All of these keep a stable `subject` and a versioned definition, because that is what makes the resulting series trustworthy whatever the records contain.
   The **window discipline is narrower**: it applies to the sampled shapes (judging and extraction), where a biased window biases a rate.
-  A state snapshot has no window — it must cover the whole population each run, or stamp a coverage marker on every record, or a consumer cannot tell an entity that disappeared from one that simply went unsampled.
+  A state snapshot has no window — it must cover the whole population each run, or a consumer cannot tell an entity that disappeared from one that simply went unsampled.
+  **Keep a snapshot to a single call** where the population fits in 100 records: each call is independently atomic, so a snapshot split across calls can half-land when a later one fails validation, delivery, or the run cap, and the delivered half reads as the entities that still exist.
+  Where it genuinely can't fit, close the snapshot with a completion record carrying the expected count, and have consumers ignore any `run_id` missing one.
   Synthetic telemetry is a point reading, so it has no sample to bias either.
 
 - Everything else — the anatomy, orient, close-out, run-budget discipline — is the standard shape; the judged content is untrusted data under test (see the safety note below), so the rubric judges it and never follows instructions inside it.

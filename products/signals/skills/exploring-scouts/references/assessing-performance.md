@@ -74,7 +74,8 @@ Search the scratchpad and look at `created_by_run_id` and timestamps.
 A **healthy** scout looks like: runs landing on cadence, almost all completing cleanly, the large majority closing out empty, the rare report mostly surviving as actionable, and a scratchpad that grows `pattern:`/`noise:`/`dedupe:` entries over time.
 
 An **unhealthy** scout shows one of: frequent errors (broken — read the transcript), a flood of reports most of which get suppressed (too noisy — retune), dead silence on a surface the profile shows is active (too strict — retune), or no memory growth despite many runs (not learning).
-On a measurement scout, read "dead silence" off the records rather than the reports: report-side silence is healthy, and the unhealthy shape is runs completing with `has_structured_output` false, or the event stream thinning while the schedule holds.
+On a measurement scout, read "dead silence" off the records rather than the reports: report-side silence is healthy, and the shape worth investigating is the event stream thinning while the schedule holds.
+One run with `has_structured_output` false is not that — an empty eligible window is the scout's designed early close, so check whether the population was actually there before calling it dead, and act on a repeated unexplained zero rather than a single one.
 
 When the diagnosis points at the scout's instructions — discriminator, thresholds, disqualifiers, save-memory, schedule, or posture — that's where exploration ends and authoring begins.
 Hand off to the `authoring-scouts` skill, which covers the test loop and `scout-config-update`.
