@@ -670,9 +670,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
         logic: [
             actionsModel({
-                skipLoad:
-                    !!props.taxonomicGroupTypes &&
-                    !props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
+                shouldLoad:
+                    !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
             }),
         ],
     })),
