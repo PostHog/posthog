@@ -34,6 +34,7 @@ import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { primeStartupProvision } from "@posthog/ui/shell/startupLocation";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
@@ -83,6 +84,7 @@ export function OnboardingFlow() {
     (state) => state.setLastUsedWorkspaceMode,
   );
   const apiClient = useOptionalAuthenticatedClient();
+  const { localWorkspaces } = useHostCapabilities();
 
   // Best-effort. The response also seeds the channel cache that the first-run
   // landing reads moments later.
@@ -91,7 +93,14 @@ export function OnboardingFlow() {
     const provisioned = await apiClient.provisionDefaultTaskChannels();
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
     primeStartupProvision(provisioned);
-    if (!selectedCloudRepo) return;
+    // Cloud-only hosts keep the picked GitHub repo in selectedDirectory (they
+    // never set selectedCloudRepo). On local-workspace hosts selectedDirectory
+    // can be a filesystem path, so only the explicit cloud pick is a valid
+    // "owner/repo" space default there.
+    const cloudRepo = localWorkspaces
+      ? selectedCloudRepo
+      : selectedDirectory || null;
+    if (!cloudRepo) return;
     // Fetched directly: the integrations store only fills once the main app's
     // hooks mount, which has not happened during onboarding.
     const integrations = await queryClient.fetchQuery({
@@ -100,7 +109,7 @@ export function OnboardingFlow() {
       staleTime: 60_000,
     });
     const integrationId = resolveRepoIntegrationId(
-      selectedCloudRepo,
+      cloudRepo,
       classifyIntegrations(integrations).githubIntegrations,
     );
     // Channels only accept a team integration alongside repositories, so a
@@ -111,7 +120,7 @@ export function OnboardingFlow() {
       generalCreated: provisioned.general_created,
     })) {
       await apiClient.updateTaskChannelRepositories(channelId, integrationId, [
-        selectedCloudRepo,
+        cloudRepo,
       ]);
     }
   };
