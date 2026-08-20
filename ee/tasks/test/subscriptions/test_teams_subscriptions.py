@@ -1,8 +1,7 @@
 from posthog.test.base import APIBaseTest
 
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -15,7 +14,6 @@ VALID_TEAMS_WEBHOOK_URL = (
 class TestTeamsSubscriptionCard(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.dashboard = Dashboard.objects.create(team=self.team, name="Weekly numbers", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         self.asset = ExportedAsset.objects.create(
             team=self.team,

@@ -36,8 +36,8 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     deliver_slack_message_data,
 )
 from ee.tasks.subscriptions.teams_subscriptions import (
-    TEAMS_REPORT_CHARACTER_BUDGET,
     TEAMS_TEXT_BLOCK_LIMIT,
+    TEAMS_UTM_TAGS,
     teams_card_message,
     teams_open_url_action,
     teams_text_block,
@@ -82,6 +82,13 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
+
+# How many TEAMS_TEXT_BLOCK_LIMIT-sized blocks of the report a Teams card carries. Teams rejects a
+# payload over roughly 28KB, and the card also holds a title, a feedback line and the actions.
+TEAMS_REPORT_BLOCK_COUNT = 6
+# Chunking is quadratic in the number of chunks and nothing upstream bounds a report's length, so
+# the markdown is cut to what could fill the blocks above before it is chunked at all.
+_TEAMS_REPORT_CHUNKING_LIMIT = TEAMS_REPORT_BLOCK_COUNT * TEAMS_TEXT_BLOCK_LIMIT
 
 
 def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
@@ -377,30 +384,25 @@ async def send_slack_ai_subscription_report(
 def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> dict[str, Any]:
     """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
     TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
-    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=teams"
     title = subscription.title or "Your PostHog AI report"
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
 
-    sections = _split_text_into_chunks(strip_external_links_markdown(markdown), TEAMS_TEXT_BLOCK_LIMIT)
-    kept: list[str] = []
-    kept_length = 0
-    for section in sections:
-        if kept_length + len(section) > TEAMS_REPORT_CHARACTER_BUDGET:
-            break
-        kept.append(section)
-        kept_length += len(section)
+    report = strip_external_links_markdown(markdown)
+    sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
+    kept = sections[:TEAMS_REPORT_BLOCK_COUNT]
+    is_shortened = len(kept) < len(sections) or len(report) > _TEAMS_REPORT_CHUNKING_LIMIT
 
     body: list[dict[str, Any]] = [teams_text_block(f"**{title}**")]
     if kept:
         body.extend(teams_text_block(section) for section in kept)
     else:
         body.append(teams_text_block("_No report content was generated._"))
-    if len(kept) < len(sections):
+    if is_shortened:
         body.append(
             teams_text_block(
-                f"This report was shortened to fit. [Read all of it in PostHog]({subscription_url}?{utm_tags})",
+                f"This report was shortened to fit. [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})",
                 is_subtle=True,
             )
         )
@@ -414,7 +416,7 @@ def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_i
         )
     )
 
-    actions = [teams_open_url_action("Manage subscription", f"{subscription_url}?{utm_tags}")]
+    actions = [teams_open_url_action("Manage subscription", f"{subscription_url}?{TEAMS_UTM_TAGS}")]
     return teams_card_message(body, actions)
 
 

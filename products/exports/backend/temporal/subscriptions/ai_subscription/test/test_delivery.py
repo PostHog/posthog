@@ -12,6 +12,7 @@ from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
+    TEAMS_REPORT_BLOCK_COUNT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -26,7 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_REPORT_CHARACTER_BUDGET, TEAMS_TEXT_BLOCK_LIMIT
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_TEXT_BLOCK_LIMIT
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -234,7 +235,7 @@ class TestBuildAITeamsCard:
     def test_report_over_the_card_budget_is_shortened_with_a_link_out(self) -> None:
         body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
 
-        assert sum(len(b["text"]) for b in body if set(b["text"]) == {"x"}) <= TEAMS_REPORT_CHARACTER_BUDGET
+        assert len([b for b in body if set(b["text"]) == {"x"}]) == TEAMS_REPORT_BLOCK_COUNT
         assert "This report was shortened to fit." in body[-2]["text"]
 
     def test_external_links_in_the_report_are_stripped(self) -> None:

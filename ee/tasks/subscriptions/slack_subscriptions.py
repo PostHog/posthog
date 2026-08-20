@@ -17,24 +17,16 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.subscription_utils import (
-    ASSET_GENERATION_FAILED_MESSAGE,
     DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
     _has_asset_failed,
+    failed_asset_details,
     next_delivery_date_display,
-    subscription_asset_error_message,
+    subscription_support_url,
+    summary_skipped_over_budget_message,
 )
 
 logger = structlog.get_logger(__name__)
-
-
-# Shown in place of the AI summary when generation was skipped because the org is
-# over its AI credit budget. Wording kept in sync with the email template's notice.
-def summary_skipped_over_budget_message(billing_url: str) -> str:
-    return (
-        "_AI summary skipped — your organization has reached its AI credit usage limit. "
-        f"Increase the limit in <{billing_url}|Billing settings> to resume summaries._"
-    )
 
 
 # Slack API error codes that indicate transient server-side issues — safe to retry.
@@ -80,23 +72,11 @@ class SlackDeliveryResult:
 
 def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
     if _has_asset_failed(asset):
-        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
-
-        # Slack text blocks have a 3000 character limit
-        # Reserve space for the insight name, formatting, and support message
-        max_error_length = 2000
-
-        if asset.exception:
-            exception_text = subscription_asset_error_message(asset)
-            if len(exception_text) > max_error_length:
-                exception_text = exception_text[:max_error_length] + "... (truncated)"
-        else:
-            exception_text = ASSET_GENERATION_FAILED_MESSAGE
-
-        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
+        details = failed_asset_details(asset)
+        support_url = subscription_support_url(resource_url)
         error_text = (
-            f"*{insight_name}*\n"
-            f"There was an error generating your asset: {exception_text}\n"
+            f"*{details.insight_name}*\n"
+            f"There was an error generating your asset: {details.error_text}\n"
             f"_If this issue persists, please <{support_url}|contact support>._"
         )
 
@@ -180,12 +160,8 @@ def _prepare_slack_message(
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
     elif summary_skipped_over_budget:
         billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": summary_skipped_over_budget_message(billing_url)}],
-            }
-        )
+        notice = summary_skipped_over_budget_message(f"<{billing_url}|Billing settings>")
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"_{notice}_"}]})
 
     blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 

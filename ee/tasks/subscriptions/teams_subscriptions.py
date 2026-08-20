@@ -8,19 +8,16 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.subscription_utils import (
-    ASSET_GENERATION_FAILED_MESSAGE,
     DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
     _has_asset_failed,
+    failed_asset_details,
     next_delivery_date_display,
-    subscription_asset_error_message,
+    subscription_support_url,
+    summary_skipped_over_budget_message,
 )
 
-UTM_TAGS = f"{UTM_TAGS_BASE}&utm_medium=teams"
-
-ADAPTIVE_CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive"
-ADAPTIVE_CARD_SCHEMA = "http://adaptivecards.io/schemas/adaptive-card.json"
-ADAPTIVE_CARD_VERSION = "1.2"
+TEAMS_UTM_TAGS = f"{UTM_TAGS_BASE}&utm_medium=teams"
 
 TEAMS_WEBHOOK_URL_ERROR = (
     "This does not look like a Microsoft Teams webhook URL. Create one with the Workflows app in the "
@@ -31,11 +28,6 @@ TEAMS_WEBHOOK_URL_ERROR = (
 # embedded and MAX_INSIGHTS bounds how many there are, so only the AI report text can approach
 # that limit. The report is kept well inside it and links out for the rest.
 TEAMS_TEXT_BLOCK_LIMIT = 3000
-TEAMS_REPORT_CHARACTER_BUDGET = 20000
-
-# Bounds one failed chart's exception text, so a run where several fail cannot push the card
-# past the payload limit on its own.
-_MAX_ASSET_ERROR_LENGTH = 2000
 
 
 def teams_text_block(text: str, *, is_subtle: bool = False) -> dict[str, Any]:
@@ -54,12 +46,12 @@ def teams_card_message(body: list[dict[str, Any]], actions: list[dict[str, str]]
         "type": "message",
         "attachments": [
             {
-                "contentType": ADAPTIVE_CARD_CONTENT_TYPE,
+                "contentType": "application/vnd.microsoft.card.adaptive",
                 "contentUrl": None,
                 "content": {
-                    "$schema": ADAPTIVE_CARD_SCHEMA,
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
-                    "version": ADAPTIVE_CARD_VERSION,
+                    "version": "1.2",
                     "body": body,
                     "actions": actions,
                 },
@@ -68,27 +60,13 @@ def teams_card_message(body: list[dict[str, Any]], actions: list[dict[str, str]]
     }
 
 
-def _summary_skipped_over_budget_message(billing_url: str) -> str:
-    return (
-        "_AI summary skipped. Your organization has reached its AI credit usage limit. "
-        f"Increase the limit in [Billing settings]({billing_url}) to resume summaries._"
-    )
-
-
 def _element_for_asset(asset: ExportedAsset, resource_url: str) -> dict[str, Any]:
     if _has_asset_failed(asset):
-        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
-        if asset.exception:
-            exception_text = subscription_asset_error_message(asset)
-            if len(exception_text) > _MAX_ASSET_ERROR_LENGTH:
-                exception_text = exception_text[:_MAX_ASSET_ERROR_LENGTH] + "... (truncated)"
-        else:
-            exception_text = ASSET_GENERATION_FAILED_MESSAGE
-
-        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
+        details = failed_asset_details(asset)
+        support_url = subscription_support_url(resource_url)
         return teams_text_block(
-            f"**{insight_name}**\n\n"
-            f"There was an error generating your asset: {exception_text}\n\n"
+            f"**{details.insight_name}**\n\n"
+            f"There was an error generating your asset: {details.error_text}\n\n"
             f"_If this issue persists, please [contact support]({support_url})._"
         )
 
@@ -134,8 +112,9 @@ def build_teams_subscription_card(
     if change_summary:
         body.append(teams_text_block(f"**AI summary**\n\n{change_summary}"))
     elif summary_skipped_over_budget:
-        billing_url = f"{absolute_uri('/organization/billing')}?{UTM_TAGS}"
-        body.append(teams_text_block(_summary_skipped_over_budget_message(billing_url), is_subtle=True))
+        billing_url = f"{absolute_uri('/organization/billing')}?{TEAMS_UTM_TAGS}"
+        notice = summary_skipped_over_budget_message(f"[Billing settings]({billing_url})")
+        body.append(teams_text_block(f"_{notice}_", is_subtle=True))
 
     body.extend(_element_for_asset(asset, resource_url=resource_info.url) for asset in assets)
 
@@ -143,13 +122,13 @@ def build_teams_subscription_card(
         body.append(
             teams_text_block(
                 f"Showing {len(assets)} of {total_asset_count} insights. "
-                f"[View the rest in PostHog]({resource_info.url}?{UTM_TAGS})",
+                f"[View the rest in PostHog]({resource_info.url}?{TEAMS_UTM_TAGS})",
                 is_subtle=True,
             )
         )
 
     actions = [
-        teams_open_url_action("View in PostHog", f"{resource_info.url}?{UTM_TAGS}"),
-        teams_open_url_action("Manage subscription", f"{subscription.url}?{UTM_TAGS}"),
+        teams_open_url_action("View in PostHog", f"{resource_info.url}?{TEAMS_UTM_TAGS}"),
+        teams_open_url_action("Manage subscription", f"{subscription.url}?{TEAMS_UTM_TAGS}"),
     ]
     return teams_card_message(body, actions)
