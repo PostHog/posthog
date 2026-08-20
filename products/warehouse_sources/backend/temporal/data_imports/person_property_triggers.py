@@ -59,6 +59,12 @@ class SavedQueryNotOnV2ScheduleError(Exception):
     per-query data-modeling schedule, whose workflow never stages person-property rows."""
 
 
+class WarehouseBindingMissingError(Exception):
+    """Raised by ``start_person_property_backfill`` when the binding's warehouse object (schema or
+    view) no longer resolves. A caller that created placeholder run rows before starting must fail
+    them on this, so they don't sit 'running' until the stale-run sweep clears them hours later."""
+
+
 def trigger_schema_sync(*, team_id: int, schema_id: str) -> None:
     """Trigger the underlying warehouse schema's Temporal schedule — a real, billable sync. The normal
     incremental person-property child runs off it, so this doubles as person-property "sync now".
@@ -86,12 +92,14 @@ def trigger_schema_sync(*, team_id: int, schema_id: str) -> None:
 def start_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> bool:
     """Start the per-table backfill workflow. One workflow per ``{team, binding}`` (id-keyed), so
     concurrent triggers for the same table coalesce: returns False (does not raise) when one is
-    already running. Also returns False when the warehouse object no longer exists."""
+    already running. Raises ``WarehouseBindingMissingError`` when the warehouse object no longer
+    exists, kept distinct from the coalesced False so the caller can fail the run rows it created
+    rather than reporting a coalesced run for a table that is gone."""
     log = logger.bind(team_id=team_id, binding_kind=binding.kind, binding_id=binding.id, trigger=trigger)
     inputs = _backfill_inputs(team_id, binding, trigger)
     if inputs is None:
-        log.warning("person-property backfill not started: warehouse table no longer exists")
-        return False
+        log.warning("person-property backfill not started: warehouse object no longer exists")
+        raise WarehouseBindingMissingError
     workflow_id = f"{BACKFILL_WORKFLOW_NAME}-{team_id}-{binding.id}"
     return _start_backfill_workflow(inputs, workflow_id)
 
