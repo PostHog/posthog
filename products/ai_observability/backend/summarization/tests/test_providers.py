@@ -42,7 +42,12 @@ class TestSummarizeWithOpenAI:
 
             assert isinstance(result, SummarizationResponse)
             assert result.title == "Test Summary"
-            mock_get_client.assert_called_once_with("llma_summarization", ai_product="aio_summarization")
+            mock_get_client.assert_called_once_with(
+                "llma_summarization",
+                ai_product="aio_summarization",
+                properties={"team_id": "1"},
+                distinct_id="team-1",
+            )
 
     def test_empty_response_raises_validation_error(self):
         mock_response = MagicMock()

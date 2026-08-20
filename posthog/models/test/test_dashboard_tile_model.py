@@ -8,7 +8,7 @@ from django.db.utils import IntegrityError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardTileModel(APIBaseTest):

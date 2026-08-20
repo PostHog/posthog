@@ -9,8 +9,8 @@ const MAX_URL_LENGTH = 2048
 
 /**
  * A record holds one domain from one message, and the collector caps a message at 512, so a
- * well-formed record stays under this. The headroom is small on purpose, because the Redis round
- * trips of a batch scale with this value and run one after another inside one batch budget.
+ * well-formed record stays under this. The headroom is small on purpose, because crawl-history
+ * request fan-out and the in-memory candidate set both scale with this value.
  */
 const MAX_URLS_PER_RECORD = 640
 

@@ -15,7 +15,7 @@ from posthog.models import Organization, Team, User
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
