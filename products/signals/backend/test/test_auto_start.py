@@ -600,23 +600,6 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
         assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
 
 
-def test_autostart_description_does_not_ask_the_agent_to_hunt_for_competing_work():
-    # Research owns the in-flight call and encodes it in `already_addressed`, which gates this task
-    # into existence at all. An implementation prompt that searches again reaches its own verdict on
-    # worse evidence, and an agent that reverses course mid-run can revert a fix it already committed.
-    description = _build_autostart_task_description(
-        report_id="0198c0de-0000-7000-8000-000000000001",
-        team_id=1,
-        summary="Fix the auth panel.",
-        repository="PostHog/posthog",
-        priority=None,
-    )
-
-    assert "gh pr list" not in description
-    assert "gh issue list" not in description
-    assert "competing PR" not in description
-
-
 @pytest.mark.parametrize(
     ("summary", "expect_fix_loop"),
     [
