@@ -1600,7 +1600,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } else {
                 // Otherwise wrap things up
                 if (!caughtException) {
-                    const hasGenerationError = values.threadRaw.some((msg) => msg.status === 'error')
+                    // Scope the error scan to the current turn (messages after the last human message).
+                    // An errored message from an earlier turn stays in the thread, so scanning the whole
+                    // thread would report every later successful turn as a generation error.
+                    const lastHumanMessageIndex = values.threadRaw.findLastIndex(isHumanMessage)
+                    const hasGenerationError = values.threadRaw
+                        .slice(lastHumanMessageIndex + 1)
+                        .some((msg) => msg.status === 'error')
                     posthog.capture('max conversation turn completed', {
                         status: hasGenerationError ? 'generation_error' : 'success',
                         conversation_id: values.conversation?.id,
@@ -3221,12 +3227,20 @@ export async function onEventImplementation(
                 status: 'completed',
             })
         } else if (isFailureMessage(parsedResponse)) {
-            // A server-emitted failure is a failed turn. Mark it 'error' so hasGenerationError
-            // sees it and the turn is captured as a failure, not a success.
-            actions.addMessage({
-                ...parsedResponse,
-                status: 'error',
-            })
+            // A server-emitted failure ends the turn. Mark it 'error' so hasGenerationError sees it
+            // and the turn is captured as a failure, not a success. Overwrite the partial streaming
+            // message in place (the same slot the completed path uses) so the half-streamed answer
+            // does not linger next to the failure.
+            const failureMessage = { ...parsedResponse, status: 'error' as const }
+            const existingMessageIndex = parsedResponse.id
+                ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
+                : -1
+            if (existingMessageIndex >= 0) {
+                actions.replaceMessage(existingMessageIndex, failureMessage)
+            } else {
+                const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+                actions.replaceMessage(lastCompletedMessageIndex + 1, failureMessage)
+            }
         } else {
             if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
                 for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {

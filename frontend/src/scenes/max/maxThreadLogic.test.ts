@@ -46,6 +46,7 @@ import {
     MOCK_TEMP_CONVERSATION_ID,
     maxMocks,
     mockStream,
+    mockStreamWithEvents,
 } from './testUtils'
 
 jest.mock(
@@ -2202,7 +2203,7 @@ describe('maxThreadLogic', () => {
             ])
         })
 
-        it('marks a server-emitted failure message as errored so the turn counts as a failure', async () => {
+        it('marks a server-emitted failure as errored and overwrites the partial streaming message', async () => {
             const { onEventImplementation } = await import('./maxThreadLogic')
 
             await expectLogic(logic, async () => {
@@ -2212,6 +2213,17 @@ describe('maxThreadLogic', () => {
                         id: 'human-1',
                         type: AssistantMessageType.Human,
                         content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+
+                // A half-streamed answer arrives as a loading temp message.
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Partial answer',
                     }),
                     { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
                 )
@@ -2229,7 +2241,38 @@ describe('maxThreadLogic', () => {
 
             const failure = logic.values.threadRaw.find((msg) => msg.type === AssistantMessageType.Failure)
             expect(failure?.status).toEqual('error')
-            expect(logic.values.threadRaw.some((msg) => msg.status === 'error')).toBe(true)
+            // The partial streaming answer is overwritten, not left next to the failure.
+            expect(logic.values.threadRaw.some((msg) => msg.status === 'loading')).toBe(false)
+            expect(logic.values.threadRaw.some((msg) => msg.type === AssistantMessageType.Assistant)).toBe(false)
+        })
+
+        it('does not report a later successful turn as a generation error after an earlier failure', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            mockStreamWithEvents([
+                {
+                    event: AssistantEventType.Message,
+                    data: { id: 'assistant-2', type: AssistantMessageType.Assistant, content: 'Here is the answer' },
+                },
+            ])
+
+            // An earlier turn left a failure message in the thread.
+            logic.actions.setThread([
+                { id: 'human-1', type: AssistantMessageType.Human, content: 'first question', status: 'completed' },
+                { id: 'failure-1', type: AssistantMessageType.Failure, content: 'failed', status: 'error' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('second question')
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'success' })
+            )
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'generation_error' })
+            )
         })
 
         it('handles streaming message with temp- ID by replacing it on subsequent updates', async () => {
