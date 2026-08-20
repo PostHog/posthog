@@ -4,6 +4,7 @@ import {
   type ChannelItemOwner,
   type ChannelSessionFacts,
 } from "@posthog/core/canvas/channelItems";
+import { formatBulkResult } from "@posthog/core/sidebar/selection";
 import type { WorkspaceMode } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
@@ -61,7 +62,7 @@ export function useChannelItems(channelId: string): {
     showAllUsers: true,
   });
   const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds, togglePin } = usePinnedTasks();
+  const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
   const { setPinned: setCanvasPinned, invalidateDashboards } =
     useDashboardMutations();
@@ -163,6 +164,42 @@ export function useChannelItems(channelId: string): {
           toast.error("Couldn't update pin");
         });
       },
+      // One request for the sessions and one per canvas, rather than a toggle
+      // per row: pinning is a scoped mutation, so a row-at-a-time batch waits
+      // out a round trip for each one.
+      setPinned: (items, pinned) => {
+        const taskIds = items
+          .filter((item) => item.kind === "task")
+          .map((item) => item.id);
+        const canvases = items.filter((item) => item.kind === "canvas");
+
+        // setPinnedMany settles every request itself and reports failures in
+        // `failed` rather than rejecting, so a shared Promise.all would read a
+        // failed session batch as success — check its result on its own.
+        if (taskIds.length > 0) {
+          setPinnedMany(taskIds, pinned)
+            .then(({ succeeded, failed }) => {
+              if (failed.length === 0) return;
+              const { message } = formatBulkResult(
+                pinned ? "pinned" : "unpinned",
+                { succeeded: succeeded.length, failed: failed.length },
+              );
+              toast.error(message);
+            })
+            .catch(() => {
+              toast.error(`Couldn't ${pinned ? "pin" : "unpin"} the sessions`);
+            });
+        }
+
+        const canvasPins = canvases.map((canvas) =>
+          setCanvasPinned(canvas.id, pinned),
+        );
+        if (canvasPins.length > 0) {
+          Promise.all(canvasPins).catch(() => {
+            toast.error("Couldn't update pin");
+          });
+        }
+      },
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
@@ -185,6 +222,7 @@ export function useChannelItems(channelId: string): {
       navigate,
       setCanvasPinned,
       togglePin,
+      setPinnedMany,
       archiveTask,
       invalidateDashboards,
     ],

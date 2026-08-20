@@ -123,7 +123,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
 
     def test_strict_match_retires_removed_repo_rows(self) -> None:
         # Removing a repo drops its names from discovery: synced rows keep their table but stop
-        # syncing; never-synced rows soft-delete. The legacy bare row must survive untouched.
+        # syncing; rows never enabled soft-delete. The legacy bare row must survive untouched.
         source = self._make_source()
         legacy = self._make_synced_schema(source, "issues")
         synced_removed = self._make_synced_schema(source, "acme/other.issues")
@@ -145,6 +145,27 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert synced_removed.should_sync is False
         assert synced_removed.deleted is False
         assert unsynced_removed.deleted is True
+
+    def test_dropped_user_enabled_schema_is_disabled_not_deleted_before_first_sync(self) -> None:
+        # A row the user enabled that never produced a table (every sync failed, then discovery
+        # stopped offering the endpoint, e.g. a scope-gated HubSpot table) must stay visible as
+        # disabled rather than vanish with the user's selection.
+        source = self._make_source()
+        enabled_unsynced = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.pk, name="leads", should_sync=True
+        )
+
+        sync_result = sync_old_schemas_with_new_schemas(
+            {"contacts": None},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+        )
+
+        enabled_unsynced.refresh_from_db()
+        assert sync_result.deleted == []
+        assert enabled_unsynced.deleted is False
+        assert enabled_unsynced.should_sync is False
+        assert enabled_unsynced.status == ExternalDataSchema.Status.COMPLETED
 
 
 class TestSchemaNameMatchesAutoSyncPatterns(SimpleTestCase):

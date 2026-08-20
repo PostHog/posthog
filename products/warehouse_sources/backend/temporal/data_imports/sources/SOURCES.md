@@ -63,6 +63,7 @@ the row lists both.
 | aircall                          | HTTP                        | requests                                                        | ✅                          |
 | airops                           | HTTP                        | requests                                                        | ✅                          |
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
+| airwallex                        | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -393,6 +394,7 @@ the row lists both.
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
+| kalshi                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kandji                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
@@ -550,6 +552,7 @@ the row lists both.
 | pluralsight_flow                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
+| polymarket                       | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -558,6 +561,7 @@ the row lists both.
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
+| profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |

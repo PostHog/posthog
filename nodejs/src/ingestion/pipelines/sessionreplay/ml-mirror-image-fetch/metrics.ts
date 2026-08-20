@@ -32,7 +32,7 @@ export class ImageFetchConsumerMetrics {
         help: 'URLs that passed every check and would have been fetched. In dry run no request is sent, so this is the offered rate rather than the sent rate',
     })
     /**
-     * `batch` and `pod` cost only memory, and `store` costs a Redis read, so the split is the
+     * `batch` and `pod` cost only memory, and `store` costs a shared-store read, so the split is the
      * measurement rather than the total. A high `store` share against a full pod cache says the pod
      * cache is too small. A low one says the pod cache already holds the working set.
      */
