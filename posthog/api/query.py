@@ -264,6 +264,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
+        client_query_id: str | None = None
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -364,7 +365,14 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")
+            # Keep ClickHouse internals out of the response, but attach a correlation key so the
+            # client-side report joins the server-side capture, which shares the same client_query_id.
+            api_exception = APIException("ClickHouse error while executing query.")
+            api_exception.extra = {  # type: ignore[attr-defined]
+                "error_class": type(e).__name__,
+                "client_query_id": client_query_id,
+            }
+            raise api_exception
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:

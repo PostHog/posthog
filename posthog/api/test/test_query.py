@@ -45,6 +45,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
@@ -462,6 +463,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @patch("posthog.api.query.process_query_model")
+    def test_unsafe_clickhouse_error_response_carries_correlation_key(self, mock_process_query_model):
+        # The user-facing message stays generic, but the response carries a correlation key so the
+        # client-side report joins the server-side capture tagged with the same client_query_id.
+        mock_process_query_model.side_effect = InternalCHQueryError("boom", code=999)
+        query = {"kind": "EventsQuery", "select": ["timestamp"]}
+
+        response_post = self.client.post(
+            f"/api/environments/{self.team.id}/query/", {"query": query, "client_query_id": "my-client-query-id"}
+        )
+        self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = response_post.json()
+        self.assertEqual(response["detail"], "ClickHouse error while executing query.")
+        self.assertEqual(response["extra"]["error_class"], "InternalCHQueryError")
+        self.assertEqual(response["extra"]["client_query_id"], "my-client-query-id")
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
