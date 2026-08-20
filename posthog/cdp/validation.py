@@ -759,9 +759,14 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -809,8 +814,8 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
             data.pop("data_warehouse", None)
 
-        if data.get("source") == "data-warehouse-table":
-            # Don't allow events or actions for data-warehouse-table
+        if data.get("source") in DATA_WAREHOUSE_SOURCES:
+            # Don't allow events or actions for warehouse sources
             data.pop("events", None)
             data.pop("actions", None)
 

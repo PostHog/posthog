@@ -108,9 +108,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 filters: zod
                                     .object({
                                         source: zod
-                                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                            .enum([
+                                                'events',
+                                                'person-updates',
+                                                'data-warehouse-table',
+                                                'data-warehouse-view',
+                                            ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault),
                                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -212,9 +217,9 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -265,9 +270,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                 .union([
                                                     zod.object({
                                                         source: zod
-                                                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                                            .enum([
+                                                                'events',
+                                                                'person-updates',
+                                                                'data-warehouse-table',
+                                                                'data-warehouse-view',
+                                                            ])
                                                             .describe(
-                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                             )
                                                             .default(
                                                                 hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -312,9 +322,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                                     'events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
+                                                                    'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -454,9 +465,14 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 filters: zod
                                     .object({
                                         source: zod
-                                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                            .enum([
+                                                'events',
+                                                'person-updates',
+                                                'data-warehouse-table',
+                                                'data-warehouse-view',
+                                            ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(
                                                 hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault

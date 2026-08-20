@@ -34,6 +34,7 @@ from posthog.cdp.internal_events import (
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
+    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -159,6 +160,13 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     # values in `inputs`, and this snapshot feeds revision content, which must never carry secrets.
     split_content_secrets(snapshot)
     return snapshot
+
+
+def _named_warehouse_tables(entries: Any) -> list[Any]:
+    """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row."""
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict) and entry.get("table_name")]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -484,9 +492,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
         )
         self.context["function_will_be_enabled"] = False if deleted else enabled
-        # Warehouse-table sources deliver the synced row under event.properties, so input templates
-        # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
-        self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
+        # Warehouse sources deliver the row under event.properties, so input templates may use the
+        # `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
+        self.context["is_dwh_source"] = data["filters"].get("source") in DATA_WAREHOUSE_SOURCES
+        # Materialized views are a newer source than warehouse tables, so nothing was saved before
+        # the consumer matched on the selected table. That lets us require a selection here, where
+        # an empty list still has to mean "every table" for the older source.
+        #
+        # Counts entries that name a table rather than entries that exist: the filters serializer
+        # drops the picker's "Select a table" placeholder, so a placeholder-only list arrives here
+        # non-empty and leaves it empty, which the consumer reads as "every view".
+        if (
+            data["filters"].get("source") == "data-warehouse-view"
+            and self.context["function_will_be_enabled"]
+            and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
+        ):
+            raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = None

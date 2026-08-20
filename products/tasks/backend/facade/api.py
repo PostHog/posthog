@@ -1069,7 +1069,11 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         return uncovered_ids
     runs = {
         run.id: run
-        for run in TaskRun.objects.filter(id__in=uncovered_ids)  # nosemgrep: celery-task-team-scope-audit
+        for run in TaskRun.objects.filter(
+            id__in=uncovered_ids
+        ).select_related(  # nosemgrep: celery-task-team-scope-audit
+            "task"
+        )
     }
     dispatch_run_ids = set(
         TaskWorkflowDispatch.objects.unscoped()
@@ -1078,9 +1082,20 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
     )
     for run_id in uncovered_ids:
         run = runs.get(run_id)
-        has_legacy_intent = bool(run and isinstance(run.state, dict) and run.state.get("pending_dispatch"))
-        if run_id not in dispatch_run_ids and not has_legacy_intent:
+        state = run.state if run and isinstance(run.state, dict) else {}
+        has_legacy_intent = bool(state.get("pending_dispatch"))
+        awaiting_restart_rollout = bool(state.get("handoff_resumed"))
+        if run_id not in dispatch_run_ids and not has_legacy_intent and not awaiting_restart_rollout:
             WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
+            logger.warning(
+                "workflow_dispatch_missing_intent",
+                extra={
+                    "run_id": str(run_id),
+                    "task_id": str(run.task_id) if run else None,
+                    "team_id": run.team_id if run else None,
+                    "origin_product": run.task.origin_product if run else None,
+                },
+            )
     return uncovered_ids
 
 
@@ -5816,6 +5831,9 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this.
     """
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        enforce_report_implementation_rerun_cap,
+    )
     from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
@@ -5829,6 +5847,20 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    report_id_for_slot_check = (
+        str(task.signal_report_id)
+        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if report_id_for_slot_check is not None:
+        # Ahead of the warm-run reuse below, which returns early: a task released its slot when
+        # its runs all failed, so another implementation may hold it by now. Refusing here also
+        # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
+        # check that actually holds the slot is the one wrapping `create_run` below.
+        with transaction.atomic():
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+            )
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
@@ -6131,7 +6163,18 @@ def run_task(
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
-    task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    with transaction.atomic():
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+        if report_id_for_slot_check is not None:
+            # A live run is what marks the report's implementation slot taken, so the slot is only
+            # really claimed once this row exists. Inserting first and locking the report second
+            # keeps the row lock off `create_run`, which evaluates a feature flag, and still
+            # serializes against a concurrent create: that create either takes the report lock
+            # first, so this check sees the task it added and rolls the run back, or takes it
+            # second, by which point this run is committed and its own count check refuses.
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+            )
     if is_pi_task and resume_from_run_id:
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
@@ -7897,25 +7940,6 @@ def request_canvas_change(
     if outcome in {"signaled", "new_run"}:
         create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
     return outcome
-
-
-def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
-    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
-
-    Nothing canvas-specific: kept here because ``temporal.client`` puts temporalio on
-    its import path and this module must not.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_task_processing_workflow,
-    )
-
-    execute_task_processing_workflow(
-        task_id=task_id,
-        run_id=run_id,
-        team_id=team_id,
-        user_id=user_id,
-        skip_user_check=True,
-    )
 
 
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
