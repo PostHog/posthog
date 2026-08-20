@@ -2439,14 +2439,22 @@ def _get_table_chunk_size(
             cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
             savepoint_active = False
 
-        if row is None:
+        # A sample that measured nothing — an empty table, or one whose live rows all fell outside
+        # the sampled pages — returns NULL percentiles. Treating that as a one-byte row is not a
+        # conservative guess but the least safe one available: it derives a chunk of 150 million
+        # rows, and the page cap built from it then licenses a single `FETCH` of the entire table.
+        if row is None or not row[0]:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
             return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
-        row_size_bytes = row[0] or 1
+        row_size_bytes = row[0]
         wide_row_bytes = int(row[1]) if row[1] else None
         largest_row_bytes = int(row[2]) if row[2] else None
-        batch_rows = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+        # A row wider than the whole budget floors the division to zero, and a zero-row chunk
+        # reads `FETCH FORWARD 0` — an empty page the loop cannot tell from the end of the
+        # result set, so the table syncs as empty. One row per batch is what such a table can
+        # actually do; the sibling `SQLSourceImplementation.get_chunk_size` already floors it.
+        batch_rows = max(1, int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes))
         chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "

@@ -30,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
@@ -5346,6 +5349,41 @@ class TestGetTableChunkSize:
             # Savepoint rollback leaves the connection usable for the rest of setup.
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+    class _ProbeCursor:
+        def __init__(self, row):
+            self._row = row
+            self.connection = mock.Mock(autocommit=True)
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return self._row
+
+    def test_a_row_wider_than_the_budget_still_reads_one_row_at_a_time(self):
+        # Flooring the division to zero reads `FETCH FORWARD 0`, and an empty page is
+        # indistinguishable from the end of the result set — the table would sync as empty.
+        wider_than_the_budget = float(DEFAULT_TABLE_SIZE_BYTES * 2)
+        cursor = self._ProbeCursor((wider_than_the_budget, wider_than_the_budget, int(wider_than_the_budget)))
+
+        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+
+        assert chunking.batch_rows == 1
+        assert chunking.fetch_rows == 1
+
+    def test_a_sample_that_measured_nothing_falls_back(self):
+        # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading
+        # that as a size derives a 150-million-row chunk, and the page cap built from it then
+        # licenses a single FETCH of the whole table.
+        cursor = self._ProbeCursor((None, None, None))
+
+        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+
+        assert chunking == _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
 
 class TestSizeSamplePercent:
