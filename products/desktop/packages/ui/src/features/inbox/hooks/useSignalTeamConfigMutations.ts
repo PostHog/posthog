@@ -100,9 +100,34 @@ export function useSignalTeamConfigMutations() {
     [client, queryClient],
   );
 
+  const handleUpdateMaxReportsPerDay = useCallback(
+    async (limit: number | null) => {
+      if (!client) return;
+      try {
+        // Write the server's fresh config back so today's count and the reached
+        // flag update alongside the new cap.
+        const fresh = await client.updateSignalTeamConfig({
+          max_reports_per_day: limit,
+        });
+        queryClient.setQueryData<SignalTeamConfig | null>(
+          TEAM_CONFIG_QUERY_KEY,
+          fresh,
+        );
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to update daily report limit";
+        toast.error(message);
+      }
+    },
+    [client, queryClient],
+  );
+
   return {
     handleUpdateAutostartPriority,
     handleUpdateTeamSlackChannel,
     handleUpdateAutostartBaseBranches,
+    handleUpdateMaxReportsPerDay,
   };
 }
