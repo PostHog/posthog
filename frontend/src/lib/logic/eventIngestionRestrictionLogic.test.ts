@@ -46,6 +46,7 @@ describe('eventIngestionRestrictionLogic', () => {
                     },
                 ],
                 hasProjectNoticeRestriction: true,
+                hasDropEventRestriction: true,
             })
     })
 
@@ -70,6 +71,7 @@ describe('eventIngestionRestrictionLogic', () => {
                     },
                 ],
                 hasProjectNoticeRestriction: true,
+                hasDropEventRestriction: false,
             })
     })
 

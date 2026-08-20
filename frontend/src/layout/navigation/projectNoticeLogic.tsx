@@ -264,7 +264,8 @@ export interface projectNoticeLogicMeta {
                 search: string
                 searchParams: Record<string, any>
             },
-            activeSceneProductKey: ProductKey | null
+            activeSceneProductKey: ProductKey | null,
+            hasDropEventRestriction: boolean
         ) => ProjectNoticeBlueprint | null
     }
 }
@@ -467,6 +468,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
                     case 'provisioned_welcome':
+                    case 'event_ingestion_restriction':
                         return variant
                     default:
                         return null
@@ -483,6 +485,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
+                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
             ],
             (
                 variant: ProjectNoticeVariant | null,
@@ -499,7 +502,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     search: string
                     searchParams: Record<string, any>
                 },
-                activeSceneProductKey: ProductKey | null
+                activeSceneProductKey: ProductKey | null,
+                hasDropEventRestriction: boolean
             ): ProjectNoticeBlueprint | null => {
                 if (!variant) {
                     return null
@@ -630,10 +634,25 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                         }
                     case 'event_ingestion_restriction':
+                        if (hasDropEventRestriction) {
+                            return {
+                                message:
+                                    'Some events sent to this project are being dropped before ingestion. Contact support if you did not expect this.',
+                                type: 'warning',
+                                onClose: dismiss,
+                            }
+                        }
                         return {
                             message:
-                                'Event ingestion restrictions have been applied to a token in this project. Please contact support.',
-                            type: 'warning',
+                                'Person profile processing is turned off for some events in this project. Those events still arrive and stay queryable. Only person profile creation is skipped.',
+                            type: 'info',
+                            action: {
+                                to: 'https://posthog.com/docs/data/persons#capturing-person-profiles',
+                                targetBlank: true,
+                                'data-attr': 'event-ingestion-restriction-docs_link',
+                                children: 'Learn more',
+                            },
+                            onClose: dismiss,
                         }
                     case 'missing_reverse_proxy':
                         return {

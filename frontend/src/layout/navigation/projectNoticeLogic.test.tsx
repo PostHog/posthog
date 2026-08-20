@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { RestrictionType, eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -256,6 +257,67 @@ describe('projectNoticeLogic', () => {
             const logic = await mountWithDetectedProxy(false)
 
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
+
+            logic.unmount()
+        })
+    })
+
+    describe.each([
+        {
+            label: 'events are dropped',
+            restriction: RestrictionType.DROP_EVENT_FROM_INGESTION,
+            expectedType: 'warning',
+            expectsDocsLink: false,
+        },
+        {
+            label: 'only person processing is skipped',
+            restriction: RestrictionType.SKIP_PERSON_PROCESSING,
+            expectedType: 'info',
+            expectsDocsLink: true,
+        },
+    ])('event ingestion restriction banner copy: $label', ({ restriction, expectedType, expectsDocsLink }) => {
+        let getItemSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            // A project that has ingested events, so the "no events yet" notice never wins the priority chain.
+            window.POSTHOG_APP_CONTEXT = {
+                current_team: { id: MOCK_TEAM_ID, ingested_event: true },
+                current_project: { id: MOCK_TEAM_ID },
+            } as unknown as AppContext
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                    '/api/environments/:team_id/event_ingestion_restrictions/': [
+                        200,
+                        [{ restriction_type: restriction, distinct_ids: null }],
+                    ],
+                },
+            })
+            initKeaTests()
+            // Dismiss the lower-priority notice that would otherwise sit ahead of the restriction one.
+            getItemSpy = jest
+                .spyOn(Storage.prototype, 'getItem')
+                .mockImplementation((key: string) =>
+                    key === 'project-notice-dismissed.invite_teammates' ? 'true' : null
+                )
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+        })
+
+        it('splits copy by restriction type and stays dismissible', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(eventIngestionRestrictionLogic).toDispatchActions([
+                'loadEventIngestionRestrictionsSuccess',
+            ])
+
+            expect(logic.values.projectNoticeVariant).toEqual('event_ingestion_restriction')
+            expect(logic.values.projectNotice?.type).toEqual(expectedType)
+            expect(logic.values.projectNotice?.onClose).not.toBeUndefined()
+            expect(logic.values.projectNotice?.action).toEqual(expectsDocsLink ? expect.anything() : undefined)
 
             logic.unmount()
         })
