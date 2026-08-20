@@ -6,8 +6,19 @@ from posthog.schema import LoadingBlock, MarkdownBlock
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 
-# Regex pattern to find <insight>artifact_id</insight> tags
-INSIGHT_TAG_PATTERN = r"<insight>([^<]+)</insight>"
+# Insight short IDs are alphanumeric, but the model sometimes emits ids that carry a colon or
+# hyphen, so accept those too rather than drop the tag back to literal text.
+_INSIGHT_SHORT_ID = r"[\w:-]+"
+
+# Every insight-reference dialect Max emits, converted to a VisualizationRefBlock. The attribute
+# form is matched first because it is the only one whose id lives in an `id=`/`shortId=` attribute.
+# Keep this grammar in sync with the frontend parser in
+# frontend/src/lib/components/MarkdownNotebook/notebookAI.ts.
+INSIGHT_TAG_PATTERN = (
+    rf"<insight\b[^>]*?\b(?:id|shortId)\s*=\s*[\"'](?P<attr_id>{_INSIGHT_SHORT_ID})[\"'][^>]*?>(?:\s*</insight\s*>)?"
+    rf"|<insight\s*=\s*[\"']?(?P<eq_id>{_INSIGHT_SHORT_ID})[\"']?\s*/?>(?:\s*</insight\s*>)?"
+    rf"|<insight\s*>\s*(?P<el_id>{_INSIGHT_SHORT_ID})\s*</insight\s*>"
+)
 
 T = TypeVar("T", VisualizationRefBlock, LoadingBlock)
 
@@ -29,15 +40,15 @@ def _parse_notebook_content(
     blocks: list[StoredBlock] = []
 
     last_end = 0
-    for match in re.finditer(INSIGHT_TAG_PATTERN, content):
+    for match in re.finditer(INSIGHT_TAG_PATTERN, content, flags=re.IGNORECASE):
         # Add markdown block for text before the tag
         if match.start() > last_end:
             text = content[last_end : match.start()].strip()
             if text:
                 blocks.append(MarkdownBlock(content=text))
 
-        # Add insight block using the factory
-        artifact_id = match.group(1).strip()
+        # Add insight block using the factory. Exactly one dialect group matches per tag.
+        artifact_id = (match.group("attr_id") or match.group("eq_id") or match.group("el_id")).strip()
         blocks.append(create_insight_block(artifact_id))
 
         last_end = match.end()

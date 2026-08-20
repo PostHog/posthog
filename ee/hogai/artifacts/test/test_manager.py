@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +15,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     DateRange,
+    ErrorBlock,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -30,6 +32,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversa
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_EVENT, UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import StoredNotebookArtifactContent
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -143,6 +146,26 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         self.assertIsInstance(content, NotebookArtifactContent)
         self.assertEqual(len(content.blocks), 1)
+
+    def test_unresolvable_visualization_ref_reports_and_prompts_a_rebuild(self):
+        artifact = AgentArtifact.objects.create(
+            name="Report",
+            type=AgentArtifact.Type.NOTEBOOK,
+            data={"blocks": [{"type": "visualization_ref", "artifact_id": "gone"}]},
+            conversation=self.conversation,
+            team=self.team,
+        )
+
+        with patch("ee.hogai.artifacts.telemetry.posthoganalytics.capture") as mock_capture:
+            content = async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
+
+        self.assertEqual(len(content.blocks), 1)
+        block = content.blocks[0]
+        self.assertIsInstance(block, ErrorBlock)
+        self.assertEqual(block.message, UNRESOLVED_VISUALIZATION_MESSAGE)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["event"], UNRESOLVED_VISUALIZATION_EVENT)
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["unresolved_artifact_ids"], ["gone"])
 
     def test_retrieves_content_with_expected_type(self):
         artifact = AgentArtifact.objects.create(

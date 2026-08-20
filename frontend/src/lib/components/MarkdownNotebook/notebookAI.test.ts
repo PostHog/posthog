@@ -192,6 +192,28 @@ describe('notebookAI', () => {
         )
     })
 
+    it.each([
+        ['colon in the short id', '<insight>W:8ZHl</insight>', 'W:8ZHl'],
+        ['equals form', '<insight=v6BHXh2n></insight>', 'v6BHXh2n'],
+        ['self-closing equals form', '<insight=v6BHXh2n/>', 'v6BHXh2n'],
+        ['attribute form with extra props', '<Insight id="XuCZnclZ" view="results" />', 'XuCZnclZ'],
+        ['lowercase attribute form', '<insight shortId="XuCZnclZ"></insight>', 'XuCZnclZ'],
+    ])('normalizes the %s insight dialect into a query', (_label, tag, shortId) => {
+        const markdown = '# Notebook\n\nThinking...'
+
+        expect(replaceMarkdown(markdown, 1, tag)).toEqual(
+            `# Notebook\n\n<Query query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
+        )
+    })
+
+    it('breaks an inline insight tag out into its own query block', () => {
+        const markdown = '# Notebook\n\nThinking...'
+
+        expect(replaceMarkdown(markdown, 1, 'See <insight>uONk</insight> for details.')).toEqual(
+            '# Notebook\n\nSee \n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\n for details.'
+        )
+    })
+
     it('defaults AI-inserted query components to results only', () => {
         const markdown = '# Notebook\n\nThinking...'
 

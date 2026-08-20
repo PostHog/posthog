@@ -342,16 +342,43 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
     return maxLength
 }
 
+// Insight short IDs are alphanumeric, but the model sometimes emits ids that carry a colon or
+// hyphen, so accept those too rather than drop the tag back to literal text.
+const INSIGHT_SHORT_ID = String.raw`[\w:-]+`
+
+// Every insight-reference dialect Max emits, in the order we try them. The attribute form is
+// matched first because it is the only one whose id lives in an `id=`/`shortId=` attribute.
+// Keep this grammar in sync with the backend parser in ee/hogai/tools/create_notebook/parsing.py.
+const INSIGHT_TAG_REGEXES: RegExp[] = [
+    // <Insight id="X" view="results" />, <insight shortId="X"></insight> - extra props allowed.
+    new RegExp(
+        String.raw`<insight\b[^>]*?\b(?:id|shortid)\s*=\s*["'](${INSIGHT_SHORT_ID})["'][^>]*?>(?:\s*</insight\s*>)?`,
+        'gi'
+    ),
+    // <insight=X>, <insight=X/>, <insight=X></insight>.
+    new RegExp(String.raw`<insight\s*=\s*["']?(${INSIGHT_SHORT_ID})["']?\s*/?>(?:\s*</insight\s*>)?`, 'gi'),
+    // <insight>X</insight>.
+    new RegExp(String.raw`<insight\s*>\s*(${INSIGHT_SHORT_ID})\s*</insight\s*>`, 'gi'),
+]
+
 function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
-    return markdown
-        .replace(
-            /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
-            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
+    let normalized = markdown
+    for (const regex of INSIGHT_TAG_REGEXES) {
+        normalized = normalized.replace(regex, (match, shortId: string, offset: number, source: string) =>
+            surroundInsightQueryAsBlock(getSavedInsightQueryMarkdown(shortId), source, offset, match.length)
         )
-        .replace(
-            /(^|\n)<Insight\s+(?:id|shortId)=["']([A-Za-z0-9_-]+)["']\s*\/>(?=\n|$)/g,
-            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
-        )
+    }
+    return normalized
+}
+
+// A Query only renders when it starts its own line, so a tag written mid-paragraph must be broken
+// out into its own block. A tag already alone on its line keeps its surrounding newlines untouched.
+function surroundInsightQueryAsBlock(query: string, source: string, offset: number, matchLength: number): string {
+    const charBefore = offset > 0 ? source[offset - 1] : '\n'
+    const charAfter = offset + matchLength < source.length ? source[offset + matchLength] : '\n'
+    const prefix = charBefore === '\n' ? '' : '\n\n'
+    const suffix = charAfter === '\n' ? '' : '\n\n'
+    return `${prefix}${query}${suffix}`
 }
 
 function getSavedInsightQueryMarkdown(shortId: string): string {

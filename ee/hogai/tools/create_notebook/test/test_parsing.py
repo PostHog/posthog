@@ -41,6 +41,22 @@ class TestParseNotebookContentForStorage(BaseTest):
         assert isinstance(result[0], VisualizationRefBlock)
         assert result[0].artifact_id == artifact_id
 
+    @parameterized.expand(
+        [
+            ("colon in id", "<insight>W:8ZHl</insight>", "W:8ZHl"),
+            ("equals form", "<insight=v6BHXh2n></insight>", "v6BHXh2n"),
+            ("self-closing equals form", "<insight=v6BHXh2n/>", "v6BHXh2n"),
+            ("attribute form with extra props", '<Insight id="XuCZnclZ" view="results" />', "XuCZnclZ"),
+            ("lowercase attribute form", '<insight shortId="XuCZnclZ"></insight>', "XuCZnclZ"),
+        ]
+    )
+    def test_insight_dialects_create_ref_block(self, _label: str, content: str, expected_id: str):
+        result = parse_notebook_content_for_storage(content)
+
+        assert len(result) == 1
+        assert isinstance(result[0], VisualizationRefBlock)
+        assert result[0].artifact_id == expected_id
+
     def test_whitespace_in_artifact_id_is_stripped(self):
         result = parse_notebook_content_for_storage("<insight>  abc123  </insight>")
 
