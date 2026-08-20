@@ -236,6 +236,37 @@ class BaseTaskAPITest(TestCase):
         self.organization.members.add(user)
         return user
 
+    def _sandbox_oauth_client(
+        self,
+        task_id: uuid.UUID,
+        *,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        bound: bool = True,
+        internal_scope: bool = False,
+    ) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task artifact uploader",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id if bound else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
 
 class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
     def _built_in_agent_client(self) -> APIClient:
@@ -4917,37 +4948,6 @@ _OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
-    def _sandbox_oauth_client(
-        self,
-        task_id: uuid.UUID,
-        *,
-        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
-        bound: bool = True,
-        internal_scope: bool = False,
-    ) -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Task artifact uploader",
-            client_id=client_id,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_task_agent_{uuid.uuid4().hex}",
-            expires=django_timezone.now() + timedelta(hours=1),
-            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
-            scoped_teams=[self.team.id],
-            sandbox_task_id=task_id if bound else None,
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
-
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -9219,23 +9219,14 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
-    def test_handoff_rejects_nonterminal_runs(self):
+    def test_handoff_rejects_task_bound_sandbox_agent(self):
         recipient = self.create_organization_user("recipient")
         task = self.create_task(created_by=self.user)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        client = self._sandbox_oauth_client(task.id)
 
-        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Finish or cancel active runs before handing off this task.",
-                "attr": "user",
-            },
-        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         task.refresh_from_db()
         self.assertEqual(task.created_by_id, self.user.id)
 

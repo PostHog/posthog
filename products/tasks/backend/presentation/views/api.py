@@ -683,7 +683,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=TaskHandoffRequestSerializer,
-        responses={200: TaskSerializer},
+        responses={
+            200: TaskSerializer,
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Only a user may hand off a task.",
+            ),
+        },
         summary="Hand a task off to a colleague",
         description=(
             "Transfer ownership of a task to another member of the project: they take over driving it "
@@ -695,6 +701,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskHandoffRequestSerializer)
     def handoff(self, request, pk=None, **kwargs):
+        if pk is not None and is_sandbox_agent_request(request, pk):
+            raise PermissionDenied("Only a user can hand off a task. Sign in to continue.")
         user_id = self._user_id()
         if user_id is None:
             raise NotFound()
