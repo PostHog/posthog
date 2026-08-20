@@ -1,11 +1,12 @@
 import re
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clover.settings import (
     CLOVER_ENDPOINTS,
@@ -36,7 +37,7 @@ READ_TIMEOUT_SECONDS = 120
 PROBE_READ_TIMEOUT_SECONDS = 15
 
 
-@dataclasses.dataclass
+@frozen
 class CloverResumeConfig:
     # CloverPaginator snapshot: {"offset": int, "window_start_ms": int | None}.
     paginator_state: dict[str, Any]

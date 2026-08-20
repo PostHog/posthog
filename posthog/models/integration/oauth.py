@@ -843,9 +843,9 @@ class OauthIntegration:
                 name_path="resend_account_name",
             )
         elif kind in CLOVER_OAUTH_REGIONS:
-            region = CLOVER_OAUTH_REGIONS[kind]
-            client_id = getattr(settings, region.client_id_setting, "")
-            client_secret = getattr(settings, region.client_secret_setting, "")
+            clover_region = CLOVER_OAUTH_REGIONS[kind]
+            client_id = getattr(settings, clover_region.client_id_setting, "")
+            client_secret = getattr(settings, clover_region.client_secret_setting, "")
             if not client_id or not client_secret:
                 raise NotImplementedError(f"Clover app not configured for {kind}")
 
@@ -857,9 +857,9 @@ class OauthIntegration:
             # /oauth/v2/refresh route, and the merchant id arrives as a callback query param rather
             # than in the token response (see the clover branch in integration_from_oauth_response).
             return OauthConfig(
-                authorize_url=f"{region.web_host}/oauth/v2/authorize",
-                token_url=f"{region.api_host}/oauth/v2/token",
-                refresh_url=f"{region.api_host}/oauth/v2/refresh",
+                authorize_url=f"{clover_region.web_host}/oauth/v2/authorize",
+                token_url=f"{clover_region.api_host}/oauth/v2/token",
+                refresh_url=f"{clover_region.api_host}/oauth/v2/refresh",
                 client_id=client_id,
                 client_secret=client_secret,
                 scope="",

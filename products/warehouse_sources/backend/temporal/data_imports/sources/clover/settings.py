@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -52,7 +54,7 @@ def _time_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class CloverEndpointConfig:
     name: str
     # Collection path under /v3/merchants/{merchant_id}/.
