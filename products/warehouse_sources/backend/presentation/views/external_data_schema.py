@@ -1331,6 +1331,52 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             adapter.remove_table(source, db_schema, source_table_name)
 
 
+class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
+    """Trimmed schema representation for the source LIST endpoint.
+
+    The sources list embeds every schema of every source, and a large project can have tens of
+    thousands of schemas. The list only renders per-schema sync status, the sync toggle, the latest
+    error, and the synced table's row count and name — so this serializer emits just those fields.
+    It skips the column metadata, sync configuration, and per-schema SourceRegistry/HogQL work that
+    the full `ExternalDataSchemaSerializer` computes, which otherwise dominates the request.
+    """
+
+    table = serializers.SerializerMethodField(
+        read_only=True, help_text="The synced warehouse table (id, name, row_count), or null if not yet synced."
+    )
+    status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
+
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "label", "should_sync", "status", "latest_error", "table"]
+        read_only_fields = fields
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "row_count": {"type": "integer", "nullable": True},
+            },
+        }
+    )
+    def get_table(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        table = schema.table
+        if table is None or table.deleted:
+            return None
+        return {"id": str(table.id), "name": table.name, "row_count": table.row_count}
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+            return "Billing limits"
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limits too low"
+        return schema.status
+
+
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
