@@ -605,17 +605,27 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     return _accelerated_presigned_client
 
 
-def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+def get_presigned_post_pair(
+    file_key: str, conditions: list[Any], expiration: int = 3600
+) -> tuple[Optional[dict], Optional[dict]]:
+    """Returns a ``(primary, fallback)`` pair of presigned POSTs for one upload.
+
+    The primary targets the transfer-acceleration endpoint when it is configured and
+    presigning succeeds, and the fallback then targets the standard endpoint, for
+    clients whose network blocks the accelerate domain. Otherwise the primary is a
+    standard-endpoint POST and the fallback is None.
+    """
     accelerated = _get_accelerated_presigned_client()
     if accelerated:
         try:
-            return accelerated.generate_presigned_post(
+            primary = accelerated.generate_presigned_post(
                 settings.OBJECT_STORAGE_BUCKET, file_key, Conditions=conditions, ExpiresIn=expiration
             )
+            return primary, get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
         except Exception as e:
             logger.exception("object_storage.get_accelerated_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
-    return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
+    return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration), None
 
 
 def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
