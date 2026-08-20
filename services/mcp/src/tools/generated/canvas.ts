@@ -384,28 +384,6 @@ const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Sch
     },
 })
 
-const CanvasValidateCreateSchema = CanvasesValidateCreateParams.omit({ project_id: true })
-    .extend(CanvasesValidateCreateBody.shape)
-    .extend({ id: CanvasesValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.') })
-
-const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Schemas.CanvasValidateResponse> => ({
-    name: 'canvas-validate-create',
-    schema: CanvasValidateCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasValidateCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.project !== undefined) {
-            body['project'] = params.project
-        }
-        const result = await context.api.request<Schemas.CanvasValidateResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/validate/`,
-            body,
-        })
-        return result
-    },
-})
-
 const CanvasStateRetrieveSchema = CanvasesStateRetrieveParams.omit({ project_id: true }).extend(
     CanvasesStateRetrieveQueryParams.shape
 )
@@ -452,6 +430,28 @@ const canvasStateSet = (): ToolBase<typeof CanvasStateSetSchema, Schemas.CanvasS
     },
 })
 
+const CanvasValidateCreateSchema = CanvasesValidateCreateParams.omit({ project_id: true })
+    .extend(CanvasesValidateCreateBody.shape)
+    .extend({ id: CanvasesValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.') })
+
+const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Schemas.CanvasValidateResponse> => ({
+    name: 'canvas-validate-create',
+    schema: CanvasValidateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasValidateCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project !== undefined) {
+            body['project'] = params.project
+        }
+        const result = await context.api.request<Schemas.CanvasValidateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/validate/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
@@ -466,7 +466,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
-    'canvas-validate-create': canvasValidateCreate,
     'canvas-state-retrieve': canvasStateRetrieve,
     'canvas-state-set': canvasStateSet,
+    'canvas-validate-create': canvasValidateCreate,
 }
