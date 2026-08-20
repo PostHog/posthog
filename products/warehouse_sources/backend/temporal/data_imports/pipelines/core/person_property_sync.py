@@ -35,6 +35,7 @@ from django.conf import settings
 import structlog
 import pyarrow.parquet as pq
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
@@ -606,13 +607,23 @@ BACKFILL_BATCH_SIZE = 50_000
 BACKFILL_RUN_TOKEN = "backfill"
 
 
+@frozen
+class _DeltaRead:
+    """One full-table Delta read for a backfill. ``accumulated`` maps source_id -> {distinct_id:
+    bundle}; ``missing_key_source_ids`` names sources whose key column is absent from the table, so
+    the caller records their run failed with a reason instead of a silent 0-row backfill."""
+
+    accumulated: dict[str, dict[str, dict]]
+    rows_read: int
+    missing_key_source_ids: set[str]
+
+
 def _read_delta_bundles(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
-) -> tuple[dict[str, dict[str, dict]], int, set[str]]:
+) -> _DeltaRead:
     """Stream the table's Delta files from S3 and accumulate {source_id: {distinct_id: bundle}}
     (last-write-wins per distinct_id). Streams batches — never materializes the whole table — so peak
-    memory tracks distinct persons, not row count. Returns (accumulated, rows_read, source ids whose
-    key column is missing from the table)."""
+    memory tracks distinct persons, not row count."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -621,7 +632,7 @@ def _read_delta_bundles(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return accumulated, 0, set()
+        return _DeltaRead(accumulated=accumulated, rows_read=0, missing_key_source_ids=set())
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
@@ -653,7 +664,7 @@ def _read_delta_bundles(
             bucket = accumulated[str(source.source_id)]
             for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
                 bucket[distinct_id] = bundle
-    return accumulated, rows_read, missing_key_source_ids
+    return _DeltaRead(accumulated=accumulated, rows_read=rows_read, missing_key_source_ids=missing_key_source_ids)
 
 
 def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
@@ -709,22 +720,20 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    accumulated, rows_read, missing_key_source_ids = await asyncio.to_thread(
-        _read_delta_bundles, uri, delta_storage_options(), sources
-    )
+    delta_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
-    result.rows_read = rows_read
+    result.rows_read = delta_read.rows_read
     logger.info(
         "person-property backfill: read full Delta table",
         team_id=team_id,
         **_log_fields(binding),
         trigger=trigger,
         sources=len(sources),
-        rows_read=rows_read,
+        rows_read=delta_read.rows_read,
     )
 
     for source in sources:
-        bundles = list(accumulated[str(source.source_id)].items())
+        bundles = list(delta_read.accumulated[str(source.source_id)].items())
         ps = await _process_source_bundles(
             team_id=team_id,
             binding=binding,
@@ -732,10 +741,10 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             team_uuid=str(team.uuid),
             source=source,
             bundles=bundles,
-            rows_read=rows_read,
+            rows_read=delta_read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )
-        if str(source.source_id) in missing_key_source_ids:
+        if str(source.source_id) in delta_read.missing_key_source_ids:
             ps.error = (
                 f'The table no longer has the key column "{source.key_column}", so no rows could be '
                 "matched. Update the source's key column."
