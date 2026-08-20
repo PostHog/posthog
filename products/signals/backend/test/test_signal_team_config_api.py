@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -9,6 +11,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 
 
 class TestSignalTeamConfigAPI(APIBaseTest):
@@ -293,3 +296,23 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.post(self._url(), data={"default_autostart_priority": "P1"}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(self._activity()) == 1
+
+
+class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
+    # No DB needed: these are field-level rejections that short-circuit in to_internal_value.
+    # The endpoint wiring guard lives in TestSignalTeamConfigAPI.
+    @parameterized.expand(
+        [
+            (
+                "too_many_entries",
+                {f"acme/repo{i}": "staging" for i in range(MAX_AUTOSTART_BASE_BRANCH_ENTRIES + 1)},
+            ),
+            ("oversized_repo_key", {"acme/" + "r" * 300: "staging"}),
+        ]
+    )
+    def test_autostart_base_branches_rejects_oversized_input(self, _name, value):
+        # Both cap the stored map and its full-copy activity-log row; without the bound a caller
+        # with write access could append arbitrarily large rows by re-saving a huge map.
+        serializer = SignalTeamConfigSerializer(data={"autostart_base_branches": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "autostart_base_branches" in serializer.errors
