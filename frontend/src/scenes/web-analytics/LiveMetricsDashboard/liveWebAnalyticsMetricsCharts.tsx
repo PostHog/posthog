@@ -1,12 +1,11 @@
 import { useMemo } from 'react'
 
 import {
+    DefaultTooltip,
     type Series,
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
     type TooltipContext,
-    TooltipSurface,
-    TooltipSwatch,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -23,21 +22,14 @@ const EmptyState = ({ message }: { message: string }): JSX.Element => (
     <div className="h-full flex items-center justify-center text-muted text-sm">{message}</div>
 )
 
-// Buckets are minute-aligned absolute timestamps; labels stay ISO so the time axis and tooltip
-// header format them (in the viewer's local zone, matching the "shown in your local timezone" note)
-// rather than baking display strings the axis would print verbatim.
+// Matches the "shown in your local timezone" note on the cards, and is what the axis resolves
+// the ISO labels against.
+const LOCAL_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+// Buckets are minute-aligned absolute timestamps; labels stay ISO so the time axis formats them
+// rather than printing baked display strings verbatim.
 const useMinuteLabels = (data: ChartDataPoint[]): string[] =>
     useMemo(() => data.map((d) => dayjs(d.timestamp).toISOString()), [data])
-
-const TooltipRow = ({ color, label, value }: { color: string; label: string; value: number }): JSX.Element => (
-    <div className="flex items-center justify-between gap-4">
-        <span className="flex items-center gap-1.5">
-            <TooltipSwatch color={color} />
-            <span className="opacity-60">{label}</span>
-        </span>
-        <strong className="tabular-nums">{value.toLocaleString()}</strong>
-    </div>
-)
 
 export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
     const hasData = data.some((d) => d.users > 0)
@@ -60,9 +52,9 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            xAxis: { tickFormatter: (label) => dayjs(label).format('HH:mm') },
+            xAxis: { timezone: LOCAL_TIMEZONE, interval: 'minute' },
             yAxis: { format: 'short' },
-            legend: { show: true, position: 'top', align: 'end' },
+            legend: { show: true },
         }),
         []
     )
@@ -81,21 +73,14 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
                 tooltip={(ctx: TooltipContext) => {
                     const point = data[ctx.dataIndex]
                     return (
-                        <TooltipSurface>
-                            <div className="font-semibold mb-1">
-                                {point
+                        <DefaultTooltip
+                            {...ctx}
+                            labelFormatter={(label) =>
+                                point
                                     ? `${point.minute} · ${point.users} visitors · ${point.pageviews} pageviews`
-                                    : ctx.label}
-                            </div>
-                            {ctx.seriesData.map((entry) => (
-                                <TooltipRow
-                                    key={entry.series.key}
-                                    color={entry.color}
-                                    label={entry.series.label}
-                                    value={entry.value}
-                                />
-                            ))}
-                        </TooltipSurface>
+                                    : label
+                            }
+                        />
                     )
                 }}
             />
@@ -115,7 +100,7 @@ export const BotEventsPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): J
 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: { tickFormatter: (label) => dayjs(label).format('HH:mm') },
+            xAxis: { timezone: LOCAL_TIMEZONE, interval: 'minute' },
             yAxis: { format: 'short' },
         }),
         []
@@ -134,21 +119,7 @@ export const BotEventsPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): J
                 config={config}
                 tooltip={(ctx: TooltipContext) => {
                     const point = data[ctx.dataIndex]
-                    return (
-                        <TooltipSurface>
-                            <div className="font-semibold mb-1">
-                                {point ? `${point.minute} · ${point.botEvents} bot requests` : ctx.label}
-                            </div>
-                            {ctx.seriesData.map((entry) => (
-                                <TooltipRow
-                                    key={entry.series.key}
-                                    color={entry.color}
-                                    label={entry.series.label}
-                                    value={entry.value}
-                                />
-                            ))}
-                        </TooltipSurface>
-                    )
+                    return <DefaultTooltip {...ctx} labelFormatter={(label) => (point ? point.minute : label)} />
                 }}
             />
         </div>
