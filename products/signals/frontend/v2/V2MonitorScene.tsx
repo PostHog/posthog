@@ -9,6 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AnnotatedLineChart } from './components/AnnotatedLineChart'
+import { InboxBackButton } from './components/InboxBackButton'
 import { ReportStateTag } from './components/ReportStateTag'
 import { getDemoReport } from './mockData'
 import { MONITOR_FLAG_KEY, MonitorComparisonRow, MonitorRolloutStepState, v2MonitorLogic } from './v2MonitorLogic'
@@ -84,9 +85,7 @@ export function V2MonitorScene({ id = MONITOR_DEMO_REPORT_ID }: V2MonitorScenePr
         <div className="max-w-[1160px] mx-auto flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-3">
-                    <Link to={urls.v2Inbox()} subtle className="text-xs text-secondary" data-attr="v2-monitor-back">
-                        ← Inbox
-                    </Link>
+                    <InboxBackButton />
                     <span className="text-[15px] font-bold">{id}</span>
                     <span className="font-mono text-[10px] font-semibold tracking-wide uppercase text-tertiary">
                         {area}

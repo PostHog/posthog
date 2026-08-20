@@ -4,6 +4,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AnnotatedLineChart } from './components/AnnotatedLineChart'
+import { InboxBackButton } from './components/InboxBackButton'
 import { getDemoReport } from './mockData'
 import { DemoChartData, ReportTimelineColor, ReportTimelineEntry } from './types'
 
@@ -90,9 +91,7 @@ export function V2ResolvedScene({ id = RESOLVED_DEMO_REPORT_ID }: V2ResolvedScen
     return (
         <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 p-4 lg:p-7">
             <div className="flex flex-wrap items-center gap-3.5">
-                <Link to={urls.v2Inbox()} className="text-xs text-secondary" data-attr="v2-resolved-back">
-                    ← Inbox
-                </Link>
+                <InboxBackButton />
                 <span className="text-[15px] font-bold">{id}</span>
                 <span className="font-mono text-[11px] font-semibold tracking-wider text-secondary uppercase">
                     {area}

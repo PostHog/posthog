@@ -13,6 +13,7 @@ import { createPrModalLogic } from './components/createPrModalLogic'
 import { DemoBarStrip } from './components/DemoBarStrip'
 import { DemoDiffBlock, diffLinesFromSnippet } from './components/DemoDiffBlock'
 import { EvidenceScreenshot } from './components/EvidenceScreenshot'
+import { InboxBackButton } from './components/InboxBackButton'
 import { ReportStateTag } from './components/ReportStateTag'
 import { SendToAgentMenu } from './components/SendToAgentMenu'
 import { DEMO_REPORT_ID } from './mockData'
@@ -225,9 +226,7 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
     return (
         <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 p-4 lg:p-7">
             <div className="flex">
-                <Link to={urls.v2Inbox()} className="text-xs text-secondary" data-attr="v2-report-back">
-                    ← Inbox
-                </Link>
+                <InboxBackButton />
             </div>
 
             {fix && phase === 'launched' ? (

@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { CreatePrModal } from './components/CreatePrModal'
 import { DemoDiffBlock, diffLinesFromSnippet } from './components/DemoDiffBlock'
+import { InboxBackButton } from './components/InboxBackButton'
 import { SendToAgentMenu } from './components/SendToAgentMenu'
 import { DemoReport, FocusActedStatus, ReportStatus, ReportTrend } from './types'
 import { v2FocusLogic } from './v2FocusLogic'
@@ -208,9 +209,7 @@ export function V2FocusScene(): JSX.Element {
     return (
         <div className="flex h-full flex-col overflow-hidden">
             <header className="flex flex-none items-center gap-3 border-b border-primary px-4 py-2">
-                <Link to={urls.v2Inbox()} className="text-xs text-secondary" data-attr="v2-focus-back">
-                    ← Inbox
-                </Link>
+                <InboxBackButton />
                 <span className="font-mono text-xxs tracking-widest text-tertiary uppercase">Focus</span>
                 <div className="flex-1" />
                 <div className="flex items-center gap-1.5">
