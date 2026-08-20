@@ -1062,16 +1062,15 @@ class Task(DeletedMetaFields, models.Model):
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
             # GitHub token into the (repo-less) sandbox instead of the full credential path.
             run_extra_state["github_read_access"] = True
-        if start_workflow:
-            # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
-            # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
-            run_extra_state["pending_dispatch"] = {
-                "create_pr": create_pr,
-                "posthog_mcp_scopes": posthog_mcp_scopes,
-                "user_id": user_id,
-                "slack_thread_context": _normalize_slack_context(slack_thread_context),
-                "workflow_id_prefix": workflow_id_prefix,
-            }
+        # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
+        # reconciler can re-dispatch faithfully if the workflow start is ever lost.
+        run_extra_state["pending_dispatch"] = {
+            "create_pr": create_pr,
+            "posthog_mcp_scopes": posthog_mcp_scopes,
+            "user_id": user_id,
+            "slack_thread_context": _normalize_slack_context(slack_thread_context),
+            "workflow_id_prefix": workflow_id_prefix,
+        }
 
         with transaction.atomic():
             task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
