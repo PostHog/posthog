@@ -35,7 +35,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.hogql_queries.ai.utils import (
+    HEAVY_COLUMN_NAMES,
+    HEAVY_PROPERTY_NAMES,
+    merge_heavy_properties,
+    parse_ai_properties,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -344,23 +349,28 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise exceptions.NotFound(f"Event '{generation_id}' not found in the given date range.")
 
         uuid_value, event_name, timestamp, properties_json, trace_id = result.results[0]
-        heavy_columns = self._fetch_heavy_columns(generation_id, str(trace_id or ""), date_from_expr, date_to_expr)
+        properties = parse_ai_properties(properties_json)
+        # Events ingested before the ai_events split still carry their content here, and are old
+        # enough that ai_events has aged them out, so only look there when it is actually missing.
+        if not any(properties.get(name) for name in HEAVY_PROPERTY_NAMES):
+            heavy_columns = self._fetch_heavy_columns(generation_id, str(trace_id or ""), date_from_expr, date_to_expr)
+            properties = merge_heavy_properties(properties_json, heavy_columns)
 
         event_data = {
             "id": str(uuid_value),
             "event": event_name,
             "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
-            "properties": merge_heavy_properties(properties_json, heavy_columns),
+            "properties": properties,
         }
         return generation_id, {"event": event_data}
 
     def _fetch_heavy_columns(
         self, event_uuid: str, trace_id: str, date_from: ast.Constant, date_to: ast.Constant
     ) -> dict[str, Any]:
-        """Read the message content columns, which live only in `posthog.ai_events`.
+        """Read the message content columns for an event whose own properties no longer carry them.
 
-        Anchored on `trace_id` because it leads that table's sorting key. An event without one
-        can't be looked up there, so it gets summarized on its metadata alone.
+        Anchored on `trace_id` because it leads that table's sorting key, per the rationale in
+        `posthog/hogql_queries/ai/trace_id_resolver.py`.
         """
         if not trace_id:
             return {}
@@ -393,7 +403,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             )
         except AIEventsExpiredError:
             raise exceptions.NotFound(
-                "We only keep message content for 30 days, so this event can no longer be summarized."
+                "The message content for this event is no longer available, so it can't be summarized."
             ) from None
         except AIEventsUnavailableError:
             return {}
