@@ -532,9 +532,7 @@ async def _deliver_insight_dashboard_subscription(
             ),
         )
     elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
-        # `resource_info` and each asset's insight are lazy ORM reads, which Django forbids on the
-        # event loop, so the card is built in a thread before the send.
-        card = await database_sync_to_async(build_teams_subscription_card, thread_sensitive=False)(
+        card = build_teams_subscription_card(
             subscription,
             assets,
             inputs.total_insight_count,
@@ -542,7 +540,7 @@ async def _deliver_insight_dashboard_subscription(
             change_summary=inputs.change_summary,
             summary_skipped_over_budget=inputs.summary_skipped_over_budget,
         )
-        result = await deliver_webhook(subscription, recipient_results, url=subscription.target_value, body=card)
+        result = await deliver_webhook(subscription, recipient_results, body=card)
     else:
         raise ApplicationError(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",

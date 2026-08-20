@@ -522,21 +522,22 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
-@patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_request")
+@patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_session")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_teams(
     mock_metric_meter: MagicMock,
     mock_exporter: MagicMock,
-    mock_pinned_request: MagicMock,
+    mock_pinned_session: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
     user,
 ):
     # Power Automate acknowledges an accepted card with 202 rather than 200.
-    mock_pinned_request.return_value = MagicMock(status_code=202)
+    mock_post = mock_pinned_session.return_value.__enter__.return_value.request
+    mock_post.return_value = MagicMock(status_code=202)
 
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="tms999", name="Insight")
     subscription = await sync_to_async(create_subscription)(
@@ -575,8 +576,8 @@ async def test_deliver_subscription_report_teams(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    assert mock_pinned_request.call_count == 1
-    card = mock_pinned_request.call_args.kwargs["json"]
+    assert mock_post.call_count == 1
+    card = mock_post.call_args.kwargs["json"]
     assert card["attachments"][0]["content"]["type"] == "AdaptiveCard"
 
     delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription_id=subscription.id)
@@ -2456,10 +2457,9 @@ async def test_deliver_ai_subscription_posts_the_report_to_teams(team, user):
     )
     delivery = await _create_ai_delivery(sub, report="# Report")
 
-    with patch(
-        "products.exports.backend.temporal.subscriptions.delivery_common.pinned_request",
-        return_value=MagicMock(status_code=202),
-    ) as mock_post:
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_session") as mock_session:
+        mock_post = mock_session.return_value.__enter__.return_value.request
+        mock_post.return_value = MagicMock(status_code=202)
         result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
 
     body = mock_post.call_args.kwargs["json"]["attachments"][0]["content"]["body"]

@@ -107,6 +107,13 @@ class Subscription(ModelActivityMixin, models.Model):
         SLACK = "slack"
         TEAMS = "teams", "Microsoft Teams"
 
+        @classmethod
+        def webhook_targets(cls) -> frozenset[str]:
+            """Targets whose target_value is a user-supplied webhook URL rather than an address or a
+            channel. A URL of that shape is a bearer credential, so it is masked wherever it is stored
+            or returned outside the subscription's own target_value."""
+            return frozenset({cls.TEAMS.value})
+
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
         WEEKLY = "weekly"

@@ -1,5 +1,7 @@
 import asyncio
+import functools
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, NoReturn
 from urllib.parse import urlparse
 
@@ -11,7 +13,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription
@@ -38,6 +40,22 @@ LOGGER = get_logger(__name__)
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
 
+# Connect and read timeouts for a webhook POST. Power Automate acknowledges quickly, so a read
+# that runs long means the flow is stuck rather than slow.
+_WEBHOOK_TIMEOUT_SECONDS = (5.0, 30.0)
+# What a deleted or revoked Power Automate flow answers with. Retrying cannot recover any of them.
+_PERMANENT_WEBHOOK_STATUSES = frozenset({403, 404, 410})
+_WEBHOOK_UNREACHABLE_MESSAGE = (
+    "We couldn't reach the destination URL. PostHog will try again on the next scheduled run."
+)
+# Webhook sends get their own small pool rather than the event loop's default executor, which also
+# serves every database_sync_to_async call and every async log line in this worker. `requests`
+# applies its read timeout per socket read, so a destination that trickles bytes holds its thread
+# for as long as it likes, and Temporal's start_to_close_timeout cancels the await rather than the
+# thread. Confining that to a few threads keeps one stuck destination away from the deliveries
+# running beside it.
+_WEBHOOK_SEND_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="subscription-webhook")
+
 
 def strip_null_bytes(value: Any) -> Any:
     """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
@@ -59,17 +77,6 @@ def strip_null_bytes(value: Any) -> Any:
     return value
 
 
-# Connect and read timeouts for a webhook POST. Power Automate acknowledges quickly, so a read
-# that runs long means the flow is stuck rather than slow.
-_WEBHOOK_TIMEOUT_SECONDS = (5.0, 30.0)
-# What a deleted or revoked Power Automate flow answers with. Retrying cannot recover any of them.
-_PERMANENT_WEBHOOK_STATUSES = frozenset({403, 404, 410})
-_MAX_RECIPIENT_HOST_LENGTH = 60
-_WEBHOOK_UNREACHABLE_MESSAGE = (
-    "We couldn't reach the destination URL. PostHog will try again on the next scheduled run."
-)
-
-
 def _error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[str, Any]]:
     details: list[dict[str, Any]] = [
         {
@@ -84,21 +91,18 @@ def _error_detail_results(recipient_results: list[RecipientResult]) -> list[dict
     return details
 
 
-def webhook_recipient_label(url: str) -> str:
+def recipient_label(subscription: Subscription) -> str:
+    """How this subscription's destination is named everywhere outside its own ``target_value``:
+    ``RecipientResult.recipient`` and the ``SubscriptionDelivery.target_value`` snapshot, both of
+    which the API returns. A webhook URL is a bearer credential for the destination channel, so
+    only its host is recorded."""
+    if subscription.target_type not in Subscription.SubscriptionTarget.webhook_targets():
+        return subscription.target_value
     try:
-        host = (urlparse(url).hostname or "").lower()
+        host = (urlparse(subscription.target_value).hostname or "").lower()
     except ValueError:
         host = ""
-    return host[:_MAX_RECIPIENT_HOST_LENGTH] or "webhook"
-
-
-def recipient_label(subscription: Subscription) -> str:
-    """What to record in ``RecipientResult.recipient``. It is persisted to
-    ``SubscriptionDelivery.recipient_results`` and returned by the API, and a webhook URL is a
-    bearer credential for the destination channel, so only its host is recorded."""
-    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
-        return webhook_recipient_label(subscription.target_value)
-    return subscription.target_value
+    return host or "webhook"
 
 
 def _fail_webhook_delivery(
@@ -109,7 +113,7 @@ def _fail_webhook_delivery(
     message: str,
     error_type: str,
     human_readable_error: str,
-    retryable: bool,
+    non_retryable: bool,
 ) -> NoReturn:
     recipient_results.append(
         RecipientResult(
@@ -123,68 +127,78 @@ def _fail_webhook_delivery(
     # `from None` keeps the originating exception out of the Temporal failure chain: a `requests`
     # error carries the full webhook URL in its text, and that URL is a credential.
     raise ApplicationError(
-        message, {"recipient_results": _error_detail_results(recipient_results)}, non_retryable=not retryable
+        message, {"recipient_results": _error_detail_results(recipient_results)}, non_retryable=non_retryable
     ) from None
+
+
+def _post_webhook(url: str, body: dict[str, Any]) -> int:
+    """POST the payload and return the status code, without reading the response body.
+
+    `pinned_session` re-validates the URL and pins the connection to the IPs it resolved, which is
+    what closes the DNS-rebinding window, so this path must never fall back to plain `requests`.
+    `stream=True` keeps an untrusted destination from making us download a response of any size we
+    would only throw away.
+    """
+    with pinned_session(url) as session:
+        response = session.request(
+            "POST", url, json=body, timeout=_WEBHOOK_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+        )
+        try:
+            return response.status_code
+        finally:
+            response.close()
 
 
 async def deliver_webhook(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
     *,
-    url: str,
     body: dict[str, Any],
 ) -> DeliverSubscriptionResult:
-    """POST an already-built payload to a user-supplied webhook URL.
+    """POST an already-built payload to the subscription's user-supplied webhook URL.
 
-    Knows nothing about what the payload means. `pinned_request` re-validates the URL and pins the
-    connection to the IPs it resolved, which is what closes the DNS-rebinding window, so this path
-    must never fall back to plain `requests`. Neither the URL nor an exception carrying it is
+    Knows nothing about what the payload means. Neither the URL nor an exception carrying it is
     logged, captured, or put in a delivery receipt.
     """
-    recipient = webhook_recipient_label(url)
+    url = subscription.target_value
+    recipient = recipient_label(subscription)
     LOGGER.info("deliver_subscription.sending_webhook", subscription_id=subscription.id, recipient=recipient)
 
     try:
-        # `pinned_request` is synchronous and resolves DNS, so it cannot run on the event loop.
-        response = await asyncio.to_thread(pinned_request, "POST", url, timeout=_WEBHOOK_TIMEOUT_SECONDS, json=body)
-    except SSRFBlockedError as exc:
-        # Retryable rather than permanent, because the likely cause is a failed name resolution.
-        # Callers validate the host on save, so a URL that can never work does not reach here.
+        # The send is synchronous and resolves DNS, so it cannot run on the event loop.
+        status = await asyncio.get_running_loop().run_in_executor(
+            _WEBHOOK_SEND_EXECUTOR, functools.partial(_post_webhook, url, body)
+        )
+    except (SSRFBlockedError, requests.RequestException) as exc:
+        # Retryable rather than permanent even when the URL was blocked, because the likely cause is
+        # a failed name resolution. Callers validate the host on save, so a URL that can never work
+        # does not reach here.
+        if isinstance(exc, SSRFBlockedError):
+            event = "deliver_subscription.webhook_url_blocked"
+            error_type = "webhook_url_blocked"
+            message = f"Webhook URL failed validation: {exc}"
+        else:
+            event = "deliver_subscription.webhook_request_failed"
+            error_type = "webhook_request_failed"
+            message = f"Webhook request failed: {type(exc).__name__}"
         # No exc_info anywhere in this function: a traceback would render the exception text, and a
         # `requests` error carries the full webhook URL in it.
         LOGGER.error(  # noqa: TRY400
-            "deliver_subscription.webhook_url_blocked",
+            event,
             subscription_id=subscription.id,
             recipient=recipient,
-            reason=str(exc),
+            reason=message,
         )
         _fail_webhook_delivery(
             subscription,
             recipient_results,
             recipient=recipient,
-            message=f"Webhook URL failed validation: {exc}",
-            error_type="webhook_url_blocked",
+            message=message,
+            error_type=error_type,
             human_readable_error=_WEBHOOK_UNREACHABLE_MESSAGE,
-            retryable=True,
-        )
-    except requests.RequestException as exc:
-        LOGGER.error(  # noqa: TRY400
-            "deliver_subscription.webhook_request_failed",
-            subscription_id=subscription.id,
-            recipient=recipient,
-            error_type=type(exc).__name__,
-        )
-        _fail_webhook_delivery(
-            subscription,
-            recipient_results,
-            recipient=recipient,
-            message=f"Webhook request failed: {type(exc).__name__}",
-            error_type="webhook_request_failed",
-            human_readable_error=_WEBHOOK_UNREACHABLE_MESSAGE,
-            retryable=True,
+            non_retryable=False,
         )
 
-    status = response.status_code
     # Any 2xx counts: Power Automate answers 202 on a webhook it accepted for processing.
     if 200 <= status < 300:
         await LOGGER.ainfo(
@@ -214,7 +228,7 @@ async def deliver_webhook(
         message=f"Webhook destination returned HTTP {status}",
         error_type="webhook_http_error",
         human_readable_error=f"The destination returned an error (HTTP {status}).",
-        retryable=status == 429 or status >= 500,
+        non_retryable=not (status == 429 or status >= 500),
     )
 
 
@@ -374,7 +388,7 @@ async def deliver_slack(
 
     if result.is_complete_success:
         await LOGGER.ainfo("deliver_subscription.slack_sent", subscription_id=subscription.id)
-        recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
+        recipient_results.append(RecipientResult(recipient=recipient_label(subscription), status="success", error=None))
     elif result.is_partial_failure:
         await LOGGER.awarning(
             "deliver_subscription.slack_partial_failure",
@@ -386,7 +400,7 @@ async def deliver_slack(
         partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
         recipient_results.append(
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=recipient_label(subscription),
                 status="partial",
                 error={"message": partial_message, "type": "partial_thread_failure"},
                 human_readable_error=partial_message,

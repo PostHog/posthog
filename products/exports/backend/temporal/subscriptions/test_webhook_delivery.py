@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -8,6 +10,8 @@ from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
+
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_webhook
@@ -23,7 +27,8 @@ WEBHOOK_URL = (
 WEBHOOK_HOST = "prod-25.westeurope.logic.azure.com"
 CARD = {"type": "message", "attachments": []}
 
-_PINNED_REQUEST = "products.exports.backend.temporal.subscriptions.delivery_common.pinned_request"
+_PINNED_SESSION = "products.exports.backend.temporal.subscriptions.delivery_common.pinned_session"
+_VALIDATE_URL = "posthog.security.pinned_requests.validate_url_and_pin_ips"
 _CAPTURE_FAILED = "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
 _DISABLED_EMAIL = "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
 
@@ -40,15 +45,26 @@ def _unsaved_teams_subscription(url: str = WEBHOOK_URL) -> Subscription:
     )
 
 
+@contextmanager
+def _destination_responds(status: int) -> Iterator[MagicMock]:
+    with patch(_PINNED_SESSION) as pinned_session:
+        request = pinned_session.return_value.__enter__.return_value.request
+        request.return_value = MagicMock(status_code=status)
+        yield request
+
+
 @override_settings(DEBUG=False)
-async def test_blocked_url_never_issues_a_request() -> None:
-    subscription = _unsaved_teams_subscription("https://127.0.0.1/workflows/abc")
+async def test_a_url_that_stops_resolving_stays_retryable() -> None:
+    subscription = _unsaved_teams_subscription()
     recipient_results: list[RecipientResult] = []
+    unresolvable = PinnedUrlVerdict(allowed=False, reason="DNS resolution failed", pinned_ips=set())
 
-    with patch("requests.Session.request") as mock_request, patch(_CAPTURE_FAILED):
-        with pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, url=subscription.target_value, body=CARD)
+    with patch(_VALIDATE_URL, return_value=unresolvable), patch("requests.Session.request") as mock_request:
+        with patch(_CAPTURE_FAILED), pytest.raises(ApplicationError) as error:
+            await deliver_webhook(subscription, recipient_results, body=CARD)
 
+    # A Microsoft host that fails to resolve now may resolve on the next run, so the delivery must
+    # not be written off as permanently broken.
     assert mock_request.call_count == 0
     assert error.value.non_retryable is False
     assert recipient_results[0].error is not None
@@ -60,10 +76,12 @@ async def test_any_2xx_is_a_successful_delivery(status) -> None:
     subscription = _unsaved_teams_subscription()
     recipient_results: list[RecipientResult] = []
 
-    with patch(_PINNED_REQUEST, return_value=MagicMock(status_code=status)) as mock_post:
-        result = await deliver_webhook(subscription, recipient_results, url=WEBHOOK_URL, body=CARD)
+    with _destination_responds(status) as request:
+        result = await deliver_webhook(subscription, recipient_results, body=CARD)
 
-    assert mock_post.call_args.kwargs["json"] == CARD
+    assert request.call_args.kwargs["json"] == CARD
+    # A destination can answer with a body of any size, and only the status is ever read.
+    assert request.call_args.kwargs["stream"] is True
     assert [(r.recipient, r.status) for r in result.recipient_results] == [(WEBHOOK_HOST, "success")]
 
 
@@ -72,9 +90,9 @@ async def test_error_status_raises_with_the_right_retry_semantics(status, expect
     subscription = _unsaved_teams_subscription()
     recipient_results: list[RecipientResult] = []
 
-    with patch(_PINNED_REQUEST, return_value=MagicMock(status_code=status)), patch(_CAPTURE_FAILED):
+    with _destination_responds(status), patch(_CAPTURE_FAILED):
         with pytest.raises(ApplicationError) as error:
-            await deliver_webhook(subscription, recipient_results, url=WEBHOOK_URL, body=CARD)
+            await deliver_webhook(subscription, recipient_results, body=CARD)
 
     assert error.value.non_retryable is expected_non_retryable
     assert subscription.enabled is True
@@ -85,9 +103,9 @@ async def test_delivery_receipt_never_holds_the_webhook_url(status) -> None:
     subscription = _unsaved_teams_subscription()
     recipient_results: list[RecipientResult] = []
 
-    with patch(_PINNED_REQUEST, return_value=MagicMock(status_code=status)), patch(_CAPTURE_FAILED):
+    with _destination_responds(status), patch(_CAPTURE_FAILED):
         try:
-            await deliver_webhook(subscription, recipient_results, url=WEBHOOK_URL, body=CARD)
+            await deliver_webhook(subscription, recipient_results, body=CARD)
         except ApplicationError as error:
             assert "supersecret" not in str(error)
             assert "supersecret" not in str(error.details)
@@ -107,12 +125,8 @@ async def test_permanent_status_auto_disables_the_subscription(team, user, statu
     )
     recipient_results: list[RecipientResult] = []
 
-    with (
-        patch(_PINNED_REQUEST, return_value=MagicMock(status_code=status)),
-        patch(_DISABLED_EMAIL),
-        patch(_CAPTURE_FAILED),
-    ):
-        result = await deliver_webhook(subscription, recipient_results, url=WEBHOOK_URL, body=CARD)
+    with _destination_responds(status), patch(_DISABLED_EMAIL), patch(_CAPTURE_FAILED):
+        result = await deliver_webhook(subscription, recipient_results, body=CARD)
 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False

@@ -371,7 +371,7 @@ async def _deliver_ai_subscription(
         )
     if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
         card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id)
-        return await deliver_webhook(subscription, recipient_results, url=subscription.target_value, body=card)
+        return await deliver_webhook(subscription, recipient_results, body=card)
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.
     raise ApplicationError(
