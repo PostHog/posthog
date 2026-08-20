@@ -658,7 +658,7 @@ Requirements and behavior:
 ## OAuth configuration
 
 Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
-The kinds live in `model.py`, the OAuth wiring in `oauth.py`, and each provider gets its own module.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
 `__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
