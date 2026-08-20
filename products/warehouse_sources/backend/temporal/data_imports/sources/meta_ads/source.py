@@ -248,6 +248,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="90",
                         secret=False,
+                        caption=(
+                            "A stats table that already imported keeps its current start date. A higher "
+                            "value pulls in older data only after you resync that table."
+                        ),
                     ),
                     # Attribution settings for insights (spend/conversion) tables. Left unset, Meta
                     # applies its own default, so existing connections are unaffected. Set them to
