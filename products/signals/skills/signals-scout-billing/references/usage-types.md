@@ -71,10 +71,13 @@ Each tier carries its own `current_usage` and `projected_usage`, so the marginal
 Price it as a difference:
 
 ```text
-impact = price(period_to_date_usage) − price(period_to_date_usage − delta)
+daily_step     = latest_day − same_weekday_median
+days_remaining = days from the latest complete day to billing_period.current_period_end
+impact         = price(projected_usage + daily_step × days_remaining) − price(projected_usage − daily_step × days_observed)
 ```
 
-where `price(units)` walks the tier schedule and charges each tier's `unit_amount_usd` for the units falling inside it (plus any `flat_amount_usd`). Then adjust in this order:
+where `price(units)` walks the tier schedule and charges each tier's `unit_amount_usd` for the units falling inside it (plus any `flat_amount_usd`), `projected_usage` is the product's own forecast from the overview, and `days_observed` is how many complete days the step has already held (one, on the day you first see it).
+This prices the move the way the report frames it — what the invoice does if the step persists — and the tier walk means a delta that crosses a boundary is charged at each tier's own rate. Then adjust in this order:
 
 1. **Discount.** Apply `discount_percent`. At 100% the impact is $0 no matter how large the usage move — real, and a legitimate reason not to report.
 2. **Spending cap.** If the product's `usage_limit` (its spending limit expressed in units — see below) already binds, the incremental usage is not billed at all. Cap the impact at the remaining headroom under that limit, which can be $0.
@@ -112,10 +115,12 @@ Write the consequence as a possibility — "may stop ingesting", "features may s
 
 Both are supported and the older one is checked first elsewhere in the product:
 
-- `trial` — the newer object, with `status` and `expires_at`. Prefer it when present; it carries the richer metadata.
+- `trial` — the newer object, with `status`, `type`, and `expires_at`. Prefer it when present; it carries the richer metadata.
 - `free_trial_until` — the legacy timestamp. An organization on this representation has an active trial whenever the timestamp is in the future.
 
 Checking only `trial` means organizations on the legacy field never get the trial-end warning.
+
+**Forecast a post-trial charge only when the trial will actually convert into one.** A dollar forecast needs `trial.status` of `active` and `trial.type` of `autosubscribe` — that is the only shape where expiry automatically creates the paid subscription. A `standard` trial ends in a subscribe-or-lose-access choice, so frame its expiry as a decision the customer has coming, not an invoice. A cancelled or already-converted `trial` object is history, not a forecast.
 
 ## Where each usage type hands off
 

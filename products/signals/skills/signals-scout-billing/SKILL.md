@@ -105,8 +105,8 @@ The `label` doubles as a human hint (`"Recordings"` or `"dev::Recordings"`), but
 With `team_ids` pinned to one project, `["type"]` is all the step lane needs; one 35-day call returns every usage type (about 26 series) at roughly 25 KB.
 
 **Anchor on the data, not the wall clock.** `dates` runs through today, and today's bucket is reported as **zero on every meter**, not as a partial count — usage lands in daily batches.
-The latest complete day is therefore the last date with any non-zero meter, normally yesterday. Drop today before scoring, or every run opens with a phantom cliff to zero.
-Treat a last complete day older than two days as lag worth recording in the cursor, not as a drop.
+Drop today, and only today, before scoring — the latest complete day is yesterday, **even when every meter reads zero on it**. A complete all-zero day is the going-dark shape this scout promises to surface, so skipping back to the last non-zero date would hide a project-wide capture outage and freeze the cursor.
+Distinguish an outage from batch lag with the overview: if `usage_summary.<usage_key>.usage` is still advancing while the series shows zeros, the series is lagging — record the lag in the cursor and score the last non-zero day instead. Otherwise the zeros are real.
 
 ### Profile shape — what is worth a look
 
@@ -130,7 +130,7 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 - **Constant baseline.** When MAD is 0, robust z is undefined and every wobble reads as infinite. Fall back to a **≥ 50% relative change** from the median.
 - **New meter.** When the baseline median is 0, relative change is undefined too. Treat it as an onset rather than a step: flag when the latest value clears the volume floor and the materiality gate, and describe it as a meter starting rather than one moving.
 - **Volume floor.** Skip a meter only when **both** its baseline median and its latest value are under **100 units/day**. Flooring on the baseline alone would discard the cold-start instrumentation loop this scout most wants to catch — a meter going from a handful of units to a large paid spike has a tiny baseline and a real invoice impact. Small numbers on both sides produce meaningless percentages: 1 → 3 units is not a billing event.
-- **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median. Two or more families outside that is a traffic story.
+- **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median, **and** no other family started from zero on the same day. Two or more families outside that, or several meters switching on together, is a traffic or onboarding story — a project enabling three paid products at once is one event, not three reports.
 - **Materiality floor.** The move's projected impact on this period's invoice must clear **the greater of $20 and 2% of the last complete period's invoice** — so a small org still hears about small dollars and a large one is not paged over rounding.
   The last period's invoice comes from summing `billing-spend-get` over the previous `billing_period` window, or from a cached `pattern:billing:period-actual`. When neither is available yet, use the $20 floor alone and say so in the memory entry.
 
@@ -149,7 +149,7 @@ Report on the specific member that moved; use the family only for the concentrat
 Apply the gates cheapest-first; most candidates die on the second:
 
 1. **Concentrated?** Other meter families held? If they all moved, stop.
-2. **Material?** Price the delta as `price(period-to-date usage with it) − price(period-to-date usage without it)` across the tier schedule, then apply the discount and the spending cap — never as `delta × marginal rate`. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
+2. **Material?** Price the move as it projects to the end of the period: `price(projected period usage with the step persisting) − price(projected period usage without it)` across the tier schedule, then apply the discount and the spending cap — never as `delta × marginal rate`, and never as a single day's delta when the report says "if this holds". A $10/day step with 20 days left is a ~$200 finding, not a $10 one. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
    When you cannot price it — the overview was truncated, the product has no `tiers`, or the usage type is not in the vocabulary table — fall back in order: the meter's own `billing-spend-get` series within the current period; then `free_allocation` / `usage_limit` as the threshold; then volume-only mode for that meter, with the report saying the dollar impact is unknown rather than estimating one.
 3. **Explained?** Search memory for the meter. A recorded migration, launch, or backfill closes it.
 
@@ -160,7 +160,7 @@ A ramp that follows the project's own weekly rhythm and lifts related meters tog
 ### Lane 2 — the trajectory (every run, one call)
 
 `billing-overview-get` carries the forecast. Read the field mechanics in [`references/usage-types.md`](references/usage-types.md) before quoting a number — the wrong projection field overstates the invoice, and the consequence of crossing a limit is not as certain as it looks.
-The response is large (about 70 KB on a modest org: half `available_product_features`, a third `products[].tiers` and `products[].addons`), so make **one** call per run and pull only `billing_period`, `custom_limits_usd`, the four `projected_total_*` fields, `trial` / `free_trial_until`, and each product's `type`, `usage_key`, `subscribed`, `tiers`, `current_usage`, `usage_limit`, and `projected_amount_usd`.
+The response is large (about 70 KB on a modest org: half `available_product_features`, a third `products[].tiers` and `products[].addons`), so make **one** call per run and pull only `billing_period`, `custom_limits_usd`, `discount_percent`, the four `projected_total_*` fields, `trial` / `free_trial_until`, and — for each product **and each entry in its `addons[]`**, since add-on meters like identified events, mobile recordings, and 30-day log retention carry their own tiers there — `type`, `usage_key`, `subscribed`, `tiers`, `free_allocation`, `current_usage`, `usage_limit`, and `projected_amount_usd`. Drop `available_product_features`, descriptions, and URLs unread.
 If the harness truncates the payload, that is a close-out for this lane, not a denial and not a finding — the step lane still runs.
 Report-worthy shapes:
 
