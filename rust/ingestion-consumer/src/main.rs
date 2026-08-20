@@ -219,7 +219,14 @@ async fn async_main(config: Config) -> Result<()> {
         };
 
     let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
-    let chunking = ChunkConfig::new(config.sub_batch_max_events);
+    // An unset byte cap follows the transport's, so a chunk the dispatcher
+    // builds is never one the transport has to split again.
+    let sub_batch_max_bytes = if config.sub_batch_max_bytes > 0 {
+        config.sub_batch_max_bytes
+    } else {
+        config.transport_max_body_bytes
+    };
+    let chunking = ChunkConfig::new(config.sub_batch_max_events, sub_batch_max_bytes);
     if chunking.enabled() {
         info!(?chunking, "Sub-batch chunking enabled");
     }
