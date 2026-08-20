@@ -25,6 +25,7 @@ import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
 import {
     ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
     ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
+    accountFilterStaticValueOptions,
     type AccountFilter,
 } from './accountsPropertyFilters'
 import { AccountsViewSelector } from './AccountsViewSelector'
@@ -152,6 +153,7 @@ export function AccountsTabFilters(): JSX.Element {
                             [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
                         }}
                         operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        staticValueOptions={accountFilterStaticValueOptions}
                         buttonSize="small"
                         hasRowOperator={false}
                     />

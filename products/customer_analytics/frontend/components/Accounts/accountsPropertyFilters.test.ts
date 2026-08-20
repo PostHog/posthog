@@ -5,6 +5,7 @@ import {
     ACCOUNT_FIELD_PROPERTY_TYPES,
     ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
     ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
+    accountFilterStaticValueOptions,
     propertyTypeForDisplayType,
 } from './accountsPropertyFilters'
 
@@ -30,5 +31,13 @@ describe('accountsPropertyFilters', () => {
     it('does not offer regex operators for Postgres account filters', () => {
         expect(ACCOUNT_FILTER_OPERATOR_ALLOWLIST).not.toContain(PropertyOperator.Regex)
         expect(ACCOUNT_FILTER_OPERATOR_ALLOWLIST).not.toContain(PropertyOperator.NotRegex)
+    })
+
+    it('suppresses value fetches for native fields but lets custom properties fetch', () => {
+        for (const { id } of ACCOUNT_FIELD_TAXONOMIC_OPTIONS) {
+            expect(accountFilterStaticValueOptions(id)).toEqual([])
+        }
+        // Custom property keys are definition ids, which must keep fetching from their endpoint
+        expect(accountFilterStaticValueOptions('123')).toBeNull()
     })
 })

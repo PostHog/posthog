@@ -1,3 +1,4 @@
+import type { PropValue } from '~/models/propertyDefinitionsModel'
 import { AccountsTableAccountField } from '~/queries/schema/schema-general'
 import {
     AccountCustomPropertyFilter,
@@ -132,3 +133,12 @@ export const ACCOUNT_FILTER_OPERATOR_ALLOWLIST: PropertyOperator[] = [
 ]
 
 export const ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST = ACCOUNT_FILTER_OPERATOR_ALLOWLIST
+
+const NATIVE_ACCOUNT_FIELD_KEYS = new Set<string>(ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map(({ id }) => id))
+
+// Native account fields have no property-values endpoint, so an empty static list
+// suppresses the value fetch that would otherwise 404 and toast. Custom properties
+// return null so they still fetch suggestions from their own endpoint.
+export function accountFilterStaticValueOptions(propertyKey: string): PropValue[] | null {
+    return NATIVE_ACCOUNT_FIELD_KEYS.has(propertyKey) ? [] : null
+}
