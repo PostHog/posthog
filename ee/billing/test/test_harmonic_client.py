@@ -124,6 +124,36 @@ async def test_strict_captures_swallowed_error_on_mixed_path(mock_capture_except
 
 @pytest.mark.asyncio
 @patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_sends_api_key_as_header_not_in_url_or_params():
+    client = _client_with_responses(_found({"name": "PostHog"}))
+    await client.enrich_company_by_domain_strict("posthog.com")
+
+    client.session.post.assert_called_once()
+    call = client.session.post.call_args
+    url = call.args[0]
+    params = call.kwargs.get("params")
+
+    assert call.kwargs["headers"]["apikey"] == "test-key"
+    assert "test-key" not in url
+    assert params is None or "test-key" not in str(params)
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_non_strict_sends_api_key_as_header_not_in_url_or_params():
+    client = _client_with_responses(_found({"name": "PostHog"}))
+    await client.enrich_company_by_domain("posthog.com")
+
+    call = client.session.post.call_args
+    params = call.kwargs.get("params")
+
+    assert call.kwargs["headers"]["apikey"] == "test-key"
+    assert "test-key" not in call.args[0]
+    assert params is None or "test-key" not in str(params)
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_get_company_by_urn_returns_parsed_json():
     client = _client_with_get_responses(
         _response(json_data={"name": "Salesforce", "website": {"domain": "salesforce.com"}})
