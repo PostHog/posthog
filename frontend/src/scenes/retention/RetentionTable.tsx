@@ -42,6 +42,7 @@ export function RetentionTable({
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
     const { updateInsightFilter } = useActions(retentionLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
     const allowSelectingColumns = !inSharedMode && !embedded
@@ -175,7 +176,7 @@ export function RetentionTable({
                                     <tr
                                         key={rowIndex}
                                         onClick={() => {
-                                            if (!inSharedMode) {
+                                            if (!inSharedMode && canOpenPersonModal) {
                                                 openModal(
                                                     rowIndex,
                                                     breakdownValue === NO_BREAKDOWN_VALUE ? null : breakdownValue
@@ -203,7 +204,7 @@ export function RetentionTable({
                                                         // Open the modal for this cohort and tell it which
                                                         // interval column was clicked so it can highlight it.
                                                         e.stopPropagation()
-                                                        if (!inSharedMode) {
+                                                        if (!inSharedMode && canOpenPersonModal) {
                                                             openModal(
                                                                 rowIndex,
                                                                 breakdownValue === NO_BREAKDOWN_VALUE
@@ -228,7 +229,7 @@ export function RetentionTable({
                                                                     ? (column.aggregation_value ?? 0)
                                                                     : undefined
                                                             }
-                                                            clickable={true}
+                                                            clickable={canOpenPersonModal}
                                                             isCurrentPeriod={column.isCurrentPeriod}
                                                             backgroundColor={backgroundColor}
                                                         />
