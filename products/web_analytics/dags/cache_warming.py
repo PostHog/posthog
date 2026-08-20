@@ -11,6 +11,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
@@ -23,6 +24,7 @@ from prometheus_client import Counter, Gauge
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
@@ -43,6 +45,8 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     BACKGROUND_WARMING_TRIGGERS,
     MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+    is_team_above_volume_floor,
+    publish_volume_floor_teams,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
@@ -619,8 +623,41 @@ def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shap
         logger.warning("web_analytics_warming_cache_write_failed", exc_info=True)
 
 
+@dagster.op(retry_policy=cache_warming_retry_policy)
+def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
+    """Refresh the above-floor team set the shared eligibility gate reads.
+
+    A marks-only count over the events table is cheap (no data columns are
+    decompressed), and publishing before selection means this hour's warming
+    pass and all reads share one fresh floor. Fail-open by design: on any
+    error the previous set (or its expiry) governs and warming proceeds.
+    """
+    floor = settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS
+    if floor <= 0:
+        context.log.info("Volume floor disabled (WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0).")
+        return True
+    try:
+        rows = sync_execute(
+            """
+            SELECT team_id
+            FROM events
+            WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
+            GROUP BY team_id
+            HAVING count() >= %(floor)s
+            """,
+            {"floor": floor},
+            workload=Workload.OFFLINE,
+        )
+        team_ids = [int(r[0]) for r in rows]
+        publish_volume_floor_teams(team_ids)
+        context.log.info(f"Published {len(team_ids)} teams at or above the {floor}-events/7d precompute floor.")
+    except Exception:
+        context.log.exception("Volume floor refresh failed; readers keep the previous set (fail-open).")
+    return True
+
+
 @dagster.op
-def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
+def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published: bool = True) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
     max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
@@ -647,6 +684,13 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
             "from_cache": from_cache,
         }
     )
+    below_floor = [q for q in queries if not is_team_above_volume_floor(int(q.get("team_id", 0)))]
+    if below_floor:
+        context.log.info(
+            f"Volume floor dropped {len(below_floor)} of {len(queries)} shapes "
+            f"(teams under {settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS} events/7d)."
+        )
+        queries = [q for q in queries if q not in below_floor]
     return queries
 
 
@@ -1199,7 +1243,8 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     },
 )
 def web_analytics_cache_warming_job():
-    queries = get_warmable_queries_op()
+    floor_published = publish_volume_floor_op()
+    queries = get_warmable_queries_op(floor_published)
     # Aliased so the config path stays ops.warm_queries_op.config — the split op
     # takes the same WarmQueriesConfig, so saved Launchpad configs written for
     # the pre-sharding single op keep binding unchanged.

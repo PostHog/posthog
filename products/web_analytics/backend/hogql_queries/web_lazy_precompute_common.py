@@ -63,6 +63,43 @@ def _oom_pin_key(team_id: int) -> str:
     return f"{TEAM_OOM_PIN_REDIS_PREFIX}{team_id}"
 
 
+# Above-floor team set, refreshed by the hourly demand warmer from a
+# marks-only fleet event count. Reads consult it fail-open: an unpublished or
+# expired set (sentinel absent, or Redis down) keeps current behavior, so the
+# floor can only narrow precompute when the warmer is actively maintaining it.
+VOLUME_FLOOR_TEAMS_KEY = "web_precompute_volume_floor:teams"
+VOLUME_FLOOR_READY_KEY = "web_precompute_volume_floor:ready"
+VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
+
+
+def is_team_above_volume_floor(team_id: int) -> bool:
+    if settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0:
+        return True
+    try:
+        client = redis.get_client()
+        if not client.exists(VOLUME_FLOOR_READY_KEY):
+            return True
+        return bool(client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)))
+    except Exception:
+        logger.exception("web_precompute_volume_floor_check_failed", team_id=team_id)
+        return True
+
+
+def publish_volume_floor_teams(team_ids: list[int]) -> None:
+    """Atomically replace the above-floor set. RENAME keeps readers off a
+    half-written set; the TTLs make a dead warmer fail open within 48h."""
+    client = redis.get_client()
+    tmp_key = f"{VOLUME_FLOOR_TEAMS_KEY}:staging"
+    pipe = client.pipeline()
+    pipe.delete(tmp_key)
+    for chunk_start in range(0, len(team_ids), 5000):
+        pipe.sadd(tmp_key, *[str(t) for t in team_ids[chunk_start : chunk_start + 5000]])
+    pipe.rename(tmp_key, VOLUME_FLOOR_TEAMS_KEY)
+    pipe.expire(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_TTL_SECONDS)
+    pipe.set(VOLUME_FLOOR_READY_KEY, "1", ex=VOLUME_FLOOR_TTL_SECONDS)
+    pipe.execute()
+
+
 def is_team_oom_pinned(team_id: int) -> bool:
     """Whether the team has hit an OOM recently and should cap its insert windows.
 
@@ -515,6 +552,11 @@ class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
 
+class BelowVolumeFloor(LazyPrecomputeIneligible):
+    """The team's 7-day event volume is under the precompute floor — its live
+    path is sub-second and always fresh, so the query stays live."""
+
+
 class ConversionGoalUnsupported(LazyPrecomputeIneligible):
     pass
 
@@ -639,6 +681,11 @@ def check_common_eligibility(
     """
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
+
+    # Deliberately checked for background warming too: the floor exists to stop
+    # building buckets for teams whose live path already serves them better.
+    if not is_team_above_volume_floor(team.pk):
+        raise BelowVolumeFloor()
 
     # Precompute defaults ON for every enrolled team: an untouched toggle
     # (`None`) takes the precompute path; only an explicit `False` (the

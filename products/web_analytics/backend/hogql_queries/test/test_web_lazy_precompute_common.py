@@ -39,6 +39,9 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    VOLUME_FLOOR_READY_KEY,
+    VOLUME_FLOOR_TEAMS_KEY,
+    BelowVolumeFloor,
     PerQueryOptedOut,
     PropertyAccessControlled,
     UnsupportedFilterType,
@@ -50,8 +53,10 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
     is_team_oom_pinned,
     pin_team_oom,
+    publish_volume_floor_teams,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
@@ -562,6 +567,65 @@ class TestWebEnsurePrecomputed(BaseTest):
         with tags_context(execution_mode=execution_mode):
             web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+
+class TestVolumeFloor(BaseTest):
+    def tearDown(self):
+        client = redis.get_client()
+        client.delete(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_READY_KEY, f"{VOLUME_FLOOR_TEAMS_KEY}:staging")
+        super().tearDown()
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_fail_open_until_published_then_enforces_membership(self):
+        assert is_team_above_volume_floor(self.team.pk) is True  # unpublished: fail open
+
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is False
+        assert is_team_above_volume_floor(self.team.pk + 1) is True
+
+        # Republish replaces the whole set: the previous member drops out.
+        publish_volume_floor_teams([self.team.pk])
+        assert is_team_above_volume_floor(self.team.pk) is True
+        assert is_team_above_volume_floor(self.team.pk + 1) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0)
+    def test_zero_floor_disables_the_check(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_gate_rejects_below_floor_team_including_background(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            with self.assertRaises(BelowVolumeFloor):
+                check_common_eligibility(
+                    team=self.team,
+                    use_web_analytics_precompute=None,
+                    conversion_goal=None,
+                    sampling=None,
+                    modifiers=runner.modifiers,
+                    properties=[],
+                    resolve_date_range=lambda: (None, None),
+                )
+            # The floor must hold for warming replays too — building buckets
+            # for a below-floor team is the waste the floor exists to stop.
+            with tags_context(trigger="webAnalyticsStaleRevalidation", feature=Feature.CACHE_WARMUP):
+                with self.assertRaises(BelowVolumeFloor):
+                    check_common_eligibility(
+                        team=self.team,
+                        use_web_analytics_precompute=None,
+                        conversion_goal=None,
+                        sampling=None,
+                        modifiers=runner.modifiers,
+                        properties=[],
+                        resolve_date_range=lambda: (None, None),
+                    )
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
