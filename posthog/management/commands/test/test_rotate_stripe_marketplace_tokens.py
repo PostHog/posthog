@@ -220,6 +220,69 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
 
         mock_capture.assert_called_once()
 
+    def test_refuses_when_the_marketplace_id_is_the_orchestrator(self) -> None:
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+        ):
+            with self.assertRaises(CommandError):
+                call_command("rotate_stripe_marketplace_tokens")
+
+    @patch("stripe.StripeClient")
+    def test_sweeps_a_credential_minted_by_a_refresh_mid_rotation(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration, stale_access, stale_refresh = self._create_integration_with_token(
+            self.team, "acct_refresh_race", self.old_app, created_by=self.user
+        )
+
+        original_write_secrets = StripeIntegration.write_posthog_secrets
+        refreshed: dict[str, OAuthAccessToken] = {}
+
+        def refresh_during_write(self, team_id, created_by):
+            result = original_write_secrets(self, team_id, created_by)
+            # What DOT's refresh path does with the leaked legacy refresh token: a fresh pair on
+            # the orchestrator application, created after the rotation snapshotted token ids.
+            refreshed["access"] = OAuthAccessToken.objects.create(
+                application=stale_access.application,
+                token="ph_access_refreshed",
+                user=created_by,
+                expires=timezone.now() + timedelta(days=14),
+                scope="query:read",
+                scoped_teams=[team_id],
+            )
+            OAuthRefreshToken.objects.create(
+                application=stale_access.application,
+                token="ph_refresh_refreshed",
+                user=created_by,
+                access_token=refreshed["access"],
+                scoped_teams=[team_id],
+            )
+            return result
+
+        out = StringIO()
+        with (
+            self.settings(
+                STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+                STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+                STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+                STRIPE_APP_SECRET_KEY="sk_test",
+            ),
+            patch.object(StripeIntegration, "write_posthog_secrets", refresh_during_write),
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        assert "Rotated: 1" in out.getvalue()
+        assert not OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=stale_refresh.pk).exists()
+        # The whole point: a snapshot-based delete would have missed this one.
+        assert not OAuthAccessToken.objects.filter(pk=refreshed["access"].pk).exists()
+        assert not OAuthAccessToken.objects.filter(
+            application=self.old_app, scoped_teams__contains=[self.team.pk]
+        ).exists()
+        assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
+
     @parameterized.expand(
         [
             ("client_id_unset", ""),

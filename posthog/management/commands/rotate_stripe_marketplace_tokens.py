@@ -3,6 +3,8 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from django.db.models import Q
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import STRIPE_POSTHOG_SECRET_NAMES, Integration, StripeIntegration
@@ -34,6 +36,60 @@ class Command(BaseCommand):
             help="Rotate a single team's Stripe integration only, for testing before a full run",
         )
 
+    def _sweep_superseded_tokens(self, team_id: int, stale_token_ids: list[int]) -> None:
+        """Remove every credential for this team except the replacement just minted.
+
+        Queried inside the lock rather than deleted by the ids snapshotted before minting: a
+        holder of the legacy refresh token can exchange it while Stripe is being written, and
+        that mints a pair the snapshot never saw. Taking the refresh rows with select_for_update
+        first serializes against DOT's refresh path, which locks the same rows, so a concurrent
+        refresh either lands before the sweep and gets swept, or blocks and then finds its token
+        gone.
+        """
+        apps = StripeIntegration._posthog_oauth_apps_for_revocation()
+
+        with transaction.atomic():
+            list(
+                OAuthRefreshToken.objects.select_for_update()
+                .filter(application__in=apps, scoped_teams__contains=[team_id])
+                .values_list("id", flat=True)
+            )
+
+            superseded_ids = list(
+                OAuthAccessToken.objects.filter(application__in=apps, scoped_teams__contains=[team_id])
+                .exclude(id__in=self._replacement_token_ids(team_id, stale_token_ids))
+                .values_list("id", flat=True)
+            )
+
+            # Neither direction of the access/refresh link is reliably populated, so match both.
+            source_refresh_ids = [
+                refresh_id
+                for refresh_id in OAuthAccessToken.objects.filter(id__in=superseded_ids).values_list(
+                    "source_refresh_token_id", flat=True
+                )
+                if refresh_id is not None
+            ]
+            OAuthRefreshToken.objects.filter(
+                Q(access_token_id__in=superseded_ids) | Q(id__in=source_refresh_ids)
+            ).delete()
+            OAuthAccessToken.objects.filter(id__in=superseded_ids).delete()
+
+    @staticmethod
+    def _replacement_token_ids(team_id: int, stale_token_ids: list[int]) -> list[int]:
+        """The tokens minted by this run: on the marketplace application and not in the snapshot.
+
+        A refresh of a leaked legacy credential mints onto the orchestrator's application, so it
+        cannot be mistaken for the replacement.
+        """
+        return list(
+            OAuthAccessToken.objects.filter(
+                application__client_id=settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID,
+                scoped_teams__contains=[team_id],
+            )
+            .exclude(id__in=stale_token_ids)
+            .values_list("id", flat=True)
+        )
+
     def handle(self, *args: Any, **options: Any) -> None:
         dry_run: bool = options["dry_run"]
         team_id: int | None = options.get("team_id")
@@ -44,8 +100,14 @@ class Command(BaseCommand):
                 "the same application these tokens already live on and accomplish nothing."
             )
 
-        # _get_posthog_oauth_app() falls back silently to the legacy client id when the marketplace
-        # application row doesn't exist yet, which would revoke tokens with nothing to replace them.
+        if settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+            raise CommandError(
+                "STRIPE_MARKETPLACE_OAUTH_CLIENT_ID equals STRIPE_POSTHOG_OAUTH_CLIENT_ID. Rotating now "
+                "would re-mint onto the orchestrator's application, which can issue deep links."
+            )
+
+        # The application row has to exist before revoking, or rotation strips access with nothing
+        # to mint replacements onto.
         if not OAuthApplication.objects.filter(client_id=settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID).exists():
             raise CommandError(
                 f"No OAuthApplication exists for client_id={settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID}. "
@@ -98,9 +160,7 @@ class Command(BaseCommand):
                 if unwritten:
                     raise RuntimeError(f"Stripe secret store not updated: {', '.join(unwritten)}")
 
-                stale_tokens = OAuthAccessToken.objects.filter(id__in=stale_token_ids)
-                OAuthRefreshToken.objects.filter(access_token__in=stale_tokens).delete()
-                stale_tokens.delete()
+                self._sweep_superseded_tokens(integration.team_id, stale_token_ids)
             except Exception as e:
                 # A mint that never reached Stripe leaves a credential nobody holds; drop it so
                 # retrying does not accumulate one per attempt. A partial write is the opposite:
