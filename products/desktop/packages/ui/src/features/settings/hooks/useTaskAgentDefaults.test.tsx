@@ -15,6 +15,7 @@ const settingsStore = vi.hoisted(() => ({
   setLastUsedReasoningEffort: vi.fn(),
   setLastUsedAdapter: vi.fn(),
 }));
+const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -26,6 +27,7 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: { getState: () => settingsStore },
 }));
+vi.mock("@posthog/ui/primitives/toast", () => ({ toast: toastMock }));
 
 import { taskRunDefaultsQueryKey } from "@posthog/ui/features/task-detail/hooks/useTaskRunDefaults";
 import { useTaskAgentDefaults } from "./useTaskAgentDefaults";
@@ -163,6 +165,29 @@ describe("useTaskAgentDefaults", () => {
     expect(mockClient.updateMyTaskRunPreferences).toHaveBeenCalledWith(
       PROJECT_ID,
       { ...MY_PICK, reasoning_effort: "medium" },
+    );
+  });
+
+  // A failed write used to leave the unsaved pick in the cache with no error, so the
+  // picker kept showing a default the server never stored. Roll it back and say so.
+  it("rolls back the optimistic pick and shows an error when the save fails", async () => {
+    mockClient.updateMyTaskRunPreferences.mockRejectedValue(
+      new Error("network down"),
+    );
+    const { result } = await mounted();
+
+    act(() => result.current.save(MY_PICK));
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(result.current.myPreferences).toEqual({
+        runtime_adapter: null,
+        model: null,
+        reasoning_effort: null,
+      }),
     );
   });
 });

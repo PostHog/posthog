@@ -11,6 +11,7 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { taskRunDefaultsQueryKey } from "@posthog/ui/features/task-detail/hooks/useTaskRunDefaults";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -64,6 +65,10 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
     { enabled, retry: false },
   );
 
+  // The value the personal cache held before the current change, so a failed
+  // write can put it back instead of leaving an unsaved pick on screen.
+  const rollbackSnapshot = useRef<MyTaskRunConfig | undefined>(undefined);
+
   const mutation = useMutation({
     mutationFn: async (preferences: TaskRunPreferences) => {
       if (!client || projectId == null) {
@@ -74,6 +79,9 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
         preferences,
       );
     },
+    // Carry the pre-change snapshot per mutation so a rollback restores the right
+    // value even if another pick starts while this write is in flight.
+    onMutate: () => ({ rollback: rollbackSnapshot.current }),
     onSuccess: (next: MyTaskRunConfig) => {
       // The write returns the row and its resolution, so seed both caches from it — the
       // page and the composer show the new value without waiting on a round trip.
@@ -105,6 +113,18 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
         settings.setLastUsedAdapter(adapter);
       }
     },
+    onError: (error, _preferences, context) => {
+      // The optimistic write in `save` already showed the pick, but the server
+      // never took it. Put the previous value back, refetch the truth, and say
+      // so — otherwise the picker keeps showing a default that was never saved.
+      queryClient.setQueryData([MY_CONFIG_KEY, projectId], context?.rollback);
+      void queryClient.invalidateQueries({
+        queryKey: [MY_CONFIG_KEY, projectId],
+      });
+      toast.error("Couldn't save your task agent default", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    },
   });
 
   const pending = useRef<TaskRunPreferences | null>(null);
@@ -123,6 +143,14 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
 
   const save = useCallback(
     (preferences: TaskRunPreferences) => {
+      // Snapshot once at the start of a debounced burst, so a failed write rolls
+      // the whole burst back rather than to a mid-burst optimistic value.
+      if (pending.current === null) {
+        rollbackSnapshot.current = queryClient.getQueryData<MyTaskRunConfig>([
+          MY_CONFIG_KEY,
+          projectId,
+        ]);
+      }
       pending.current = preferences;
       // Show the pick straight away; the debounced write only decides when it lands.
       queryClient.setQueryData(
@@ -137,9 +165,15 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
   );
 
   const reset = useCallback(() => {
+    // Reset writes no optimistic value, so its snapshot is the current one — a
+    // failed reset then restores it unchanged rather than a stale save's value.
+    rollbackSnapshot.current = queryClient.getQueryData<MyTaskRunConfig>([
+      MY_CONFIG_KEY,
+      projectId,
+    ]);
     pending.current = NO_TASK_RUN_PREFERENCES;
     flush();
-  }, [flush]);
+  }, [flush, queryClient, projectId]);
 
   // A pick made and then navigated away from within the debounce window still has to
   // land — the alternative is silently dropping the change the user just made.
