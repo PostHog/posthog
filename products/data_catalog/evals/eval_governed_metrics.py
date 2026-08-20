@@ -334,6 +334,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             prompt="What is our definition of a weekly active uploader?",
             expected={
                 "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
                 "canonical_metric_run": {"outcome": "not_called"},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
