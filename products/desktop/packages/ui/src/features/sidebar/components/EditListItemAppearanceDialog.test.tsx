@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type CapturedDragEvent = {
   operation: { source?: { id?: string }; target?: { id?: string } };
+  canceled?: boolean;
 };
 
 const { track, dndCapture } = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const { track, dndCapture } = vi.hoisted(() => ({
   dndCapture: {} as {
     onDragStart?: (event: CapturedDragEvent) => void;
     onDragOver?: (event: CapturedDragEvent) => void;
+    onDragEnd?: (event: CapturedDragEvent) => void;
   },
 }));
 
@@ -20,14 +22,17 @@ vi.mock("@dnd-kit/react", () => ({
   DragDropProvider: ({
     onDragStart,
     onDragOver,
+    onDragEnd,
     children,
   }: {
     onDragStart?: (event: CapturedDragEvent) => void;
     onDragOver?: (event: CapturedDragEvent) => void;
+    onDragEnd?: (event: CapturedDragEvent) => void;
     children?: React.ReactNode;
   }) => {
     dndCapture.onDragStart = onDragStart;
     dndCapture.onDragOver = onDragOver;
+    dndCapture.onDragEnd = onDragEnd;
     return <>{children}</>;
   },
 }));
@@ -125,6 +130,37 @@ describe("EditListItemAppearanceDialog", () => {
     expect(useSidebarStore.getState().listItemMetadataFields).toEqual([
       "branch",
       "repository",
+    ]);
+  });
+
+  it("restores the pre-drag order when a drag is canceled", async () => {
+    const user = userEvent.setup();
+    useSidebarStore.setState({
+      listItemMetadataFields: ["repository", "branch"],
+    });
+    renderDialog();
+
+    act(() => {
+      dndCapture.onDragStart?.({
+        operation: { source: { id: "branch" } },
+      });
+      dndCapture.onDragOver?.({
+        operation: {
+          source: { id: "branch" },
+          target: { id: "repository" },
+        },
+      });
+      dndCapture.onDragEnd?.({
+        operation: { source: { id: "branch" } },
+        canceled: true,
+      });
+    });
+
+    await user.click(screen.getByText("Save"));
+
+    expect(useSidebarStore.getState().listItemMetadataFields).toEqual([
+      "repository",
+      "branch",
     ]);
   });
 });

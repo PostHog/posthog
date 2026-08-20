@@ -125,6 +125,10 @@ export function EditListItemAppearanceDialog({
     Set<ListItemMetadataField>
   >(() => new Set(storedFields));
   const lastMove = useRef<string | null>(null);
+  // The order when the drag began. dragover reorders in place, so a canceled
+  // drag (Escape, pointercancel) would otherwise leave the half-dragged order
+  // for Save to store; this puts it back.
+  const orderBeforeDrag = useRef<ListItemMetadataField[] | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -136,6 +140,7 @@ export function EditListItemAppearanceDialog({
 
   const handleDragStart: DragDropEvents["dragstart"] = () => {
     lastMove.current = null;
+    orderBeforeDrag.current = fieldOrder;
   };
 
   const handleDragOver: DragDropEvents["dragover"] = (event) => {
@@ -148,6 +153,12 @@ export function EditListItemAppearanceDialog({
     setFieldOrder((current) =>
       moveListItemMetadataField(current, String(sourceId), String(targetId)),
     );
+  };
+
+  const handleDragEnd: DragDropEvents["dragend"] = (event) => {
+    const before = orderBeforeDrag.current;
+    orderBeforeDrag.current = null;
+    if (event.canceled && before) setFieldOrder(before);
   };
 
   const toggleField = (field: ListItemMetadataField, checked: boolean) => {
@@ -234,6 +245,7 @@ export function EditListItemAppearanceDialog({
             <DragDropProvider
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
             >
               <div className="flex flex-col gap-2">
                 {fieldOrder.map((field, index) => (
