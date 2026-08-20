@@ -26,6 +26,7 @@ from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    is_expected_user_query_error,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, QueryFailureRecord
 
@@ -127,6 +128,26 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert error.status_code == 400
         assert error.get_codes() == ["too_many_bytes"]
         assert "was not run again" in str(error.detail)
+
+    @parameterized.expand(
+        [
+            ("memory_per_query", _memory_error("Query memory limit exceeded: would use 42 GiB"), True),
+            ("memory_cluster", _memory_error("Memory limit (total) exceeded: would use 100 GiB"), False),
+            ("timeout", ClickHouseQueryTimeOut(), True),
+            ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong(), True),
+            ("query_size", ClickHouseQuerySizeExceeded(), True),
+            (
+                "too_many_bytes",
+                wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307)),
+                True,
+            ),
+            ("replayed_from_cache", build_failure_exception(_record("memory_limit", 2, "d")), True),
+            ("at_capacity", ClickHouseAtCapacity(), False),
+            ("unrelated", ValueError("boom"), False),
+        ]
+    )
+    def test_is_expected_user_query_error(self, _name, error, expected):
+        assert is_expected_user_query_error(error) == expected
 
     def test_build_failure_exception_first_failure_wording(self):
         with freeze_time("2026-01-01T00:00:00Z"):
