@@ -1,5 +1,7 @@
 from typing import cast
 
+import structlog
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -45,6 +47,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 
 @config.config
@@ -215,9 +219,15 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
         try:
             integration = self.get_oauth_integration(config.hubspot_integration_id, team_id)
+        except ValueError as e:
+            # A missing or deleted integration is permanent, but discovery stays best-effort
+            # because the sync path already surfaces it with an actionable message.
+            logger.warning(f"Hubspot scope gating skipped, integration lookup failed: {e}", team_id=team_id)
+            return frozenset()
         except Exception:
-            # Discovery stays best-effort: the sync path reports a broken or missing integration,
-            # and dropping tables on a transient lookup failure would churn their schema rows.
+            # Dropping tables on a transient lookup failure would churn schema rows, so gating
+            # fails open. Log it so a gating no-op is distinguishable from unknown scopes.
+            logger.exception("Hubspot scope gating skipped, integration lookup failed", team_id=team_id)
             return frozenset()
 
         return frozenset(
