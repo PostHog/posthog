@@ -67,11 +67,35 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
     return query.columns ?? getDataNodeDefaultColumns(query.source)
 }
 
-export function extractExpressionComment(query: string): string {
-    if (query.includes('--')) {
-        return query.split('--').pop()?.trim() || query
+// Indices of `--` comment delimiters that sit outside string literals and quoted identifiers,
+// so a `--` inside `'...'`, `"..."`, or a backtick identifier is not treated as a comment.
+function commentDelimiterIndices(query: string): number[] {
+    const indices: number[] = []
+    let quote: string | null = null
+    for (let i = 0; i < query.length; i++) {
+        const ch = query[i]
+        if (quote) {
+            if (ch === '\\') {
+                i++
+            } else if (ch === quote) {
+                quote = null
+            }
+        } else if (ch === "'" || ch === '"' || ch === '`') {
+            quote = ch
+        } else if (ch === '-' && query[i + 1] === '-') {
+            indices.push(i)
+            i++
+        }
     }
-    return query
+    return indices
+}
+
+export function extractExpressionComment(query: string): string {
+    const delimiters = commentDelimiterIndices(query)
+    if (delimiters.length === 0) {
+        return query
+    }
+    return query.slice(delimiters[delimiters.length - 1] + 2).trim() || query
 }
 
 /**
@@ -92,15 +116,18 @@ export function extractAsAlias(query: string): string | null {
     if (!query || typeof query !== 'string') {
         return null
     }
-    const trimmed = query.trim()
+    // Strip any trailing comment before matching, so an `AS` inside a `-- comment` is not read as an alias.
+    const delimiters = commentDelimiterIndices(query)
+    const code = delimiters.length > 0 ? query.slice(0, delimiters[0]) : query
+    const trimmed = code.trim()
     if (!trimmed) {
         return null
     }
 
-    // Match: whitespace + AS (case-insensitive) + whitespace + (backticked, double-quoted, or word alias),
-    // optionally followed by comment. Per the HogQL grammar, both `backticks` and "double quotes" delimit
-    // quoted identifiers, so both forms are valid alias delimiters.
-    const asMatch = trimmed.match(/\s+[Aa][Ss]\s+(`[^`]+`|"[^"]+"|[\w\u0080-\uFFFF]+)(\s*--.*)?$/)
+    // Match: whitespace + AS (case-insensitive) + whitespace + (backticked, double-quoted, or word alias).
+    // Per the HogQL grammar, both `backticks` and "double quotes" delimit quoted identifiers, so both
+    // forms are valid alias delimiters.
+    const asMatch = trimmed.match(/\s+[Aa][Ss]\s+(`[^`]+`|"[^"]+"|[\w\u0080-\uFFFF]+)$/)
     if (asMatch) {
         const alias = asMatch[1]
         if ((alias.startsWith('`') && alias.endsWith('`')) || (alias.startsWith('"') && alias.endsWith('"'))) {
@@ -135,8 +162,9 @@ export function extractDisplayLabel(query: string): string {
 }
 
 export function removeExpressionComment(query: string): string {
-    if (query.includes('--')) {
-        return query.split('--').slice(0, -1).join('--').trim()
+    const delimiters = commentDelimiterIndices(query)
+    if (delimiters.length === 0) {
+        return query.trim()
     }
-    return query.trim()
+    return query.slice(0, delimiters[delimiters.length - 1]).trim()
 }

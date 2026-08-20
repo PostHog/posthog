@@ -18,6 +18,8 @@ describe('renderColumnMeta', () => {
         ['count() -- Total events', 'Total events'],
         ['`resolved col`', 'resolved col'],
         ['plain_resolved_name', 'plain_resolved_name'],
+        // A `--` inside a string literal must stay intact, not be split as a comment
+        ["replaceAll(url, '--', '')", "replaceAll(url, '--', '')"],
     ])('HogQL key %p renders header %p', (key, expected) => {
         expect(renderColumnMeta(key, hogQLQuery).title).toEqual(expected)
     })

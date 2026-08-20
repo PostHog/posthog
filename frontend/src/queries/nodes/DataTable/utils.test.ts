@@ -17,6 +17,9 @@ describe('DataTable utils', () => {
         expect(extractExpressionComment('')).toBe('')
         expect(extractExpressionComment('asd -- bla')).toBe('bla')
         expect(extractExpressionComment('asd -- asd --   bla  ')).toBe('bla')
+        // A `--` inside a string literal or backtick identifier is not a comment
+        expect(extractExpressionComment("replaceAll(url, '--', '')")).toBe("replaceAll(url, '--', '')")
+        expect(extractExpressionComment('`foo--bar`')).toBe('`foo--bar`')
     })
 
     it.each([
@@ -54,6 +57,10 @@ describe('DataTable utils', () => {
         ["concat(properties.a, ' AS fake') AS real", 'real'],
         // Alias name matching a system-generated alias
         ['properties.x AS breakdown_value', 'breakdown_value'],
+        // AS sitting inside a trailing comment is not an alias
+        ['x -- Total AS Revenue', null],
+        // A `--` inside a string literal is not a comment, so no false alias
+        ["replaceAll(url, '--', '')", null],
     ])('extractAsAlias(%s) = %s', (input, expected) => {
         expect(extractAsAlias(input)).toBe(expected)
     })
@@ -73,6 +80,10 @@ describe('DataTable utils', () => {
         ['cutQueryStringAndFragment(properties.$current_url) AS "Current URL"', 'Current URL'],
         // Alias name matching a system-generated alias
         ['properties.x AS breakdown_value', 'breakdown_value'],
+        // A `--` inside a string literal keeps the expression intact
+        ["replaceAll(url, '--', '')", "replaceAll(url, '--', '')"],
+        // A comment with an `AS` inside it is the label, not an alias
+        ['x -- Total AS Revenue', 'Total AS Revenue'],
     ])('extractDisplayLabel(%s) = %s', (input, expected) => {
         expect(extractDisplayLabel(input)).toBe(expected)
     })
