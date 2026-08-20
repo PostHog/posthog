@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -268,7 +269,7 @@ describe('addSavedInsightsModalLogic', () => {
 
     it('refreshes the mounted dashboard after adding an insight', async () => {
         initKeaTests()
-        const dashboard = dashboardLogic({ id: 1, dashboard: { id: 1, tiles: [] } as any })
+        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, []) })
         dashboard.mount()
         const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
         jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(1))
