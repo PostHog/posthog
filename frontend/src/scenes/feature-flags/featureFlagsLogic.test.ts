@@ -240,6 +240,11 @@ describe('the feature flags logic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+            },
+        })
         initKeaTests()
         logic = featureFlagsLogic()
         logic.mount()
@@ -280,6 +285,35 @@ describe('the feature flags logic', () => {
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
+        })
+    })
+
+    describe('hasActiveFilters', () => {
+        it('is false on a bare URL where page resolves to undefined', async () => {
+            // urlToAction spreads `page: undefined` over DEFAULT_FILTERS (page: 1), so a full-object
+            // comparison would wrongly flag the default view as filtered and offer "Clear filters".
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlags())
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.page).toBeUndefined()
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+
+        it('is false when only a sort order is set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ order: '-created_at' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+
+        it('is true when a real filter is set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(true)
         })
     })
 

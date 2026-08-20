@@ -608,9 +608,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
             ],
         ],
+        // True when a real filter narrows the list. Checks filter values directly rather than
+        // comparing the whole object to the defaults: `page` and `order` are not filters, and a
+        // bare URL leaves `page` undefined (not 1), so a shape comparison reports the default view
+        // as filtered and the empty state offers "Clear filters" when nothing is set.
         hasActiveFilters: [
             (s) => [s.filters],
-            (filters: FeatureFlagsFilters): boolean => !objectsEqual(filters, DEFAULT_FILTERS),
+            (filters: FeatureFlagsFilters): boolean =>
+                Boolean(
+                    filters.search ||
+                    filters.active ||
+                    filters.archived ||
+                    filters.type ||
+                    filters.evaluation_runtime ||
+                    filters.created_by_id?.length ||
+                    filters.tags?.length ||
+                    filters.excluded_tags?.length
+                ),
         ],
         // Check to see if any non-default filters are being used
         shouldShowEmptyState: [
