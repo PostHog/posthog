@@ -117,8 +117,10 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
         """
         messages_without_cache: list[BaseMessage] = []
         for message in messages:
+            # Copy every message, not just list-content ones: the breakpoint re-anchoring below
+            # rewrites string content in place, and the originals must stay untouched.
+            message = message.model_copy(deep=True)
             if isinstance(message.content, list):
-                message = message.model_copy(deep=True)
                 for content in message.content:
                     if isinstance(content, dict) and "cache_control" in content:
                         content.pop("cache_control")

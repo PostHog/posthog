@@ -129,6 +129,15 @@ class TestAnthropicConversationSummarizer(BaseTest):
         self.assertEqual(set(content_list[0].keys()), {"type", "text", "cache_control", "other_key"})
         self.assertEqual(content_list[0]["cache_control"], {"type": "ephemeral"})
 
+    def test_string_content_original_not_modified(self):
+        # Re-anchoring rewrites string content into a cached text block; the caller's message,
+        # which the surrounding flow reuses, must keep its plain string content.
+        message = LangchainHumanMessage(content="Latest turn")
+
+        self.summarizer._construct_messages([message])
+
+        self.assertEqual(message.content, "Latest turn")
+
     def test_preserves_other_content_properties(self):
         input_messages = [
             LangchainHumanMessage(
