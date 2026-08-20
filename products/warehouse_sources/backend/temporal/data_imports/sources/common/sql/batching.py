@@ -9,12 +9,19 @@ hundred bytes — the sample says nothing about the heavy region, and the same r
 gigabytes there. That is an extraction-side OOM the pipeline's own buffer accounting never
 sees, because the pod dies before a single Arrow table reaches it.
 
-So bound the bytes instead, measured as rows arrive:
+What actually bounds memory here is the fetch, not the flush. `fetch(n)` materialises all `n`
+rows before it returns — for a Postgres server cursor that is a `FETCH FORWARD n` whose whole
+result libpq buffers client-side — so a page is resident in full before any batch is yielded.
+The old loop asked for `chunk_size` rows however wide they were, which is precisely how a heavy
+region became gigabytes. Two bounds, then, doing two different jobs:
 
-* a batch is flushed as soon as the next row would push it past the byte budget, so what the
-  caller materialises into Arrow is bounded whatever the row count works out to;
-* the transport fetch is re-sized from the widest row seen, so a heavy region is pulled a few
-  rows at a time rather than `chunk_size` at a time.
+* `max_page_rows` bounds one fetch, so what is resident before the first yield is bounded. This
+  is the memory bound. Callers that can measure their own rows pass a size derived from that
+  measurement; the rest take `MAX_FETCH_PAGE_ROWS`.
+* the byte budget bounds one batch, so what the caller materialises into Arrow stays bounded
+  whatever the row count works out to. This is not a memory bound on its own.
+
+Peak residency is therefore one page plus one batch.
 
 The residual exposure is one fetch: a region can only be measured once some of it has been
 read, so an abrupt jump in row size is paid for at whatever page size preceded it. What keeps
@@ -29,8 +36,11 @@ off `max_rows` alone, which is the fetch-a-chunk-and-yield-it loop every driver 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from datetime import date, datetime, time
+from decimal import Decimal
 from itertools import islice
 from typing import Any, TypeVar
+from uuid import UUID
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
 
@@ -52,14 +62,37 @@ MAX_FETCH_PAGE_ROWS = 1_000
 # both directions by a few bytes, which is irrelevant next to the columns this exists to catch.
 _SCALAR_VALUE_BYTES = 16
 
+# Types whose payload is that stand-in, so a column of them never needs measuring. Exact classes
+# rather than an isinstance check: this is per column of per row of every sync.
+_FIXED_WIDTH_TYPES = frozenset({int, float, bool, Decimal, datetime, date, time, UUID})
+
 
 def estimate_row_bytes(row: Any) -> int:
-    """Rough payload of one driver row, in bytes.
-
-    Sized to be cheap enough to run on every row of every sync — the two types that carry the
-    bytes that matter are checked first, everything else falls back to a constant.
-    """
+    """Rough payload of one driver row, in bytes."""
     return sum(_value_bytes(value) for value in row)
+
+
+def _measure_plan(row: Any) -> tuple[tuple[int, ...], int]:
+    """Which of a row's columns are worth measuring, and what the rest weigh together.
+
+    This runs on every row of every sync, so the per-column type dispatch is worth hoisting out
+    of the row loop: a SQL column's type does not change between rows, and the fixed-width ones
+    (numbers, timestamps, uuids) contribute a constant that can be added in one go. Measuring
+    every column instead is several times the cost, for columns that cannot vary in size.
+
+    Being wrong here is one-directional. A `None` says nothing about its column's type, so it
+    counts as worth measuring — that only costs a `len` on a value that turns out to be narrow.
+    """
+    measured = tuple(index for index, value in enumerate(row) if value.__class__ not in _FIXED_WIDTH_TYPES)
+    return measured, (len(row) - len(measured)) * _SCALAR_VALUE_BYTES
+
+
+def _planned_row_bytes(row: Any, measured: tuple[int, ...], fixed_bytes: int) -> int:
+    total = fixed_bytes
+    for index in measured:
+        value = row[index]
+        total += len(value) if value.__class__ is str else _value_bytes(value)
+    return total
 
 
 def _value_bytes(value: Any) -> int:
@@ -119,8 +152,9 @@ def fetch_row_batches(
             break
 
         widest_in_page = 0
+        measured, fixed_bytes = _measure_plan(page[0]) if budget is not None else ((), 0)
         for row in page:
-            row_bytes = estimate_row_bytes(row) if budget is not None else 0
+            row_bytes = _planned_row_bytes(row, measured, fixed_bytes) if budget is not None else 0
             widest_in_page = max(widest_in_page, row_bytes)
             # Flush *before* appending whatever would overflow, never after, or a nearly full
             # batch could still take a further full-sized row (mirrors the repartition rewrite).

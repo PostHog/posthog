@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     MAX_FETCH_PAGE_ROWS,
+    _measure_plan,
+    _planned_row_bytes,
     estimate_row_bytes,
     fetch_row_batches,
     iter_row_batches,
@@ -45,6 +50,27 @@ class TestEstimateRowBytes:
     )
     def test_measures_the_payload_that_matters(self, _name: str, row: tuple, expected: int) -> None:
         assert estimate_row_bytes(row) == expected
+
+
+class TestMeasurePlan:
+    @parameterized.expand(
+        [
+            ("text_and_numbers", (1, "abcd", 2.5, b"xy")),
+            ("all_fixed_width", (1, 2.5, True, datetime(2026, 8, 20), Decimal("1.5"), UUID(int=1))),
+            ("all_variable", ("abcd", b"xy", {"k": "vv"}, ["a", "b"])),
+            ("nulls", (None, "abcd", None)),
+        ]
+    )
+    def test_matches_measuring_every_column(self, _name: str, row: tuple) -> None:
+        assert _planned_row_bytes(row, *_measure_plan(row)) == estimate_row_bytes(row)
+
+    def test_a_column_null_in_the_planning_row_is_still_measured(self) -> None:
+        # A None says nothing about its column's type. Skipping it would stop measuring a text
+        # column that happens to be null in the row the plan came from — the byte bound would
+        # then silently miss exactly the values it exists to catch.
+        measured, _ = _measure_plan((1, None))
+
+        assert _planned_row_bytes((1, "x" * 4096), measured, 16) == 4096 + 16
 
 
 class TestFetchRowBatches:
