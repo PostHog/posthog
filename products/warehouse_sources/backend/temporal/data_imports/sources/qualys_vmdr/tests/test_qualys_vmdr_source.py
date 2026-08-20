@@ -116,7 +116,7 @@ class TestQualysVmdrSource:
         # New sources start on 4.0; 2.0 carries the vendor's announced sunset date and 4.0 is clean.
         assert self.source.default_version == "4.0"
         deprecation = self.source.get_version_deprecation("2.0")
-        assert deprecation is not None and deprecation.sunset_at == datetime.date(2025, 12, 31)
+        assert deprecation is not None and deprecation.sunset_at == datetime.date(2026, 6, 30)
         assert self.source.get_version_deprecation("4.0") is None
 
     @pytest.mark.parametrize(
