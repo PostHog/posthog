@@ -4331,7 +4331,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             LemonDialog.open({
                 title: 'Change tile movement?',
                 description: 'Changing this setting discards your unsaved tile layout changes.',
-                zIndex: '1169',
                 primaryButton: {
                     children: 'Change mode',
                     onClick: () => changeCompaction(true),
