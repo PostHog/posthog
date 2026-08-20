@@ -56,6 +56,10 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 # to it so filters/group-bys match real ingested rows.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
+# Synthetic per-data-point attribute ingest stamps on a point whose timestamp it
+# had to override. Never part of a series' identity — see `_series_key_exprs`.
+_ORIGINAL_TIMESTAMP_KEY = "$originalTimestamp"
+
 
 def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
     """Build the HogQL AST node that accesses a metric attribute by name.
@@ -117,15 +121,29 @@ def _series_key_exprs() -> list[ast.Expr]:
     be ingested as both a counter and a gauge, and `metric_type` is optional on
     the query, so an unconstrained query sees both sets of rows at once.
 
-    The attribute maps appear here rather than their `toString`/`cityHash64`
-    digests so that a grouping query can also select them — ClickHouse matches
-    a selected column against GROUP BY by exact expression, and would reject a
-    bare `attributes` next to a `toString(attributes)` key.
+    `$originalTimestamp` is dropped back out of `attributes`. Ingest adds it to
+    the map for a point whose timestamp is more than a day off, carrying a
+    per-sample value, and deliberately fingerprints the series before adding it
+    (`compute_series_fingerprint` in `rust/capture-logs/src/metric_record.rs`).
+    Keeping it would shatter a skewed exporter's series into one series per
+    sample, which is the exact weighting these keys exist to prevent.
+
+    `resource_attributes` appears here rather than its `resource_fingerprint`
+    digest so that the key stays exact — a hash collision would merge two
+    targets into one series.
+
+    These are grouping and partitioning keys only; a query that also needs the
+    attributes themselves reads them off `posthog.metrics` in the same scope,
+    because a column aliased `attributes` in a scope that already resolves the
+    `attributes` map collides with it.
     """
     return [
         ast.Field(chain=["service_name"]),
         ast.Field(chain=["resource_attributes"]),
-        ast.Field(chain=["attributes"]),
+        parse_expr(
+            "mapFilter((k, v) -> k != {synthetic}, attributes)",
+            placeholders={"synthetic": ast.Constant(value=_ORIGINAL_TIMESTAMP_KEY)},
+        ),
         ast.Field(chain=["metric_type"]),
     ]
 
@@ -409,20 +427,28 @@ class MetricQueryRunner:
                 "use a coarser interval, a narrower range, or a lower-cardinality group_by"
             )
 
-    def _splice_group_columns(self, query: ast.SelectQuery) -> None:
+    def _splice_group_columns(self, query: ast.SelectQuery, *, resolve_in: ast.SelectQuery | None = None) -> None:
         """Insert the group_by label columns between `time` and `value` —
         parse_select placeholders can't express a variable column count.
 
-        `attribute_field` resolves against the outermost query's scope, so
-        every builder must expose `service_name`, `attributes` and
+        `attribute_field` resolves against the scope of the query it lands in,
+        so that query must expose `service_name`, `attributes` and
         `resource_attributes` under those names — read straight off
-        `posthog.metrics`, or re-exported from a subquery.
+        `posthog.metrics`, or re-exported from a subquery. Pass `resolve_in`
+        when the labels have to be built a level down instead; `query` then
+        only forwards them up by name.
         """
         assert query.group_by is not None
         for index, group in enumerate(self.group_by):
-            label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
-            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
-            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+            alias = f"group_{index}"
+            label_expr: ast.Expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+            if resolve_in is not None:
+                assert resolve_in.group_by is not None
+                resolve_in.select.append(ast.Alias(alias=alias, expr=label_expr))
+                resolve_in.group_by.append(ast.Field(chain=[alias]))
+                label_expr = ast.Field(chain=[alias])
+            query.select.insert(1 + index, ast.Alias(alias=alias, expr=label_expr))
+            query.group_by.append(ast.Field(chain=[alias]))
 
     def _type_filter_expr(self) -> ast.Expr:
         return type_filter_expr(self.metric_type)
@@ -441,9 +467,9 @@ class MetricQueryRunner:
         make `argMax` pick between them arbitrarily; they are the same
         reading, so either answer is right.
 
-        The series key columns pass through unaggregated so
-        `_splice_group_columns` can resolve group-by labels against them at
-        the outer level.
+        Group-by labels are built in the inner query, where the attribute maps
+        are still in scope. A label is constant within a series, so the outer
+        query just carries it up.
         """
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
@@ -455,9 +481,6 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         toStartOfInterval(timestamp, {interval}) AS time,
-                        service_name AS service_name,
-                        attributes AS attributes,
-                        resource_attributes AS resource_attributes,
                         argMax(value, timestamp) AS series_value
                     FROM posthog.metrics
                     WHERE metric_name = {metric_name}
@@ -485,12 +508,11 @@ class MetricQueryRunner:
         assert isinstance(query, ast.SelectQuery)
         # Appended rather than written into the template so the key stays
         # defined in exactly one place; a placeholder can only carry one
-        # expression, and a tuple key would stop ClickHouse matching the
-        # selected columns against it.
+        # expression.
         inner = query.select_from.table if query.select_from else None
         assert isinstance(inner, ast.SelectQuery) and inner.group_by is not None
         inner.group_by.extend(_series_key_exprs())
-        self._splice_group_columns(query)
+        self._splice_group_columns(query, resolve_in=inner)
         return query
 
     def _build_counter_query(self) -> ast.SelectQuery:

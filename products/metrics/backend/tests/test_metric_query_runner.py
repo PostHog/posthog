@@ -207,6 +207,30 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([row["value"] for row in runner.run()], [expected])
 
+    def test_synthetic_original_timestamp_does_not_split_a_series(self):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        # Ingest stamps `$originalTimestamp` on a point whose timestamp it had to
+        # override, with a different value per sample, and excludes it from the
+        # series identity it computes. Counting it here would give 6.0.
+        for index, value in enumerate((1.0, 2.0, 3.0)):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_skewed",
+                points=[(bucket + dt.timedelta(seconds=10 * index), value)],
+                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_skewed",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [3.0])
+
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
