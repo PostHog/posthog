@@ -300,6 +300,15 @@ def _write_parent_table_with_ages(tmp_path: Path, physical: str) -> str:
     last_seen: pa.Array
     if physical == "string":
         last_seen = pa.array([fresh.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), old.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), None])
+    elif physical == "string_view":
+        # pyarrow's Parquet reader can materialize a written string_view column as
+        # string_view again on read, even though the Delta schema still declares it as a
+        # plain string — and pyarrow has no `greater_equal`/`array_filter` kernel for
+        # string_view, so a pushed-down filter on such a column crashes the scan.
+        last_seen = pa.array(
+            [fresh.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), old.strftime("%Y-%m-%dT%H:%M:%S.%fZ"), None],
+            type=pa.string_view(),
+        )
     elif physical == "timestamp_tz":
         last_seen = pa.array([fresh, old, None], type=pa.timestamp("us", tz="UTC"))
     else:
@@ -312,7 +321,7 @@ def _write_parent_table_with_ages(tmp_path: Path, physical: str) -> str:
 _LAST_SEEN_FLOOR = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90))
 
 
-@pytest.mark.parametrize("physical", ["string", "timestamp_tz", "timestamp_naive"])
+@pytest.mark.parametrize("physical", ["string", "string_view", "timestamp_tz", "timestamp_naive"])
 def test_row_filter_drops_old_rows_and_keeps_null_ones(tmp_path: Path, physical: str) -> None:
     # The floor must adapt to the column's physical type: the Delta writer stores the API's
     # ISO string either verbatim or parsed, and prod tables carry the parsed form while the
@@ -350,3 +359,51 @@ def test_resolve_rejects_unfilterable_tables_so_callers_fall_back(
 
     with pytest.raises(WarehouseParentTableNotFoundError, match=match):
         _patched_resolve(uri, row_filter=bad_filter)
+
+
+def test_row_filter_tightens_to_an_absolute_floor(tmp_path: Path) -> None:
+    # The incremental caller passes its watermark so the scan stops reading issues it would
+    # only discard per row. The tighter of the two floors has to win, or an incremental run
+    # keeps paying for the whole snapshot.
+    uri = _write_parent_table_with_ages(tmp_path, "string")
+    watermark = datetime.now(UTC) - timedelta(days=2)
+
+    pages = _patched_reader(
+        uri,
+        columns=["id"],
+        page_size=10,
+        row_filter=ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90), not_before=watermark),
+    )
+
+    # "fresh" is 5 days old, so the watermark excludes it where the 90-day window would not.
+    assert {row["id"] for page in pages for row in page} == {"no_signal"}
+
+
+@parameterized.expand(
+    [
+        ("relative_only", timedelta(days=90), None, False, -90),
+        ("absolute_only", None, timedelta(days=2), False, -2),
+        ("absolute_is_tighter", timedelta(days=90), timedelta(days=2), False, -2),
+        ("relative_is_tighter", timedelta(days=1), timedelta(days=30), False, -1),
+        ("naive_absolute_is_read_as_utc", None, timedelta(days=2), True, -2),
+    ]
+)
+def test_parent_row_filter_floor_picks_the_tighter_bound(
+    _name, not_older_than, not_before_ago, naive, expected_days
+) -> None:
+    now = datetime.now(UTC)
+    not_before = None
+    if not_before_ago is not None:
+        not_before = now - not_before_ago
+        if naive:
+            not_before = not_before.replace(tzinfo=None)
+
+    floor = ParentRowFilter(field="lastSeen", not_older_than=not_older_than, not_before=not_before).floor(now)
+
+    assert floor == now + timedelta(days=expected_days)
+
+
+def test_parent_row_filter_rejects_a_filter_with_no_floor() -> None:
+    # Silently scanning everything is the failure this whole field exists to prevent.
+    with pytest.raises(ValueError, match="not_older_than"):
+        ParentRowFilter(field="lastSeen")

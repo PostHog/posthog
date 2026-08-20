@@ -90,6 +90,20 @@ def build_conversion_goals(team: Team) -> list[dict]:
                 "distinct_id_field": "distinct_id",
             },
         },
+        # Sums money and is flagged as neither, so ROAS and cost per customer stay
+        # blocked with a goal sitting right there that would unblock them. Drives
+        # mark_goal_as_revenue / mark_goal_as_customer, and gives the settings
+        # checkboxes something to turn on.
+        {
+            "kind": "EventsNode",
+            "event": EVENT_PURCHASE,
+            "conversion_goal_id": "cg_unflagged_revenue",
+            "name": EVENT_PURCHASE,
+            "conversion_goal_name": "Checkout value (unflagged)",
+            "math": "sum",
+            "math_property": "revenue",
+            "schema_map": _DEFAULT_SCHEMA_MAP,
+        },
         # Deliberately broken goals: exercise is_misconfigured in the inspector
         # and the dashboard's validation warnings.
         {

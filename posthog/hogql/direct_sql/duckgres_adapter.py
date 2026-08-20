@@ -35,6 +35,10 @@ from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
 from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth, ServiceCredentialUnavailable
+from products.managed_warehouse.backend.facade.sql_editor import resolve_managed_warehouse_postgres_connection
+from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+
 if TYPE_CHECKING:
     from psycopg.pq.abc import PGresult
 
@@ -66,7 +70,7 @@ logger = structlog.get_logger(__name__)
 
 
 @frozen
-class _DuckgresProjectReaderConfig:
+class _DuckgresConnectionConfig:
     host: str
     port: int
     database: str
@@ -245,7 +249,7 @@ def _wait_for_duckgres_connection(
 
 
 def _connect_duckgres_address(
-    source_config: _DuckgresProjectReaderConfig,
+    source_config: _DuckgresConnectionConfig,
     hostaddr: str | None,
     deadline: float,
     abort_check: Callable[[], None],
@@ -278,7 +282,7 @@ def _connect_duckgres_address(
 
 
 def _connect_duckgres_project_reader(
-    source_config: _DuckgresProjectReaderConfig,
+    source_config: _DuckgresConnectionConfig,
     team_id: int,
     cancellation_token: str | None,
 ) -> psycopg.Connection[tuple[object, ...]]:
@@ -335,9 +339,7 @@ class DuckgresRawAdapter:
     engine = "duckgres"
     dialect: HogQLDialect | None = None
 
-    def validate_source_config(
-        self, source: ExternalDataSource, team: Team
-    ) -> tuple[None, _DuckgresProjectReaderConfig]:
+    def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[None, _DuckgresConnectionConfig]:
         if source.team_id != team.pk or not source.is_managed_warehouse_ready:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
 
@@ -372,7 +374,7 @@ class DuckgresRawAdapter:
         if not 1 <= port <= 65535:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
 
-        return None, _DuckgresProjectReaderConfig(
+        return None, _DuckgresConnectionConfig(
             host=host,
             port=port,
             database=database,
@@ -382,6 +384,39 @@ class DuckgresRawAdapter:
 
     def prepare_raw_sql(self, sql: str) -> str:
         return ensure_single_direct_statement(sql)
+
+    def _resolve_source_config(self, request: DirectQueryRequest) -> _DuckgresConnectionConfig:
+        metadata = request.source.connection_metadata
+        credential_kind = metadata.get("credential_kind") if isinstance(metadata, dict) else None
+        lifecycle_generation = metadata.get("lifecycle_generation") if isinstance(metadata, dict) else None
+        if credential_kind != MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND:
+            return self.validate_source_config(request.source, request.team)[1]
+        if not request.source.is_dynamic_managed_warehouse or request.principal is None:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        try:
+            connection = resolve_managed_warehouse_postgres_connection(
+                source_auth=ManagedWarehouseSourceAuth(
+                    prefix=request.source.prefix,
+                    system_managed=request.source.is_system_managed,
+                    credential_kind=credential_kind,
+                    lifecycle_generation=(lifecycle_generation if isinstance(lifecycle_generation, int) else None),
+                ),
+                organization_id=request.team.organization_id,
+                team_id=request.team.pk,
+                principal=request.principal.value,
+            )
+        except ServiceCredentialUnavailable as error:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR) from error
+        if connection is None or connection.sslmode != "require":
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+        return _DuckgresConnectionConfig(
+            host=connection.host,
+            port=connection.port,
+            database=connection.database,
+            user=connection.username,
+            password=connection.password,
+        )
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         statement_timeout_seconds = max(
@@ -396,7 +431,7 @@ class DuckgresRawAdapter:
         try:
             with request.timings.measure("duckgres_execute"), observe_direct_query("duckgres"):
                 with request.timings.measure("duckgres_source_validation"):
-                    _, source_config = self.validate_source_config(request.source, request.team)
+                    source_config = self._resolve_source_config(request)
                 try:
                     with request.timings.measure("duckgres_connect", emit_span=True):
                         connection_context = _connect_duckgres_project_reader(

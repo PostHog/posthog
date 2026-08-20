@@ -74,6 +74,24 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         }
 
 
+class ManagedWarehouseSourceLifecycle(models.Model):
+    """Non-secret generation fence for managed SQL-editor source lifecycle operations."""
+
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="managed_warehouse_source_lifecycle",
+        db_constraint=False,
+    )
+    generation = models.PositiveBigIntegerField(default=0)
+    desired_active = models.BooleanField(default=True)
+    legacy_conversion_generation = models.PositiveBigIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_managedwarehousesourcelifecycle"
+
+
 @receiver(post_save, sender=DuckgresServer, dispatch_uid="observe_duckgres_server_save")
 def _observe_duckgres_server_save(*, created: bool, **kwargs: object) -> None:
     record_duckgres_server_access("create" if created else "update")

@@ -905,6 +905,36 @@ class TestUnavoidableFilesortFallback:
         assert any(pattern in UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR for pattern in non_retryable.keys())
 
 
+class TestStreamingSchemaDrift:
+    """Schema discovery can find columns the streaming read no longer returns — a column
+    dropped at the source, or the table recreated narrower, between discovery and the read.
+    The batch must still build against the columns the query actually returned, instead of
+    raising pyarrow's `from_pydict` KeyError ("The passed mapping doesn't contain ... field(s)")."""
+
+    def test_read_returning_a_subset_of_discovered_columns_builds(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        # Discovery finds three columns...
+        wide_table = Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="text", data_type="text", column_type="text", nullable=True),
+                MySQLColumn(name="provider", data_type="varchar", column_type="varchar", nullable=True),
+            ],
+        )
+        mocker.patch.object(MySQLImplementation, "get_table_metadata", return_value=wide_table)
+        # ...but the streaming read only returns `id`.
+        ss_cursor.description = [("id",)]
+        ss_cursor.fetchmany.side_effect = [[(1,)], []]
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        batches = list(cast(Generator, source.items()))
+
+        assert len(batches) == 1
+        assert batches[0].column_names == ["id"]
+
+
 class TestIsBadPlanError:
     def test_matches_error_2013(self):
         assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -1878,6 +1908,25 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
         return MySQLSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
+        ],
+    )
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
+        # A persistent connect failure is non-retryable, but the customer must get reachability
+        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
+        # umbrella message back to None.
+        non_retryable = source.get_non_retryable_errors()
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
+        assert "SSH tunnel" in friendly
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -33,9 +33,11 @@ __all__ = [
     "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseModeledTable",
+    "ManagedWarehousePostgresConnection",
     "ManagedWarehousePublishedTableRecord",
     "ManagedWarehousePublishedTableStatus",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
     "ManagedWarehouseSourceJobStatus",
     "ManagedWarehouseSourceJobUpdate",
@@ -103,6 +105,26 @@ class ServiceCredentialUnavailable(RuntimeError):
     to the stored server login or fail the run."""
 
 
+@frozen
+class ManagedWarehousePostgresConnection:
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str = field(repr=False)
+    sslmode: str
+
+
+@frozen
+class ManagedWarehouseSourceAuth:
+    """Non-secret source fields needed to choose managed warehouse authentication."""
+
+    prefix: str | None
+    system_managed: bool
+    credential_kind: str | None
+    lifecycle_generation: int | None
+
+
 @dataclass(frozen=True, kw_only=True)
 class ManagedWarehouseProvisionStatus:
     """Whether an organization has a stored managed-warehouse connection."""
@@ -119,7 +141,7 @@ class DuckgresQueryServerConfig:
     flight_port: int
     database: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -130,7 +152,7 @@ class DuckLakeCatalogConnectionConfig:
     port: int
     database: str
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)

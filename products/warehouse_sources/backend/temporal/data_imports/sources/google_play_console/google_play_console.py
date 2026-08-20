@@ -315,7 +315,12 @@ class GooglePlayConsoleClient:
         freshness_info = payload.get("freshnessInfo") or {}
         for freshness in freshness_info.get("freshnesses") or []:
             if freshness.get("aggregationPeriod") == AGGREGATION_PERIOD:
-                return _date_from_message(freshness.get("latestEndTime"))
+                # `latestEndTime` is already the exclusive bound Play expects back in
+                # `timelineSpec.endTime` (one day past the last day with data), so convert it to an
+                # inclusive date here — everything else in this module treats `latest` as inclusive
+                # and adds its own `+1 day` when building a query's endTime.
+                latest_end = _date_from_message(freshness.get("latestEndTime"))
+                return latest_end - dt.timedelta(days=1) if latest_end else None
         return None
 
 

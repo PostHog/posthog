@@ -18,12 +18,14 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
@@ -64,6 +66,49 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "local_dev_value": None,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    @parameterized.expand(
+        [
+            ("no_oauth_access", False, True),
+            ("live_third_party_oauth_access", True, False),
+        ]
+    )
+    def test_first_self_created_key_only_acknowledges_review_without_oauth_access(
+        self, _name: str, with_oauth_access: bool, expected_reviewed: bool
+    ):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        if with_oauth_access:
+            app = OAuthApplication.objects.create(
+                name="Provisioning partner",
+                client_id="test_pat_stamp_client_id",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            access_token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_pat_stamp_access_token",
+                scope="openid",
+                expires=timezone.now() - timedelta(hours=1),
+            )
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_pat_stamp_refresh_token",
+                access_token=access_token,
+            )
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "My own key", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+
+        assert response.status_code == 201
+        assert (User.objects.get(pk=self.user.pk).credentials_reviewed_at is not None) is expected_reviewed
 
     def test_create_personal_api_key_normalizes_blank_description_to_null(self):
         response = self.client.post(

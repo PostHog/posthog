@@ -23,6 +23,9 @@ from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalReme
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
+# Re-exported for external products (tasks presentation catches it around facade create_task).
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
+
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 

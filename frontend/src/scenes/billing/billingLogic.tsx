@@ -18,6 +18,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -37,7 +38,10 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
+    canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
+    getMinimumUsageSpendReadAccessLevel,
+    isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -196,12 +200,15 @@ export interface billingLogicValues {
     >
     billing: BillingType | null
     billingAlert: BillingAlertConfig | null
+    billingEntryUrl: string | null
     billingError: BillingError | null
     billingErrorLoading: boolean
     billingLoading: boolean
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
+    canOnlyViewUsageAndSpend: boolean
+    canViewUsageAndSpend: boolean
     computedDiscount: number | null
     creditBrackets: any[]
     creditDiscount: number
@@ -255,6 +262,7 @@ export interface billingLogicValues {
     isPurchaseCreditsModalOpen: boolean
     isUnlicensedDebug: boolean
     minimumBillingAccessLevel: OrganizationMembershipLevel
+    minimumUsageSpendReadAccessLevel: OrganizationMembershipLevel
     platformAddons: BillingProductV2AddonType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
@@ -610,6 +618,14 @@ export interface billingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         minimumBillingAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canAccessBilling: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
+        minimumUsageSpendReadAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
+        canViewUsageAndSpend: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
+        canOnlyViewUsageAndSpend: (canViewUsageAndSpend: boolean, canAccessBilling: boolean) => boolean
+        billingEntryUrl: (
+            canAccessBilling: boolean,
+            canOnlyViewUsageAndSpend: boolean,
+            featureFlags: FeatureFlagsSet
+        ) => string | null
         upgradeLink: (preflight: PreflightStatus | null) => string
         isUnlicensedDebug: (preflight: PreflightStatus | null, billing: BillingType | null) => boolean
         supportPlans: (billing: BillingType | null) => BillingPlanType[]
@@ -1049,6 +1065,46 @@ export const billingLogic = kea<billingLogicType>([
                     currentOrganization?.membership_level,
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
+        ],
+        minimumUsageSpendReadAccessLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): OrganizationMembershipLevel =>
+                getMinimumUsageSpendReadAccessLevel(
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canViewUsageAndSpend: [
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet): boolean =>
+                canViewUsageAndSpendUtil(
+                    currentOrganization?.membership_level,
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canOnlyViewUsageAndSpend: [
+            (s) => [s.canViewUsageAndSpend, s.canAccessBilling],
+            (canViewUsageAndSpend: boolean, canAccessBilling: boolean): boolean =>
+                canViewUsageAndSpend && !canAccessBilling,
+        ],
+        billingEntryUrl: [
+            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend, s.featureFlags],
+            (
+                canAccessBilling: boolean,
+                canOnlyViewUsageAndSpend: boolean,
+                featureFlags: FeatureFlagsSet
+            ): string | null => {
+                if (canAccessBilling) {
+                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+                        ? urls.organizationBillingSection('overview')
+                        : urls.organizationBilling()
+                }
+                if (canOnlyViewUsageAndSpend) {
+                    return urls.organizationBillingSection('usage')
+                }
+                return null
+            },
         ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
