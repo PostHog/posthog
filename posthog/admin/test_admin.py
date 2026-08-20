@@ -25,7 +25,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
