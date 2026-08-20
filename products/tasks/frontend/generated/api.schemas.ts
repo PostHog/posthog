@@ -1062,6 +1062,17 @@ export interface TaskActivityMarkReadResponseApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `general` - General
+ */
+export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+
+export const SystemRoleEnumApi = {
+    Personal: 'personal',
+    General: 'general',
+} as const
+
+/**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
 export interface ChannelDTOApi {
@@ -1074,6 +1085,11 @@ export interface ChannelDTOApi {
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
+    /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+     *
+     * * `personal` - Personal
+     * * `general` - General */
+    readonly system_role: SystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1244,6 +1260,18 @@ export interface ChannelStarWriteApi {
 }
 
 /**
+ * The requester's default channels, plus whether this call is what created them.
+ */
+export interface ProvisionedChannelsApi {
+    /** The full channel list after provisioning, same shape as the list endpoint. */
+    channels: ChannelDTOApi[]
+    /** Whether this call created the requester's personal #me channel. */
+    personal_created: boolean
+    /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+    general_created: boolean
+}
+
+/**
  * Response shape for one @-mention of the requester in a task's thread.
  */
 export interface TaskMentionDTOApi {
@@ -1316,7 +1344,7 @@ export const TaskRunReasoningEffortEnumApi = {
     Ultracode: 'ultracode',
 } as const
 
-export interface TaskRunArtifactMetadataApi {
+export interface TaskRunSkillBundleMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
      * @maxLength 255
@@ -1346,6 +1374,95 @@ export interface TaskRunArtifactMetadataApi {
 }
 
 /**
+ * * `posthog_object` - posthog_object
+ */
+export type ReferenceTypeEnumApi = (typeof ReferenceTypeEnumApi)[keyof typeof ReferenceTypeEnumApi]
+
+export const ReferenceTypeEnumApi = {
+    PosthogObject: 'posthog_object',
+} as const
+
+/**
+ * * `insight` - insight
+ * * `hogql` - hogql
+ * * `dashboard` - dashboard
+ * * `error` - error
+ * * `replay` - replay
+ * * `flag` - flag
+ * * `experiment` - experiment
+ * * `survey` - survey
+ * * `ticket` - ticket
+ * * `trace` - trace
+ * * `eval` - eval
+ * * `event` - event
+ * * `cohort` - cohort
+ * * `action` - action
+ * * `person` - person
+ */
+export type ObjectKindEnumApi = (typeof ObjectKindEnumApi)[keyof typeof ObjectKindEnumApi]
+
+export const ObjectKindEnumApi = {
+    Insight: 'insight',
+    Hogql: 'hogql',
+    Dashboard: 'dashboard',
+    Error: 'error',
+    Replay: 'replay',
+    Flag: 'flag',
+    Experiment: 'experiment',
+    Survey: 'survey',
+    Ticket: 'ticket',
+    Trace: 'trace',
+    Eval: 'eval',
+    Event: 'event',
+    Cohort: 'cohort',
+    Action: 'action',
+    Person: 'person',
+} as const
+
+export interface TaskRunPostHogReferenceMetadataApi {
+    /** Reference metadata type. posthog_object identifies a live PostHog object.
+     *
+     * * `posthog_object` - posthog_object */
+    reference_type: ReferenceTypeEnumApi
+    /** PostHog object kind used to resolve the reference.
+     *
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person */
+    object_kind: ObjectKindEnumApi
+    /**
+     * Exact PostHog object identifier, flag key, event name, or SQL query.
+     * @maxLength 16384
+     */
+    object_id: string
+    /**
+     * Completed assistant message identifiers that referenced the object.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    source_message_ids: string[]
+    /**
+     * Number of distinct completed assistant messages that referenced the object.
+     * @minimum 1
+     */
+    occurrence_count: number
+}
+
+export type TaskRunArtifactMetadataApi = TaskRunSkillBundleMetadataApi | TaskRunPostHogReferenceMetadataApi
+
+/**
  * * `agent` - agent
  * * `user` - user
  */
@@ -1369,11 +1486,11 @@ export interface TaskRunArtifactResponseApi {
     size?: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    /** Structured metadata for a skill bundle or a PostHog object reference. */
     metadata?: TaskRunArtifactMetadataApi
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
+    /** S3 object key for file artifacts. Reference artifacts do not have one. */
+    storage_path?: string
+    /** Timestamp when the artifact was uploaded or registered */
     uploaded_at: string
     /** Whether the artifact version was uploaded by the task agent or an interactive user.
      *
@@ -2116,6 +2233,17 @@ export interface TaskCommentDetailApi {
     next: string | null
 }
 
+/**
+ * Request body for handing a task off to a colleague: they become its owner.
+ */
+export interface TaskHandoffRequestApi {
+    /**
+     * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+     * @minimum 1
+     */
+    user: number
+}
+
 export interface TaskPinRequestApi {
     /** Whether the task should be pinned for the requester. */
     pinned: boolean
@@ -2569,8 +2697,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskStagedArtifactsFinalizeUploadRequestApi {
@@ -2616,8 +2744,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskStagedArtifactsPrepareUploadRequestApi {
@@ -2650,8 +2778,8 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
     /** S3 object key reserved for the staged artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -2933,8 +3061,8 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsUploadRequestApi {
@@ -3005,8 +3133,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -3052,8 +3180,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsPrepareUploadRequestApi {
@@ -3074,8 +3202,8 @@ export interface TaskRunArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
     /** S3 object key reserved for the artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -3094,6 +3222,55 @@ export interface TaskRunArtifactPresignResponseApi {
     url: string
     /** URL expiry in seconds */
     expires_in: number
+}
+
+export interface TaskRunPostHogReferenceApi {
+    /**
+     * Fallback display name for the referenced object.
+     * @maxLength 255
+     */
+    name: string
+    /** PostHog object kind used to resolve the reference.
+     *
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person */
+    object_kind: ObjectKindEnumApi
+    /**
+     * Exact PostHog object identifier, flag key, event name, or SQL query.
+     * @maxLength 16384
+     */
+    object_id: string
+    /**
+     * Stable identifier of the completed assistant message containing the reference.
+     * @maxLength 255
+     */
+    source_message_id: string
+}
+
+export interface TaskRunPostHogReferencesRequestApi {
+    /**
+     * PostHog object references extracted from one completed assistant message.
+     * @maxItems 50
+     */
+    references: TaskRunPostHogReferenceApi[]
+}
+
+export interface TaskRunPostHogReferencesResponseApi {
+    /** Updated list of artifacts on the run. */
+    artifacts: TaskRunArtifactResponseApi[]
 }
 
 export interface TaskRunCancelRequestApi {
@@ -4303,6 +4480,31 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
+     * Exclude tasks with this origin product from the results
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
+     * @minLength 1
+     */
+    exclude_origin_product?: TasksListExcludeOriginProduct
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
@@ -4401,6 +4603,31 @@ export const TasksListCiStatus = {
     Failing: 'failing',
     Pending: 'pending',
     None: 'none',
+} as const
+
+export type TasksListExcludeOriginProduct =
+    (typeof TasksListExcludeOriginProduct)[keyof typeof TasksListExcludeOriginProduct]
+
+export const TasksListExcludeOriginProduct = {
+    Onboarding: 'onboarding',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
+    SignalReport: 'signal_report',
+    SignalsScout: 'signals_scout',
+    SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
+    Workflow: 'workflow',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]

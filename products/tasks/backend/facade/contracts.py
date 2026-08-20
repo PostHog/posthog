@@ -204,6 +204,14 @@ class ChannelDTO:
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
+    system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ProvisionedChannelsDTO:
+    channels: list[ChannelDTO]
+    personal_created: bool
+    general_created: bool
 
 
 @dataclass(frozen=True)

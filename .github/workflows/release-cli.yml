@@ -474,6 +474,8 @@ jobs:
               run: |
                   node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - name: Build artifacts
+              env:
+                  CARGO_PROFILE_DIST_SPLIT_DEBUGINFO: ${{ runner.os == 'macOS' && 'packed' || 'off' }}
               run: |
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
@@ -493,6 +495,41 @@ jobs:
                           exit 1
                       fi
                   done
+            - name: Upload CLI debug symbols
+              if: runner.os != 'Windows'
+              shell: bash
+              env:
+                  POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  POSTHOG_CLI_PROJECT_ID: '2'
+                  RELEASE_VERSION: ${{ needs.release.outputs.new-version }}
+                  TARGETS: ${{ join(matrix.targets, ' ') }}
+              run: |
+                  set -euo pipefail
+
+                  if [ -z "$POSTHOG_CLI_API_KEY" ]; then
+                      echo "::error::POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY is required to upload CLI debug symbols"
+                      exit 1
+                  fi
+
+                  symbols_dir="$RUNNER_TEMP/posthog-cli-symbols"
+                  mkdir -p "$symbols_dir"
+
+                  for target in $TARGETS; do
+                      package_dir="target/distrib/posthog-cli-$target"
+                      target_symbols_dir="$symbols_dir/$target"
+                      mkdir -p "$target_symbols_dir"
+                      cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
+                  done
+
+                  while IFS= read -r -d '' dsym; do
+                      cp -R "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
+                  done < <(find target -type d -name 'posthog-cli.dSYM' -print0)
+
+                  cargo run --manifest-path cli/Cargo.toml --profile dist -- \
+                      symbol-sets upload --directory "$symbols_dir" \
+                      --release-name posthog-cli \
+                      --release-version "$RELEASE_VERSION"
+
             - id: cargo-dist
               name: Post-build
               # We force bash here just because github makes it really hard to get values up

@@ -242,6 +242,7 @@ mod tests {
             s3_fallback_endpoint: None,
             s3_fallback_prefix: String::new(),
             ai_max_sum_of_parts_bytes: 26_214_400,
+            ai_max_event_bytes: 8_388_608,
             ai_gateway_signing_secret: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
@@ -257,6 +258,10 @@ mod tests {
             capture_ingestion_warnings_kafka_topic: String::new(),
             capture_ingestion_warnings_kafka_hosts: String::new(),
             capture_ingestion_warnings_kafka_tls: false,
+            ai_byte_limit_per_second: 0,
+            ai_byte_limit_overrides_csv: None,
+            ai_byte_limit_dry_run: false,
+            ai_byte_limit_local_cache_max_entries: 300_000,
         }
     }
 
