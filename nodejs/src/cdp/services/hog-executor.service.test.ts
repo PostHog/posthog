@@ -2030,12 +2030,55 @@ describe('Hog Executor', () => {
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
+            expect(result.invocation.queuePriority).toBe(10)
+            expect(result.invocation.queueMetadata?.originPriority).toBe(invocation.queuePriority)
             expect(result.metrics).toContainEqual(
                 expect.objectContaining({
                     metric_name: 'email_queued',
                     metric_kind: 'email',
                 })
             )
+        })
+
+        it('should classify transactional sends into the fast priority class', () => {
+            const hogFunction = createHogFunction({
+                name: 'Email function',
+                metadata: { message_category_type: 'transactional' },
+            })
+
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'hogflow',
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation)
+
+            expect(result.invocation.queuePriority).toBe(0)
+        })
+
+        it('should restore the origin priority when routing back from the email queue', () => {
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'email',
+                queuePriority: 10,
+                queueMetadata: { originQueue: 'hogflow', originPriority: 1 },
+            }
+
+            const result = (executor as any).routeToQueue(invocation, 'hogflow')
+
+            expect(result.invocation.queue).toBe('hogflow')
+            expect(result.invocation.queuePriority).toBe(1)
+            expect(result.invocation.queueMetadata).toBeUndefined()
         })
 
         it('should preserve the same job ID (no new job created)', () => {

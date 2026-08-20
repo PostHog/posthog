@@ -497,6 +497,10 @@ export class CyclotronV2Worker {
                     params.push(options.queueName)
                     setClauses.push(`queue_name = $${params.length}`)
                 }
+                if (options?.priority !== undefined) {
+                    params.push(options.priority)
+                    setClauses.push(`priority = $${params.length}`)
+                }
 
                 // Cross-queue routing into the email queue: assign a fresh
                 // dequeue_seq so the row participates in fair ordering. Without

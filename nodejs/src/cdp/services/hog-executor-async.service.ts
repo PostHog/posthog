@@ -23,6 +23,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
+import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -38,6 +39,7 @@ import {
 const cdpEmailQueuedTotal = new Counter({
     name: 'cdp_email_queued_total',
     help: 'Total emails routed to the dedicated email queue',
+    labelNames: ['priority_class'] as const,
 })
 
 export interface HogExecutorAsyncConfig {
@@ -142,6 +144,14 @@ export class HogExecutorAsyncService {
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
+                        // A flow already on the email queue sends inline, so this send never went
+                        // through routeEmailToQueue's classification. Refresh the priority from
+                        // the current action's metadata so a throttle retry re-queues under this
+                        // send's class rather than the previous email action's.
+                        if (invocation.queue === 'email') {
+                            nextInvocation.queuePriority =
+                                EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
+                        }
                         // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
                     }
@@ -237,14 +247,21 @@ export class HogExecutorAsyncService {
     private routeEmailToQueue(
         invocation: CyclotronJobInvocationHogFunction
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const priorityClass = getEmailQueuePriorityClass(invocation.hogFunction.metadata)
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
             {
                 queue: 'email',
+                // The email queue dequeues transactional-class sends ahead of bulk ones;
+                // originPriority is stashed so routeToQueue can restore the pre-email
+                // priority when the job returns to its origin queue, keeping the email
+                // classes out of the hogflow queue's ordering.
+                queuePriority: EMAIL_QUEUE_PRIORITY[priorityClass],
                 queueParameters: invocation.queueParameters,
                 queueMetadata: {
                     ...invocation.queueMetadata,
                     originQueue: invocation.queue,
+                    originPriority: invocation.queuePriority,
                 },
             },
             { finished: false }
@@ -259,7 +276,7 @@ export class HogExecutorAsyncService {
             count: 1,
         })
 
-        cdpEmailQueuedTotal.inc()
+        cdpEmailQueuedTotal.labels(priorityClass).inc()
 
         return result
     }
@@ -272,6 +289,9 @@ export class HogExecutorAsyncService {
             invocation,
             {
                 queue: targetQueue as CyclotronJobInvocationHogFunction['queue'],
+                // Restore the priority the job had before routeEmailToQueue reclassified
+                // it, so an email-class value never orders jobs on the origin queue.
+                queuePriority: invocation.queueMetadata?.originPriority ?? invocation.queuePriority,
                 queueParameters: invocation.queueParameters,
                 queueMetadata: undefined,
             },
