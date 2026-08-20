@@ -58,6 +58,7 @@ from posthog.temporal.data_modeling.metrics import (
 from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
+from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
@@ -76,6 +77,7 @@ from products.warehouse_sources.backend.facade.hooks import (
 # Covers every command the data quality feature adds here: the stage/audit/publish trio and the
 # warn-mode suite child.
 QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
+ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
 
 # Covers the CDP producer child and the staging-cleanup activity. Both are new commands, so a
 # history recorded before this deploy has to keep taking the branch that issues neither.
@@ -355,6 +357,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         job_id=job_id,
                         row_count=materialize_result.row_count,
                         duration_seconds=duration_seconds,
+                        enqueue_legacy_account_property_sync=not materialize_result.account_property_sync_enabled,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(
@@ -378,6 +381,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # Upsert this view's columns onto person/group properties for any warehouse property
                 # that reads it. Fire-and-forget on the metadata queue, like enrichment above.
                 await self._maybe_sync_person_properties(inputs, materialize_result, job_id)
+
+                if temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
+                    await self._maybe_sync_account_properties(inputs, materialize_result, job_id)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
@@ -621,6 +627,43 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 "Failed to start person-property sync",
                 extra={"job_id": job_id, "error": str(e)},
             )
+
+    async def _maybe_sync_account_properties(
+        self,
+        inputs: MaterializeViewWorkflowInputs,
+        materialize_result: MaterializeViewResult,
+        job_id: str,
+    ) -> None:
+        if not materialize_result.account_property_sync_enabled:
+            return
+        for segment in ("tracked", "ignored"):
+            child_id = f"sync-warehouse-account-properties-{job_id}-{segment}"
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    "sync-warehouse-account-properties",
+                    AccountPropertySyncInput(
+                        team_id=inputs.team_id,
+                        saved_query_id=materialize_result.saved_query_id,
+                        job_id=job_id,
+                        segment=segment,
+                    ),
+                    id=child_id,
+                    id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=24),
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.info(
+                    "Account-property segment sync already running",
+                    extra={"job_id": job_id, "segment": segment},
+                )
+            except Exception as error:
+                capture_exception(error)
+                temporalio.workflow.logger.warning(
+                    "Failed to start account-property segment sync",
+                    extra={"job_id": job_id, "segment": segment, "error": str(error)},
+                )
 
     async def _maybe_produce_cdp_rows(
         self,

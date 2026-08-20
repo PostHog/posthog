@@ -22,6 +22,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
 )
 
+from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -112,6 +113,27 @@ class TestQualityGateBranching:
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
+
+    async def test_account_staging_replaces_the_legacy_celery_dispatch(self):
+        materialize_result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+        ]
+        start_child = AsyncMock()
+
+        _, execute_activity = await self._run(activity_results, {}, start_child=start_child)
+
+        succeed_call = next(
+            call
+            for call in execute_activity.await_args_list
+            if call.args[0].__name__ == "succeed_materialization_activity"
+        )
+        assert succeed_call.args[1].enqueue_legacy_account_property_sync is False
+        assert [call.args[1].segment for call in start_child.await_args_list] == ["tracked", "ignored"]
 
     async def test_a_passing_audit_publishes_and_succeeds(self):
         activity_results = [
@@ -306,6 +328,38 @@ class TestFinalizeOrphanedDuckgresJob:
         ):
             # a failure to finalize must never propagate out of the shadow path
             await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
+
+
+class TestMaybeSyncAccountProperties:
+    async def test_starts_independent_tracked_and_ignored_children(self):
+        workflow = MaterializeViewWorkflow()
+        result = _materialize_result("skip")
+        result = dataclasses.replace(result, account_property_sync_enabled=True)
+        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
+            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
+
+        assert start_child.await_count == 2
+        payloads = [call.args[1] for call in start_child.await_args_list]
+        assert all(isinstance(payload, AccountPropertySyncInput) for payload in payloads)
+        assert [payload.segment for payload in payloads] == ["tracked", "ignored"]
+        assert [call.kwargs["id"] for call in start_child.await_args_list] == [
+            "sync-warehouse-account-properties-job-123-tracked",
+            "sync-warehouse-account-properties-job-123-ignored",
+        ]
+
+    async def test_one_segment_start_failure_does_not_block_the_other(self):
+        workflow = MaterializeViewWorkflow()
+        result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
+        start_child = AsyncMock(side_effect=[RuntimeError("tracked queue unavailable"), None])
+        with (
+            patch.object(temporalio.workflow, "start_child_workflow", new=start_child),
+            patch.object(temporalio.workflow, "logger"),
+            patch(f"{WORKFLOW_MODULE}.capture_exception"),
+        ):
+            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
+
+        assert start_child.await_count == 2
+        assert start_child.await_args_list[1].args[1].segment == "ignored"
 
 
 class TestMaybeEnrichViewSemantics:

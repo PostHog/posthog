@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_tr
     trigger_saved_query_materialization,
     trigger_schema_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
+    AccountPropertyRowSink,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
 )
@@ -55,6 +58,7 @@ __all__ = [
     "PERSON_PROPERTY_SYNC_WORKFLOWS",
     "WORKFLOWS",
     "ExternalDataSchemaSyncPausedError",
+    "AccountPropertyRowSink",
     "PersonPropertyRowSink",
     "SavedQueryNotFoundError",
     "SavedQueryNotOnV2ScheduleError",
