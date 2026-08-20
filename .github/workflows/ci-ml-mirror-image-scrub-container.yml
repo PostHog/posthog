@@ -82,10 +82,13 @@ jobs:
     build:
         needs: changes
         name: Build and push ml-mirror-image-scrub image
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
         if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
+             (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
+             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:

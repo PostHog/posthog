@@ -35,7 +35,9 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog'
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
+        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
