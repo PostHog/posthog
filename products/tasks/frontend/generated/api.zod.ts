@@ -1509,6 +1509,22 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+
+export const TasksHandoffCreateBody = /* @__PURE__ */ zod
+    .object({
+        user: zod
+            .number()
+            .min(1)
+            .describe(
+                "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+            ),
+    })
+    .describe('Request body for handing a task off to a colleague: they become its owner.')
+
+/**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export const TasksPinCreateBody = /* @__PURE__ */ zod.object({
