@@ -22,6 +22,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -31,6 +33,15 @@ from posthog.models import Team
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import MetricType
 from products.metrics.backend.metric_query_runner import filters_expr, type_filter_expr
+
+# This runs on the ClickHouse cluster shared with the live logs/traces
+# products, so cap how much one request may read. Same budget the chart
+# queries get, and the same throw-on-overflow: a truncated sample list would
+# read as "these are the emissions" while silently hiding most of them.
+_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+    read_overflow_mode="throw",
+)
 
 
 def _normalise_to_base64(value: str) -> str:
@@ -178,6 +189,7 @@ class MetricEventSamplesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            settings=_QUERY_SETTINGS,
         )
 
         return [
