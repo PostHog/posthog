@@ -43,7 +43,7 @@ const meta: Meta<typeof PersonalizationSettingsView> = {
 export default meta;
 type Story = StoryObj<typeof PersonalizationSettingsView>;
 
-/** Sync off: the editable box with its character counter. */
+/** Sync off: the editable box, well under the cap so no counter shows. */
 export const Default: Story = {
   args: {
     instructions:
@@ -51,8 +51,15 @@ export const Default: Story = {
   },
 };
 
-/** Sync off with nothing typed yet: placeholder text and a 0/2000 counter. */
+/** Sync off with nothing typed yet: just the placeholder text. */
 export const Empty: Story = {};
+
+/** Within 10% of the cap: the counter appears so the ceiling is visible. */
+export const NearCharacterLimit: Story = {
+  args: {
+    instructions: "Keep responses terse. ".repeat(900),
+  },
+};
 
 /**
  * Sync on and a CLAUDE.md was found: the box is disabled and greyed out (the

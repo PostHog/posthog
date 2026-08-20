@@ -1,6 +1,7 @@
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { Switch, Textarea } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "@posthog/shared/constants";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   SettingsCard,
@@ -15,7 +16,12 @@ import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCallback, useEffect, useState } from "react";
 
-const MAX_INSTRUCTIONS_LENGTH = 2000;
+// Same cap the synced-file path uses, so typing and syncing hold the same
+// amount of text.
+const MAX_INSTRUCTIONS_LENGTH = USER_AGENT_INSTRUCTIONS_MAX_LENGTH;
+
+// A running count is noise until the cap is in reach.
+const COUNTER_VISIBLE_FROM = Math.floor(MAX_INSTRUCTIONS_LENGTH * 0.9);
 
 export interface PersonalizationSettingsViewProps {
   instructions: string;
@@ -88,9 +94,11 @@ export function PersonalizationSettingsView({
               </span>
             )
           ) : (
-            <span className="text-right text-[12px] text-gray-10 tabular-nums">
-              {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
-            </span>
+            instructions.length >= COUNTER_VISIBLE_FROM && (
+              <span className="text-right text-[12px] text-gray-10 tabular-nums">
+                {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
+              </span>
+            )
           )}
         </div>
       </SettingsCard>

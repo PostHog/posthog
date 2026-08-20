@@ -29,6 +29,7 @@ import {
   IMAGE_MIME_TYPES,
   isRasterImageFile,
 } from "@posthog/shared";
+import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "@posthog/shared/constants";
 import { inject, injectable } from "inversify";
 import type {
   ClaudePermissions,
@@ -40,7 +41,6 @@ import type {
   SelectedAttachment,
   UserAgentInstructions,
 } from "./schemas";
-import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "./schemas";
 
 const fsPromises = fs.promises;
 

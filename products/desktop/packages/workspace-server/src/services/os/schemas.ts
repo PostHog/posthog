@@ -7,14 +7,6 @@ export const claudePermissionsOutput = z.object({
 });
 export type ClaudePermissions = z.infer<typeof claudePermissionsOutput>;
 
-// Personalization synced from a file can be much larger than hand-typed
-// instructions, but the prompt it lands in must stay bounded. Shared by
-// `OsService`'s truncation and the session-start Zod validators
-// (`startSessionInput`/`reconnectSessionInput` in ../agent/schemas) so the two
-// stay equal — a synced file truncated to this length must not then fail the
-// session-start length check.
-export const USER_AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000;
-
 export const userAgentInstructionsSchema = z.object({
   path: z.string(),
   /** Home-relative form of `path` (e.g. `~/.claude/CLAUDE.md`), for display. */

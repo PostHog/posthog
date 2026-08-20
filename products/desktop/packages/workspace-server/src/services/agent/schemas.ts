@@ -3,9 +3,9 @@ import type {
   PermissionOption as SdkPermissionOption,
 } from "@agentclientprotocol/sdk";
 import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
+import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "@posthog/shared/constants";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
-import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
 
 export { effortLevelSchema };
 export type { EffortLevel } from "@posthog/shared/domain-types";
@@ -42,11 +42,9 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
-// Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
-// can be far larger than the 2000-char hand-typed settings field. Kept equal
-// to OsService's truncation length (USER_AGENT_INSTRUCTIONS_MAX_LENGTH) or a
-// synced file gets truncated to fit but still fails this check. Shared by
-// startSessionInput and reconnectSessionInput below.
+// Kept equal to OsService's truncation length, or a synced file gets
+// truncated to fit but still fails this check. Shared by startSessionInput
+// and reconnectSessionInput below.
 const customInstructionsField = z
   .string()
   .max(USER_AGENT_INSTRUCTIONS_MAX_LENGTH)
