@@ -87,6 +87,14 @@ fn bench_config() -> GlobalRateLimiterConfig {
         global_read_timeout: Duration::from_millis(50),
         global_write_timeout: Duration::from_millis(50),
         metrics_scope: "bench".to_string(),
+        // The benchmark measures the hot path against a fully-syncing limiter, so
+        // the floor and the per-tick bound are both left wide open.
+        min_sync_floor: 0,
+        max_sync_keys_per_tick: 100_000,
+        max_keys_per_command: 2_000,
+        max_concurrent_commands: 4,
+        max_write_batch_entries: 200_000,
+        max_pending_sync_entries: 200_000,
     }
 }
 

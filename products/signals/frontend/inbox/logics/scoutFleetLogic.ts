@@ -91,6 +91,11 @@ const RUNS_REFETCH_INTERVAL_MS = 60_000
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
 
+/** Rows the roster is showing after every filter, for the `filter_match_count` analytics property. */
+function rosterMatchCount(buckets: ScoutGroupBucket[]): number {
+    return buckets.reduce((total, bucket) => total + bucket.configs.length, 0)
+}
+
 /** Where each scout's row belongs, given the configs and run rollups currently loaded. */
 function computeRosterPlacement(values: {
     scoutConfigs: SignalScoutConfig[] | null
@@ -792,6 +797,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         ? (values.scoutConfigs ?? []).filter((config) => configMatchesScoutTags(config, tags)).length
                         : undefined,
                 },
+            })
+        },
+        setScoutEnabledFilter: ({ filter }) => {
+            captureScoutAction({
+                actionType: 'filter_enabled',
+                surface: 'fleet_list',
+                extra: { filter, filter_match_count: rosterMatchCount(values.rosterBuckets) },
+            })
+        },
+        // Debounced so a typed query fires once per pause, not per keystroke; clearing fires nothing.
+        // The term itself is not sent — it can name a customer's own scouts — only its length.
+        setScoutSearch: async ({ search }, breakpoint) => {
+            const query = search.trim()
+            if (!query) {
+                return
+            }
+            await breakpoint(600)
+            captureScoutAction({
+                actionType: 'search_scouts',
+                surface: 'fleet_list',
+                extra: { search_length: query.length, filter_match_count: rosterMatchCount(values.rosterBuckets) },
             })
         },
         // Placement is refreshed here, off server data only, and deliberately not from
