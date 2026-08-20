@@ -137,24 +137,54 @@ unrenderable_path() { # $1 = path
 gitcfg_targets=()
 gitcfg_dirs=()
 gitcfg_wdeny=()
+# A path that cannot be written as an SBPL literal. Tabs and newlines do not survive
+# one, and a quote or backslash would corrupt the profile. Every path below is
+# screened here on the way in, because these come out of config files sandboxed code
+# may control and render_profile answers the same characters by abandoning the render
+# — which runs the command with no sandbox at all. Dropping the entry keeps that
+# fail-open out of reach of anything a config file can say.
+_gitcfg_bad_literal() {
+    # shellcheck disable=SC1003 # '\' is a quoted literal backslash to match on, not an escape
+    case "$1" in
+        *$'\t'* | *$'\n'* | *'"'* | *'\'*) return 0 ;;
+    esac
+    return 1
+}
+# Canonical form of a path, including when the leaf does not exist: macOS readlink -f
+# fails outright in that case, so fall back to canonicalizing the directory and
+# re-attaching the name. Echoes nothing when even the directory cannot be resolved,
+# which means nothing can be read there yet either.
+_gitcfg_canon() {
+    local _p="$1" _c _dir
+    _c="$(/usr/bin/readlink -f "$_p" 2>/dev/null || true)"
+    if [[ -z "$_c" ]]; then
+        _dir="$(cd "${_p%/*}" 2>/dev/null && pwd -P || true)"
+        [[ -n "$_dir" ]] && _c="$_dir/${_p##*/}"
+    fi
+    printf '%s' "$_c"
+}
 _push_gitcfg() {
     local _t
+    _gitcfg_bad_literal "$1" && return 0
     for _t in ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
         if [[ "$_t" == "$1" ]]; then return 0; fi
     done
     gitcfg_targets+=("$1")
+    return 0
 }
 _push_gitcfg_dir() {
     local _t
+    _gitcfg_bad_literal "$1" && return 0
     for _t in ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"}; do
         if [[ "$_t" == "$1" ]]; then return 0; fi
     done
     gitcfg_dirs+=("$1")
+    return 0
 }
 _push_gitcfg_wdeny_raw() {
     local _t
     [[ -n "$1" && "$1" == /* ]] || return 0
-    [[ "$1" == *$'\t'* || "$1" == *$'\n'* ]] && return 0
+    _gitcfg_bad_literal "$1" && return 0
     for _t in ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}; do
         if [[ "$_t" == "$1" ]]; then return 0; fi
     done
@@ -162,34 +192,42 @@ _push_gitcfg_wdeny_raw() {
     return 0 # never end on a test under `set -e`
 }
 # Deny both the logical path and its physical one. Seatbelt matches physical paths,
-# so a literal alone leaves the target writable through a symlinked ancestor — and
-# readlink -f still resolves that ancestor when the leaf does not exist yet, which
-# is exactly the case these denies exist to cover.
+# so a literal alone leaves the target writable through a symlinked ancestor.
 _push_gitcfg_wdeny() {
-    local _p="$1" _c _dir
+    local _p="$1" _c
     [[ -n "$_p" ]] || return 0
     [[ "$_p" != /* ]] && _p="$PWD/$_p" # git takes a relative GIT_CONFIG_GLOBAL too
     _push_gitcfg_wdeny_raw "$_p"
-    _c="$(/usr/bin/readlink -f "$_p" 2>/dev/null || true)"
-    if [[ -z "$_c" ]]; then
-        # macOS readlink -f fails outright when the leaf does not exist, which is
-        # the whole point of these denies. Canonicalize the directory instead and
-        # re-attach the name, so a symlinked ancestor still resolves.
-        _dir="$(cd "${_p%/*}" 2>/dev/null && pwd -P || true)"
-        [[ -n "$_dir" ]] && _c="$_dir/${_p##*/}"
-    fi
+    _c="$(_gitcfg_canon "$_p")"
     [[ -n "$_c" && "$_c" != "$_p" ]] && _push_gitcfg_wdeny_raw "$_c"
+    return 0
+}
+# Write-deny every directory between $HOME and a config file. The file itself is
+# already denied, but Seatbelt evaluates rename(2) against the source path only, so
+# any directory on the chain that stays writable lets sandboxed code move the whole
+# subtree aside and put its own there — ~/.gitconfig then resolves to a file the
+# attacker wrote, and that file's contents choose what the next launch allows.
+# Denying a directory node does not affect entries inside it, which are their own
+# paths; the base profile makes the same distinction for the .git node. Call this
+# with the logical path and the canonical one: a symlinked ancestor has to be denied
+# in both forms, since replacing the link and renaming its target are separate acts.
+_gitcfg_deny_ancestors() {
+    local _dir="${1%/*}"
+    while [[ "$_dir" == "$HOME"/* ]]; do
+        _push_gitcfg_wdeny_raw "$_dir"
+        _dir="${_dir%/*}"
+    done
     return 0
 }
 _add_gitcfg() {
     local _p="$1" _resolved _dir
     [[ -n "$_p" ]] || return 0
-    [[ "$_p" == *$'\t'* || "$_p" == *$'\n'* ]] && return 0
-    # Canonicalize before the repo test, not after. That test is a string prefix
-    # match, so a symlink or a `..` component walks straight past it — and git
+    _gitcfg_bad_literal "$_p" && return 0
+    # Canonicalize before the containment tests, not after. They are string prefix
+    # matches, so a symlink or a `..` component walks straight past them — and git
     # reports the logical path it was given, never the resolved one, so the logical
     # form is what discovery sees.
-    _resolved="$(/usr/bin/readlink -f "$_p" 2>/dev/null || true)"
+    _resolved="$(_gitcfg_canon "$_p")"
     # A config inside the repo is already readable via the PROJECT/MAINREPO subpath
     # allow, and the repo stays broadly writable inside the sandbox, so such a file
     # is one sandboxed code can rewrite. Flag the whole run as tainted (checked once
@@ -204,13 +242,25 @@ _add_gitcfg() {
     # left there. So taint, same as the repo case. The write-deny goes on regardless
     # (it survives the taint reset) so the file cannot be rewritten from here on; it
     # is not enough on its own, which is why it does not replace the taint.
-    if [[ "$_p" != "$HOME"/* ]]; then
+    #
+    # Judge containment on the canonical path as well. A config that sits outside
+    # $HOME can still be named by a path that looks inside it — ~/.gitconfig
+    # symlinked to /Volumes/Dotfiles/gitconfig, or a target spelled ~/../shared/cfg —
+    # and the logical test alone waves both through. An unresolvable path is not
+    # treated as outside: _gitcfg_canon only comes back empty when the directory does
+    # not exist either, so nothing can be read there, and tainting on it would punish
+    # the ordinary absent ~/.gitconfig.local.
+    if [[ "$_p" != "$HOME"/* ]] || { [[ -n "$_resolved" ]] && [[ "$_resolved" != "$HOME"/* ]]; }; then
         _push_gitcfg_wdeny "$_p"
         [[ -n "$_resolved" && "$_resolved" != "$_p" ]] && _push_gitcfg_wdeny "$_resolved"
         _gitcfg_untrusted=1
         return 0
     fi
     _push_gitcfg "$_p"
+    # Keep the directories on the way to this config from being swapped out from
+    # under it (see _gitcfg_deny_ancestors).
+    _gitcfg_deny_ancestors "$_p"
+    [[ -n "$_resolved" ]] && _gitcfg_deny_ancestors "$_resolved"
     # Resolution stops at a symlinked ancestor directory (~/.config -> ~/.dotfiles):
     # the kernel reads that link node itself, and the literal allow for the file
     # behind it does not cover that read. Grant metadata on each directory between
@@ -420,10 +470,14 @@ render_profile() {
         done
     done
     ancestors+=("$HOME")
-    # These paths carry the read-allows the stack needs, so unlike a single git-dir
-    # deny they cannot be dropped individually — fail the render and run without a
-    # sandbox, loudly, rather than emit a profile missing part of what it grants.
-    for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"} ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}; do
+    # Paths are emitted as SBPL string literals; a " or \ would corrupt the
+    # profile (quoted expansions match literally, dodging glob/escape ambiguity).
+    # Only paths derived from the repo root, $HOME and TMPDIR are checked here.
+    # Bailing out means running with no sandbox, so nothing a config file can name
+    # may reach this: the gitcfg lists are screened by _gitcfg_bad_literal as they
+    # are built and the git-dir denies by unrenderable_path, and both drop the
+    # offending entry instead of the whole profile.
+    for _a in "${ancestors[@]}" "$rendered" "$stamp"; do
         if unrenderable_path "$_a"; then
             echo "⚠️  dev sandbox: path is unrenderable, running WITHOUT sandbox: $_a" >&2
             return 1

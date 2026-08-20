@@ -584,6 +584,73 @@ else
             pass "write blocked: config fragment outside \$HOME"
         fi
     fi
+    #     A directory on the way to a discovered config must not be swappable. The
+    #     config file itself is write-denied, but Seatbelt evaluates rename(2)
+    #     against the source path only, so a writable parent lets sandboxed code move
+    #     the real subtree aside and leave its own config in place — and that config
+    #     then chooses what the next launch allows. Two layouts: the dotfile-manager
+    #     one, and the XDG one, whose ~/.config the profile's ~/.config/git deny does
+    #     not reach (subpath matches downward only).
+    h="$gitcfg_root/dirswap"
+    mkdir -p "$h/dotfiles"
+    printf '[user]\n\tname = selftest\n' >"$h/dotfiles/gitconfig"
+    ln -s "$h/dotfiles/gitconfig" "$h/.gitconfig"
+    HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" 'true' >/dev/null 2>&1
+    if HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "mv '$h/dotfiles' '$h/dotfiles.bak'" >/dev/null 2>&1; then
+        die "a config's parent directory is renameable (subtree swap picks the next allowlist)"
+    else
+        pass "write blocked: directory on the way to a git config"
+    fi
+
+    h="$gitcfg_root/dirswap-xdg"
+    mkdir -p "$h/.config/git"
+    printf '[user]\n\tname = selftest\n' >"$h/.config/git/config"
+    HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" 'true' >/dev/null 2>&1
+    if HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "mv '$h/.config' '$h/.config.bak'" >/dev/null 2>&1; then
+        die "\$HOME/.config is renameable (the \$HOME/.config/git deny does not cover its parent)"
+    else
+        pass "write blocked: \$HOME/.config as a git config ancestor"
+    fi
+
+    #     A config logically under $HOME but physically outside it is writable by
+    #     sandboxed code, so its contents cannot choose paths. Git reports the logical
+    #     path, so the containment test has to run on the canonical one.
+    h="$gitcfg_root/outside-link"
+    mkdir -p "$h" "$gitcfg_root/elsewhere"
+    printf '[leak]\n\tmarker = GITCFG_LEAK_MARKER\n' >"$h/secret.cfg"
+    printf '[include]\n\tpath = %s/secret.cfg\n' "$h" >"$gitcfg_root/elsewhere/gitconfig"
+    ln -s "$gitcfg_root/elsewhere/gitconfig" "$h/.gitconfig"
+    leaked="$(HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "cat '$h/secret.cfg'" 2>&1)"
+    if [[ "$leaked" == *GITCFG_LEAK_MARKER* ]]; then
+        die "config physically outside \$HOME exposed a \$HOME file (sandbox escape)"
+    else
+        pass "config physically outside \$HOME cannot expose a \$HOME file"
+    fi
+
+    #     A path a config names can hold a quote, which no SBPL literal can express.
+    #     Dropping that entry is right; abandoning the render is not, since the
+    #     wrapper answers a failed render by running the command with no sandbox —
+    #     which would let a config file switch the sandbox off.
+    h="$gitcfg_root/quote"
+    mkdir -p "$h"
+    printf '[include]\n\tpath = "/private/tmp/a\\"b"\n' >"$h/.gitconfig"
+    # Not a config, so no discovery pass can allow it: it stays denied whenever the
+    # sandbox is genuinely on, which is what separates "ran" from "ran sandboxed".
+    printf 'GITCFG_LEAK_MARKER\n' >"$h/not-a-config"
+    if [[ "$(HOME="$h" git config --global --get include.path 2>/dev/null)" != *'"'* ]]; then
+        die "quote check setup is broken: git does not report a quote in the value"
+    else
+        out="$(HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" 'echo SANDBOXED' 2>&1)"
+        if [[ "$out" == *"running WITHOUT sandbox"* ]]; then
+            die "a quote in a config-named path disables the sandbox (fail-open)"
+        elif [[ "$out" != *SANDBOXED* ]]; then
+            die "quote-in-path case did not run (${out:-no output})"
+        elif HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "cat '$h/not-a-config'" 2>/dev/null | grep -q GITCFG_LEAK_MARKER; then
+            die "quote-in-path case ran but the sandbox is not enforcing"
+        else
+            pass "quote in a config-named path does not disable the sandbox"
+        fi
+    fi
     rm -rf "$gitcfg_root"
 fi
 
