@@ -84,6 +84,12 @@ from .activities.provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.record_peer_message_outcome import (
+    RecordPeerMessageOutcomeInput,
+    is_timeout_activity_failure,
+    peer_message_id_from_context,
+    record_peer_message_outcome,
+)
 from .activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
     relay_sandbox_events,
@@ -2750,6 +2756,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
+            peer_message_id = peer_message_id_from_context(context)
+            if peer_message_id is not None:
+                # Peer messages are best-effort: record the outcome on the sender's
+                # audit row and leave this (recipient) run's completion state
+                # untouched. The branch is replay-safe because pre-feature histories
+                # cannot contain peer context.
+                if is_timeout_activity_failure(e):
+                    # The timed-out attempt may still deliver, so leave the row
+                    # non-terminal for a possible delivered write.
+                    workflow.logger.warning(
+                        "peer_message_delivery_timeout_left_nonterminal",
+                        extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
+                    )
+                    return None
+                await self._record_peer_message_delivery_failure(peer_message_id, cause_message or str(e))
+                return None
             if self.context.mode == "interactive" and workflow.patched(_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN):
                 if message_id:
                     dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
@@ -2773,3 +2795,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._completion_error_type = "followup_delivery_failed"
             self._task_completed = True
         return None
+
+    async def _record_peer_message_delivery_failure(self, peer_message_id: str, detail: str) -> None:
+        """Terminalize the peer message row when delivery failed in a way the
+        delivery activity could not record itself (worker death, timeout). The
+        transition is idempotent (non-terminal rows only), so double-reporting with
+        the activity is harmless; a recording failure is logged and swallowed —
+        bookkeeping must not take the run down either."""
+        try:
+            await workflow.execute_activity(
+                record_peer_message_outcome,
+                RecordPeerMessageOutcomeInput(
+                    peer_message_id=peer_message_id,
+                    outcome="delivery_failed",
+                    failure_phase="sandbox_delivery",
+                    failure_detail=truncate_error_message(detail),
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=2),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "peer_message_failure_record_failed",
+                extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
+            )
