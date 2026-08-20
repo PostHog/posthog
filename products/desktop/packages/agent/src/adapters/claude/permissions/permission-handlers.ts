@@ -24,9 +24,10 @@ import {
 } from "../mcp/tool-metadata";
 import {
   getClaudePlansDir,
-  getLatestAssistantText,
   isClaudePlanFilePath,
   isPlanReady,
+  isSubagentPlanFilePath,
+  readPlanFile,
 } from "../plan/utils";
 import {
   type AskUserQuestionInput,
@@ -172,32 +173,27 @@ async function buildDenialResult(
   return { behavior: "deny", message, interrupt: !feedback };
 }
 
-function getPlanFromFile(
-  session: Session,
-  fileContentCache: { [key: string]: string },
-): string | undefined {
-  return (
-    session.lastPlanContent ||
-    (session.lastPlanFilePath
-      ? fileContentCache[session.lastPlanFilePath]
-      : undefined)
-  );
-}
-
-function ensurePlanInInput(
-  toolInput: Record<string, unknown>,
-  fallbackPlan: string | undefined,
-): Record<string, unknown> {
-  const hasPlan = typeof (toolInput as { plan?: unknown })?.plan === "string";
-  if (hasPlan || !fallbackPlan) {
-    return toolInput;
-  }
-  return { ...toolInput, plan: fallbackPlan };
-}
-
 function extractPlanText(input: Record<string, unknown>): string | undefined {
   const plan = (input as { plan?: unknown })?.plan;
   return typeof plan === "string" ? plan : undefined;
+}
+
+async function resolvePlanInput(
+  context: ToolHandlerContext,
+): Promise<Record<string, unknown>> {
+  const { session, toolInput } = context;
+  const planFilePath = session.lastPlanFilePath;
+  const planFromFile = planFilePath ? await readPlanFile(planFilePath) : null;
+  const plan = planFromFile ?? extractPlanText(toolInput);
+
+  if (!plan) {
+    return toolInput;
+  }
+  if (!planFilePath) {
+    return { ...toolInput, plan };
+  }
+
+  return { ...toolInput, plan, planFilePath };
 }
 
 async function createPlanValidationError(
@@ -212,8 +208,11 @@ async function validatePlanContent(
   planText: string | undefined,
   context: ToolHandlerContext,
 ): Promise<{ valid: true } | { valid: false; error: ToolPermissionResult }> {
+  const planFile = context.session.lastPlanFilePath;
+
   if (!planText) {
-    const message = `Plan not ready. Provide the full markdown plan in ExitPlanMode or write it to ${getClaudePlansDir()} before requesting approval.`;
+    const target = planFile ?? `a file in ${getClaudePlansDir()}`;
+    const message = `No plan to review. Write your plan to ${target}, then call ExitPlanMode again.`;
     return {
       valid: false,
       error: await createPlanValidationError(message, context),
@@ -221,8 +220,8 @@ async function validatePlanContent(
   }
 
   if (!isPlanReady(planText)) {
-    const message =
-      "Plan not ready. Provide the full markdown plan in ExitPlanMode before requesting approval.";
+    const target = planFile ?? "your plan file";
+    const message = `The plan in ${target} is too thin to review. It needs a markdown heading and enough detail to act on. Expand it, then call ExitPlanMode again.`;
     return {
       valid: false,
       error: await createPlanValidationError(message, context),
@@ -230,6 +229,22 @@ async function validatePlanContent(
   }
 
   return { valid: true };
+}
+
+async function publishPlanUpdate(
+  context: ToolHandlerContext,
+  input: Record<string, unknown>,
+  toolInfo: { content?: ToolCallContent[] },
+): Promise<void> {
+  await context.client.sessionUpdate({
+    sessionId: context.sessionId,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: context.toolUseID,
+      rawInput: input,
+      content: toolInfo.content,
+    },
+  });
 }
 
 async function publishResolvedPlan(
@@ -244,15 +259,7 @@ async function publishResolvedPlan(
     return;
   }
 
-  await context.client.sessionUpdate({
-    sessionId: context.sessionId,
-    update: {
-      sessionUpdate: "tool_call_update",
-      toolCallId: context.toolUseID,
-      rawInput: updatedInput,
-      content: toolInfo.content,
-    },
-  });
+  await publishPlanUpdate(context, updatedInput, toolInfo);
 }
 
 async function requestPlanApproval(
@@ -296,12 +303,27 @@ async function applyPlanApproval(
       response.outcome.optionId === "acceptEdits" ||
       response.outcome.optionId === "bypassPermissions")
   ) {
+    const approvedInput = await resolvePlanInput({
+      ...context,
+      toolInput: updatedInput,
+    });
+    const approvedPlan = extractPlanText(approvedInput);
+    const reviewedPlan = extractPlanText(updatedInput);
+
+    if (approvedPlan !== reviewedPlan) {
+      await publishPlanUpdate(
+        context,
+        approvedInput,
+        toolInfoFromToolUse({ name: context.toolName, input: approvedInput }),
+      );
+    }
+
     await context.applySessionMode(response.outcome.optionId);
     await context.updateConfigOption("mode", response.outcome.optionId);
 
     return {
       behavior: "allow",
-      updatedInput,
+      updatedInput: approvedInput,
       updatedPermissions: context.suggestions ?? [
         {
           type: "setMode",
@@ -340,12 +362,7 @@ async function handleEnterPlanModeTool(
 async function handleExitPlanModeTool(
   context: ToolHandlerContext,
 ): Promise<ToolPermissionResult> {
-  const { session, toolInput, fileContentCache } = context;
-
-  const planFromFile = getPlanFromFile(session, fileContentCache);
-  const latestText = getLatestAssistantText(session.notificationHistory);
-  const fallbackPlan = planFromFile || (latestText ?? undefined);
-  const updatedInput = ensurePlanInInput(toolInput, fallbackPlan);
+  const updatedInput = await resolvePlanInput(context);
   const planText = extractPlanText(updatedInput);
 
   const validationResult = await validatePlanContent(planText, context);
@@ -677,6 +694,24 @@ async function handlePostHogExecApprovalFlow(
   return buildDenialResult(context, response);
 }
 
+function recordPlanFile(context: ToolHandlerContext): void {
+  const { session, toolName, toolInput } = context;
+
+  if (!WRITE_TOOLS.has(toolName)) {
+    return;
+  }
+
+  const filePath = (toolInput as { file_path?: string })?.file_path;
+  if (!filePath || !isClaudePlanFilePath(filePath)) {
+    return;
+  }
+  if (isSubagentPlanFilePath(filePath)) {
+    return;
+  }
+
+  session.lastPlanFilePath = filePath;
+}
+
 function handlePlanFileException(
   context: ToolHandlerContext,
 ): ToolPermissionResult | null {
@@ -686,15 +721,8 @@ function handlePlanFileException(
     return null;
   }
 
-  const filePath = (toolInput as { file_path?: string })?.file_path;
-  if (!isClaudePlanFilePath(filePath)) {
+  if (!isClaudePlanFilePath((toolInput as { file_path?: string })?.file_path)) {
     return null;
-  }
-
-  session.lastPlanFilePath = filePath;
-  const content = (toolInput as { content?: string })?.content;
-  if (typeof content === "string") {
-    session.lastPlanContent = content;
   }
 
   return {
@@ -763,6 +791,8 @@ export async function canUseTool(
   context: ToolHandlerContext,
 ): Promise<ToolPermissionResult> {
   const { toolName, toolInput, session, allowedDomains } = context;
+
+  recordPlanFile(context);
 
   // Enforce domain allowlist for web tools
   if (allowedDomains && allowedDomains.length > 0) {
