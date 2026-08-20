@@ -120,7 +120,7 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
-from products.usage_ingestion.backend.tasks.tasks import (
+from products.usage_ingestion.backend.facade.tasks import (
     cleanup_stale_team_organization_cache_entries,
     refresh_expiring_team_organization_cache_entries,
 )

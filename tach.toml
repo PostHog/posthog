@@ -136,6 +136,7 @@ depends_on = [
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
+    "products.usage_ingestion",
 ]
 layer = "modules"
 

@@ -18,9 +18,6 @@ def _load_team_organization(team_key: KeyType) -> dict[str, str | int] | HyperCa
     except Team.DoesNotExist:
         return HyperCacheStoreMissing()
 
-    if team.organization_id is None:
-        return HyperCacheStoreMissing()
-
     return {"team_id": team.id, "organization_id": str(team.organization_id)}
 
 
@@ -56,7 +53,7 @@ def verify_team_organization(
 ) -> dict[str, Any]:
     expected = _load_team_organization(team)
     if isinstance(expected, HyperCacheStoreMissing):
-        return {"status": "match", "issue": "", "details": "team has no organization"}
+        return {"status": "match", "issue": "", "details": "team not found"}
 
     if cache_batch_data and team.id in cache_batch_data:
         cached, source, _ = cache_batch_data[team.id]
