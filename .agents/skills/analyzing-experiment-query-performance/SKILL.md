@@ -20,7 +20,7 @@ They return the exact data the UI renders, sourced from ClickHouse `query_log_ar
 and the Postgres `PreaggregationJob` table.
 
 Backend: `posthog/api/debug_ch_queries.py` (`DebugCHQueries` viewset).
-Frontend types (authoritative response shapes): `frontend/src/scenes/instance/QueryPerformance/queryPerformanceLogic.ts`.
+Frontend types (authoritative response shapes): `frontend/src/scenes/experiments/staff/queryPerformanceLogic.ts`.
 
 ## Environment
 
