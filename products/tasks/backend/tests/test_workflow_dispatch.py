@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Callable
 from datetime import timedelta
 from typing import cast
 
@@ -21,11 +20,6 @@ from products.tasks.backend.facade.api import (
     get_stale_queued_task_run_ids,
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
-)
-from products.tasks.backend.feature_flags import (
-    is_workflow_dispatch_async_enabled,
-    is_workflow_dispatch_restart_enabled,
-    is_workflow_dispatch_shadow_enabled,
 )
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
@@ -127,20 +121,6 @@ class TestWorkflowDispatchPayload(SimpleTestCase):
         payload = build_restart_payload(42, snapshot)
 
         self.assertEqual(parse_restart_payload(payload), (42, snapshot))
-
-    @parameterized.expand(
-        [
-            ("shadow", lambda: is_workflow_dispatch_shadow_enabled()),
-            ("async", lambda: is_workflow_dispatch_async_enabled("organization-1", "distinct-1")),
-            ("restart", lambda: is_workflow_dispatch_restart_enabled("organization-1", "distinct-1")),
-        ]
-    )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_dispatch_flag_stays_off_where_no_dispatcher_runs(
-        self, _name: str, check_flag: Callable[[], bool], feature_enabled: Mock
-    ) -> None:
-        self.assertFalse(check_flag())
-        feature_enabled.assert_not_called()
 
 
 class TestWorkflowDispatchPersistence(TestCase):

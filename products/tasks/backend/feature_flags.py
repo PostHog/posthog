@@ -25,22 +25,7 @@ DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
 WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
 
 
-def _workflow_dispatch_rollout_available() -> bool:
-    """False wherever no dispatcher process reaps the outbox — local dev and tests.
-
-    Explicit rather than inherited from SDK state: self-capture re-enables posthoganalytics
-    in local dev, and the sandboxed eval harness stubs `feature_enabled` to True for every
-    flag. Either way `async_enabled` reads as on, `enqueue_or_start_workflow` hands the run
-    to `run_task_workflow_dispatcher`, and nothing runs that command outside cloud — so the
-    run sits in QUEUED until its caller's poll budget expires. Keep the synchronous start
-    unconditional here and gate the rollout on the flags only where the dispatcher runs.
-    """
-    return not (settings.DEBUG or settings.TEST)
-
-
 def is_workflow_dispatch_shadow_enabled() -> bool:
-    if not _workflow_dispatch_rollout_available():
-        return False
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -57,8 +42,6 @@ def is_workflow_dispatch_shadow_enabled() -> bool:
 
 
 def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, distinct_id: str) -> bool:
-    if not _workflow_dispatch_rollout_available():
-        return False
     try:
         return bool(
             posthoganalytics.feature_enabled(
