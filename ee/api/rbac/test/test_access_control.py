@@ -25,7 +25,7 @@ from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSource
 
 from ee.api.rbac.access_control_settings import _display_model, resources_with_object_access_controls

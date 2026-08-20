@@ -68,7 +68,7 @@ from products.data_catalog.evals.constants import (
     TOP_CUSTOMERS_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:

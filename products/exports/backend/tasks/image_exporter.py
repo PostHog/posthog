@@ -42,7 +42,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
 )
 from products.product_analytics.backend.facade.api import map_stale_to_latest
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 logger = structlog.get_logger(__name__)
 
