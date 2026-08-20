@@ -8,10 +8,6 @@ from posthog.temporal.ai.chat_agent import (
 from posthog.temporal.ai.checkpoint_compaction import CHECKPOINT_COMPACTION_ACTIVITIES, CHECKPOINT_COMPACTION_WORKFLOWS
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
-from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
-    PostHogCodeSlackTerminateTaskWorkflow,
-    process_posthog_code_terminate_task_activity,
-)
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import PostHogSlackInboxOnboardingWorkflow
@@ -38,14 +34,10 @@ POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
     SlackAppMentionWorkflow,
     PostHogCodeSlackMentionCommandWorkflow,
-    PostHogCodeSlackTerminateTaskWorkflow,
     PostHogSlackInboxOnboardingWorkflow,
 ]
 
-POSTHOG_CODE_SLACK_ACTIVITIES = [
-    *SLACK_APP_ACTIVITIES,
-    process_posthog_code_terminate_task_activity,
-]
+POSTHOG_CODE_SLACK_ACTIVITIES = [*SLACK_APP_ACTIVITIES]
 
 AI_WORKFLOWS = [
     SyncVectorsWorkflow,

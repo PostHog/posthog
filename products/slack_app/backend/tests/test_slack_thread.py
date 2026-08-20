@@ -57,7 +57,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_progress_message_has_no_terminate_button(self, mock_get_client, _mock_find_progress):
+    def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
