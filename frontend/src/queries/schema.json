@@ -25930,7 +25930,9 @@
                 "IronSourceAds",
                 "MicrosoftExcel",
                 "Profound",
-                "Airwallex"
+                "Airwallex",
+                "Polymarket",
+                "Kalshi"
             ],
             "type": "string"
         },

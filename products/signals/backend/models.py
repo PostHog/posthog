@@ -125,7 +125,7 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
-class SignalTeamConfig(UUIDModel):
+class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
@@ -1384,8 +1384,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
 
     # The pause reasons the inactivity sweep owns (`scout_harness/inactivity.py`): `no_output`
     # for a scout that surfaced nothing, `ignored` for one whose output nobody picked up. On the
-    # model rather than the sweep because the update serializer also reads them — a human
-    # re-enable of a pause carrying one of these marks the scout `auto_pause_exempt`.
+    # model rather than the sweep because the update serializer also reads them: a human
+    # re-enable of a pause carrying one of these emits the sweep's false-positive metric
+    # (`signals_scout_auto_pause_reverted`).
     INACTIVITY_PAUSE_REASONS = (PauseReason.NO_OUTPUT, PauseReason.IGNORED)
 
     # How long a scout is treated as provisional after creation or a human re-enable, during
@@ -1462,10 +1463,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     )
     # Opt-out from the inactivity sweep (`scout_harness/inactivity.py`) — a watchdog whose whole
     # value is staying quiet (health checks, inbox validation) is *supposed* to surface nothing
-    # most weeks, so silence must never read as waste. Also set by the update serializer when a
-    # human re-enables a scout the sweep paused: that re-enable is a human overruling the rule,
-    # and the sweep must not undo it one window later. `db_default` alongside `default` keeps the
-    # AddField non-blocking and the column populated for writers that don't know about it yet.
+    # most weeks, so silence must never read as waste. Only ever set explicitly: a re-enable of a
+    # swept scout relies on the `in_cold_start_grace` re-anchor for its fresh window instead of
+    # minting permanent immunity. `db_default` alongside `default` keeps the AddField
+    # non-blocking and the column populated for writers that don't know about it yet.
     auto_pause_exempt = models.BooleanField(default=False, db_default=False)
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes

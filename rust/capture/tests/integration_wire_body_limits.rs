@@ -94,14 +94,18 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         false,
         0.0_f32,
         26_214_400,
+        // Far above any body this file sends: the AI-lane event ceiling must not
+        // be what produces a 413 here, or the wire cap would go untested.
+        BATCH_BODY_SIZE as u64 * 5, // ai_max_event_bytes
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
-        None,
-        None,
-        None,
-        None,
+        None, // overflow_limiter
+        None, // ai_events_overflow_limiter
+        None, // ai_byte_rate_limiter
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
         8,
         None,
         false,
@@ -114,13 +118,28 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
 /// A body of `len` bytes that is valid JSON, so nothing before the size check
 /// can reject it for a different reason.
 fn body_of_len(len: usize) -> String {
-    let envelope = r#"{"token":"phc_test","event":"e","distinct_id":"d","properties":{"big":""}}"#;
+    named_body_of_len(len, "e")
+}
+
+/// The same, with the event name chosen. Capture-ai rejects any event outside the
+/// `AI_EVENT_NAMES` allowlist with a 400 before the size check is reached, so an
+/// AI-lane body has to carry a listed name to exercise the cap at all.
+fn named_body_of_len(len: usize, event: &str) -> String {
+    let envelope = format!(
+        r#"{{"token":"phc_test","event":"{event}","distinct_id":"d","properties":{{"big":""}}}}"#
+    );
     let padding = len.saturating_sub(envelope.len());
     format!(
-        r#"{{"token":"phc_test","event":"e","distinct_id":"d","properties":{{"big":"{}"}}}}"#,
+        r#"{{"token":"phc_test","event":"{}","distinct_id":"d","properties":{{"big":"{}"}}}}"#,
+        event,
         "a".repeat(padding)
     )
 }
+
+/// The analytics paths an Events-mode deployment registers. `/i/v0/ai/batch`
+/// runs the same handler under the same cap, but only capture-ai serves it, so
+/// it is swept separately below rather than from this list.
+const ANALYTICS_ROUTES: [&str; 6] = ["/e", "/i/v0/e", "/batch", "/capture", "/track", "/engage"];
 
 /// Every v0 analytics route shares one handler, so every one of them must share
 /// one wire cap. Before this was wired through, `DefaultBodyLimit` was the only
@@ -131,15 +150,7 @@ async fn every_v0_analytics_route_rejects_a_body_over_the_wire_cap() {
     let (client, _sink) = make_test_client(CaptureMode::Events);
     let over = body_of_len(BATCH_BODY_SIZE + 1024);
 
-    for path in [
-        "/e",
-        "/i/v0/e",
-        "/batch",
-        "/i/v0/ai/batch",
-        "/capture",
-        "/track",
-        "/engage",
-    ] {
+    for path in ANALYTICS_ROUTES {
         let res = client
             .post(path)
             .header("Content-Type", "application/json")
@@ -166,15 +177,7 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
     let under = body_of_len(4 * 1024 * 1024);
     let mut ingested = 0usize;
 
-    for path in [
-        "/e",
-        "/i/v0/e",
-        "/batch",
-        "/i/v0/ai/batch",
-        "/capture",
-        "/track",
-        "/engage",
-    ] {
+    for path in ANALYTICS_ROUTES {
         let res = client
             .post(path)
             .header("Content-Type", "application/json")
@@ -194,6 +197,47 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
             "{path} returned 200 without producing the event"
         );
     }
+}
+
+/// `/i/v0/ai/batch` carries the same handler and the same cap, but it lives in
+/// its own router group that only capture-ai registers. That split is what makes
+/// this worth pinning apart: a group added without the `WireBodyLimit` extension
+/// falls back to the decompressed budget and reverts the fix on this one route,
+/// and no Events-mode sweep would notice.
+#[tokio::test]
+async fn the_ai_batch_route_carries_the_same_wire_cap() {
+    let (client, sink) = make_test_client(CaptureMode::Ai);
+
+    let res = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(named_body_of_len(BATCH_BODY_SIZE + 1024, "$ai_span"))
+        .send()
+        .await;
+    assert_eq!(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        res.status(),
+        "/i/v0/ai/batch accepted a body over the wire cap"
+    );
+
+    let res = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(named_body_of_len(4 * 1024 * 1024, "$ai_span"))
+        .send()
+        .await;
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "/i/v0/ai/batch rejected a body inside the wire cap"
+    );
+    assert_eq!(
+        1,
+        sink.count().await,
+        "/i/v0/ai/batch returned 200 without producing the event"
+    );
 }
 
 /// The drain exists so a rejection can be written on a connection the client

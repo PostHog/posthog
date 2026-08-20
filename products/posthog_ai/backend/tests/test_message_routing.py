@@ -51,7 +51,7 @@ class TestOpenSandboxMessage(APIBaseTest):
     def _patches(self, task: Task):
         return (
             patch.object(Task, "create_and_run", return_value=task),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         )
 
@@ -263,7 +263,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please", "trace_id": "trace-3"})
@@ -299,7 +299,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             patch(f"{ROUTING}.object_storage.read", return_value=""),
         ):
@@ -350,7 +350,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_concurrent_winner),
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             with self.assertRaises(Conflict):
@@ -378,7 +378,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_winner_finished),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please"})
@@ -676,7 +676,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
 
     def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
-        with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow:
             result = SandboxSession(self.conversation, self.user).open(
                 {"content": content, "trace_id": "t"},
                 resumed_context=resumed_context,
@@ -739,7 +739,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert self.conversation.task_id == other_task.id
 
     def test_first_message_conversion_reverts_on_workflow_start_failure(self):
-        with patch(f"{ROUTING}.execute_task_processing_workflow", side_effect=RuntimeError("boom")):
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 SandboxSession(self.conversation, self.user).open(
                     {"content": "continue here", "trace_id": "t"},

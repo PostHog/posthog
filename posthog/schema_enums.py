@@ -2562,6 +2562,8 @@ class ExternalDataSourceType(StrEnum):
     MICROSOFT_EXCEL = "MicrosoftExcel"
     PROFOUND = "Profound"
     AIRWALLEX = "Airwallex"
+    POLYMARKET = "Polymarket"
+    KALSHI = "Kalshi"
 
 
 class ExternalQueryErrorCode(StrEnum):

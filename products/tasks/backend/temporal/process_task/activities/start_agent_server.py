@@ -419,6 +419,7 @@ def _invoke_start_agent_server(
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
+            peer_messaging=ctx.peer_messaging_enabled,
         )
 
         # Record the boot identity so same-actor follow-ups within the

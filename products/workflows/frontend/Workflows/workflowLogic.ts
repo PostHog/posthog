@@ -112,6 +112,10 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
+// Trigger types whose runs have no person attached. Keep in sync with the backend's
+// ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'slack-message'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -744,6 +748,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -991,6 +1001,12 @@ export interface workflowLogicActions {
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1538,6 +1554,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -1790,6 +1812,12 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
@@ -1952,6 +1980,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2298,6 +2332,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2657,6 +2697,12 @@ export interface workflowLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'slack-message'
                             }
                           | {
                                 filters: {
@@ -3255,11 +3301,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
-                // step types make no sense without a person, so we block them at save time.
+                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
+                // Person-dependent step types make no sense without a person, so we block them at
+                // save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3448,7 +3495,8 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type as string),
         ],
 
         workflowSanitized: [

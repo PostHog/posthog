@@ -8,7 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -184,6 +184,20 @@ describe('hogFunctionConfigurationLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
+        })
+    })
+
+    describe('sanitizeInputs', () => {
+        it('does not send a placeholder value for an untouched secret', () => {
+            // A value here can be encrypted over the stored secret, so an untouched secret must
+            // carry only { secret: true }.
+            const result = sanitizeInputs({
+                inputs_schema: [{ key: 'api_key', label: 'API key', type: 'string', secret: true }],
+                inputs: { api_key: { value: '********', secret: true } },
+            })
+
+            expect(result.api_key.value).toBeUndefined()
+            expect(result.api_key.secret).toBe(true)
         })
     })
 

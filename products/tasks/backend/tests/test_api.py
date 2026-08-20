@@ -66,6 +66,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
+    AgentPeerMessage,
     Channel,
     CodeInvite,
     CodeInviteRedemption,
@@ -2096,6 +2097,62 @@ class TestTaskAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
             self.assertFalse(Task.objects.filter(title="Report task").exists())
+
+    @parameterized.expand(
+        [
+            # Another task took the slot this one released, so rerunning would make two live
+            # implementations for the report.
+            ("another_task_holds_the_slot", True, True),
+            # Nothing else claimed it, so the ordinary "my run failed, try again" path stands.
+            ("reclaims_its_own_released_slot", False, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerunning_a_released_implementation_rechecks_the_report_slot(
+        self, _name, create_second_task, expect_refused, mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        # Every run failed without a PR, which releases the slot for a second implementation.
+        task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
+        if create_second_task:
+            self.assertEqual(
+                self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
+            )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        if expect_refused:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            mock_workflow.assert_not_called()
+        else:
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self._create_implementation_task_with_runs(report, [("failed", None)])
+        original_create_run = Task.create_run
+
+        def claim_the_slot_then_create_the_run(task_being_run, *args, **kwargs):
+            # Stands in for a create that lands in the window between the pre-flight check and
+            # the run insert that claims the slot. Only a check holding the report lock across
+            # the insert catches it, so removing that check turns this back into two live
+            # implementations for one report.
+            self._post_signal_report_task(report.id, "implementation")
+            return original_create_run(task_being_run, *args, **kwargs)
+
+        with patch.object(Task, "create_run", autospec=True, side_effect=claim_the_slot_then_create_the_run):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "signal_report_task_cap")
+        mock_workflow.assert_not_called()
+        self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
@@ -12419,3 +12476,166 @@ class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
         reread = TaskSerializer(data=response.json())
         self.assertTrue(reread.is_valid(), reread.errors)
         self.assertEqual(reread.validated_data.runtime, task.runtime)
+
+
+class TestTaskRunPeersAPI(BaseTaskAPITest):
+    def _enable_peer_messaging_flag(self) -> None:
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "pi-harness", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+
+    def _make_pi_task_and_run(self, title: str = "peer task") -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title=title,
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        return task, run
+
+    def _sandbox_client_for(self, task_id: uuid.UUID) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Peer test sandbox app",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_peer_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_sandbox_token_bound_to_other_task_cannot_use_peer_endpoints(self):
+        # The token's user (the run owner) controls BOTH tasks, so the ordinary
+        # task-access gate passes — only the sandbox_task_id binding check stands
+        # between a compromised sandbox for task A and sending as task B's run.
+        self._enable_peer_messaging_flag()
+        task_a, _run_a = self._make_pi_task_and_run("task a")
+        task_b, run_b = self._make_pi_task_and_run("task b")
+        client = self._sandbox_client_for(task_a.id)
+
+        list_response = client.get(f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        send_response = client.post(
+            f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_flag_and_runtime_are_enforced_server_side(self):
+        _task, run = self._make_pi_task_and_run()
+        # Flag off (default mock): 403 despite full task access.
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Flag on but ACP runtime: still 403 — v1 is Pi-only.
+        self._enable_peer_messaging_flag()
+        acp_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="acp task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.ACP,
+        )
+        acp_run = TaskRun.objects.create(
+            task=acp_task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        response = self.client.get(f"/api/projects/@current/tasks/{acp_task.id}/runs/{acp_run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_pi_harness_rollback_fails_peer_messaging_closed(self):
+        # Pulling the Pi kill switch must close peer messaging even though the
+        # task row still says runtime=PI and the peer flag itself stays on.
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+        _task, run = self._make_pi_task_and_run()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_teammate_cannot_use_peer_endpoints_on_team_visible_task(self):
+        # Team-visible origins (signal reports etc.) are team-drivable, but peer
+        # visibility and message attribution derive entirely from the task creator —
+        # a teammate must not enumerate the creator's other runs or send messages
+        # attributed to them.
+        self._enable_peer_messaging_flag()
+        creator = self.create_organization_user("peer-report-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="signal report task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+
+        list_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        send_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_list_and_send_round_trip(self):
+        # Wiring guard through viewset → facade → service: discovery shows the
+        # peer with its sendable flag, and a send returns the accepted contract
+        # with a signaled audit row.
+        self._enable_peer_messaging_flag()
+        _sender_task, sender_run = self._make_pi_task_and_run("sender")
+        _target_task, target_run = self._make_pi_task_and_run("target")
+
+        list_response = self.client.get(
+            f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/"
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        peers = list_response.json()["peers"]
+        self.assertEqual([p["run_id"] for p in peers], [str(target_run.id)])
+        self.assertTrue(peers[0]["sendable"])
+
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message") as mock_signal:
+            send_response = self.client.post(
+                f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/{target_run.id}/message/",
+                {"content": "heads up: schema changed"},
+                format="json",
+            )
+        self.assertEqual(send_response.status_code, status.HTTP_200_OK)
+        body = send_response.json()
+        self.assertEqual(body["result"], "accepted")
+        row = AgentPeerMessage.objects.unscoped().get()
+        self.assertEqual(body["message_id"], str(row.id))
+        self.assertEqual(row.outcome, AgentPeerMessage.Outcome.SIGNALED)
+        mock_signal.assert_called_once()

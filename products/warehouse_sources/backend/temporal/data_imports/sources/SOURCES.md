@@ -394,6 +394,7 @@ the row lists both.
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
+| kalshi                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kandji                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
@@ -551,6 +552,7 @@ the row lists both.
 | pluralsight_flow                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
+| polymarket                       | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
