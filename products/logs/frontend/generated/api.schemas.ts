@@ -2020,6 +2020,30 @@ export interface LogsSamplingRuleReorderApi {
     ordered_ids: string[]
 }
 
+/**
+ * * `log_count` - log_count
+ * * `service_name` - service_name
+ * * `error_rate` - error_rate
+ */
+export type LogsServicesOrderByEnumApi = (typeof LogsServicesOrderByEnumApi)[keyof typeof LogsServicesOrderByEnumApi]
+
+export const LogsServicesOrderByEnumApi = {
+    LogCount: 'log_count',
+    ServiceName: 'service_name',
+    ErrorRate: 'error_rate',
+} as const
+
+/**
+ * * `ASC` - ASC
+ * * `DESC` - DESC
+ */
+export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
+
+export const OrderDirectionEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
 export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -2036,6 +2060,28 @@ export interface _LogsServicesBodyApi {
     serviceNameSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /**
+     * Number of service rows to return per page.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of service rows to skip, for offset pagination. Rows beyond the 10000-service cap are not reachable by pagination; use serviceNameSearch to find services past it.
+     * @minimum 0
+     */
+    offset?: number
+    /** Column to order service rows by, applied before pagination.
+     *
+     * * `log_count` - log_count
+     * * `service_name` - service_name
+     * * `error_rate` - error_rate */
+    orderBy?: LogsServicesOrderByEnumApi
+    /** Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
 }
 
 export interface _LogsServicesRequestApi {
@@ -2088,13 +2134,15 @@ export interface _LogsServicesSummaryApi {
 }
 
 export interface _LogsServicesResponseApi {
-    /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
+    /** One page of per-service aggregates, in the requested orderBy/orderDirection. */
     services: _LogsServiceAggregateApi[]
-    /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
+    /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the first 25 services of the first page (offset 0); re-request with `serviceNames` to get sparklines for specific services. */
     sparkline: _LogsServicesSparklineBucketApi[]
-    /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+    /** True distinct service count for the window and filters, unaffected by pagination or the 10000-service cap. Greater than the length of `services` when more pages exist. Zero when the requested offset is at or past the reachability cap, where no page can be computed. */
     total_services: number
-    /** Roll-up stats for the Services tab header. */
+    /** True when more service rows exist beyond this page. Fetch the next page with offset = offset + limit. */
+    hasMore: boolean
+    /** Roll-up stats for the Services tab header. Only present on the first page of the default ordering (log_count descending), where the top services are known. */
     summary?: _LogsServicesSummaryApi
 }
 

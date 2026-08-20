@@ -29,6 +29,7 @@ const EMPTY_SERVICES_RESPONSE: _LogsServicesResponseApi = {
     services: [],
     sparkline: [],
     total_services: 0,
+    hasMore: false,
 }
 
 const SORT_COMPARATORS: Record<string, (a: ServiceRow, b: ServiceRow) => number> = {

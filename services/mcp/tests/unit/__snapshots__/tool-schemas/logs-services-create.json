@@ -77,6 +77,31 @@
                     },
                     "type": "array"
                 },
+                "limit": {
+                    "default": 100,
+                    "description": "Number of service rows to return per page.",
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "offset": {
+                    "default": 0,
+                    "description": "Number of service rows to skip, for offset pagination. Rows beyond the 10000-service cap are not reachable by pagination; use serviceNameSearch to find services past it.",
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "orderBy": {
+                    "default": "log_count",
+                    "description": "Column to order service rows by, applied before pagination.\n\n* `log_count` - log_count\n* `service_name` - service_name\n* `error_rate` - error_rate",
+                    "enum": ["log_count", "service_name", "error_rate"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "default": "DESC",
+                    "description": "Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.\n\n* `ASC` - ASC\n* `DESC` - DESC",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
                 "searchTerm": {
                     "description": "Full-text search term to filter log bodies.",
                     "type": "string"

@@ -30,6 +30,7 @@ const INITIAL_RESPONSE: _LogsServicesResponseApi = {
         count: 1,
     })),
     total_services: 30,
+    hasMore: false,
 }
 
 // A page-turn response is only read for its sparkline; names arrive with the
@@ -42,6 +43,7 @@ const PAGE_2_SPARKLINE_RESPONSE: _LogsServicesResponseApi = {
         count: 1,
     })),
     total_services: 0,
+    hasMore: false,
 }
 
 describe('logsServicesLogic', () => {

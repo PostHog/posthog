@@ -180,7 +180,9 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _services(self, date_from: str, date_to: str, service_name_search: str | None = None) -> dict:
+    def _services(
+        self, date_from: str, date_to: str, service_name_search: str | None = None, **query_extra: Any
+    ) -> dict:
         query: dict[str, Any] = {
             "dateRange": {"date_from": date_from, "date_to": date_to},
             "severityLevels": [],
@@ -189,6 +191,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         }
         if service_name_search is not None:
             query["serviceNameSearch"] = service_name_search
+        query.update(query_extra)
         response = self.client.post(
             f"/api/projects/{self.team.id}/logs/services",
             data={"query": query},
@@ -301,6 +304,77 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({s["service_name"] for s in result["services"]}, expected_names)
         self.assertEqual(result["total_services"], len(expected_names))
+
+    def test_offset_pagination_walks_every_row_once(self):
+        full = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+        self.assertFalse(full["hasMore"])
+
+        pages = []
+        offset = 0
+        for _ in range(10):
+            page = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", limit=5, offset=offset)
+            pages.append(page)
+            if not page["hasMore"]:
+                break
+            offset += len(page["services"])
+
+        self.assertEqual([len(p["services"]) for p in pages], [5, 5, 2])
+        self.assertEqual([p["hasMore"] for p in pages], [True, True, False])
+        walked = [s["service_name"] for p in pages for s in p["services"]]
+        self.assertEqual(walked, [s["service_name"] for s in full["services"]])
+
+    def test_later_pages_share_stays_global_and_skip_sparkline_and_summary(self):
+        full = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+        share_by_name = {s["service_name"]: s["volume_share_pct"] for s in full["services"]}
+
+        page = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", limit=5, offset=5)
+
+        for s in page["services"]:
+            self.assertEqual(s["volume_share_pct"], share_by_name[s["service_name"]])
+        self.assertEqual(page["sparkline"], [])
+        self.assertNotIn("summary", page)
+        self.assertEqual(page["total_services"], 12)
+
+    @parameterized.expand(
+        [
+            ("service_name_asc", "service_name", "ASC", lambda s: s["service_name"], False),
+            ("error_rate_desc", "error_rate", "DESC", lambda s: s["error_rate"], True),
+            ("log_count_asc", "log_count", "ASC", lambda s: s["log_count"], False),
+        ]
+    )
+    def test_order_by_applies_server_side(self, _name, order_by, order_direction, sort_key, reverse):
+        result = self._services(
+            "2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", orderBy=order_by, orderDirection=order_direction
+        )
+
+        keys = [sort_key(s) for s in result["services"]]
+        self.assertEqual(len(keys), 12)
+        self.assertEqual(keys, sorted(keys, reverse=reverse))
+
+    @parameterized.expand(
+        [
+            ("limit_zero", {"limit": 0}),
+            ("limit_over_max", {"limit": 1001}),
+            ("limit_not_an_integer", {"limit": "abc"}),
+            ("negative_offset", {"offset": -1}),
+            ("unknown_order_by", {"orderBy": "volume"}),
+            ("unknown_order_direction", {"orderDirection": "up"}),
+        ]
+    )
+    def test_invalid_pagination_params_are_rejected(self, _name: str, extra: dict):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-16T23:59:59Z"},
+                    "severityLevels": [],
+                    "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                    "serviceNames": [],
+                    **extra,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 if __name__ == "__main__":

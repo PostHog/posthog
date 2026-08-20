@@ -901,6 +901,7 @@ SPECTACULAR_SETTINGS = {
         "LogsListWidgetTypeEnum": ["logs_list"],
         "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         "OrderByEnum": ["latest", "earliest"],
+        "LogsServicesOrderByEnum": ["log_count", "service_name", "error_rate"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],

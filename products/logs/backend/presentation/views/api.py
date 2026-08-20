@@ -67,7 +67,14 @@ from products.logs.backend.presentation.views.metric_rules_api import LogsMetric
 from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
-from products.logs.backend.services_query_runner import ServicesQueryRunner
+from products.logs.backend.services_query_runner import (
+    SERVICES_DEFAULT_PAGE_LIMIT,
+    SERVICES_MAX_PAGE_LIMIT,
+    SERVICES_ORDER_DIRECTIONS,
+    SERVICES_ORDER_EXPRS,
+    ServicesPageParams,
+    ServicesQueryRunner,
+)
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 __all__ = [
@@ -560,6 +567,35 @@ class _LogsServicesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters for the query.",
     )
+    limit = serializers.IntegerField(
+        required=False,
+        default=SERVICES_DEFAULT_PAGE_LIMIT,
+        min_value=1,
+        max_value=SERVICES_MAX_PAGE_LIMIT,
+        help_text="Number of service rows to return per page.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "Number of service rows to skip, for offset pagination. "
+            "Rows beyond the 10000-service cap are not reachable by pagination; "
+            "use serviceNameSearch to find services past it."
+        ),
+    )
+    orderBy = serializers.ChoiceField(
+        choices=list(SERVICES_ORDER_EXPRS),
+        required=False,
+        default="log_count",
+        help_text="Column to order service rows by, applied before pagination.",
+    )
+    orderDirection = serializers.ChoiceField(
+        choices=list(SERVICES_ORDER_DIRECTIONS),
+        required=False,
+        default="DESC",
+        help_text="Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.",
+    )
 
 
 class _LogsServicesRequestSerializer(serializers.Serializer):
@@ -708,25 +744,34 @@ class _LogsServicesSummarySerializer(serializers.Serializer):
 class _LogsServicesResponseSerializer(serializers.Serializer):
     services = _LogsServiceAggregateSerializer(
         many=True,
-        help_text="Per-service aggregates, ordered by log_count descending. Capped at 10000 services.",
+        help_text="One page of per-service aggregates, in the requested orderBy/orderDirection.",
     )
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
         help_text=(
             "Time-bucketed counts broken down by service, for plotting volume over time. "
-            "Covers only the top 25 services in this response; re-request with `serviceNames` "
-            "to get sparklines for specific services."
+            "Covers only the first 25 services of the first page (offset 0); re-request with "
+            "`serviceNames` to get sparklines for specific services."
         ),
     )
     total_services = serializers.IntegerField(
         help_text=(
-            "True distinct service count for the window and filters, unaffected by the 10000-service "
-            "cap on `services`. Greater than the length of `services` when the response is truncated."
+            "True distinct service count for the window and filters, unaffected by pagination "
+            "or the 10000-service cap. Greater than the length of `services` when more pages exist. "
+            "Zero when the requested offset is at or past the reachability cap, where no page can be computed."
+        ),
+    )
+    hasMore = serializers.BooleanField(
+        help_text=(
+            "True when more service rows exist beyond this page. Fetch the next page with offset = offset + limit."
         ),
     )
     summary = _LogsServicesSummarySerializer(
         required=False,
-        help_text="Roll-up stats for the Services tab header.",
+        help_text=(
+            "Roll-up stats for the Services tab header. Only present on the first page of the "
+            "default ordering (log_count descending), where the top services are known."
+        ),
     )
 
 
@@ -1175,6 +1220,27 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if not isinstance(query_data, dict):
             raise ParseError("query must be an object")
 
+    @staticmethod
+    def _services_page_params(query_data: dict) -> ServicesPageParams:
+        """Bounds and choices must stay in sync with the body serializer's declared fields;
+        the view parses the body by hand."""
+        try:
+            limit = int(query_data.get("limit", SERVICES_DEFAULT_PAGE_LIMIT))
+            offset = int(query_data.get("offset", 0))
+        except (TypeError, ValueError):
+            raise ParseError("limit and offset must be integers")
+        if not 1 <= limit <= SERVICES_MAX_PAGE_LIMIT:
+            raise ParseError(f"limit must be between 1 and {SERVICES_MAX_PAGE_LIMIT}")
+        if offset < 0:
+            raise ParseError("offset must not be negative")
+        order_by = query_data.get("orderBy") or "log_count"
+        if order_by not in SERVICES_ORDER_EXPRS:
+            raise ParseError(f"orderBy must be one of: {', '.join(SERVICES_ORDER_EXPRS)}")
+        order_direction = query_data.get("orderDirection") or "DESC"
+        if order_direction not in SERVICES_ORDER_DIRECTIONS:
+            raise ParseError("orderDirection must be one of: ASC, DESC")
+        return ServicesPageParams(limit=limit, offset=offset, order_by=order_by, order_direction=order_direction)
+
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
         date_range_data = query_data.get("dateRange")
@@ -1513,6 +1579,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             team=self.team,
             query=query,
             service_name_search=query_data.get("serviceNameSearch") or None,
+            page=self._services_page_params(query_data),
         )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
