@@ -596,9 +596,10 @@ def execute_event_deletion(
 
 
 _PROPERTY_REWRITE_UNSWEEPABLE_REASON = (
-    "its typed columns are MATERIALIZED from properties, so ClickHouse rejects both an assignment "
-    "to them and an update of properties itself; rewriting these rows needs a re-insert instead of "
-    "the staging-table mutation this job runs. There is no way to complete this request today: "
+    "the property-rewrite machinery is scoped to the events tables and does not reach it; a "
+    "request naming $feature_flag additionally cannot "
+    "be honored by mutation at all, because flag_key sits in the table's sort key where no UPDATE "
+    "can reset it. There is no way to complete this request today: "
     "either narrow its events to ones this table never stores, or wait out the table's TTL. "
     f"See {_COVERAGE_DOC}."
 )

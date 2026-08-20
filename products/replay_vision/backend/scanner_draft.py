@@ -352,7 +352,11 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "draft_scanner_from_goal"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "draft_scanner_from_goal",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
 

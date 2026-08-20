@@ -222,13 +222,8 @@ def permanent_interface_modules(tach_content: str, module_path: str) -> set[str]
     return modules
 
 
-def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
-    """import-linter ignore_imports entries that still let this product's presentation
-    reach its own internals directly — the deferred presentation-wave worklist.
-
-    Each entry is one view -> internal edge to remove before the product is internally
-    sealed (see the isolating-product-facade-contracts skill).
-    """
+def _importlinter_ignore_entries(pyproject_text: str | None = None) -> list[str]:
+    """Every ignore_imports entry across the import-linter contracts, or [] if unreadable."""
     if pyproject_text is None:
         pyproject = REPO_ROOT / "pyproject.toml"
         if not pyproject.exists():
@@ -238,8 +233,35 @@ def presentation_bypass_entries(name: str, pyproject_text: str | None = None) ->
         contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
     except (tomllib.TOMLDecodeError, KeyError):
         return []
-    prefix = f"products.{name}.backend.presentation"
-    return [entry for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefix)]
+    return [entry for contract in contracts for entry in contract.get("ignore_imports", [])]
+
+
+def ignored_import_edges(pyproject_text: str | None = None) -> set[str]:
+    """The exact edges the import-linter contracts ignore, normalized to "importer -> imported".
+
+    Wildcard entries are dropped: they only ever allow the presentation/facade trees, which the
+    AST surface check permits outright."""
+    edges = set()
+    for entry in _importlinter_ignore_entries(pyproject_text):
+        if "*" in entry or "->" not in entry:
+            continue
+        importer, imported = entry.split("->", 1)
+        edges.add(f"{importer.strip()} -> {imported.strip()}")
+    return edges
+
+
+def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
+    """import-linter ignore_imports entries that still let this product's HTTP surface
+    reach past the facade — the deferred presentation-wave worklist.
+
+    Two contracts feed it: presentation reaching internals directly (one view -> internal
+    edge per entry), and routes.py registering views that live outside presentation/ (one
+    routes -> view-module edge per entry). Both mean presentation code the contract cannot
+    see, so both block the internal seal until removed (see the
+    isolating-product-facade-contracts skill).
+    """
+    prefixes = (f"products.{name}.backend.presentation", f"products.{name}.backend.routes ->")
+    return [entry for entry in _importlinter_ignore_entries(pyproject_text) if entry.startswith(prefixes)]
 
 
 def has_contract_check_script(product_dir: Path) -> bool:
@@ -480,10 +502,13 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 #
 # Keyed per class, not per product, so a product on the list can't quietly grow a new crossing: an
 # unlisted class is a leak again, and sanctioning it costs a doctrine amendment. The list only
-# shrinks. The bar for an entry, and why these five are load-bearing, live in
+# shrinks. The bar for an entry, and why these are load-bearing, live in
 # products/architecture.md § Wiring couplings.
 MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
+        ("product_analytics", "Insight"),
+        ("product_analytics", "InsightVariable"),
+        ("product_analytics", "InsightViewed"),
         ("warehouse_sources", "DataWarehouseCredential"),
         ("warehouse_sources", "DataWarehouseTable"),
         ("warehouse_sources", "ExternalDataJob"),

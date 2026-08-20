@@ -1,3 +1,4 @@
+import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
 import {
@@ -9,6 +10,83 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("fetches later task pages before reporting complete results", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 2 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 2 });
+
+    await expect(
+      client.getTasksWithStatus(
+        { repository: "posthog/posthog" },
+        { maxPages: 2 },
+      ),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(1, {
+      limit: 100,
+      offset: 0,
+      repository: "posthog/posthog",
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      offset: 1,
+      repository: "posthog/posthog",
+    });
+  });
+
+  it("reports partial task results after reaching the page cap", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    vi.spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { maxPages: 2 }),
+    ).resolves.toMatchObject({
+      isComplete: false,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+  });
+
+  it.each([
+    ["pinned", { pinned: true }, "pinned", "true"],
+    ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
+    ["mentions", { mentions: 19 }, "mentions", "19"],
+  ])("sends the %s task-list filter", async (_name, options, param, value) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage(options);
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.get(param)).toBe(value);
+  });
+
   it.each([
     "user_message",
     "permission_response",
@@ -235,51 +313,6 @@ describe("PostHogAPIClient", () => {
         ],
       },
     );
-  });
-
-  it("uses the configured fetch implementation for task log URLs", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          '{"type":"notification","timestamp":"2026-07-21T00:00:00Z"}\n',
-          { status: 200 },
-        ),
-      );
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-      { fetch },
-    );
-    vi.spyOn(client, "getTask").mockResolvedValue({
-      id: "task-1",
-      task_number: 1,
-      slug: "task-1",
-      title: "Task",
-      description: "Task",
-      created_at: "2026-07-21T00:00:00Z",
-      updated_at: "2026-07-21T00:00:00Z",
-      origin_product: "user_created",
-      latest_run: {
-        id: "run-1",
-        task: "task-1",
-        team: 123,
-        branch: null,
-        status: "in_progress",
-        log_url: "https://logs.posthog.test/run-1.jsonl",
-        error_message: null,
-        output: null,
-        state: {},
-        created_at: "2026-07-21T00:00:00Z",
-        updated_at: "2026-07-21T00:00:00Z",
-        completed_at: null,
-      },
-    });
-
-    await expect(client.getTaskLogs("task-1")).resolves.toHaveLength(1);
-    expect(fetch).toHaveBeenCalledWith("https://logs.posthog.test/run-1.jsonl");
   });
 
   it.each([
@@ -1345,6 +1378,60 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("clearTaskRunConversation", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's clean error message", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [409] {"error":"Run is still active; send /clear to its agent instead"}',
+          ),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow(
+        "Run is still active; send /clear to its agent instead",
+      );
+    });
+
+    it("falls back to a status-coded message on an older backend's generic 404", async () => {
+      // A pre-#76943 backend has no clear_conversation route, so DRF's router
+      // returns its generic {"detail":"Not found."} rather than a message
+      // this endpoint controls. Surfacing that verbatim would read as "Not
+      // found." with no indication a clear was attempted or what to do next.
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Failed request: [404] {"detail":"Not found."}'),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow("Couldn’t clear the conversation. (HTTP 404)");
+    });
+  });
+
   describe("getTaskSummaries", () => {
     const SUMMARIES_PATH = "/api/projects/123/tasks/summaries/";
 
@@ -2007,7 +2094,7 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("getTaskRunSessionLogs", () => {
+  describe("getTaskRunSessionLogsResult", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(
         "http://localhost:8000",
@@ -2071,11 +2158,9 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page(makeEntries(3, "a"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs(
-        "task-1",
-        "run-1",
-        options,
-      );
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", options)
+      ).entries;
 
       expect(result).toHaveLength(3);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2092,9 +2177,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(10, "c"), false));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(210);
       expect(fetch).toHaveBeenCalledTimes(3);
@@ -2115,9 +2202,11 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(1000, "b"), true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 6000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 6000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(6000);
       expect(fetch).toHaveBeenCalledTimes(2);
@@ -2134,7 +2223,7 @@ describe("PostHogAPIClient", () => {
         .mockResolvedValueOnce(page(makeEntries(5, "b"), false));
       const client = makeClient(fetch);
 
-      await client.getTaskRunSessionLogs("task-1", "run-1", {
+      await client.getTaskRunSessionLogsResult("task-1", "run-1", {
         limit: 100000,
         after: "2026-07-01T00:00:00Z",
       });
@@ -2364,9 +2453,11 @@ describe("PostHogAPIClient", () => {
       });
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(10);
       expect(fetch).toHaveBeenCalledTimes(1);
@@ -2376,9 +2467,11 @@ describe("PostHogAPIClient", () => {
       const fetch = vi.fn().mockResolvedValue(page([], true));
       const client = makeClient(fetch);
 
-      const result = await client.getTaskRunSessionLogs("task-1", "run-1", {
-        limit: 100000,
-      });
+      const result = (
+        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        })
+      ).entries;
 
       expect(result).toHaveLength(0);
       expect(fetch).toHaveBeenCalledTimes(1);
