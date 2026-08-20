@@ -37545,6 +37545,62 @@ export namespace Schemas {
       readonly name: string;
     }
 
+    export interface FeatureRequestEvidence {
+      /** Stable evidence ID. */
+      readonly id: string;
+      /** Internal summary of this account's request evidence. */
+      readonly summary: string;
+      /** Customer quote kept with this evidence item. */
+      readonly customer_quote: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      readonly evidence_source: string;
+      /** HTTP or HTTPS link to the source, or an empty string. */
+      readonly source_url: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      readonly requested_on: string | null;
+      /**
+         * ID of the user who added the evidence.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the evidence.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the evidence was added. */
+      readonly created_at: string;
+      /** When the evidence was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestAccountLink {
+      /** Stable link ID between the request and account. */
+      readonly id: string;
+      /** Affected Customer Analytics account. */
+      readonly account: FeatureRequestAccount;
+      /** Evidence recorded for this account and request. List responses omit these items. */
+      readonly evidence: readonly FeatureRequestEvidence[];
+      /**
+         * Total evidence items recorded for this account and request.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
+      /** When the account was first linked. */
+      readonly created_at: string;
+      /**
+         * When the account link was last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface FeatureRequestProductArea {
       /** Stable product area ID. */
       readonly id: string;
@@ -37604,8 +37660,12 @@ export namespace Schemas {
          * @minimum 1
          */
       readonly version: number;
-      /** Affected account in the first release. */
+      /** Whether the caller can update this request and all its active account links. */
+      readonly can_update: boolean;
+      /** First visible account retained for client compatibility. Use account_links for the complete list. */
       readonly account: FeatureRequestAccount;
+      /** Active account links visible to the caller, with account-specific evidence. */
+      readonly account_links: readonly FeatureRequestAccountLink[];
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -37624,6 +37684,40 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface FeatureRequestEvidencePayload {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+    }
+
+    export interface FeatureRequestAddAccount {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Accessible account to link to this feature request. */
+      account_id: string;
+      /** Optional first evidence item to create for the account in the same change. */
+      evidence?: FeatureRequestEvidencePayload | null;
+    }
+
     export interface FeatureRequestCreate {
       /**
          * Required customer-facing request title.
@@ -37640,10 +37734,80 @@ export namespace Schemas {
       idempotency_key: string;
     }
 
+    export interface FeatureRequestEvidenceCreate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Active account link that owns this evidence. */
+      account_link_id: string;
+    }
+
+    export interface FeatureRequestEvidenceDelete {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to delete. */
+      evidence_id: string;
+    }
+
+    export interface FeatureRequestEvidenceUpdate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to replace. */
+      evidence_id: string;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
      * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
      * * `product_areas` - Product areas
      */
     export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
@@ -37653,6 +37817,8 @@ export namespace Schemas {
       Status: 'status',
       Priority: 'priority',
       Account: 'account',
+      Accounts: 'accounts',
+      Evidence: 'evidence',
       ProductAreas: 'product_areas',
     } as const;
 
@@ -37666,7 +37832,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     /**
      * Value after the update, including relation snapshots.
@@ -37678,7 +37856,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     export interface FeatureRequestHistoryChange {
       /** Request field represented by this change.
@@ -37686,6 +37876,8 @@ export namespace Schemas {
        * * `status` - Status
        * * `priority` - Priority
        * * `account` - Account
+       * * `accounts` - Accounts
+       * * `evidence` - Evidence
        * * `product_areas` - Product areas */
       readonly field: FieldEnum;
       /** Value before the update, including relation snapshots. */
@@ -37769,8 +37961,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -58850,8 +59044,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
