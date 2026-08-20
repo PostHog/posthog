@@ -11,6 +11,18 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+type BillingAccessCase = {
+    name: string
+    membershipLevel: OrganizationMembershipLevel
+    flags: Record<string, string | boolean>
+    expected: {
+        canAccessBilling: boolean
+        canViewUsageAndSpend: boolean
+        canOnlyViewUsageAndSpend: boolean
+        billingEntryUrl: string | null
+    }
+}
+
 describe('billingLogic', () => {
     beforeEach(() => {
         initKeaTests()
@@ -56,7 +68,7 @@ describe('billingLogic', () => {
         }
     )
 
-    it.each([
+    it.each<BillingAccessCase>([
         {
             name: 'member with both member-access flags',
             membershipLevel: OrganizationMembershipLevel.Member,
