@@ -72,12 +72,12 @@ Raise the load to find where a machine stops scaling:
 | `USAGE_INGESTION_E2E_LOAD_CHANNELS` | 8 | gRPC connections the load spreads over |
 
 On an M-series laptop against the dev stack, p50 stays pinned to the Kafka
-producer's 20ms linger until concurrency passes ~512, where it starts climbing:
+producer's 20ms linger until concurrency passes 512, measured at 20000 requests:
 
 | Concurrency | Throughput | p50 | p99 |
 | --- | --- | --- | --- |
 | 32 | 1.4k req/s | 23ms | 30ms |
-| 128 | 5.0k req/s | 25ms | 37ms |
+| 256 | 9.6k req/s | 26ms | 40ms |
 | 512 | 18.8k req/s | 26ms | 45ms |
 | 1024 | 22.7k req/s | 43ms | 71ms |
 
