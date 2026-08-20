@@ -30,6 +30,17 @@ const TERMINAL_SUITE_RUN_STATUSES = ['completed', 'failed', 'empty']
 
 export type CheckPendingKind = 'running' | 'deleting' | 'toggling' | 'loadingRuns' | 'loadingSuiteRunRuns'
 
+// Annotated rather than asserted at the use site: the annotation still fails the typecheck if a
+// CheckPendingKind is added without seeding its map, and kea-typegen can read the type from here.
+// Inlining it with `satisfies` makes typegen infer `{ running: {}, ... }`, which nothing can index.
+const EMPTY_PENDING_CHECK_ACTIONS: Record<CheckPendingKind, Record<string, boolean>> = {
+    running: {},
+    deleting: {},
+    toggling: {},
+    loadingRuns: {},
+    loadingSuiteRunRuns: {},
+}
+
 export interface DataQualityChecksLogicProps {
     subjectType: DataQualitySubjectType
     subjectId: string
@@ -509,10 +520,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 state.filter((check) => check.id !== checkId),
         },
         pendingCheckActions: [
-            { running: {}, deleting: {}, toggling: {}, loadingRuns: {}, loadingSuiteRunRuns: {} } satisfies Record<
-                CheckPendingKind,
-                Record<string, boolean>
-            >,
+            EMPTY_PENDING_CHECK_ACTIONS,
             {
                 setCheckPending: (state, { kind, checkId, pending }) => ({
                     ...state,
