@@ -381,7 +381,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Charged before the rewrite and refunded on the stand-down paths below. Charging on failure
     # instead bounds nothing: a worker killed mid-rewrite records no outcome, so the cap never moves.
-    charged_attempts = _charge_attempt(schema, pending, logger)
+    # A staged swap runs no rewrite (temp is already complete), so its recovery is not a rewrite
+    # attempt and is not charged, the same reason the give-up above exempts it.
+    charged_attempts = None if swap is not None else _charge_attempt(schema, pending, logger)
 
     start = time.monotonic()
     try:

@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    MAX_REPARTITION_ATTEMPTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
     _maybe_flag_pre_extraction,
@@ -388,6 +391,50 @@ class TestBudgetExhaustion:
             schema.clear_repartition_rewrite.assert_called_once()
         else:
             assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_staged_swap_is_resumed_even_after_attempts_are_spent(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A worker can die inside the swap after recording the ready marker, leaving temp the source of
+        # truth and live possibly already deleted, with the pending marker still carrying the spent
+        # count. The attempt cap must not abandon that swap: giving up clears the marker and disarms the
+        # missing-live recovery, so the swap is driven to completion (resumed) instead. The rewrite
+        # already ran, so this recovery must also not be charged against the cap.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": MAX_REPARTITION_ATTEMPTS},
+            swap={"state": "ready"},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert mock_repartition.await_count == 1
+        schema.clear_repartition_swap.assert_not_called()
+        schema.set_repartition_pending.assert_not_called()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
 
 
 class TestTransientObjectStoreFailure:
