@@ -320,11 +320,35 @@ describe('API helper', () => {
             expect(error.message).toContain('[POST /api/environments/2/insights]')
         })
 
-        it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
-            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
+        it('classifies a body stream that fails mid-read as a NetworkError', async () => {
+            // Headers already arrived (2xx); body read rejects with TypeError — same connectivity
+            // class as a fetch rejection, not a per-endpoint ApiError (#86304).
+            const cause = new TypeError('network error')
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(cause) }))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe('network')
+            expect(error.status).toBeUndefined()
+            expect(error.cause).toBe(cause)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    status: 0,
+                    failure_reason: 'network',
+                })
+            )
+        })
+
+        it('still surfaces a non-TypeError body-read failure as ApiError', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new Error('stream broke')) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
             expect(error).toBeInstanceOf(ApiError)
-            expect(error.status).toBeUndefined()
+            expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.message).toContain('Failed to read response body')
         })
 
         it.each([

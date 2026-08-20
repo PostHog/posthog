@@ -403,8 +403,22 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         if (isAbortError(error)) {
             throw error
         }
-        // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
-        // the response is unusable, so surface it instead of handing callers a null.
+        // Headers already arrived (2xx) but the body stream died mid-read — same class of
+        // browser TypeError as a fetch that never connected. Route through the same
+        // classification as handleFetch so we emit client_request_failure / NetworkError
+        // instead of a per-endpoint ApiError fingerprint (see #86304).
+        if (error instanceof TypeError) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: 0,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
         throw new ApiError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
