@@ -153,6 +153,26 @@ class TestImageExporter(APIBaseTest):
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
 
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_query_error_is_reraised_without_error_tracking(
+        self,
+        mock_calculate: Any,
+        mock_capture: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_calculate.side_effect = QueryError(
+            "Unknown table `hubspot.contacts`. Did you mean: hubspot.prod.contacts?"
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaises(QueryError):
+            image_exporter.export_image(self.exported_asset)
+
+        # A user query error must fail the export but stay out of the error tracking issue stream.
+        mock_capture.assert_not_called()
+
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)

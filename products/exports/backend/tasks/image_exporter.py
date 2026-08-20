@@ -20,7 +20,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -677,6 +677,12 @@ def export_image(
                         "dashboard_id": exported_asset.dashboard_id,
                     },
                 )
+            elif isinstance(e, QueryError):
+                # A malformed query (e.g. a saved query that names a warehouse table which no longer
+                # exists) is a user error, not a pipeline failure. The asset is still marked failed
+                # and the message reaches the user, so we skip error tracking to keep it out of the
+                # issue stream.
+                pass
             else:
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise
