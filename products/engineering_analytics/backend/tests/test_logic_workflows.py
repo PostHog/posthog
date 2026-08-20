@@ -459,11 +459,11 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merge_queue_median_first_gate_to_merge_seconds_prev is None
         # No TrunkIo source connected: the Trunk-recorded outcomes read unavailable, never zero.
         assert overview.merge_queue_trunk_available is False
-        assert overview.merge_queue_ejected_share is None
+        assert overview.merge_queue_failed_or_cancelled_share is None
         assert overview.merge_queue_skip_the_line_count is None
 
     def test_repo_overview_trunk_queue_outcomes(self) -> None:
-        # Guards the Trunk-recorded outcomes: only concluded states enter the eviction denominator,
+        # Guards the Trunk-recorded outcomes: only concluded states enter the share's denominator,
         # and windowing keys on each entry's last state change.
         self._create_table(
             "github_pull_requests",
@@ -498,8 +498,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         overview = api.get_repo_overview(team=self.team, include_series=False)
         assert overview.merge_queue_trunk_available is True
-        assert overview.merge_queue_ejected_share == pytest.approx(0.4)  # failed + cancelled of 5 concluded
-        assert overview.merge_queue_ejected_share_prev == pytest.approx(0.5)  # 1 of 2 concluded
+        assert overview.merge_queue_failed_or_cancelled_share == pytest.approx(0.4)  # failed + cancelled of 5 concluded
+        assert overview.merge_queue_failed_or_cancelled_share_prev == pytest.approx(0.5)  # 1 of 2 concluded
         assert overview.merge_queue_skip_the_line_count == 1
         assert overview.merge_queue_skip_the_line_count_prev == 1
 

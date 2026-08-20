@@ -179,7 +179,7 @@ export function RepoOverviewScene(): JSX.Element {
                     <Section id="merge-queue" title="Merge queue" busy={overviewLoading}>
                         {overview &&
                         overview.merge_queue_merged_pr_count === 0 &&
-                        overview.merge_queue_ejected_share == null ? (
+                        overview.merge_queue_failed_or_cancelled_share == null ? (
                             <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
                                 No merge queue activity in the window.
                             </LemonCard>
@@ -211,10 +211,10 @@ export function RepoOverviewScene(): JSX.Element {
                                 />
                                 {overview?.merge_queue_trunk_available ? (
                                     <WindowComparisonCard
-                                        title="Kicked out of the queue"
+                                        title="Left the queue unmerged"
                                         tooltip="Share of concluded merge queue entries that ended failed or cancelled, from the queue's own records."
-                                        value={overview?.merge_queue_ejected_share}
-                                        previousValue={overview?.merge_queue_ejected_share_prev}
+                                        value={overview?.merge_queue_failed_or_cancelled_share}
+                                        previousValue={overview?.merge_queue_failed_or_cancelled_share_prev}
                                         formatValue={(v) => percent(v, 1)}
                                         deltaUnit="pt"
                                         goodWhenDown

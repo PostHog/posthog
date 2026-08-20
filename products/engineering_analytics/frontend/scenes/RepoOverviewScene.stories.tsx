@@ -59,8 +59,8 @@ const OVERVIEW: RepoOverviewApi = {
     median_time_to_green_seconds: 13 * 60,
     median_time_to_green_seconds_prev: 9 * 60,
     merge_queue_trunk_available: false,
-    merge_queue_ejected_share: null,
-    merge_queue_ejected_share_prev: null,
+    merge_queue_failed_or_cancelled_share: null,
+    merge_queue_failed_or_cancelled_share_prev: null,
     merge_queue_skip_the_line_count: null,
     merge_queue_skip_the_line_count_prev: null,
     jobs_available: true,
@@ -266,8 +266,8 @@ export const RepoOverview: Story = {
 const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
     ...OVERVIEW,
     merge_queue_trunk_available: true,
-    merge_queue_ejected_share: 0.044,
-    merge_queue_ejected_share_prev: 0.032,
+    merge_queue_failed_or_cancelled_share: 0.044,
+    merge_queue_failed_or_cancelled_share_prev: 0.032,
     merge_queue_skip_the_line_count: 8,
     merge_queue_skip_the_line_count_prev: 5,
 }

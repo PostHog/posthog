@@ -7,7 +7,8 @@ branch parsing of its own. The population is merged PRs with at
 least one corroborated gate run: all authors, bots included, because these figures measure the
 queue's mechanics, not author behavior (the locked bots/drafts recipe governs cycle-time medians,
 a different question). ``had_failed_gate`` is a CI-outcome proxy for eviction: the queue's own
-records are not in the GitHub source.
+records are not in the GitHub source. Where a team syncs them (the opt-in Trunk merge-queue
+table), ``query_merge_queue_trunk_outcomes`` reads the real verdicts instead.
 """
 
 from dataclasses import dataclass
@@ -127,15 +128,15 @@ _EMPTY_STATS = MergeQueueWindowStats(
 # keeps no state history, so that approximates conclusion time.
 _TRUNK_OUTCOMES_SELECT = """
     SELECT
-        countIf(ejected AND __CUR__) / nullIf(countIf(concluded AND __CUR__), 0) AS ejected_share_cur,
-        countIf(ejected AND __PREV__) / nullIf(countIf(concluded AND __PREV__), 0) AS ejected_share_prev,
+        countIf(failed_or_cancelled AND __CUR__) / nullIf(countIf(concluded AND __CUR__), 0) AS failed_or_cancelled_share_cur,
+        countIf(failed_or_cancelled AND __PREV__) / nullIf(countIf(concluded AND __PREV__), 0) AS failed_or_cancelled_share_prev,
         countIf(skip_the_line AND __CUR__) AS skip_the_line_cur,
         countIf(skip_the_line AND __PREV__) AS skip_the_line_prev
     FROM (
         SELECT
             state_changed_at,
             state IN ('merged', 'failed', 'cancelled') AS concluded,
-            state IN ('failed', 'cancelled') AS ejected,
+            state IN ('failed', 'cancelled') AS failed_or_cancelled,
             skip_the_line
         FROM __TRUNK_SOURCE__
         WHERE state_changed_at >= {prev_from} __DATE_TO_CHANGED__
@@ -149,16 +150,16 @@ class TrunkQueueOutcomes:
     None when no TrunkIo source has the merge-queue endpoint synced (``available``)."""
 
     available: bool
-    ejected_share: float | None
-    ejected_share_prev: float | None
+    failed_or_cancelled_share: float | None
+    failed_or_cancelled_share_prev: float | None
     skip_the_line_count: int | None
     skip_the_line_count_prev: int | None
 
 
 _TRUNK_UNAVAILABLE = TrunkQueueOutcomes(
     available=False,
-    ejected_share=None,
-    ejected_share_prev=None,
+    failed_or_cancelled_share=None,
+    failed_or_cancelled_share_prev=None,
     skip_the_line_count=None,
     skip_the_line_count_prev=None,
 )
@@ -192,11 +193,11 @@ def query_merge_queue_trunk_outcomes(
     response = curated.run(
         sql, query_type="engineering_analytics.merge_queue_trunk_outcomes", placeholders=placeholders
     )
-    ejected_cur, ejected_prev, skip_cur, skip_prev = response.results[0] if response.results else (None, None, 0, 0)
+    unmerged_cur, unmerged_prev, skip_cur, skip_prev = response.results[0] if response.results else (None, None, 0, 0)
     return TrunkQueueOutcomes(
         available=True,
-        ejected_share=opt_float(ejected_cur),
-        ejected_share_prev=opt_float(ejected_prev),
+        failed_or_cancelled_share=opt_float(unmerged_cur),
+        failed_or_cancelled_share_prev=opt_float(unmerged_prev),
         skip_the_line_count=int(skip_cur or 0),
         skip_the_line_count_prev=int(skip_prev or 0),
     )
