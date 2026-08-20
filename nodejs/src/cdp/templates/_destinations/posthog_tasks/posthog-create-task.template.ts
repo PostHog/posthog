@@ -69,8 +69,7 @@ return response.body
             label: 'Instructions',
             secret: false,
             required: true,
-            description:
-                'What the agent should do. Supports variable templating, e.g. {event.properties.error_message}.',
+            description: 'What the agent should do. Supports variable templating.',
         },
         {
             key: 'title',
