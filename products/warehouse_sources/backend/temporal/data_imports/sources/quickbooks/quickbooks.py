@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -6,6 +5,8 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -40,7 +41,7 @@ _QUERY_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S+00:00"
 _HOISTED_METADATA_FIELDS = (CREATE_TIME_FIELD, LAST_UPDATED_FIELD)
 
 
-@dataclasses.dataclass
+@frozen
 class QuickBooksResumeConfig:
     # `STARTPOSITION` is 1-based. The `WHERE` bound is saved alongside it because an offset only
     # identifies a row within the result set of the query that produced it.
