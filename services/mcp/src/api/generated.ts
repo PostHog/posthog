@@ -20916,7 +20916,7 @@ export namespace Schemas {
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;

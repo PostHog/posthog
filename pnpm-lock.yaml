@@ -689,6 +689,9 @@ importers:
       '@posthog/products-data-modeling':
         specifier: workspace:*
         version: link:../products/data_modeling
+      '@posthog/products-data-quality':
+        specifier: workspace:*
+        version: link:../products/data_quality
       '@posthog/products-data-tools':
         specifier: workspace:*
         version: link:../products/data_tools
@@ -2967,7 +2970,36 @@ importers:
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
 
-  products/data_quality: {}
+  products/data_quality:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/data_tools: {}
 
@@ -25530,7 +25562,7 @@ snapshots:
 
   '@base-ui/utils@0.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
       '@floating-ui/utils': 0.2.11
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -25910,7 +25942,7 @@ snapshots:
 
   '@daily-co/daily-js@0.85.0':
     dependencies:
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
       '@sentry/browser': 8.55.2
       bowser: 2.11.0
       dequal: 2.0.3
@@ -31995,12 +32027,12 @@ snapshots:
   '@testing-library/jest-dom@5.17.0':
     dependencies:
       '@adobe/css-tools': 4.5.0
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
       '@types/testing-library__jest-dom': 5.14.5
       aria-query: 5.3.0
       chalk: 3.0.0
       css.escape: 1.5.1
-      dom-accessibility-api: 0.5.14
+      dom-accessibility-api: 0.5.16
       lodash: 4.18.1
       redent: 3.0.0
 
@@ -32015,7 +32047,7 @@ snapshots:
 
   '@testing-library/react@14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
       '@testing-library/dom': 9.3.4
       '@types/react-dom': 18.3.7(@types/react@18.3.27)
       react: 18.3.1
@@ -43062,7 +43094,7 @@ snapshots:
 
   react-textarea-autosize@8.5.9(@types/react@18.3.27)(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
       react: 18.3.1
       use-composed-ref: 1.3.0(react@18.3.1)
       use-latest: 1.2.1(@types/react@18.3.27)(react@18.3.1)
@@ -43189,7 +43221,7 @@ snapshots:
 
   regenerator-transform@0.15.2:
     dependencies:
-      '@babel/runtime': 7.29.2
+      '@babel/runtime': 7.29.7
 
   regex-recursion@6.0.2:
     dependencies:
