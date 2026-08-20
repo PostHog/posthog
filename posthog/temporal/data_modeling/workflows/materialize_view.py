@@ -357,7 +357,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         job_id=job_id,
                         row_count=materialize_result.row_count,
                         duration_seconds=duration_seconds,
-                        enqueue_legacy_account_property_sync=not materialize_result.account_property_sync_enabled,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(

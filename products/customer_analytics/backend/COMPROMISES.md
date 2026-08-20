@@ -12,10 +12,11 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 
 ## Custom property view sync
 
-- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view and has no
-  retry. For flagged materializations, `warehouse-account-properties-s3-sync` replaces that dispatch
-  with job-scoped Parquet and independent tracked and ignored Temporal workflows. Source create and
-  re-enable still use Celery until the staged path gains full-Delta backfills and manual recovery.
+- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view, records
+  source status, and has no retry. Flagged materializations also stage job-scoped Parquet for
+  independent tracked and ignored Temporal workflows. Keep the legacy recorder until the staged path
+  can aggregate both segment outcomes without double-counting failures. Source create and re-enable
+  still use Celery until the staged path gains full-Delta backfills and manual recovery.
 - **Staged runs have no run-level UI yet.** Temporal retries each segment against the same job files,
   but progress is visible only through logs and metrics. The job-scoped Parquet stays until both
   segments succeed. A bounded sweep removes abandoned staging prefixes.

@@ -32,7 +32,6 @@ class SucceedMaterializationInputs:
     row_count: int
     duration_seconds: float
     update_node: bool = True
-    enqueue_legacy_account_property_sync: bool = True
 
 
 @dataclasses.dataclass
@@ -124,7 +123,7 @@ def _succeed_node_and_data_modeling_job(
     job.error = None
     job.save()
 
-    if inputs.enqueue_legacy_account_property_sync and node is not None and node.saved_query_id is not None:
+    if node is not None and node.saved_query_id is not None:
         saved_query_id = str(node.saved_query_id)
         team_id = inputs.team_id
         transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))

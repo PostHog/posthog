@@ -114,7 +114,7 @@ class TestQualityGateBranching:
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
 
-    async def test_account_staging_replaces_the_legacy_celery_dispatch(self):
+    async def test_account_staging_starts_parallel_segment_children(self):
         materialize_result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
         activity_results = [
             False,
@@ -125,14 +125,8 @@ class TestQualityGateBranching:
         ]
         start_child = AsyncMock()
 
-        _, execute_activity = await self._run(activity_results, {}, start_child=start_child)
+        await self._run(activity_results, {}, start_child=start_child)
 
-        succeed_call = next(
-            call
-            for call in execute_activity.await_args_list
-            if call.args[0].__name__ == "succeed_materialization_activity"
-        )
-        assert succeed_call.args[1].enqueue_legacy_account_property_sync is False
         assert [call.args[1].segment for call in start_child.await_args_list] == ["tracked", "ignored"]
 
     async def test_a_passing_audit_publishes_and_succeeds(self):

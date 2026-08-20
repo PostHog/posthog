@@ -13,9 +13,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_paths import (
-    job_staged_prefix,
-)
+from products.warehouse_sources.backend.facade.temporal import account_property_job_staged_prefix
 
 _MODULE = "products.customer_analytics.backend.logic.account_property_sync"
 
@@ -77,6 +75,6 @@ async def test_staged_parquet_is_deleted_only_after_both_segments_complete() -> 
         await _mark_completed_and_maybe_cleanup(7, binding, "job-1", AccountPropertySyncSegment.IGNORED)
 
     client._rm.assert_awaited_once_with(
-        f"s3://{job_staged_prefix(7, binding, 'job-1')}/",
+        f"s3://{account_property_job_staged_prefix(7, binding, 'job-1')}/",
         recursive=True,
     )

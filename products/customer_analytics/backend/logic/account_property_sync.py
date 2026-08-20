@@ -11,6 +11,7 @@ from uuid import UUID
 import structlog
 import pyarrow.parquet as pq
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
 from products.customer_analytics.backend.logic.custom_property_values import (
@@ -20,10 +21,10 @@ from products.customer_analytics.backend.logic.custom_property_values import (
 from products.customer_analytics.backend.models import Account, CustomPropertySource, TargetType
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_paths import (
-    completion_prefix,
-    job_staged_prefix,
-    snapshot_prefix,
+from products.warehouse_sources.backend.facade.temporal import (
+    account_property_completion_prefix,
+    account_property_job_staged_prefix,
+    account_property_snapshot_prefix,
 )
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +40,13 @@ class AccountPropertySyncSegment(StrEnum):
 
 class AccountPropertySourceValueError(Exception):
     pass
+
+
+@frozen
+class AppliedSourceValues:
+    written: int
+    hashes: dict[str, str]
+    failed: bool
 
 
 def _json_safe(value: Any) -> Any:
@@ -73,7 +81,7 @@ def _encode_snapshot(hashes: dict[str, str]) -> bytes:
 
 
 async def _read_parquet_rows(team_id: int, binding: WarehouseBinding, job_id: str) -> list[dict[str, Any]]:
-    prefix = job_staged_prefix(team_id, binding, job_id)
+    prefix = account_property_job_staged_prefix(team_id, binding, job_id)
     rows: list[dict[str, Any]] = []
     async with aget_s3_client() as s3_client:
         try:
@@ -92,7 +100,7 @@ async def _read_parquet_rows(team_id: int, binding: WarehouseBinding, job_id: st
 async def _read_snapshot_hashes(
     team_id: int, binding: WarehouseBinding, source_id: str, segment: AccountPropertySyncSegment
 ) -> dict[str, str]:
-    prefix = snapshot_prefix(team_id, binding, source_id, segment.value)
+    prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     hashes: dict[str, str] = {}
     async with aget_s3_client() as s3_client:
         try:
@@ -120,7 +128,7 @@ async def _write_snapshot_hashes(
     if not hashes:
         return
 
-    prefix = snapshot_prefix(team_id, binding, source_id, segment.value)
+    prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
         try:
@@ -173,7 +181,7 @@ def _apply_source_values(
     account_ids: dict[str, UUID],
     changed: dict[str, Any],
     segment: AccountPropertySyncSegment,
-) -> tuple[int, dict[str, str], bool]:
+) -> AppliedSourceValues:
     written = 0
     applied_hashes: dict[str, str] = {}
     source_failed = False
@@ -199,7 +207,7 @@ def _apply_source_values(
         if did_write:
             written += 1
         applied_hashes[external_id] = _value_hash(value)
-    return written, applied_hashes, source_failed
+    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed)
 
 
 def _enabled_sources(team_id: int, binding: WarehouseBinding) -> list[CustomPropertySource]:
@@ -218,7 +226,7 @@ def _enabled_sources(team_id: int, binding: WarehouseBinding) -> list[CustomProp
 async def _segment_already_completed(
     team_id: int, binding: WarehouseBinding, job_id: str, segment: AccountPropertySyncSegment
 ) -> bool:
-    marker = f"{completion_prefix(team_id, binding, job_id)}/{segment.value}.done"
+    marker = f"{account_property_completion_prefix(team_id, binding, job_id)}/{segment.value}.done"
     async with aget_s3_client() as s3_client:
         try:
             await s3_client._cat_file(f"s3://{marker}")
@@ -230,7 +238,7 @@ async def _segment_already_completed(
 async def _mark_completed_and_maybe_cleanup(
     team_id: int, binding: WarehouseBinding, job_id: str, segment: AccountPropertySyncSegment
 ) -> None:
-    prefix = completion_prefix(team_id, binding, job_id)
+    prefix = account_property_completion_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         await s3_client._pipe_file(f"s3://{prefix}/{segment.value}.done", b"")
         try:
@@ -246,7 +254,7 @@ async def _mark_completed_and_maybe_cleanup(
         if not _SEGMENTS_REQUIRED_FOR_CLEANUP.issubset(completed):
             return
         try:
-            await s3_client._rm(f"s3://{job_staged_prefix(team_id, binding, job_id)}/", recursive=True)
+            await s3_client._rm(f"s3://{account_property_job_staged_prefix(team_id, binding, job_id)}/", recursive=True)
         except FileNotFoundError:
             pass
 
@@ -284,13 +292,13 @@ async def run_account_property_segment_sync(
             team_id, segment, list(changed)
         )
         counts["matched"] += len(account_ids)
-        written, applied_hashes, source_failed = await database_sync_to_async(
-            _apply_source_values, thread_sensitive=False
-        )(team_id, source, account_ids, changed, segment)
-        counts["written"] += written
-        if source_failed:
+        applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
+            team_id, source, account_ids, changed, segment
+        )
+        counts["written"] += applied.written
+        if applied.failed:
             counts["source_errors"] += 1
-        await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, applied_hashes)
+        await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, applied.hashes)
 
     if counts["source_errors"]:
         raise AccountPropertySourceValueError(
