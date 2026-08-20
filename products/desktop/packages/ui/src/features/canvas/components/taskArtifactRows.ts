@@ -238,16 +238,25 @@ export function buildRows(
     );
     for (const reference of readRunPostHogReferences(run)) {
       const existing = postHogReferences.get(reference.artifact.id);
-      if (
+      const sourceMessageIds = [
+        ...new Set([
+          ...(existing?.metadata.source_message_ids ?? []),
+          ...reference.metadata.source_message_ids,
+        ]),
+      ];
+      const newest =
         existing &&
         (existing.artifact.uploaded_at ?? "") >=
           (reference.artifact.uploaded_at ?? "")
-      ) {
-        continue;
-      }
+          ? existing
+          : { ...reference, runId: run.id };
       postHogReferences.set(reference.artifact.id, {
-        ...reference,
-        runId: run.id,
+        ...newest,
+        metadata: {
+          ...newest.metadata,
+          source_message_ids: sourceMessageIds,
+          occurrence_count: sourceMessageIds.length,
+        },
       });
     }
   }
