@@ -61,7 +61,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typ
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    resolve_resume_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -131,7 +134,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._delta_table_ref = DeltaTableRef(
             self._resource_name, self._job, self._logger, is_first_sync=self._table is None
         )
-        self._resumable_source_manager = resumable_source_manager
+        self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         self._batcher = Batcher(

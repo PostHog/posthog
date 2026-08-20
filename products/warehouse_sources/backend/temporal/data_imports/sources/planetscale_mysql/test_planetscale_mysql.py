@@ -81,3 +81,13 @@ def test_read_timeout_is_only_sent_when_requested():
 
     with _connect(_config(), read_timeout=600) as kwargs:
         assert kwargs["read_timeout"] == 600
+
+
+def test_autocommit_is_off_by_default_and_threaded_through_when_requested():
+    # PlanetScale inherits the MySQL keyset read path, which needs each page to be its own
+    # transaction. The streaming path keeps pymysql's default (autocommit off).
+    with _connect(_config()) as kwargs:
+        assert kwargs["autocommit"] is False
+
+    with _connect(_config(), autocommit=True) as kwargs:
+        assert kwargs["autocommit"] is True
