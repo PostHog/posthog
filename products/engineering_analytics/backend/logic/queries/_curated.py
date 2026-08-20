@@ -129,6 +129,8 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._trunk_table: str | None = None
+        self._trunk_table_resolved = False
 
     @property
     def team(self) -> Team:
@@ -181,11 +183,14 @@ class CuratedGitHubSource:
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
         opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
-        one; either way consumers degrade to the GitHub-derived proxy."""
-        table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
-        if table is None:
+        one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
+        call and cached, so probing stays as cheap as the sibling sources."""
+        if not self._trunk_table_resolved:
+            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+            self._trunk_table_resolved = True
+        if self._trunk_table is None:
             return None
-        return f"({trunk_merge_queue.build_query(table)})"
+        return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
