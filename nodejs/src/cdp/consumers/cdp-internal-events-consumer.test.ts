@@ -254,5 +254,23 @@ describe('CDP Internal Events Consumer', () => {
 
             expect(invocations.map((invocation) => invocation.functionId)).toEqual([matching.id])
         })
+
+        it('invokes a legacy $insight_alert_firing destination that has no alert_id filter', async () => {
+            const fn = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                filters: {
+                    ...HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    events: [{ id: '$insight_alert_firing', type: 'events' as const }],
+                },
+            })
+            const event = createInternalEvent(team.id, {})
+            event.event.event = '$insight_alert_firing'
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.map((invocation) => invocation.functionId)).toEqual([fn.id])
+        })
     })
 })
