@@ -14,6 +14,7 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.slack_formatting import (
+    SLACK_SECTION_TEXT_MAX_LEN,
     chunk_slack_mrkdwn,
     escape_slack_mrkdwn,
     markdown_to_slack_mrkdwn,
@@ -285,15 +286,19 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
 
 
 def _report_summary_chunks(report: SignalReport) -> list[str]:
-    """Convert the report summary to mrkdwn split by its own headings, each chunk within a section.
+    """Convert the report summary to mrkdwn, splitting into thread chunks only when it is too long.
 
-    The split runs after `strip_chart_references` so a chart link never straddles two messages, and
-    each Markdown heading starts a fresh chunk, so the thread reads section by section."""
+    A summary that fits one Slack section stays a single chunk, so a short report posts as one message
+    however many headings it has. A longer one splits at its own Markdown headings (each chunk still
+    within a section), so the thread reads section by section and keeps its full tail. The split runs
+    after `strip_chart_references` so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
+    rendered = markdown_to_slack_mrkdwn(summary_text)
+    if len(rendered) <= SLACK_SECTION_TEXT_MAX_LEN:
+        return [rendered] if rendered else []
     chunks: list[str] = []
     for segment in split_markdown_by_headings(summary_text):
-        rendered = markdown_to_slack_mrkdwn(segment.strip())
-        chunks.extend(chunk_slack_mrkdwn(rendered))
+        chunks.extend(chunk_slack_mrkdwn(markdown_to_slack_mrkdwn(segment.strip())))
     return chunks
 
 

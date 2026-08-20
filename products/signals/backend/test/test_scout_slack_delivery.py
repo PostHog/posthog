@@ -298,6 +298,42 @@ class TestScoutSlackDelivery(BaseTest):
         assert not any(text.endswith("…") for text in section_texts)
         assert any(tail_marker in text for text in section_texts)
 
+    def test_threaded_short_report_with_headings_posts_a_single_message(self) -> None:
+        # Threading must track content size, not heading count: a short report that fits one Slack
+        # section posts as one message however many headings it has, so it never floods a thread.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nshort body\n\n## Second\nshort body",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        # Only the lead message and the unconditional @PostHog follow-up reply — no per-heading replies.
+        calls = fake_client.chat_postMessage.call_args_list
+        assert len(calls) == 2
+        assert "thread_ts" not in calls[0].kwargs
+        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert len(section_texts) == 1
+        assert "First" in section_texts[0] and "Second" in section_texts[0]
+        assert calls[1].kwargs["blocks"][0]["type"] == "context"
+
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False
