@@ -416,7 +416,7 @@ export interface OrganizationOAuthApplicationApi {
     readonly id: string
     /** @maxLength 255 */
     name?: string
-    /** @maxLength 100 */
+    /** @maxLength 2048 */
     client_id?: string
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
@@ -4350,6 +4350,14 @@ export interface PatchedUserApi {
     readonly pending_invites?: readonly PendingInviteApi[]
     /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+}
+
+export interface UserGithubLoginApi {
+    /**
+     * The user's resolved GitHub login, or null when no GitHub identity is linked.
+     * @nullable
+     */
+    github_login: string | null
 }
 
 export interface UserGitHubAccountApi {

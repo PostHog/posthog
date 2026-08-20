@@ -26,7 +26,7 @@
 
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/dev"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
@@ -36,7 +36,7 @@ role "ops" {
 # than the shared cloud layers.
 role "logs" {
   env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/shared"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/shared", "roles/logs/prod/tables.hcl", "roles/logs/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
@@ -46,11 +46,12 @@ role "logs" {
 # + distributed ai_events reader; US/EU run the WarpStream variant
 # (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK dropped by migration 0248)
 # writing into a single ai_events data table. roles/ai_events/shared holds the
-# env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
-# has only the top-level shared objects (per the latest dump).
+# env-uniform person / person_distinct_id2 Distributed shims (0240). dev runs the
+# same WarpStream pipeline as the prod envs; roles/ai_events/dev downsizes the
+# Kafka consumer for dev volume.
 role "ai_events" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local"] }
-  env "dev"     { layers = ["roles/shared"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod", "roles/ai_events/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
 }
@@ -62,6 +63,7 @@ role "ai_events" {
 # ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
@@ -73,6 +75,9 @@ role "aux" {
 # join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
 # carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
 # has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
+# dev carries the channel_definition / web_pre_aggregated_teams objects + dictionaries,
+# but raw_sessions_v3 intentionally skips prod's tuning settings and the sessions-family
+# relocation is still converging — model a dev env block after it settles.
 role "sessions" {
   env "local-multi"   { layers = ["roles/shared"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/coshared/events_recent_write", "roles/sessions/shared", "roles/sessions/prod-us"] }
@@ -90,6 +95,8 @@ role "sessionsv3" {
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
 # column. Dump-baselined (no local batch-exports node).
 role "batch_exports" {
+  # dev composes the prod-us stack verbatim (verified zero drift via hclexp diff).
+  env "dev"     { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
 }

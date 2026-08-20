@@ -44,6 +44,7 @@ from posthog.hogql_queries.insights.retention.retention_validation_rules import 
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     DisallowUnsupportedDataWarehouseTimestampField,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
 )
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
@@ -151,6 +152,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             DisallowPropertyAggregationWith24HourWindows(),
             DisallowUnsupportedDataWarehouseSettings(),
             DisallowUnsupportedDataWarehouseTimestampField(),
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget(),
         )
 
     @cached_property

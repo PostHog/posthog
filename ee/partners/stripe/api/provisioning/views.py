@@ -900,6 +900,15 @@ class DeepLinksView(StripeResourceAPIView):
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
+        # A deep link logs its user straight in, so reaching this namespace is not enough.
+        if not access_token.application.provisioning.can_issue_deep_links:
+            capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
+            raise SpecError(
+                "deep_links_not_enabled",
+                "Deep links are not enabled for this partner",
+                status=403,
+            )
+
         serializer = DeepLinkSerializer(data=request.data)
         if not serializer.is_valid():
             raise SpecError("invalid_request", first_error_message(serializer.errors))

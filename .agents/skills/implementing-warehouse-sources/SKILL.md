@@ -625,13 +625,13 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 ### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
 
 > [!IMPORTANT]
-> **Not generally available — do not opt new sources in.** The flag is off everywhere and Sentry is the only source wired up, pending validation against real syncs.
+> **Not generally available — do not opt new sources in.** The flag is limited to dogfood rollouts and the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
 > This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
 
 By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
 A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
 the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
-Reference implementation: Sentry (`issue_events` / `issue_hashes` via the config flag, `issue_tag_values` via the custom iterator calling the reader directly).
+Reference implementation: Sentry's `issue_tag_values` custom iterator calling the reader directly, warehouse-mode only when an incremental watermark bounds the scan.
 
 Requirements and behavior:
 
@@ -646,14 +646,20 @@ Requirements and behavior:
 - **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
 - **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
 - **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
-- **The warehouse read must reproduce the API path's effective row set, not just its columns.** The vendor's list endpoint usually windows what it returns (server-side defaults, retention), while an incremental parent table accumulates every row ever seen — an unbounded scan therefore fans out over parents the API path never would. This is measured, not hypothetical: unbounded Sentry children produced 2–4x the rows and 2–6x the run time of the API path on aged snapshots, plus a stale-404 rate that grew with snapshot age. Set `parent_row_filter` on the `DependentEndpointConfig` (`ParentRowFilter(field=..., not_older_than=...)`) to floor the scan; the predicate is pushed into the parquet read, keeps NULL rows, adapts to string or timestamp physical columns, and an unfilterable table falls back to the API path via the eager resolve validation. Leave it unset only when the parent API genuinely returns the full collection. Before opting a source in, establish what the API path's effective window actually is — it is usually invisible in our code because the vendor applies it server-side.
+- **The warehouse read must reproduce the API path's effective row set, and if it can't, the parent is disqualified.** The vendor's list endpoint usually bounds what it returns server-side, while an incremental parent table accumulates every row ever seen — an unbounded scan fans out over parents the API path never would, multiplying child rows, billed volume, and run time on aged snapshots. Classify the parent into one of three cases before opting it in:
+  - The parent API genuinely returns the full collection → no filter needed; ideal candidate.
+  - The bound is knowable and expressible → set `parent_row_filter` on the `DependentEndpointConfig` (`ParentRowFilter(field=..., not_older_than=..., not_before=...)`); the predicate is pushed into the parquet read, keeps NULL rows, adapts to string or timestamp physical columns, and an unfilterable table falls back to the API path via eager resolve validation. A per-run watermark (`not_before`) is the safest bound, because it is self-consistent with what the child already processed.
+  - The bound depends on state you cannot know → **do not opt the parent in.** The classic shape is a listing clamped by the customer's plan (event retention, seat tier, feature entitlements): per-account, applied silently server-side, exposed by no API, and overriding any explicit range you send. No snapshot filter can reproduce a bound like that.
+    The effective bound is usually invisible in our code, so classify empirically: run the listing against a real account with and without explicit bounds, compare counts, and check whether items outside the suspected bound still serve their child endpoints.
 - **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
 - **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(..., required_columns=[...])` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
 - **Catch `WarehouseParentTableNotFoundError` around that resolve call and take the API path.** A schema row can claim a completed sync while its table is unreadable (purged, renamed, or missing the fan-out columns), and the reader is a generator, so anything it validated lazily would raise deep inside the pipeline where no fallback is left. That is why `required_columns` is validated eagerly during resolution. When falling back, also turn off any behavior that only makes sense for a warehouse snapshot (the child's stale-parent `404 → ignore`, and resume checkpoints the warehouse scan skips), so the run matches the feature-off path exactly.
 
 ## OAuth configuration
 
-Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
+Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
+`__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
 
@@ -664,10 +670,10 @@ If new:
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration kind**. In `posthog/models/integration.py`:
-   - Add to `IntegrationKind` enum.
-   - Add to `OauthIntegration.supported_kinds`.
-   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
+2. **Integration kind**.
+   - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
+   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the

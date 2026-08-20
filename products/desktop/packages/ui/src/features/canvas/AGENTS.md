@@ -62,11 +62,13 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
-  Recognition uses `channel_type`, never the name.
+  Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
+  (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
+  `channel_type`/name for a server that predates the field — never the name alone.
 - **The lock follows what a space is, not what it is called.** `channelGlyph`
-  takes a `personal` flag, and every caller holding the channel passes
-  `channelType === "personal"`; the name match behind it is a fallback for
-  surfaces that hold a bare name.
+  takes a `personal` flag; a caller holding the channel object should pass
+  `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
+  name match behind it is a fallback for surfaces that hold only a bare name.
   A public space named `personal` used to wear the lock while the real private
   space showed none, which is a space impersonating yours.
   `validateChannelName` reserves `personal` and `me` so the create and rename
@@ -197,7 +199,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 

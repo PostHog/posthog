@@ -134,6 +134,7 @@ describe('accountsTableQuery', () => {
 
         expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
         expect(plan?.query.includeChurned).toBe(true)
+        expect(plan?.query.includeIgnored).toBe(true)
     })
 
     it('drops unsupported columns instead of changing runners', () => {
