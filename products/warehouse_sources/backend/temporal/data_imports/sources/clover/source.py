@@ -222,7 +222,11 @@ You need to grant read access for every entity you want to sync, such as orders,
                 raise ValueError("Missing Clover API token")
             if not auth_type.merchant_id:
                 raise ValueError("Missing Clover merchant ID")
-            return CloverConnection(auth_type.region, auth_type.merchant_id, BearerTokenAuth(auth_type.api_token))
+            return CloverConnection(
+                region=auth_type.region,
+                merchant_id=auth_type.merchant_id,
+                auth=BearerTokenAuth(auth_type.api_token),
+            )
 
         integration_id = auth_type.clover_integration_id
         if not integration_id:
@@ -236,7 +240,11 @@ You need to grant read access for every entity you want to sync, such as orders,
             raise ValueError("Clover integration is missing a merchant ID")
 
         token = resolve_clover_oauth_token(integration_id, team_id)
-        return CloverConnection(region, merchant_id, CloverIntegrationAuth(integration_id, team_id, token))
+        return CloverConnection(
+            region=region,
+            merchant_id=merchant_id,
+            auth=CloverIntegrationAuth(integration_id, team_id, token),
+        )
 
     def validate_credentials(
         self,
