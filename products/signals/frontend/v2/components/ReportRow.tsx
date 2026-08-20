@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
@@ -21,7 +21,7 @@ export function reportUrlFor(report: DemoReport): string {
 }
 
 export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
-    const { expandedRowId, liveActivityPhrase } = useValues(v2InboxLogic)
+    const { expandedRowId } = useValues(v2InboxLogic)
     const { toggleRowExpanded, openPrModal } = useActions(v2InboxLogic)
 
     const isExpanded = expandedRowId === report.id
@@ -41,7 +41,7 @@ export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
                     className={cn(
                         'size-2 flex-none rounded-full',
                         report.unread && 'bg-accent',
-                        report.live && 'bg-success animate-pulse motion-reduce:animate-none',
+                        report.live && 'bg-success',
                         !report.unread && !report.live && 'border border-primary'
                     )}
                 />
@@ -49,16 +49,21 @@ export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
                     <Link to={reportUrl} subtle className="font-semibold" data-attr="v2-row-headline">
                         {report.headline}
                     </Link>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
-                        <span className="font-mono tracking-wide uppercase">{report.area}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
+                        <LemonTag size="small" className="font-mono tracking-wide uppercase">
+                            {report.area}
+                        </LemonTag>
+                        {report.sources.map((source) => (
+                            <LemonTag key={source} size="small" type="muted">
+                                {source}
+                            </LemonTag>
+                        ))}
                         <span>created {report.created}</span>
-                        {report.live && <span className="text-accent italic">{liveActivityPhrase}</span>}
                     </div>
-                    {report.live && <LemonSkeleton className="h-1 max-w-96 motion-reduce:animate-none" />}
                 </div>
                 <div className="flex flex-none flex-col items-end gap-1">
                     <span className="font-mono font-semibold">{report.impact}</span>
-                    <ReportStateTag state={report.state} live={report.live} />
+                    <ReportStateTag state={report.state} />
                 </div>
                 <LemonButton
                     size="small"

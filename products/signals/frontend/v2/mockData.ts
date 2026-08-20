@@ -1,17 +1,8 @@
 import { REPORT_CONTENT } from './mockReportContent'
-import { DemoReport } from './types'
+import { DemoReport, DemoScout, DemoToggleRow } from './types'
 
 /** The report the inbox and focus surfaces treat as the flagship fix-flow demo. */
 export const DEMO_REPORT_ID = 'RPT-1042'
-
-/** Rotating activity phrases for live (still-investigating) rows. */
-export const LIVE_ACTIVITY_PHRASES = [
-    'querying error tracking…',
-    'clustering wizard bounce paths…',
-    'watching session replays…',
-    'diffing the Aug 14 rework…',
-    'checking the list-page URL writes…',
-]
 
 export const DEMO_REPORTS: DemoReport[] = [
     {
@@ -29,6 +20,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Clicking Create key computes a validation error and throws it away before render. About 340 people a day click the dead button, retry, and leave settings without a key.',
         proof: '182 session replays · 3,912 dead clicks',
+        sources: ['Autocapture', 'Session replay', 'GitHub'],
         content: REPORT_CONTENT['RPT-1042'],
         focus: {
             age: 'detected 28h ago',
@@ -71,6 +63,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         state: 'measuring',
         verdict: 'Investigation in progress. Completed chapters are readable as they land.',
         proof: 'Watch the storyboard assemble in the live view',
+        sources: ['Product analytics', 'Session replay'],
         content: REPORT_CONTENT['RPT-1044'],
     },
     {
@@ -88,6 +81,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Failed tiles show a generic message with no error code and no query id, and Try again re-runs a query that cannot succeed. Support cannot trace a single report about it.',
         proof: '1,708 users in one day · 6 tickets',
+        sources: ['Product analytics', 'Support tickets'],
         content: REPORT_CONTENT['RPT-1031'],
         focus: {
             age: 'detected 12h ago',
@@ -125,6 +119,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'The banner tells people to upgrade or raise the limit, then renders that sentence as plain text. Non-admins get no button anywhere on it. People click the instruction itself, about 63 times a day.',
         proof: '1,900 dead clicks in 30 days · 4 tickets',
+        sources: ['Autocapture', 'Support tickets'],
         content: REPORT_CONTENT['RPT-1039'],
         focus: {
             age: 'detected 2d ago',
@@ -162,6 +157,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'When the insight query behind an AI answer fails, the answer renders a dead-end error card. The query log shows 9 of 10 failures succeeding on a re-run, so people are doing the retry loop by hand.',
         proof: '97 error traces · 41 replays',
+        sources: ['Error tracking', 'Session replay'],
         content: REPORT_CONTENT['RPT-1037'],
         focus: {
             age: 'detected 3d ago',
@@ -199,6 +195,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Workspaces that gate Slack installs behind admin approval bounce the user back with a toast that assumes they clicked cancel. The denial branch captures nothing, so the funnel is blind here.',
         proof: '214 denied callbacks in 60 days',
+        sources: ['Logs', 'Product analytics'],
         content: REPORT_CONTENT['RPT-1035'],
         focus: {
             age: 'detected 3d ago',
@@ -236,6 +233,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Captures without a stack all grouped into one untriageable issue. A synthetic-stack fallback shipped 9 hours ago; grouping quality is being watched for 7 days before this resolves.',
         proof: 'stackless captures 4/hr, was ~60/hr',
+        sources: ['Error tracking'],
         content: REPORT_CONTENT['RPT-1028'],
         focus: {
             age: 'fix shipped 9h ago',
@@ -272,6 +270,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Server-side flag calls that passed their own person properties could get the wrong variant because GeoIP overwrote them. Fixed: 0 wrong evaluations in 7 days, 1,930 users recovered. An epilogue was appended to the report.',
         proof: 'closing stat verified against flag calls + replays',
+        sources: ['Feature flags', 'Session replay'],
     },
     {
         id: 'RPT-1023',
@@ -287,6 +286,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Marked disputed by S. Alvarez: the p75 step tracks one enterprise org with an unusually large config payload, not the settings rework. The engine is re-running the analysis with that correction.',
         proof: 'dispute registered · re-analysis queued',
+        sources: ['Web vitals'],
         content: REPORT_CONTENT['RPT-1023'],
     },
     {
@@ -303,6 +303,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         verdict:
             'Dismissed by M. Chen: the doubled controls are cosmetic, playback is unaffected, and a general fix risks hiding controls recorded sites genuinely use. Kept for audit.',
         proof: 'dismissed with reason · ~7 affected replays/day',
+        sources: ['Session replay'],
         content: REPORT_CONTENT['RPT-1015'],
     },
 ]
@@ -313,3 +314,151 @@ export const FOCUS_REPORTS: DemoReport[] = DEMO_REPORTS.filter((r) => r.focus)
 export function getDemoReport(id: string): DemoReport | null {
     return DEMO_REPORTS.find((r) => r.id === id) ?? null
 }
+
+export const DEMO_SCOUTS: DemoScout[] = [
+    {
+        id: 'dead-clicks',
+        name: 'Dead clicks scout',
+        watches: 'Watches autocapture for dead and rage clicks on interactive elements.',
+        cadence: 'every 30m',
+        lastRun: '14m ago',
+        openReports: 2,
+        enabled: true,
+    },
+    {
+        id: 'replay-vision',
+        name: 'Replay vision scout',
+        watches: 'Watches new session replays for broken flows and confused navigation.',
+        cadence: 'every hour',
+        lastRun: '22m ago',
+        openReports: 1,
+        enabled: true,
+    },
+    {
+        id: 'error-tracking',
+        name: 'Error tracking scout',
+        watches: 'Clusters new exceptions and flags grouping problems.',
+        cadence: 'every 15m',
+        lastRun: '6m ago',
+        openReports: 1,
+        enabled: true,
+    },
+    {
+        id: 'support',
+        name: 'Support scout',
+        watches: 'Reads support tickets for friction the product caused.',
+        cadence: 'every 6h',
+        lastRun: '3h ago',
+        openReports: 2,
+        enabled: true,
+    },
+    {
+        id: 'web-vitals',
+        name: 'Web vitals scout',
+        watches: 'Watches page performance for regressions after deploys.',
+        cadence: 'every hour',
+        lastRun: '41m ago',
+        openReports: 1,
+        enabled: true,
+    },
+    {
+        id: 'release',
+        name: 'Release scout',
+        watches: 'Compares each deploy against behavior changes in the hours after it.',
+        cadence: 'on every deploy',
+        lastRun: '1h ago',
+        openReports: 0,
+        enabled: true,
+    },
+    {
+        id: 'surveys',
+        name: 'Survey scout',
+        watches: 'Reads open-ended survey answers for recurring complaints.',
+        cadence: 'daily',
+        lastRun: '2d ago',
+        openReports: 0,
+        enabled: false,
+    },
+]
+
+export const SIGNAL_SOURCE_SETTINGS: DemoToggleRow[] = [
+    {
+        key: 'source:product-analytics',
+        label: 'Product analytics',
+        detail: 'Events, funnels, and trends',
+        enabled: true,
+    },
+    { key: 'source:session-replay', label: 'Session replay', detail: 'Recordings of real sessions', enabled: true },
+    { key: 'source:autocapture', label: 'Autocapture', detail: 'Clicks, dead clicks, and rage clicks', enabled: true },
+    { key: 'source:error-tracking', label: 'Error tracking', detail: 'Exceptions and issues', enabled: true },
+    {
+        key: 'source:support-tickets',
+        label: 'Support tickets',
+        detail: 'Conversations from the support inbox',
+        enabled: true,
+    },
+    { key: 'source:logs', label: 'Logs', detail: 'Server and edge logs', enabled: true },
+    { key: 'source:web-vitals', label: 'Web vitals', detail: 'Page performance metrics', enabled: true },
+    { key: 'source:surveys', label: 'Surveys', detail: 'Open-ended survey answers', enabled: false },
+]
+
+export const PR_GENERATION_SETTINGS: DemoToggleRow[] = [
+    {
+        key: 'pr:autostart',
+        label: 'Generate fix PRs automatically',
+        detail: 'Open a draft PR as soon as a fix plan is ready',
+        enabled: true,
+    },
+    {
+        key: 'pr:require-review',
+        label: 'Hold PRs as drafts until a person approves',
+        detail: 'Nothing merges without a human review',
+        enabled: true,
+    },
+    {
+        key: 'pr:launch-behind-flag',
+        label: 'Launch every fix behind a feature flag',
+        detail: 'A failing monitor reverts the flag automatically',
+        enabled: true,
+    },
+]
+
+export const CODE_ACCESS_SETTINGS: DemoToggleRow[] = [
+    {
+        key: 'code:fix-branches-only',
+        label: 'Limit writes to fix branches',
+        detail: 'The agent can only push to branches prefixed with fix/',
+        enabled: true,
+    },
+]
+
+export const NOTIFICATION_SETTINGS: DemoToggleRow[] = [
+    { key: 'notify:slack', label: 'Send new reports to Slack', detail: '#signals-feed', enabled: true },
+    {
+        key: 'notify:digest',
+        label: 'Weekly email digest',
+        detail: 'A summary of new and resolved reports every Monday',
+        enabled: true,
+    },
+    {
+        key: 'notify:worsening',
+        label: 'Alert on worsening reports',
+        detail: 'Ping the on-call channel when impact keeps growing',
+        enabled: false,
+    },
+]
+
+export const USAGE_STATS: { label: string; value: string }[] = [
+    { label: 'Reports generated', value: '14' },
+    { label: 'Fix PRs opened', value: '6' },
+    { label: 'Reports resolved', value: '4' },
+    { label: 'Scout runs', value: '1,240' },
+]
+
+/** Initial state for every demo toggle, keyed the way the settings and scouts tabs read them. */
+export const DEFAULT_DEMO_TOGGLES: Record<string, boolean> = Object.fromEntries([
+    ...DEMO_SCOUTS.map((scout): [string, boolean] => [`scout:${scout.id}`, scout.enabled]),
+    ...[...SIGNAL_SOURCE_SETTINGS, ...PR_GENERATION_SETTINGS, ...CODE_ACCESS_SETTINGS, ...NOTIFICATION_SETTINGS].map(
+        (row): [string, boolean] => [row.key, row.enabled]
+    ),
+])

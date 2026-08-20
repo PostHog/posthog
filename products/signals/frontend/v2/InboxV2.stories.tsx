@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { InboxScoutsTab } from './components/InboxScoutsTab'
+import { InboxSettingsTab } from './components/InboxSettingsTab'
 import { V2FocusScene } from './V2FocusScene'
 import { V2InboxScene } from './V2InboxScene'
 import { V2MonitorScene } from './V2MonitorScene'
@@ -22,6 +24,22 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = { render: () => <V2InboxScene /> }
+
+export const InboxScouts: Story = {
+    render: () => (
+        <div className="mx-auto max-w-4xl p-4">
+            <InboxScoutsTab />
+        </div>
+    ),
+}
+
+export const InboxSettings: Story = {
+    render: () => (
+        <div className="mx-auto max-w-4xl p-4">
+            <InboxSettingsTab />
+        </div>
+    ),
+}
 
 export const FocusMode: Story = {
     render: () => (

@@ -172,6 +172,8 @@ export interface DemoReport {
     verdict: string
     /** Mono proof line, e.g. "214 session replays · 6 tickets" */
     proof: string
+    /** Signal sources the insight was built from, shown as chips on the row */
+    sources: string[]
     focus?: ReportFocusContent
     /** Full report-page content. Resolved reports render the resolved page instead. */
     content?: DemoReportContent
@@ -182,6 +184,28 @@ export type ReportFixPhase = 'reported' | 'generating' | 'proposed' | 'sent' | '
 
 export type InboxDemoFilter = 'all' | 'attention' | 'open' | 'monitoring' | 'archived'
 export type InboxDemoSort = 'impact' | 'recency'
+export type InboxDemoTab = 'reports' | 'scouts' | 'settings'
+
+/** One scout: a watcher that reads signal sources and opens reports. */
+export interface DemoScout {
+    id: string
+    name: string
+    /** What it watches, one sentence */
+    watches: string
+    /** e.g. "every 30m" */
+    cadence: string
+    lastRun: string
+    openReports: number
+    enabled: boolean
+}
+
+/** One demo settings toggle; `enabled` seeds the toggle map in the inbox logic. */
+export interface DemoToggleRow {
+    key: string
+    label: string
+    detail?: string
+    enabled: boolean
+}
 
 /** Status a focus-mode action stamps on a report. */
 export type FocusActedStatus = 'Acknowledged' | 'Dismissed' | 'In progress'
