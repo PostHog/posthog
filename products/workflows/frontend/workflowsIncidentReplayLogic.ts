@@ -141,15 +141,21 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                     // Fetch each affected workflow by ID rather than intersecting with the list
                     // endpoint: the list caps at a page size, so in projects with more workflows
                     // than one page the affected ones can fall outside it and silently drop off
-                    // the banner. Per-ID retrieval keeps the same gates exactly - object-level
-                    // access control (403) and hard-deleted workflows (404, can't be replayed)
-                    // drop the row.
+                    // the banner. Only a definitive 403 (no access) or 404 (hard-deleted, can't
+                    // be replayed) drops a row - the same gates the list applied. A transient
+                    // retrieve failure (network, 429, 5xx) keeps the row with fallback fields,
+                    // so a blip never hides the recovery path.
                     const projectId = String(values.currentProjectId)
+                    const dropped = new Set<string>()
                     const flows = await Promise.all(
                         affected.map(async (row) => {
                             try {
                                 return await hogFlowsRetrieve(projectId, row.id)
-                            } catch {
+                            } catch (error) {
+                                const status = (error as { status?: number }).status
+                                if (status === 403 || status === 404) {
+                                    dropped.add(row.id)
+                                }
                                 return null
                             }
                         })
@@ -157,7 +163,7 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                     const flowsById = new Map(
                         flows.filter((flow): flow is HogFlowApi => flow !== null).map((flow) => [flow.id, flow])
                     )
-                    const visible = affected.filter((row) => flowsById.has(row.id))
+                    const visible = affected.filter((row) => !dropped.has(row.id))
 
                     if (visible.length === 0) {
                         return []
