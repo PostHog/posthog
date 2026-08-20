@@ -2331,24 +2331,31 @@ class _TableChunking:
     """How much of a table one read pulls at a time.
 
     Two row counts with two different jobs. `batch_rows` sizes what the pipeline receives, from
-    the sample's p95. `fetch_rows` sizes a single `FETCH`, from the sample's widest row — the
-    p95 says nothing about what a heavy region weighs, and a `FETCH` is materialised whole.
+    the sample's p95. `fetch_rows` sizes a single `FETCH`, from the sample's p99 — a `FETCH` is
+    materialised whole, so it has to be sized for the rows a heavy page is made of rather than
+    for the table's typical row.
     """
 
     batch_rows: int
     fetch_rows: int
 
 
-def _fetch_rows_for(batch_rows: int, largest_row_bytes: int | None) -> int:
-    """Rows per `FETCH` that the widest sampled row says fit in one batch budget.
+def _fetch_rows_for(batch_rows: int, wide_row_bytes: int | None) -> int:
+    """Rows per `FETCH` that the sample's p99 row says fit in one batch budget.
+
+    The p99 and not the widest row. A `FETCH` is sized for what a page of rows weighs, and one
+    outlier says nothing about that — sizing off the maximum lets a single freak row hold the
+    whole table to tiny fetches, since this becomes a hard ceiling the reader's own high-water
+    mark can shrink below but never grow above. At the p99 a table only fetches small when wide
+    rows are common enough to actually fill a page, which is the case that kills the pod.
 
     No usable measurement keeps the whole-batch `FETCH` this driver has always issued, leaving
-    the shrink to the reader's own running high-water mark. That is the pre-existing exposure,
+    the shrink to the reader's running high-water mark. That is the pre-existing exposure,
     never a new one.
     """
-    if not largest_row_bytes or largest_row_bytes <= 0:
+    if not wide_row_bytes or wide_row_bytes <= 0:
         return batch_rows
-    return max(1, min(batch_rows, EXTRACT_BATCH_MAX_BYTES // largest_row_bytes))
+    return max(1, min(batch_rows, EXTRACT_BATCH_MAX_BYTES // wide_row_bytes))
 
 
 def _estimated_row_count(
@@ -2408,11 +2415,14 @@ def _get_table_chunk_size(
             cursor.execute("SAVEPOINT _chunk_size_probe")
             savepoint_active = True
 
-        # `max` rides along on rows the p95 already materialised, so the widest row costs nothing
-        # extra to learn — and it, not the p95, is what a single `FETCH` has to survive.
+        # The extra percentile and the maximum ride along on rows the p95 already materialised,
+        # so both cost nothing to learn. The p99 sizes a `FETCH`, because that is the row size a
+        # page of rows is actually made of; the maximum is logged rather than used, since one
+        # outlier row characterises no page (see `_fetch_rows_for`).
         query = sql.SQL("""
             SELECT
                 percentile_cont(0.95) within group (order by subquery.row_size),
+                percentile_cont(0.99) within group (order by subquery.row_size),
                 max(subquery.row_size)
             FROM (
                 SELECT octet_length(t::text) as row_size FROM ({}) as t
@@ -2434,12 +2444,13 @@ def _get_table_chunk_size(
             return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
         row_size_bytes = row[0] or 1
-        largest_row_bytes = int(row[1]) if row[1] else None
+        wide_row_bytes = int(row[1]) if row[1] else None
+        largest_row_bytes = int(row[2]) if row[2] else None
         batch_rows = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-        chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, largest_row_bytes))
+        chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
         logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. largest_row_bytes={largest_row_bytes}. "
-            f"DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "
+            f"largest_row_bytes={largest_row_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
             f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
         )
         return chunking

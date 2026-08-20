@@ -5291,22 +5291,41 @@ class TestGetTableChunkSize:
             assert cursor.fetchone()[0] == 1
 
     @pytest.mark.django_db
-    def test_widest_row_shrinks_the_fetch_without_shrinking_the_batch(self):
+    def test_common_wide_rows_shrink_the_fetch_without_shrinking_the_batch(self):
+        # Wide rows sitting between the p95 and the p99: too rare to move the batch, common
+        # enough to fill a FETCH.
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TEMP TABLE skewed_rows (id int, payload text)")
-            dj_cursor.execute("INSERT INTO skewed_rows SELECT g, 'x' FROM generate_series(1, 200) g")
-            dj_cursor.execute("INSERT INTO skewed_rows VALUES (201, repeat('x', 1024 * 1024))")
-
-            chunking = _get_table_chunk_size(
-                cast(Any, dj_cursor), sql.SQL("SELECT * FROM skewed_rows").format(), logger
+            dj_cursor.execute("CREATE TEMP TABLE wide_rows (id int, payload text)")
+            dj_cursor.execute("INSERT INTO wide_rows SELECT g, 'x' FROM generate_series(1, 200) g")
+            dj_cursor.execute(
+                "INSERT INTO wide_rows SELECT g, repeat('x', 1024 * 1024) FROM generate_series(201, 206) g"
             )
 
-        # The p95 sees only narrow rows, so the batch stays large; the one megabyte row is what
-        # a single FETCH has to survive.
+            chunking = _get_table_chunk_size(cast(Any, dj_cursor), sql.SQL("SELECT * FROM wide_rows").format(), logger)
+
+        # The p95 still sees a narrow row, so the batch stays large; the FETCH does not.
         assert chunking.batch_rows > 100_000
         assert chunking.fetch_rows < 200
+
+    @pytest.mark.django_db
+    def test_a_lone_wide_row_does_not_shrink_the_fetch(self):
+        # One outlier among two hundred cannot fill a page, and the FETCH cap is a ceiling the
+        # reader can never grow back above — so pricing the whole table off it would strand every
+        # later fetch at a handful of rows for one row's sake.
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TEMP TABLE lone_wide_row (id int, payload text)")
+            dj_cursor.execute("INSERT INTO lone_wide_row SELECT g, 'x' FROM generate_series(1, 200) g")
+            dj_cursor.execute("INSERT INTO lone_wide_row VALUES (201, repeat('x', 1024 * 1024))")
+
+            chunking = _get_table_chunk_size(
+                cast(Any, dj_cursor), sql.SQL("SELECT * FROM lone_wide_row").format(), logger
+            )
+
+        assert chunking.fetch_rows == chunking.batch_rows
 
     @pytest.mark.django_db
     def test_statement_timeout_falls_back_without_poisoning_transaction(self):
@@ -5350,15 +5369,15 @@ class TestFetchRowsFor:
             # round trips for a risk only some of them carry.
             ("unmeasured", None, 100_000, 100_000),
             ("zero", 0, 100_000, 100_000),
-            # A uniform table's widest row is close to its p95, so the FETCH barely moves.
+            # A uniform table's p99 is close to its p95, so the FETCH barely moves.
             ("uniform_rows", 2 * 1024, 100_000, 76_800),
-            # Multi-megabyte values are what the cap exists for.
-            ("blob_rows", 3 * 1024 * 1024, 100_000, 50),
-            ("row_over_the_budget", 400 * 1024 * 1024, 100_000, 1),
+            # Wide rows common enough to fill a page are what the cap exists for.
+            ("wide_rows", 3 * 1024 * 1024, 100_000, 50),
+            ("wider_than_the_budget", 400 * 1024 * 1024, 100_000, 1),
         ]
     )
-    def test_derives_the_fetch_from_the_widest_row(self, _name, largest_row_bytes, batch_rows, expected):
-        assert _fetch_rows_for(batch_rows, largest_row_bytes) == expected
+    def test_derives_the_fetch_from_the_p99_row(self, _name, wide_row_bytes, batch_rows, expected):
+        assert _fetch_rows_for(batch_rows, wide_row_bytes) == expected
 
 
 class TestSamplingQuery:
