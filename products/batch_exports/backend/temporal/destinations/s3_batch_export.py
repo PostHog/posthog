@@ -735,7 +735,7 @@ class ConcurrentS3Consumer(Consumer):
     concurrent uploads and the memory buffer.
     """
 
-    UPLOAD_PART_MAX_ATTEMPTS: int = 5
+    UPLOAD_PART_MAX_ATTEMPTS: int = 10
     MAX_RETRY_DELAY: float = 32.0
     INITIAL_RETRY_DELAY: float = 1.0
     EXPONENTIAL_BACKOFF_COEFFICIENT: float = 2.0

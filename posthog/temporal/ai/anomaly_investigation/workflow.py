@@ -39,7 +39,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 

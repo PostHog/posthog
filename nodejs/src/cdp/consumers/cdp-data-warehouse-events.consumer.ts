@@ -12,13 +12,32 @@ import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import {
+    CyclotronJobInvocation,
+    HogFunctionFilterDataWarehouse,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 // Synthetic event name stamped on the synthetic event built for a warehouse-row trigger.
 // Acts as the "this globals object originated from a synced warehouse row" discriminator.
 export const WAREHOUSE_SOURCE_ROW_EVENT = '$warehouse_source_row'
+
+// The same, for a row a materialized view run added or updated. Kept distinct from the source-table
+// name so a run's origin is legible in logs and test payloads without decoding the trigger config.
+export const WAREHOUSE_VIEW_ROW_EVENT = '$warehouse_view_row'
+
+// Filter source / trigger type each kind of warehouse row matches against.
+const TRIGGER_TYPE_BY_TABLE_TYPE = {
+    source: 'data-warehouse-table',
+    view: 'data-warehouse-view',
+} as const
+
+type WarehouseTableType = keyof typeof TRIGGER_TYPE_BY_TABLE_TYPE
+
+const WAREHOUSE_TRIGGER_TYPES = new Set<string>(Object.values(TRIGGER_TYPE_BY_TABLE_TYPE))
 
 // Special property on the synthetic event holding the dot-notated source table name.
 // Used by the pipeline's eligibility predicate to match warehouse-table HogFlow triggers
@@ -84,16 +103,23 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: (fn) => (fn.filters?.source ?? 'events') === 'data-warehouse-table',
+                filterFn: (fn) => WAREHOUSE_TRIGGER_TYPES.has(fn.filters?.source ?? 'events'),
+                // Destinations pick their tables in `filters.data_warehouse`, which never reaches the
+                // filter bytecode, so without this every warehouse-triggered destination in the team
+                // ran for every table's rows.
+                invocationFilterFn: (fn, globals) =>
+                    fn.filters?.source === triggerTypeOf(globals) &&
+                    matchesSubscribedTable(fn.filters?.data_warehouse, sourceTableOf(globals)),
             }),
             // Source-compatibility matching lives in the consumer rather than the executor — the
             // consumer knows it's serving warehouse rows, so it filters flows to only those whose
-            // trigger.table_name matches the row's $source_table property. The executor then just
+            // trigger matches the row's kind and $source_table property. The executor then just
             // evaluates filter bytecode on the matched flows.
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    flow.trigger.type === 'data-warehouse-table' &&
-                    flow.trigger.table_name === globals.event?.properties?.[DWH_SOURCE_TABLE_PROPERTY],
+                    (flow.trigger.type === 'data-warehouse-table' || flow.trigger.type === 'data-warehouse-view') &&
+                    flow.trigger.type === triggerTypeOf(globals) &&
+                    flow.trigger.table_name === sourceTableOf(globals),
             }),
         ])
 
@@ -189,6 +215,36 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     }
 }
 
+/**
+ * Which trigger a row's globals can match. The synthetic event name is the discriminator, so the
+ * row's own properties stay exactly what the warehouse produced.
+ */
+function triggerTypeOf(globals: HogFunctionInvocationGlobals): string {
+    return globals.event?.event === WAREHOUSE_VIEW_ROW_EVENT
+        ? TRIGGER_TYPE_BY_TABLE_TYPE.view
+        : TRIGGER_TYPE_BY_TABLE_TYPE.source
+}
+
+function sourceTableOf(globals: HogFunctionInvocationGlobals): string {
+    const table = globals.event?.properties?.[DWH_SOURCE_TABLE_PROPERTY]
+    return typeof table === 'string' ? table : ''
+}
+
+/**
+ * An empty or absent subscription list keeps the pre-existing "match every table" behavior.
+ * Destinations saved before per-table matching existed have no entries, and tightening them here
+ * would silently stop them firing.
+ */
+function matchesSubscribedTable(
+    subscriptions: HogFunctionFilterDataWarehouse[] | undefined,
+    sourceTable: string
+): boolean {
+    if (!subscriptions?.length) {
+        return true
+    }
+    return subscriptions.some((subscription) => subscription.table_name === sourceTable)
+}
+
 function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     event: CdpDataWarehouseEvent,
     team: Team,
@@ -200,9 +256,12 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     // The synthetic event carries:
     //   - the producer's deterministic per-row id (CDPProducer._build_event_id) as the uuid, so
     //     billing dedup (keyed on event.uuid) counts each row distinctly and stably across re-runs
-    //   - `$warehouse_source_row` as the event name so downstream code can identify warehouse-row globals
-    //   - the dot-notated source table name on `properties.$source_table` so consumers can match
-    //     warehouse-table HogFlow triggers without a new top-level field on globals
+    //   - `$warehouse_source_row` or `$warehouse_view_row` as the event name, which both identifies
+    //     warehouse-row globals and says which trigger kind they can match
+    //   - the source table name on `properties.$source_table` so consumers can match warehouse
+    //     triggers without a new top-level field on globals
+    const tableType: WarehouseTableType = event.table_type ?? 'source'
+
     return {
         project: {
             id: team.id,
@@ -211,7 +270,7 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
         },
         event: {
             uuid: event.event_id,
-            event: WAREHOUSE_SOURCE_ROW_EVENT,
+            event: tableType === 'view' ? WAREHOUSE_VIEW_ROW_EVENT : WAREHOUSE_SOURCE_ROW_EVENT,
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
             properties: {
