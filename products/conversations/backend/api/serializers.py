@@ -114,11 +114,16 @@ def _sanitize_context(
     return sanitized
 
 
+MESSAGE_MAX_LENGTH = 10000
+
+
 class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
-    message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
+    # No max_length: an over-long message is truncated in validate_message, not rejected. A
+    # rejection here loses the customer's words, so it is softened the same way session_context is.
+    message = serializers.CharField(required=True, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
     session_context = serializers.DictField(
@@ -136,10 +141,11 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
         return data
 
     def validate_message(self, value):
-        """Ensure message is not empty after stripping."""
-        if not value or not value.strip():
+        """Reject an empty message, but truncate an over-long one rather than reject it."""
+        stripped = value.strip()
+        if not stripped:
             raise serializers.ValidationError("Message content is required")
-        return value.strip()
+        return stripped[:MESSAGE_MAX_LENGTH]
 
     def validate_traits(self, value: dict[str, Any]) -> dict[str, Any]:
         return _sanitize_context(
