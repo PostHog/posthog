@@ -224,430 +224,433 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
     const hiddenEvidence = content.evidence.length - 3
 
     return (
-        <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 p-4 lg:p-7">
-            <div className="flex">
-                <InboxBackButton />
-            </div>
+        <div className="flex flex-col gap-4 p-4 lg:p-7">
+            <InboxBackButton />
+            <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4">
+                {fix && phase === 'launched' ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Open fix monitor →',
+                            to: urls.v2Monitor(id),
+                            'data-attr': 'v2-report-open-monitor',
+                        }}
+                    >
+                        <span className="text-sm font-normal">The fix is live and being monitored.</span>
+                    </LemonBanner>
+                ) : null}
 
-            {fix && phase === 'launched' ? (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Open fix monitor →',
-                        to: urls.v2Monitor(id),
-                        'data-attr': 'v2-report-open-monitor',
-                    }}
-                >
-                    <span className="text-sm font-normal">The fix is live and being monitored.</span>
-                </LemonBanner>
-            ) : null}
-
-            <div className="flex rounded-lg border border-primary bg-surface-primary max-lg:flex-col">
-                <aside className="flex w-[400px] flex-none flex-col gap-5 border-r border-primary p-5 max-lg:w-auto max-lg:border-r-0 max-lg:border-b">
-                    <div className="flex flex-col gap-1">
-                        <Microlabel>Observation</Microlabel>
-                        <div className="text-xs leading-normal text-secondary">{content.observation.label}</div>
-                        <div className="flex flex-wrap items-baseline gap-2.5">
-                            <span className="font-mono text-2xl font-semibold">{observationValue}</span>
-                            <span className="font-mono text-xs text-secondary">{content.observation.unit}</span>
-                            <ReportStateTag state={report.state} live={report.live} />
+                <div className="flex rounded-lg border border-primary bg-surface-primary max-lg:flex-col">
+                    <aside className="flex w-[400px] flex-none flex-col gap-5 border-r border-primary p-5 max-lg:w-auto max-lg:border-r-0 max-lg:border-b">
+                        <div className="flex flex-col gap-1">
+                            <Microlabel>Observation</Microlabel>
+                            <div className="text-xs leading-normal text-secondary">{content.observation.label}</div>
+                            <div className="flex flex-wrap items-baseline gap-2.5">
+                                <span className="font-mono text-2xl font-semibold">{observationValue}</span>
+                                <span className="font-mono text-xs text-secondary">{content.observation.unit}</span>
+                                <ReportStateTag state={report.state} live={report.live} />
+                            </div>
                         </div>
-                    </div>
 
-                    <AnnotatedLineChart data={observationChart} height={130} live />
+                        <AnnotatedLineChart data={observationChart} height={130} live />
 
-                    {content.occurrences ? (
-                        <div className="flex flex-col gap-1.5">
-                            <div className="text-[11px] leading-normal text-secondary">{content.occurrences.label}</div>
-                            <DemoBarStrip
-                                values={content.occurrences.values}
-                                alarmFromIndex={content.occurrences.alarmFromIndex}
-                            />
-                        </div>
-                    ) : null}
-
-                    <LemonDivider className="my-0" />
-
-                    <div className="flex flex-col gap-2.5">
-                        <Microlabel>Evidence</Microlabel>
-                        {content.screenshot ? <EvidenceScreenshot screenshot={content.screenshot} /> : null}
-                        {visibleEvidence.map((card) => (
-                            <EvidenceCard key={card.title} card={card} />
-                        ))}
-                        {hiddenEvidence > 0 ? (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={toggleEvidence}
-                                className="self-start"
-                                data-attr="v2-report-toggle-evidence"
-                            >
-                                {evidenceExpanded ? 'Show less' : `Show ${hiddenEvidence} more`}
-                            </LemonButton>
+                        {content.occurrences ? (
+                            <div className="flex flex-col gap-1.5">
+                                <div className="text-[11px] leading-normal text-secondary">
+                                    {content.occurrences.label}
+                                </div>
+                                <DemoBarStrip
+                                    values={content.occurrences.values}
+                                    alarmFromIndex={content.occurrences.alarmFromIndex}
+                                />
+                            </div>
                         ) : null}
-                    </div>
 
-                    <LemonDivider className="my-0" />
+                        <LemonDivider className="my-0" />
 
-                    <div className="flex flex-col">
-                        <Microlabel>Timeline</Microlabel>
-                        <div className="mt-2 flex flex-col">
-                            {timeline.map((row) => (
-                                <TimelineRow key={`${row.time}-${row.label}`} row={row} />
+                        <div className="flex flex-col gap-2.5">
+                            <Microlabel>Evidence</Microlabel>
+                            {content.screenshot ? <EvidenceScreenshot screenshot={content.screenshot} /> : null}
+                            {visibleEvidence.map((card) => (
+                                <EvidenceCard key={card.title} card={card} />
                             ))}
-                        </div>
-                    </div>
-                </aside>
-
-                <main className="min-w-0 max-w-[760px] flex-1 p-8">
-                    <div className="mb-7 flex flex-wrap items-center gap-2.5 border-b border-primary pb-5">
-                        <span className="text-sm font-semibold">Report summary</span>
-                        <span className="font-mono text-[11px] text-secondary">
-                            {report.id} · {report.area}
-                        </span>
-                        <span className="flex-1" />
-                        <span className="text-xs text-tertiary">✦ Generated {report.created}</span>
-                    </div>
-
-                    <div className="flex flex-col gap-11">
-                        <section className="flex flex-col gap-3.5">
-                            <h1 className="m-0 text-2xl leading-tight font-bold">{content.verdictHeadline}</h1>
-                            <p className="m-0 text-base leading-relaxed text-secondary">{report.verdict}</p>
-                        </section>
-
-                        <section className="flex flex-col gap-3">
-                            <h2 className="m-0 text-lg font-semibold">Problem</h2>
-                            {content.problem.map((paragraph) => (
-                                <p key={paragraph} className="m-0 text-[15px] leading-relaxed text-secondary">
-                                    {paragraph}
-                                </p>
-                            ))}
-                            {content.replayCaption ? (
-                                <figure
-                                    id="replay"
-                                    className="m-0 mt-1 overflow-hidden rounded border border-primary bg-surface-secondary"
+                            {hiddenEvidence > 0 ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={toggleEvidence}
+                                    className="self-start"
+                                    data-attr="v2-report-toggle-evidence"
                                 >
-                                    <div className="flex items-center gap-2.5 border-b border-primary px-3.5 py-2 font-mono text-[11px] text-secondary">
-                                        <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
-                                        <span>session replay</span>
-                                        <span className="flex-1" />
-                                        <Link
-                                            onClick={() => lemonToast.info(NOT_IN_DEMO)}
-                                            className="text-[11px]"
-                                            data-attr="v2-report-open-replay"
-                                        >
-                                            Open replay ↗
-                                        </Link>
-                                    </div>
-                                    <figcaption className="px-4 py-3.5 text-sm leading-relaxed text-secondary">
-                                        {content.replayCaption}
-                                    </figcaption>
-                                </figure>
+                                    {evidenceExpanded ? 'Show less' : `Show ${hiddenEvidence} more`}
+                                </LemonButton>
                             ) : null}
-                        </section>
+                        </div>
 
-                        <section className="flex flex-col gap-3.5">
-                            <h2 className="m-0 text-lg font-semibold">Impact</h2>
-                            <div
-                                className={`grid gap-2.5 max-lg:grid-cols-1 ${
-                                    IMPACT_GRID[content.impactTiles.length] ?? 'grid-cols-3'
-                                }`}
-                            >
-                                {content.impactTiles.map((tile) => (
-                                    <MetricTile key={tile.label} tile={tile} />
+                        <LemonDivider className="my-0" />
+
+                        <div className="flex flex-col">
+                            <Microlabel>Timeline</Microlabel>
+                            <div className="mt-2 flex flex-col">
+                                {timeline.map((row) => (
+                                    <TimelineRow key={`${row.time}-${row.label}`} row={row} />
                                 ))}
                             </div>
-                        </section>
+                        </div>
+                    </aside>
 
-                        <section id="claims" className="flex flex-col gap-4">
-                            <h2 className="m-0 text-lg font-semibold">How we know</h2>
-                            <div className="flex flex-col gap-2.5">
-                                {content.howWeKnow.map((claim, index) => (
-                                    <NumberedClaim key={claim} index={index + 1}>
-                                        {claim}
-                                    </NumberedClaim>
+                    <main className="min-w-0 max-w-[760px] flex-1 p-8">
+                        <div className="mb-7 flex flex-wrap items-center gap-2.5 border-b border-primary pb-5">
+                            <span className="text-sm font-semibold">Report summary</span>
+                            <span className="font-mono text-[11px] text-secondary">
+                                {report.id} · {report.area}
+                            </span>
+                            <span className="flex-1" />
+                            <span className="text-xs text-tertiary">✦ Generated {report.created}</span>
+                        </div>
+
+                        <div className="flex flex-col gap-11">
+                            <section className="flex flex-col gap-3.5">
+                                <h1 className="m-0 text-2xl leading-tight font-bold">{content.verdictHeadline}</h1>
+                                <p className="m-0 text-base leading-relaxed text-secondary">{report.verdict}</p>
+                            </section>
+
+                            <section className="flex flex-col gap-3">
+                                <h2 className="m-0 text-lg font-semibold">Problem</h2>
+                                {content.problem.map((paragraph) => (
+                                    <p key={paragraph} className="m-0 text-[15px] leading-relaxed text-secondary">
+                                        {paragraph}
+                                    </p>
                                 ))}
-                            </div>
-                            {content.causeDiff ? (
-                                <>
-                                    {codeOpen ? (
-                                        <DemoDiffBlock
-                                            title={content.causeDiff.title}
-                                            lines={diffLinesFromSnippet(content.causeDiff.snippet)}
-                                        />
-                                    ) : null}
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={toggleCode}
-                                        className="self-start"
-                                        data-attr="v2-report-toggle-code"
+                                {content.replayCaption ? (
+                                    <figure
+                                        id="replay"
+                                        className="m-0 mt-1 overflow-hidden rounded border border-primary bg-surface-secondary"
                                     >
-                                        {codeOpen ? 'Hide the diff' : 'Show the code that caused it'}
-                                    </LemonButton>
-                                </>
-                            ) : null}
-                        </section>
-
-                        {fix ? (
-                            <section id="fix" className="flex flex-col gap-3">
-                                <h2 className="m-0 text-lg font-semibold">Fix</h2>
-                                <p className="m-0 text-[15px] leading-relaxed text-secondary">{fix.summary}</p>
-
-                                {phase === 'reported' ? (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={() => setPrModalOpen(true)}
-                                            data-attr="v2-report-fix-and-monitor"
-                                        >
-                                            Fix &amp; monitor
-                                        </LemonButton>
-                                        <SendToAgentMenu promptText={fix.agentPrompt} onSelectAgent={sendToAgent}>
-                                            <LemonButton
-                                                type="secondary"
-                                                sideIcon={<IconChevronDown />}
-                                                data-attr="v2-report-send-to-agent"
+                                        <div className="flex items-center gap-2.5 border-b border-primary px-3.5 py-2 font-mono text-[11px] text-secondary">
+                                            <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
+                                            <span>session replay</span>
+                                            <span className="flex-1" />
+                                            <Link
+                                                onClick={() => lemonToast.info(NOT_IN_DEMO)}
+                                                className="text-[11px]"
+                                                data-attr="v2-report-open-replay"
                                             >
-                                                Send to my agent
+                                                Open replay ↗
+                                            </Link>
+                                        </div>
+                                        <figcaption className="px-4 py-3.5 text-sm leading-relaxed text-secondary">
+                                            {content.replayCaption}
+                                        </figcaption>
+                                    </figure>
+                                ) : null}
+                            </section>
+
+                            <section className="flex flex-col gap-3.5">
+                                <h2 className="m-0 text-lg font-semibold">Impact</h2>
+                                <div
+                                    className={`grid gap-2.5 max-lg:grid-cols-1 ${
+                                        IMPACT_GRID[content.impactTiles.length] ?? 'grid-cols-3'
+                                    }`}
+                                >
+                                    {content.impactTiles.map((tile) => (
+                                        <MetricTile key={tile.label} tile={tile} />
+                                    ))}
+                                </div>
+                            </section>
+
+                            <section id="claims" className="flex flex-col gap-4">
+                                <h2 className="m-0 text-lg font-semibold">How we know</h2>
+                                <div className="flex flex-col gap-2.5">
+                                    {content.howWeKnow.map((claim, index) => (
+                                        <NumberedClaim key={claim} index={index + 1}>
+                                            {claim}
+                                        </NumberedClaim>
+                                    ))}
+                                </div>
+                                {content.causeDiff ? (
+                                    <>
+                                        {codeOpen ? (
+                                            <DemoDiffBlock
+                                                title={content.causeDiff.title}
+                                                lines={diffLinesFromSnippet(content.causeDiff.snippet)}
+                                            />
+                                        ) : null}
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={toggleCode}
+                                            className="self-start"
+                                            data-attr="v2-report-toggle-code"
+                                        >
+                                            {codeOpen ? 'Hide the diff' : 'Show the code that caused it'}
+                                        </LemonButton>
+                                    </>
+                                ) : null}
+                            </section>
+
+                            {fix ? (
+                                <section id="fix" className="flex flex-col gap-3">
+                                    <h2 className="m-0 text-lg font-semibold">Fix</h2>
+                                    <p className="m-0 text-[15px] leading-relaxed text-secondary">{fix.summary}</p>
+
+                                    {phase === 'reported' ? (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <LemonButton
+                                                type="primary"
+                                                onClick={() => setPrModalOpen(true)}
+                                                data-attr="v2-report-fix-and-monitor"
+                                            >
+                                                Fix &amp; monitor
                                             </LemonButton>
-                                        </SendToAgentMenu>
+                                            <SendToAgentMenu promptText={fix.agentPrompt} onSelectAgent={sendToAgent}>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    sideIcon={<IconChevronDown />}
+                                                    data-attr="v2-report-send-to-agent"
+                                                >
+                                                    Send to my agent
+                                                </LemonButton>
+                                            </SendToAgentMenu>
+                                        </div>
+                                    ) : null}
+
+                                    {phase === 'generating' ? (
+                                        <GenerationChecklist step={generationStep} steps={generationSteps} />
+                                    ) : null}
+
+                                    {phase === 'sent' ? (
+                                        <div className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-4">
+                                            <div className="flex items-center gap-2">
+                                                <PulsingDot />
+                                                <span className="font-mono text-[10px] tracking-wider text-accent uppercase">
+                                                    Handed off to {agentName}
+                                                </span>
+                                            </div>
+                                            <div className="text-[13px] leading-relaxed text-secondary">
+                                                Branch <Mono>{fix.branch}</Mono> created with the full report attached:
+                                                root cause, evidence links, success criteria. This report is watching
+                                                GitHub and will pick up the commit when it lands.
+                                            </div>
+                                            <LemonSkeleton className="h-1 max-w-[420px]" />
+                                        </div>
+                                    ) : null}
+
+                                    {phase === 'committed' ? (
+                                        <div className="flex flex-col gap-2.5 rounded border border-success bg-surface-primary p-4">
+                                            <div className="flex items-center gap-2">
+                                                <span className="inline-flex h-3.5 w-3.5 flex-none items-center justify-center rounded-full bg-fill-success-highlight text-[8px] font-bold text-success">
+                                                    ✓
+                                                </span>
+                                                <span className="font-mono text-[10px] tracking-wider text-success uppercase">
+                                                    Commit detected on {fix.branch}
+                                                </span>
+                                            </div>
+                                            <div className="text-[13px] leading-relaxed text-secondary">
+                                                <Mono>{DEMO_COMMIT_SHA}</Mono> pushed via {agentName} 12 minutes ago,{' '}
+                                                {filesLabel}, +{changeStats.added} −{changeStats.removed}. The diff
+                                                matches the recommended fix and is shown below. Nothing has shipped yet:
+                                                launching still runs it behind the flag with monitoring.
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <LemonButton
+                                                    type="primary"
+                                                    onClick={launch}
+                                                    data-attr="v2-report-launch-from-commit"
+                                                >
+                                                    Launch experiment &amp; monitor
+                                                </LemonButton>
+                                                <Link
+                                                    onClick={() => lemonToast.info(NOT_IN_DEMO)}
+                                                    className="text-[13px]"
+                                                    data-attr="v2-report-view-commit"
+                                                >
+                                                    View commit on GitHub ↗
+                                                </Link>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    {phase === 'launched' ? (
+                                        <p className="m-0 text-[13px] leading-relaxed text-success">
+                                            ✓ Launched behind <Mono>{fix.flagKey}</Mono>. Live results are in the
+                                            monitoring section below, day 1 of {monitoringDays}.
+                                        </p>
+                                    ) : null}
+                                </section>
+                            ) : report.live ? (
+                                <section className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-4">
+                                    <div className="flex items-center gap-2">
+                                        <PulsingDot />
+                                        <span className="font-mono text-[10px] tracking-wider text-accent uppercase">
+                                            Investigation still running
+                                        </span>
                                     </div>
-                                ) : null}
+                                    <p className="m-0 text-[13px] leading-relaxed text-secondary">
+                                        A fix proposal lands here when the storyboard completes. Chapters above are
+                                        already final and will not change.
+                                    </p>
+                                    <LemonSkeleton className="h-1 max-w-[420px]" />
+                                </section>
+                            ) : report.state === 'disputed' ? (
+                                <LemonBanner type="warning">
+                                    <span className="text-sm font-normal">{report.verdict}</span>
+                                </LemonBanner>
+                            ) : report.state === 'dismissed' ? (
+                                <section className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-4">
+                                    <span className="font-mono text-[10px] tracking-wider text-secondary uppercase">
+                                        Dismissed
+                                    </span>
+                                    <p className="m-0 text-[13px] leading-relaxed text-secondary">{report.verdict}</p>
+                                </section>
+                            ) : null}
 
-                                {phase === 'generating' ? (
-                                    <GenerationChecklist step={generationStep} steps={generationSteps} />
-                                ) : null}
-
-                                {phase === 'sent' ? (
-                                    <div className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-4">
-                                        <div className="flex items-center gap-2">
-                                            <PulsingDot />
-                                            <span className="font-mono text-[10px] tracking-wider text-accent uppercase">
-                                                Handed off to {agentName}
+                            {showChanges && fix ? (
+                                <section id="changes" className="flex flex-col gap-4">
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex flex-wrap items-center gap-2.5">
+                                            <h2 className="m-0 text-lg font-semibold">{changesTitle}</h2>
+                                            {phase !== 'committed' ? (
+                                                <Link
+                                                    onClick={() => lemonToast.info(NOT_IN_DEMO)}
+                                                    className="font-mono text-[11px] font-semibold"
+                                                    data-attr="v2-report-view-pr"
+                                                >
+                                                    {phase === 'proposed'
+                                                        ? `draft PR #${DEMO_PR_NUMBER} on GitHub ↗`
+                                                        : `PR #${DEMO_PR_NUMBER} ↗`}
+                                                </Link>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2.5 font-mono text-[11px] text-secondary">
+                                            {committedByAgent ? (
+                                                <span>
+                                                    {fix.branch} · {DEMO_COMMIT_SHA} ·
+                                                </span>
+                                            ) : null}
+                                            <span>
+                                                <span className="font-semibold text-success">+{changeStats.added}</span>{' '}
+                                                <span className="font-semibold text-danger">
+                                                    −{changeStats.removed}
+                                                </span>{' '}
+                                                · {filesLabel}
+                                            </span>
+                                            <span className="rounded-full border border-primary bg-surface-secondary px-2 py-0.5 text-[10.5px]">
+                                                {agentName ? `via ${agentName}` : `✦ ${model} · ${effort} effort`}
                                             </span>
                                         </div>
-                                        <div className="text-[13px] leading-relaxed text-secondary">
-                                            Branch <Mono>{fix.branch}</Mono> created with the full report attached: root
-                                            cause, evidence links, success criteria. This report is watching GitHub and
-                                            will pick up the commit when it lands.
-                                        </div>
-                                        <LemonSkeleton className="h-1 max-w-[420px]" />
                                     </div>
-                                ) : null}
 
-                                {phase === 'committed' ? (
-                                    <div className="flex flex-col gap-2.5 rounded border border-success bg-surface-primary p-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="inline-flex h-3.5 w-3.5 flex-none items-center justify-center rounded-full bg-fill-success-highlight text-[8px] font-bold text-success">
-                                                ✓
-                                            </span>
-                                            <span className="font-mono text-[10px] tracking-wider text-success uppercase">
-                                                Commit detected on {fix.branch}
-                                            </span>
-                                        </div>
-                                        <div className="text-[13px] leading-relaxed text-secondary">
-                                            <Mono>{DEMO_COMMIT_SHA}</Mono> pushed via {agentName} 12 minutes ago,{' '}
-                                            {filesLabel}, +{changeStats.added} −{changeStats.removed}. The diff matches
-                                            the recommended fix and is shown below. Nothing has shipped yet: launching
-                                            still runs it behind the flag with monitoring.
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-3">
+                                    <div className="flex flex-col gap-2.5">
+                                        {fix.changes.map((change, index) => (
+                                            <div key={change.file} className="flex flex-col gap-2.5">
+                                                <NumberedClaim index={index + 1}>
+                                                    <strong className="font-mono text-[13px] text-primary">
+                                                        {change.file}
+                                                    </strong>
+                                                </NumberedClaim>
+                                                <DemoDiffBlock
+                                                    className="ml-7"
+                                                    lines={diffLinesFromSnippet(change.snippet)}
+                                                />
+                                                {change.note ? (
+                                                    <p className="m-0 ml-7 text-[13px] leading-relaxed text-secondary">
+                                                        {change.note}
+                                                    </p>
+                                                ) : null}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {phase === 'proposed' ? (
+                                        <div className="flex flex-wrap items-center gap-2 border-t border-primary pt-4">
                                             <LemonButton
                                                 type="primary"
                                                 onClick={launch}
-                                                data-attr="v2-report-launch-from-commit"
+                                                data-attr="v2-report-approve-and-launch"
                                             >
-                                                Launch experiment &amp; monitor
+                                                Approve &amp; launch experiment
                                             </LemonButton>
-                                            <Link
-                                                onClick={() => lemonToast.info(NOT_IN_DEMO)}
-                                                className="text-[13px]"
-                                                data-attr="v2-report-view-commit"
-                                            >
-                                                View commit on GitHub ↗
-                                            </Link>
-                                        </div>
-                                    </div>
-                                ) : null}
-
-                                {phase === 'launched' ? (
-                                    <p className="m-0 text-[13px] leading-relaxed text-success">
-                                        ✓ Launched behind <Mono>{fix.flagKey}</Mono>. Live results are in the monitoring
-                                        section below, day 1 of {monitoringDays}.
-                                    </p>
-                                ) : null}
-                            </section>
-                        ) : report.live ? (
-                            <section className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-4">
-                                <div className="flex items-center gap-2">
-                                    <PulsingDot />
-                                    <span className="font-mono text-[10px] tracking-wider text-accent uppercase">
-                                        Investigation still running
-                                    </span>
-                                </div>
-                                <p className="m-0 text-[13px] leading-relaxed text-secondary">
-                                    A fix proposal lands here when the storyboard completes. Chapters above are already
-                                    final and will not change.
-                                </p>
-                                <LemonSkeleton className="h-1 max-w-[420px]" />
-                            </section>
-                        ) : report.state === 'disputed' ? (
-                            <LemonBanner type="warning">
-                                <span className="text-sm font-normal">{report.verdict}</span>
-                            </LemonBanner>
-                        ) : report.state === 'dismissed' ? (
-                            <section className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-4">
-                                <span className="font-mono text-[10px] tracking-wider text-secondary uppercase">
-                                    Dismissed
-                                </span>
-                                <p className="m-0 text-[13px] leading-relaxed text-secondary">{report.verdict}</p>
-                            </section>
-                        ) : null}
-
-                        {showChanges && fix ? (
-                            <section id="changes" className="flex flex-col gap-4">
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex flex-wrap items-center gap-2.5">
-                                        <h2 className="m-0 text-lg font-semibold">{changesTitle}</h2>
-                                        {phase !== 'committed' ? (
-                                            <Link
-                                                onClick={() => lemonToast.info(NOT_IN_DEMO)}
-                                                className="font-mono text-[11px] font-semibold"
-                                                data-attr="v2-report-view-pr"
-                                            >
-                                                {phase === 'proposed'
-                                                    ? `draft PR #${DEMO_PR_NUMBER} on GitHub ↗`
-                                                    : `PR #${DEMO_PR_NUMBER} ↗`}
-                                            </Link>
-                                        ) : null}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2.5 font-mono text-[11px] text-secondary">
-                                        {committedByAgent ? (
-                                            <span>
-                                                {fix.branch} · {DEMO_COMMIT_SHA} ·
-                                            </span>
-                                        ) : null}
-                                        <span>
-                                            <span className="font-semibold text-success">+{changeStats.added}</span>{' '}
-                                            <span className="font-semibold text-danger">−{changeStats.removed}</span> ·{' '}
-                                            {filesLabel}
-                                        </span>
-                                        <span className="rounded-full border border-primary bg-surface-secondary px-2 py-0.5 text-[10.5px]">
-                                            {agentName ? `via ${agentName}` : `✦ ${model} · ${effort} effort`}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-col gap-2.5">
-                                    {fix.changes.map((change, index) => (
-                                        <div key={change.file} className="flex flex-col gap-2.5">
-                                            <NumberedClaim index={index + 1}>
-                                                <strong className="font-mono text-[13px] text-primary">
-                                                    {change.file}
-                                                </strong>
-                                            </NumberedClaim>
-                                            <DemoDiffBlock
-                                                className="ml-7"
-                                                lines={diffLinesFromSnippet(change.snippet)}
-                                            />
-                                            {change.note ? (
-                                                <p className="m-0 ml-7 text-[13px] leading-relaxed text-secondary">
-                                                    {change.note}
-                                                </p>
-                                            ) : null}
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {phase === 'proposed' ? (
-                                    <div className="flex flex-wrap items-center gap-2 border-t border-primary pt-4">
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={launch}
-                                            data-attr="v2-report-approve-and-launch"
-                                        >
-                                            Approve &amp; launch experiment
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => lemonToast.info(REVISE_TOAST)}
-                                            data-attr="v2-report-revise"
-                                        >
-                                            ✦ Ask PostHog AI to revise…
-                                        </LemonButton>
-                                        <SendToAgentMenu
-                                            promptText={fix.agentPrompt}
-                                            onSelectAgent={sendToAgent}
-                                            placement="top-end"
-                                        >
                                             <LemonButton
                                                 type="secondary"
-                                                sideIcon={<IconChevronDown />}
-                                                data-attr="v2-report-send-diff-to-agent"
+                                                onClick={() => lemonToast.info(REVISE_TOAST)}
+                                                data-attr="v2-report-revise"
                                             >
-                                                Send to my agent
+                                                ✦ Ask PostHog AI to revise…
                                             </LemonButton>
-                                        </SendToAgentMenu>
-                                    </div>
-                                ) : null}
-                            </section>
-                        ) : null}
+                                            <SendToAgentMenu
+                                                promptText={fix.agentPrompt}
+                                                onSelectAgent={sendToAgent}
+                                                placement="top-end"
+                                            >
+                                                <LemonButton
+                                                    type="secondary"
+                                                    sideIcon={<IconChevronDown />}
+                                                    data-attr="v2-report-send-diff-to-agent"
+                                                >
+                                                    Send to my agent
+                                                </LemonButton>
+                                            </SendToAgentMenu>
+                                        </div>
+                                    ) : null}
+                                </section>
+                            ) : null}
 
-                        {fix && phase === 'launched' ? (
-                            <section id="monitor-inline" className="flex flex-col gap-3.5">
-                                <div className="flex flex-wrap items-center gap-2.5">
-                                    <h2 className="m-0 text-lg font-semibold">Monitoring</h2>
-                                    <LemonTag type="primary">Day 1 of {monitoringDays} · auto-halt armed</LemonTag>
-                                    <span className="flex-1" />
-                                    <Link
-                                        to={urls.v2Monitor(id)}
-                                        className="text-[13px] font-semibold"
-                                        data-attr="v2-report-open-full-monitor"
-                                    >
-                                        Open full monitor →
-                                    </Link>
-                                </div>
-                                <div className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-4">
-                                    <div className="flex items-baseline gap-2.5">
-                                        <span className="font-mono text-xs text-secondary">{fix.flagKey}</span>
+                            {fix && phase === 'launched' ? (
+                                <section id="monitor-inline" className="flex flex-col gap-3.5">
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                        <h2 className="m-0 text-lg font-semibold">Monitoring</h2>
+                                        <LemonTag type="primary">Day 1 of {monitoringDays} · auto-halt armed</LemonTag>
                                         <span className="flex-1" />
-                                        <span className="font-mono text-lg font-semibold">{rolloutStart}%</span>
+                                        <Link
+                                            to={urls.v2Monitor(id)}
+                                            className="text-[13px] font-semibold"
+                                            data-attr="v2-report-open-full-monitor"
+                                        >
+                                            Open full monitor →
+                                        </Link>
                                     </div>
-                                    <LemonProgress percent={rolloutStart} strokeColor="var(--color-accent)" />
-                                    <div className="flex justify-between font-mono text-[11px] text-secondary">
-                                        <span className="font-semibold text-accent">{rolloutStart}% · now</span>
-                                        <span>50% · day 2</span>
-                                        <span>100% · day 3</span>
+                                    <div className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-4">
+                                        <div className="flex items-baseline gap-2.5">
+                                            <span className="font-mono text-xs text-secondary">{fix.flagKey}</span>
+                                            <span className="flex-1" />
+                                            <span className="font-mono text-lg font-semibold">{rolloutStart}%</span>
+                                        </div>
+                                        <LemonProgress percent={rolloutStart} strokeColor="var(--color-accent)" />
+                                        <div className="flex justify-between font-mono text-[11px] text-secondary">
+                                            <span className="font-semibold text-accent">{rolloutStart}% · now</span>
+                                            <span>50% · day 2</span>
+                                            <span>100% · day 3</span>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex flex-col">
-                                    {monitoringCriteria.map((criterion) => (
-                                        <CriteriaRow
-                                            key={criterion}
-                                            icon="●"
-                                            iconClassName="bg-fill-info-highlight text-accent"
-                                            label={criterion}
-                                            value="watching"
-                                            valueClassName="text-accent"
-                                        />
-                                    ))}
-                                </div>
-                            </section>
-                        ) : null}
-                    </div>
-                </main>
-            </div>
+                                    <div className="flex flex-col">
+                                        {monitoringCriteria.map((criterion) => (
+                                            <CriteriaRow
+                                                key={criterion}
+                                                icon="●"
+                                                iconClassName="bg-fill-info-highlight text-accent"
+                                                label={criterion}
+                                                value="watching"
+                                                valueClassName="text-accent"
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
+                            ) : null}
+                        </div>
+                    </main>
+                </div>
 
-            {fix ? (
-                <CreatePrModal
-                    isOpen={prModalOpen}
-                    flagKey={fix.flagKey}
-                    monitoringCriteria={fix.monitoringCriteria}
-                    onClose={() => setPrModalOpen(false)}
-                    onConfirm={startGeneration}
-                />
-            ) : null}
+                {fix ? (
+                    <CreatePrModal
+                        isOpen={prModalOpen}
+                        flagKey={fix.flagKey}
+                        monitoringCriteria={fix.monitoringCriteria}
+                        onClose={() => setPrModalOpen(false)}
+                        onConfirm={startGeneration}
+                    />
+                ) : null}
+            </div>
         </div>
     )
 }

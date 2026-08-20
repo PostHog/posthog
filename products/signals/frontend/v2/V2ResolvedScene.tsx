@@ -89,206 +89,214 @@ export function V2ResolvedScene({ id = RESOLVED_DEMO_REPORT_ID }: V2ResolvedScen
     }
 
     return (
-        <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 p-4 lg:p-7">
-            <div className="flex flex-wrap items-center gap-3.5">
-                <InboxBackButton />
-                <span className="text-[15px] font-bold">{id}</span>
-                <span className="font-mono text-[11px] font-semibold tracking-wider text-secondary uppercase">
-                    {area}
-                </span>
-                <LemonTag type="success">Resolved</LemonTag>
-                <span className="text-xs text-tertiary">
-                    resolved Aug 18 ·{' '}
-                    <Link to={urls.v2Report(id)} className="text-secondary" data-attr="v2-resolved-view-original">
-                        view the original report
-                    </Link>
-                </span>
-                <span className="flex-1" />
-                <span className="text-xs text-tertiary">
-                    Report → Launch → Monitor → <strong className="text-primary">Resolve</strong>
-                </span>
-                <LemonButton type="secondary" onClick={copyPageLink} data-attr="v2-resolved-share">
-                    Share
-                </LemonButton>
-            </div>
+        <div className="flex flex-col gap-4 p-4 lg:p-7">
+            <InboxBackButton />
+            <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-3.5">
+                    <span className="text-[15px] font-bold">{id}</span>
+                    <span className="font-mono text-[11px] font-semibold tracking-wider text-secondary uppercase">
+                        {area}
+                    </span>
+                    <LemonTag type="success">Resolved</LemonTag>
+                    <span className="text-xs text-tertiary">
+                        resolved Aug 18 ·{' '}
+                        <Link to={urls.v2Report(id)} className="text-secondary" data-attr="v2-resolved-view-original">
+                            view the original report
+                        </Link>
+                    </span>
+                    <span className="flex-1" />
+                    <span className="text-xs text-tertiary">
+                        Report → Launch → Monitor → <strong className="text-primary">Resolve</strong>
+                    </span>
+                    <LemonButton type="secondary" onClick={copyPageLink} data-attr="v2-resolved-share">
+                        Share
+                    </LemonButton>
+                </div>
 
-            <div className="flex rounded-lg border border-primary bg-surface-primary max-lg:flex-col">
-                <aside className="flex w-[400px] flex-none flex-col gap-5 border-r border-primary p-5 max-lg:w-auto max-lg:border-r-0 max-lg:border-b">
-                    <div className="flex flex-col gap-1">
-                        <Microlabel>Observation</Microlabel>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-secondary">
-                            <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
-                            <span>Wrong variant evaluations per day</span>
+                <div className="flex rounded-lg border border-primary bg-surface-primary max-lg:flex-col">
+                    <aside className="flex w-[400px] flex-none flex-col gap-5 border-r border-primary p-5 max-lg:w-auto max-lg:border-r-0 max-lg:border-b">
+                        <div className="flex flex-col gap-1">
+                            <Microlabel>Observation</Microlabel>
+                            <div className="mt-1 flex items-center gap-2 text-xs text-secondary">
+                                <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
+                                <span>Wrong variant evaluations per day</span>
+                            </div>
+                            <div className="flex items-baseline gap-2.5">
+                                <span className="font-mono text-2xl font-semibold">0/day</span>
+                                <LemonTag type="success" className="font-mono">
+                                    was 276/day at peak
+                                </LemonTag>
+                            </div>
                         </div>
-                        <div className="flex items-baseline gap-2.5">
-                            <span className="font-mono text-2xl font-semibold">0/day</span>
-                            <LemonTag type="success" className="font-mono">
-                                was 276/day at peak
-                            </LemonTag>
+
+                        <div className="flex flex-col gap-0.5">
+                            <AnnotatedLineChart data={WRONG_VARIANT_CHART} height={130} />
+                            <div className="mt-1.5 text-[11px] text-secondary">
+                                Full arc: the cause deploy, the wrong variants it served, the fix, and a flat floor
+                                since.
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="flex flex-col gap-0.5">
-                        <AnnotatedLineChart data={WRONG_VARIANT_CHART} height={130} />
-                        <div className="mt-1.5 text-[11px] text-secondary">
-                            Full arc: the cause deploy, the wrong variants it served, the fix, and a flat floor since.
-                        </div>
-                    </div>
+                        <LemonDivider className="my-0" />
 
-                    <LemonDivider className="my-0" />
-
-                    <div className="flex flex-col">
-                        <Microlabel>Timeline</Microlabel>
-                        <div className="mt-2 flex flex-col">
-                            {TIMELINE.map((row) => (
-                                <div
-                                    key={row.label}
-                                    className="flex items-center gap-3 border-b border-primary py-2 last:border-b-0"
-                                >
-                                    <span className={`h-1.5 w-1.5 flex-none rounded-full ${DOT_COLOR[row.color]}`} />
-                                    <span className="flex-1 text-[13px]">{row.label}</span>
-                                    <span className="font-mono text-[11px] text-secondary">{row.time}</span>
-                                    <span
-                                        className={`min-w-[52px] rounded bg-surface-secondary px-1.5 py-0.5 text-center font-mono text-[11px] ${
-                                            CHIP_TEXT_COLOR[row.color]
-                                        }`}
-                                    >
-                                        {row.chip}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </aside>
-
-                <main className="min-w-0 max-w-[760px] flex-1 p-8">
-                    <div className="mb-7 flex flex-wrap items-center gap-2.5 border-b border-primary pb-5">
-                        <span className="text-sm font-semibold">Report summary</span>
-                        <LemonTag type="success">reopened with results</LemonTag>
-                        <span className="flex-1" />
-                        <span className="text-xs text-tertiary">✦ Updated Aug 18, 07:05 UTC</span>
-                    </div>
-
-                    <div className="flex flex-col gap-11">
-                        <section className="flex flex-col gap-3.5">
-                            <h1 className="m-0 text-2xl leading-tight font-bold">
-                                Fixed: server-side flags respect the properties you send
-                            </h1>
-                            <p className="m-0 text-base leading-relaxed text-secondary">
-                                Enrichment now only fills person properties the caller did not send. Wrong variant
-                                evaluations hit 0 on Aug 11 and stayed there through the 7-day verification window.{' '}
-                                <strong className="text-primary">1,930 users recovered</strong> the variant they should
-                                have had all along.
-                            </p>
-                        </section>
-
-                        <section className="flex flex-col gap-3.5">
-                            <h2 className="m-0 text-lg font-semibold">What's changed since Aug 9</h2>
-                            <div className="flex flex-col">
-                                {DELTAS.map((delta) => (
+                        <div className="flex flex-col">
+                            <Microlabel>Timeline</Microlabel>
+                            <div className="mt-2 flex flex-col">
+                                {TIMELINE.map((row) => (
                                     <div
-                                        key={delta.label}
-                                        className="flex items-baseline gap-3.5 border-b border-primary py-2.5 last:border-b-0"
+                                        key={row.label}
+                                        className="flex items-center gap-3 border-b border-primary py-2 last:border-b-0"
                                     >
-                                        <span className="flex-1 text-sm">{delta.label}</span>
-                                        <span className="font-mono text-[13px] text-tertiary line-through">
-                                            {delta.was}
-                                        </span>
-                                        <span className="text-xs text-tertiary">→</span>
                                         <span
-                                            className={`min-w-16 text-right font-mono text-[13px] font-semibold ${
-                                                delta.recovered ? 'text-success' : 'text-danger'
+                                            className={`h-1.5 w-1.5 flex-none rounded-full ${DOT_COLOR[row.color]}`}
+                                        />
+                                        <span className="flex-1 text-[13px]">{row.label}</span>
+                                        <span className="font-mono text-[11px] text-secondary">{row.time}</span>
+                                        <span
+                                            className={`min-w-[52px] rounded bg-surface-secondary px-1.5 py-0.5 text-center font-mono text-[11px] ${
+                                                CHIP_TEXT_COLOR[row.color]
                                             }`}
                                         >
-                                            {delta.now}
+                                            {row.chip}
                                         </span>
                                     </div>
                                 ))}
                             </div>
-                            <p className="m-0 text-[13px] leading-relaxed text-secondary">
-                                Verified against 7 days of server-side flag calls after the fix shipped: every
-                                evaluation matched the person properties the caller sent with the request.
-                            </p>
-                        </section>
+                        </div>
+                    </aside>
 
-                        <section className="flex flex-col gap-3">
-                            <h2 className="m-0 text-lg font-semibold">One thing didn't recover</h2>
-                            <p className="m-0 text-[15px] leading-relaxed text-secondary">
-                                <strong className="text-primary">
-                                    Support tickets have not gone back to zero yet.
-                                </strong>{' '}
-                                About one a week still comes from someone whose client cached the wrong variant before
-                                the fix. Those clear on their own as sessions expire, and this report stays linked from
-                                each ticket so support can answer in one click.
-                            </p>
-                            <div className="flex flex-wrap items-center gap-3.5 rounded border border-primary bg-surface-secondary p-4">
-                                <LemonTag type="highlight">New opportunity</LemonTag>
-                                <span className="flex-1 text-[13px] leading-normal text-secondary">
-                                    Add a regression test that pins caller-supplied person properties over server-side
-                                    enrichment, and run it for every server SDK, so this class of bug cannot ship
-                                    silently again.
-                                </span>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => lemonToast.info('Not part of this demo')}
-                                    data-attr="v2-resolved-open-suggestion"
-                                >
-                                    Open suggestion
-                                </LemonButton>
-                            </div>
-                        </section>
+                    <main className="min-w-0 max-w-[760px] flex-1 p-8">
+                        <div className="mb-7 flex flex-wrap items-center gap-2.5 border-b border-primary pb-5">
+                            <span className="text-sm font-semibold">Report summary</span>
+                            <LemonTag type="success">reopened with results</LemonTag>
+                            <span className="flex-1" />
+                            <span className="text-xs text-tertiary">✦ Updated Aug 18, 07:05 UTC</span>
+                        </div>
 
-                        <section className="flex flex-col gap-3.5">
-                            <div className="flex items-center gap-3">
-                                <h2 className="m-0 text-lg font-semibold text-secondary">Original report · Aug 9</h2>
-                                <span className="h-px flex-1 bg-[var(--color-border-primary)]" />
-                            </div>
-                            <LemonCollapse
-                                panels={[
-                                    {
-                                        key: 'original',
-                                        dataAttr: 'v2-resolved-original-report',
-                                        header: (
-                                            <span className="text-[13px] font-normal text-tertiary">
-                                                Server-side flag calls that passed person properties could evaluate the
-                                                wrong variant, because GeoIP enrichment overwrote them · 1,930 users ·
-                                                10 days.
+                        <div className="flex flex-col gap-11">
+                            <section className="flex flex-col gap-3.5">
+                                <h1 className="m-0 text-2xl leading-tight font-bold">
+                                    Fixed: server-side flags respect the properties you send
+                                </h1>
+                                <p className="m-0 text-base leading-relaxed text-secondary">
+                                    Enrichment now only fills person properties the caller did not send. Wrong variant
+                                    evaluations hit 0 on Aug 11 and stayed there through the 7-day verification window.{' '}
+                                    <strong className="text-primary">1,930 users recovered</strong> the variant they
+                                    should have had all along.
+                                </p>
+                            </section>
+
+                            <section className="flex flex-col gap-3.5">
+                                <h2 className="m-0 text-lg font-semibold">What's changed since Aug 9</h2>
+                                <div className="flex flex-col">
+                                    {DELTAS.map((delta) => (
+                                        <div
+                                            key={delta.label}
+                                            className="flex items-baseline gap-3.5 border-b border-primary py-2.5 last:border-b-0"
+                                        >
+                                            <span className="flex-1 text-sm">{delta.label}</span>
+                                            <span className="font-mono text-[13px] text-tertiary line-through">
+                                                {delta.was}
                                             </span>
-                                        ),
-                                        content: (
-                                            <div className="flex flex-col gap-2.5 py-2">
-                                                <h3 className="m-0 text-base font-bold">
-                                                    GeoIP overwrote person properties sent by server SDKs.
-                                                </h3>
-                                                <p className="m-0 text-sm leading-relaxed text-secondary">
-                                                    Flag calls from server SDKs can pass their own person properties
-                                                    with the request. Deploy <Mono>b2d47e1</Mono> moved GeoIP enrichment
-                                                    ahead of those properties, so enrichment overwrote what the caller
-                                                    sent and a flag targeted on a caller-supplied property matched the
-                                                    wrong rule. <strong className="text-primary">1,930 users</strong>{' '}
-                                                    saw a wrong variant over 10 days.
-                                                </p>
-                                                <p className="m-0 text-sm leading-relaxed text-secondary">
-                                                    The fix reorders enrichment so it only fills properties the caller
-                                                    did not send. Caller-supplied values win, and the evaluation matches
-                                                    what the SDK asked for.
-                                                </p>
-                                                <Link
-                                                    to={urls.v2Report(id)}
-                                                    className="text-[13px]"
-                                                    data-attr="v2-resolved-read-original"
-                                                >
-                                                    Read the full original report →
-                                                </Link>
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
-                        </section>
-                    </div>
-                </main>
+                                            <span className="text-xs text-tertiary">→</span>
+                                            <span
+                                                className={`min-w-16 text-right font-mono text-[13px] font-semibold ${
+                                                    delta.recovered ? 'text-success' : 'text-danger'
+                                                }`}
+                                            >
+                                                {delta.now}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="m-0 text-[13px] leading-relaxed text-secondary">
+                                    Verified against 7 days of server-side flag calls after the fix shipped: every
+                                    evaluation matched the person properties the caller sent with the request.
+                                </p>
+                            </section>
+
+                            <section className="flex flex-col gap-3">
+                                <h2 className="m-0 text-lg font-semibold">One thing didn't recover</h2>
+                                <p className="m-0 text-[15px] leading-relaxed text-secondary">
+                                    <strong className="text-primary">
+                                        Support tickets have not gone back to zero yet.
+                                    </strong>{' '}
+                                    About one a week still comes from someone whose client cached the wrong variant
+                                    before the fix. Those clear on their own as sessions expire, and this report stays
+                                    linked from each ticket so support can answer in one click.
+                                </p>
+                                <div className="flex flex-wrap items-center gap-3.5 rounded border border-primary bg-surface-secondary p-4">
+                                    <LemonTag type="highlight">New opportunity</LemonTag>
+                                    <span className="flex-1 text-[13px] leading-normal text-secondary">
+                                        Add a regression test that pins caller-supplied person properties over
+                                        server-side enrichment, and run it for every server SDK, so this class of bug
+                                        cannot ship silently again.
+                                    </span>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => lemonToast.info('Not part of this demo')}
+                                        data-attr="v2-resolved-open-suggestion"
+                                    >
+                                        Open suggestion
+                                    </LemonButton>
+                                </div>
+                            </section>
+
+                            <section className="flex flex-col gap-3.5">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="m-0 text-lg font-semibold text-secondary">
+                                        Original report · Aug 9
+                                    </h2>
+                                    <span className="h-px flex-1 bg-[var(--color-border-primary)]" />
+                                </div>
+                                <LemonCollapse
+                                    panels={[
+                                        {
+                                            key: 'original',
+                                            dataAttr: 'v2-resolved-original-report',
+                                            header: (
+                                                <span className="text-[13px] font-normal text-tertiary">
+                                                    Server-side flag calls that passed person properties could evaluate
+                                                    the wrong variant, because GeoIP enrichment overwrote them · 1,930
+                                                    users · 10 days.
+                                                </span>
+                                            ),
+                                            content: (
+                                                <div className="flex flex-col gap-2.5 py-2">
+                                                    <h3 className="m-0 text-base font-bold">
+                                                        GeoIP overwrote person properties sent by server SDKs.
+                                                    </h3>
+                                                    <p className="m-0 text-sm leading-relaxed text-secondary">
+                                                        Flag calls from server SDKs can pass their own person properties
+                                                        with the request. Deploy <Mono>b2d47e1</Mono> moved GeoIP
+                                                        enrichment ahead of those properties, so enrichment overwrote
+                                                        what the caller sent and a flag targeted on a caller-supplied
+                                                        property matched the wrong rule.{' '}
+                                                        <strong className="text-primary">1,930 users</strong> saw a
+                                                        wrong variant over 10 days.
+                                                    </p>
+                                                    <p className="m-0 text-sm leading-relaxed text-secondary">
+                                                        The fix reorders enrichment so it only fills properties the
+                                                        caller did not send. Caller-supplied values win, and the
+                                                        evaluation matches what the SDK asked for.
+                                                    </p>
+                                                    <Link
+                                                        to={urls.v2Report(id)}
+                                                        className="text-[13px]"
+                                                        data-attr="v2-resolved-read-original"
+                                                    >
+                                                        Read the full original report →
+                                                    </Link>
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            </section>
+                        </div>
+                    </main>
+                </div>
             </div>
         </div>
     )
