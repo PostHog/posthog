@@ -184,10 +184,10 @@ export interface billingProductLogicActions {
     } // billingLogic
     loadBilling: () => any // billingLogic
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     } // billingLogic
     setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {

@@ -320,10 +320,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     }
     loadCreditOverview: () => any
