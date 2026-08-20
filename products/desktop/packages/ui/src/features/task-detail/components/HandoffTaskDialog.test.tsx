@@ -97,7 +97,6 @@ describe("HandoffTaskDialog", () => {
     renderDialog(createTask());
     await screen.findByRole("alertdialog");
 
-    // The field is the search box: clicking it opens the roster, typing narrows it.
     await user.click(screen.getByRole("combobox", { name: /hand off to/i }));
     expect(await screen.findByText("Col")).toBeInTheDocument();
     await user.keyboard("pepp");

@@ -39,10 +39,9 @@ interface PersonItem {
 }
 
 /**
- * The confirm step of a handoff. The recipient is picked from a search-first
- * combobox — the field itself is the search box, so clicking it opens the
- * roster and typing narrows it. The commit stays locked until a colleague is
- * picked AND the acknowledge box is checked. Only the recipient can reverse a
+ * The confirm step of a handoff. The field is the search box: clicking it
+ * opens the roster, typing narrows it. The commit stays locked until a
+ * colleague is picked AND the acknowledge box is checked. Only the recipient can reverse a
  * handoff, so the menu item that opens this carries an ellipsis.
  */
 export function HandoffTaskDialog({
@@ -80,7 +79,7 @@ export function HandoffTaskDialog({
     }
   }
 
-  // ids as values — the members query repolls and rebuilds its objects, so a
+  // ids as values: the members query repolls and rebuilds its objects, so a
   // selected object stops matching the list by identity and the combobox
   // silently drops the selection. Ids compare by value.
   const items = useMemo<PersonItem[]>(
