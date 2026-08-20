@@ -168,6 +168,22 @@ describe('hogFlowEditorTestLogic', () => {
         it('passes unrelated errors through unchanged', () => {
             expect(humanizeWorkflowTestError('Some other failure', workflow)).toBe('Some other failure')
         })
+
+        it('names the tested step when several steps share the missing template id', () => {
+            const workflowWithDuplicates = {
+                actions: [
+                    { id: 'step_1', name: 'First email', config: { template_id: 'template-email' } },
+                    { id: 'step_2', name: 'Second email', config: { template_id: 'template-email' } },
+                ],
+            } as unknown as HogFlow
+            const message = humanizeWorkflowTestError(
+                "Template 'template-email' not found",
+                workflowWithDuplicates,
+                'step_2'
+            )
+            expect(message).toContain('Second email')
+            expect(message).not.toContain('First email')
+        })
     })
 
     beforeEach(() => {
