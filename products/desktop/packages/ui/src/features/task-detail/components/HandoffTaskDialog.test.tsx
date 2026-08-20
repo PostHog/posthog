@@ -116,13 +116,20 @@ describe("HandoffTaskDialog", () => {
     expect(await within(dialog).findByText("Col")).toBeInTheDocument();
   });
 
-  it("hands off to the selected member with their user id", async () => {
+  it("hands off to the selected member only after the acknowledge checkbox", async () => {
     mockHandoffMutate.mockClear();
     const user = userEvent.setup();
     renderDialog(createTask());
 
     const dialog = await screen.findByRole("alertdialog");
     await user.click(await within(dialog).findByText("Col"));
+    // A pick alone isn't enough: the checkbox is what says they really read it.
+    expect(
+      within(dialog).getByRole("button", { name: "Hand off" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: /can't undo this/i }),
+    );
     await user.click(within(dialog).getByRole("button", { name: "Hand off" }));
 
     expect(mockHandoffMutate).toHaveBeenCalledWith(

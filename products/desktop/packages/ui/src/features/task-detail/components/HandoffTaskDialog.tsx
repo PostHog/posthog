@@ -14,7 +14,10 @@ import {
   AutocompleteItem,
   AutocompleteList,
   Button,
+  Checkbox,
   DialogBody,
+  Field,
+  FieldLabel,
 } from "@posthog/quill";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -55,6 +58,7 @@ export function HandoffTaskDialog({
   const { mutate: handoffTask, isPending } = useHandoffTask();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const { members, isLoading: membersLoading } = useOrgMembers();
   const { channels } = useChannels();
@@ -74,6 +78,7 @@ export function HandoffTaskDialog({
     if (open) {
       setQuery("");
       setSelectedId(null);
+      setAcknowledged(false);
     }
   }
 
@@ -112,6 +117,8 @@ export function HandoffTaskDialog({
     );
   };
 
+  const canHandOff = selected !== undefined && acknowledged;
+
   return (
     <AlertDialog
       open={open}
@@ -126,15 +133,18 @@ export function HandoffTaskDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Hand off task</AlertDialogTitle>
           <AlertDialogDescription>
-            &quot;{task.title}&quot; goes to the person you pick. They steer it
-            and get its notifications.
-            {movesToTheRecipient
-              ? " It moves into their personal space, so you lose access."
-              : ""}{" "}
-            Only they can hand it back.
+            <span className="font-medium text-foreground">{task.title}</span>{" "}
+            goes to the person you pick:
           </AlertDialogDescription>
         </AlertDialogHeader>
         <DialogBody viewportClassName="flex flex-col gap-3 px-4 pb-3">
+          <ul className="list-disc space-y-1 pl-4 text-muted-foreground text-xs">
+            <li>They steer it and get its notifications.</li>
+            {movesToTheRecipient ? (
+              <li>It moves into their personal space, so you lose access.</li>
+            ) : null}
+            <li>Only they can hand it back.</li>
+          </ul>
           <Autocomplete<PersonItem>
             inline
             defaultOpen
@@ -197,6 +207,17 @@ export function HandoffTaskDialog({
               )}
             </AutocompleteList>
           </Autocomplete>
+          <Field orientation="horizontal" className="items-center gap-2">
+            <Checkbox
+              id="handoff-acknowledge"
+              checked={acknowledged}
+              onCheckedChange={(checked) => setAcknowledged(checked === true)}
+              disabled={isPending}
+            />
+            <FieldLabel htmlFor="handoff-acknowledge" className="font-normal">
+              I understand I can&apos;t undo this myself.
+            </FieldLabel>
+          </Field>
         </DialogBody>
         <AlertDialogFooter>
           <AlertDialogClose
@@ -209,7 +230,7 @@ export function HandoffTaskDialog({
           <Button
             variant="primary"
             size="sm"
-            disabled={!selected}
+            disabled={!canHandOff}
             loading={isPending}
             onClick={handleConfirm}
           >
