@@ -670,10 +670,8 @@ jobs:
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
-            # Per-segment selected seconds — build_django_matrix sizes narrowed shards from these.
-            core_seconds: ${{ steps.classify.outputs.core_seconds }}
-            poe_seconds: ${{ steps.classify.outputs.poe_seconds }}
-            temporal_seconds: ${{ steps.classify.outputs.temporal_seconds }}
+            # Shards per segment for a narrowed run; build_django_matrix reads them as-is.
+            segment_shards: ${{ steps.classify.outputs.segment_shards }}
             run_legacy: ${{ steps.fallback.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.fallback.outputs.run_legacy_reason }}
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
@@ -731,30 +729,6 @@ jobs:
               with:
                   version: '0.11.28'
 
-            - name: Download the run's sharding plan snapshot
-              # build_django_matrix divides the selector's per-segment seconds by
-              # turbo-discover's per-shard budget, so both sides must read the same
-              # .test_durations. Without this the selector reads the committed file, whose
-              # total can differ from the cached one by more than a factor of two, and the
-              # narrowed shard counts would move with that gap instead of with the selection.
-              # Best-effort: on a miss the selector keeps the committed file.
-              id: pinned-plan
-              continue-on-error: true
-              if: steps.fallback.outputs.skip == 'false'
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: test-durations-plan
-                  path: /tmp/test-durations-plan
-
-            - name: Apply the pinned sharding plan
-              if: steps.fallback.outputs.skip == 'false' && steps.pinned-plan.outcome == 'success'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  if [ -f /tmp/test-durations-plan/.test_durations ]; then
-                      cp /tmp/test-durations-plan/.test_durations .test_durations
-                  fi
-
             - name: Run shadow selector
               id: select
               # continue-on-error so a selector or git fetch failure doesn't fail this
@@ -794,17 +768,12 @@ jobs:
                   # strips the capture job that consumes these, per the header).
                   emit_metrics() {
                       local changed="" selected="" reasons="" selected_seconds="" skipped_seconds=""
-                      local core_seconds="" poe_seconds="" temporal_seconds=""
                       if [[ -s /tmp/selection.json ]]; then
                           changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
                           selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
                           reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                           selected_seconds=$(jq -r '.durations.selected_seconds // empty' /tmp/selection.json)
                           skipped_seconds=$(jq -r '.durations.skipped_seconds // empty' /tmp/selection.json)
-                          # Per-segment seconds size the narrowed matrix; see build_django_matrix.
-                          core_seconds=$(jq -r '.durations.selected_seconds_by_segment.core // empty' /tmp/selection.json)
-                          poe_seconds=$(jq -r '.durations.selected_seconds_by_segment.poe // empty' /tmp/selection.json)
-                          temporal_seconds=$(jq -r '.durations.selected_seconds_by_segment.temporal // empty' /tmp/selection.json)
                       fi
                       {
                           echo "narrowed=$1"
@@ -814,9 +783,6 @@ jobs:
                           echo "full_run_reasons_count=$reasons"
                           echo "selected_test_seconds=$selected_seconds"
                           echo "skipped_test_seconds=$skipped_seconds"
-                          echo "core_seconds=$core_seconds"
-                          echo "poe_seconds=$poe_seconds"
-                          echo "temporal_seconds=$temporal_seconds"
                       } >> "$GITHUB_OUTPUT"
                   }
 
@@ -917,6 +883,9 @@ jobs:
                   echo "compat_files=${compat[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  # Shards per narrowed segment: turbo-discover's per-shard budget applied
+                  # to the selected tests' recorded seconds. Degrades to 1 per segment.
+                  echo "segment_shards=$(node .github/scripts/selected-django-shards.js /tmp/selection.json)" >> "$GITHUB_OUTPUT"
                   emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal, ${#compat[@]} compat"
@@ -1572,9 +1541,7 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
-                  CORE_SECONDS: ${{ needs.select-tests.outputs.core_seconds }}
-                  POE_SECONDS: ${{ needs.select-tests.outputs.poe_seconds }}
-                  TEMPORAL_SECONDS: ${{ needs.select-tests.outputs.temporal_seconds }}
+                  SEGMENT_SHARDS: ${{ needs.select-tests.outputs.segment_shards }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # select-tests deliberately does not run for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -1607,43 +1574,17 @@ jobs:
                       exit 0
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: run only the segments that have selected files, and
-                      # shard each one to the same per-shard work budget the full matrix
-                      # targets. A narrow selection stays at 1 shard; a wide one gets several,
-                      # instead of every selected test landing in a single job that then
-                      # overruns the job timeout.
-                      #
-                      # work_seconds_per_shard comes from turbo-discover and is the recorded
-                      # test work one shard of that segment may carry, so the target wall
-                      # clock, the per-segment overhead and the safety factor stay defined in
-                      # one place. Missing data (turbo-discover failed, selector wrote no
-                      # seconds) keeps the previous single shard, which is the safe direction.
-                      #
-                      # This sizes the selected *sum*. It does not model skew: a single test
-                      # near the budget still lands on one shard. Today the largest recorded
-                      # test is far below a shard budget, so packing the selected tests gives
-                      # the same count as this division does.
-                      selected_shards() {
-                          local seconds=$1 segment=$2 budget cap shards_json
-                          shards_json="${DJANGO_SHARDS_JSON:-}"
-                          [[ -z "$shards_json" ]] && shards_json='{}'
-                          budget=$(jq -r --arg s "$segment" '.[$s].work_seconds_per_shard // empty' <<< "$shards_json")
-                          cap=$(jq -r --arg s "$segment" '.[$s].shards // empty' <<< "$shards_json")
-                          if [[ -z "$seconds" || -z "$budget" || -z "$cap" ]]; then
-                              echo 1
-                              return
-                          fi
-                          # Never more shards than the full run of the same segment — a narrowed
-                          # run is a subset of it.
-                          jq -rn --argjson s "$seconds" --argjson b "$budget" --argjson c "$cap" '
-                            if $b <= 0 then 1
-                            else (($s / $b) | ceil) as $n
-                              | if $n < 1 then 1 elif $n > $c then $c else $n end
-                            end'
-                      }
+                      # Selected mode: run only the segments that have selected files. Shard
+                      # counts come from select-tests, where selected-django-shards.js applied
+                      # turbo-discover's per-shard budget to the selected tests' recorded
+                      # seconds. A wide selection therefore spreads over several jobs instead
+                      # of running to the job timeout in one. No counts means one shard per
+                      # segment.
+                      segment_shards="${SEGMENT_SHARDS:-}"
+                      [[ -z "$segment_shards" ]] && segment_shards='{}'
 
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=$(selected_shards "$CORE_SECONDS" Core)
+                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core // 1' <<< "$segment_shards")
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1671,7 +1612,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=$(selected_shards "$POE_SECONDS" CorePOE)
+                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe // 1' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1699,7 +1640,7 @@ jobs:
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(selected_shards "$TEMPORAL_SECONDS" Temporal)
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal // 1' <<< "$segment_shards")
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",

@@ -639,10 +639,11 @@ def segments_for_test_file(path: str) -> frozenset[str]:
 
 
 def selected_seconds_by_segment(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
-    """Selected test-execution seconds per Django matrix segment. The matrix job divides
-    these by the per-shard budget turbo-discover reports, so a narrowed run gets the same
-    shard length as a full one instead of a fixed single shard. POE files count in both
-    core and poe, matching the two matrix legs that run them."""
+    """Selected test-execution seconds per Django matrix segment.
+    .github/scripts/selected-django-shards.js runs these through turbo-discover's shard
+    sizing, so a narrowed run gets the same per-shard budget as a full one instead of a
+    fixed single shard. POE files count in both core and poe, matching the two matrix
+    legs that run them."""
     test_file_set = set(test_files)
     totals = {"core": 0.0, "poe": 0.0, "temporal": 0.0}
     for test_id, duration in durations.items():
