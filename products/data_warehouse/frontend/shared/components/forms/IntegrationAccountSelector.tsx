@@ -426,7 +426,7 @@ function IntegrationAccountFieldWithDropdown({
                         )}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
                             <p className="m-0 text-xs text-warning">
-                                No accounts to show. If you know the account ID, enter it above and save. You can also{' '}
+                                No accounts to show. If you know the {fieldLabel}, enter it above and save. You can also{' '}
                                 <ReconnectLink integrationKind={integrationKind} /> to grant access to more accounts.
                             </p>
                         )}
