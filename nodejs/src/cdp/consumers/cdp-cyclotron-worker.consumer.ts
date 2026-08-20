@@ -61,7 +61,11 @@ export class CdpCyclotronWorker<
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
-        const failedInvocations: { invocation: CyclotronJobInvocation; errorKind: string; error: string }[] = []
+        const failedInvocations: {
+            invocation: CyclotronJobInvocation | CyclotronJobInvocationHogFunction
+            errorKind: string
+            error: string
+        }[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
