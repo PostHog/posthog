@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]):
     # v2 is declared so new sources are stamped with the vendor's current API generation, but the
-    # endpoints this source reads are v1-only (see pandadoc.py) — both pins resolve to the same wire.
+    # endpoints this source reads are v1-only (see pandadoc.py), so both pins resolve to the same wire.
     supported_versions = (API_VERSION_V1, API_VERSION_V2)
     default_version = API_VERSION_V2
     api_docs_url = "https://developers.pandadoc.com/reference/version"

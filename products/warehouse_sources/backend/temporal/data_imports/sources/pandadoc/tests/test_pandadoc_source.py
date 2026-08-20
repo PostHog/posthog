@@ -28,7 +28,7 @@ class TestPandaDocSource:
     def test_declares_v1_and_v2_with_v2_default(self):
         # v2 must be the default (new sources stamp it) while v1 stays supported. The registry
         # invariant test only checks default == supported[-1], so it would still pass if v2 were
-        # dropped — this locks in the actual bump.
+        # dropped; this test locks in the actual bump.
         assert self.source.supported_versions == ("v1", "v2")
         assert self.source.default_version == "v2"
 

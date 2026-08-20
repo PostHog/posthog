@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.s
 
 # PandaDoc versions its API per endpoint via a URL segment (/public/v1, /public/v2), not
 # globally: /public/v2 is a small, growing set of new endpoints (API logs, document audit
-# trail), NOT a mirror of v1. Every resource this source reads — documents, templates, forms,
-# contacts, members, folders — is served only under /public/v1 and has no v2 route, so both
+# trail), NOT a mirror of v1. Every resource this source reads (documents, templates, forms,
+# contacts, members, folders) is served only under /public/v1 and has no v2 route, so both
 # pins resolve to the same wire here and the base URL stays on v1 regardless of the pin.
 API_VERSION_V1 = "v1"
 API_VERSION_V2 = "v2"
