@@ -58,8 +58,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
     def _checks_url(self, saved_query_id) -> str:
         return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
 
-    def _suite_runs_url(self) -> str:
-        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{self.view.id}/check_suite_runs"
+    def _suite_runs_url(self, saved_query_id=None) -> str:
+        parent = saved_query_id or self.view.id
+        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{parent}/check_suite_runs"
 
     def _gate_url(self) -> str:
         return f"/api/projects/{self.team.id}/data_warehouse/data_quality_gate/"
@@ -662,6 +663,79 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         check.refresh_from_db()
         assert check.check_type == CheckType.NOT_NULL
+
+    def _suite_with_two_runs(self, allowed: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
+        """A suite on the allowed subject holding one ordinary run and one that reads denied "orders"."""
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        for check_type, config, name in (
+            (CheckType.NOT_NULL, {}, "reads_only_the_parent"),
+            (CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM orders"}, "reads_the_denied_view"),
+        ):
+            check = DataQualityCheck.objects.for_team(self.team.id).create(
+                team=self.team,
+                name=name,
+                subject_type=SubjectType.VIEW,
+                saved_query_id=allowed.id,
+                subject_name="customers",
+                check_type=check_type,
+                column_name="total" if check_type == CheckType.NOT_NULL else "",
+                config=config,
+                fingerprint=uuid4().hex,
+            )
+            DataQualityCheckRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                suite_run=suite,
+                quality_check=check,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=allowed.id,
+                subject_name="customers",
+                check_type=check_type,
+                check_config=config,
+                check_fingerprint=check.fingerprint,
+                status=CheckRunStatus.FAILED,
+                failed_row_count=3,
+                compiled_query="SELECT * FROM orders",
+            )
+        return suite
+
+    @parameterized.expand(
+        [
+            ("denied_member", True, [CheckType.NOT_NULL]),
+            ("allowed_member", False, [CheckType.CUSTOM_SQL, CheckType.NOT_NULL]),
+        ]
+    )
+    def test_suite_check_runs_withhold_a_run_that_read_a_denied_subject(
+        self, _name: str, deny: bool, expected_types: list[str]
+    ) -> None:
+        # A run carries its compiled query, failed-row count and observed value. A check on an allowed
+        # parent whose custom_sql reads the denied "orders" would disclose all three here, which is
+        # what the check-level routes refuse. The rest of the suite stays readable.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        if deny:
+            self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["check_type"] for row in response.json()) == sorted(expected_types)
+
+    def test_a_run_whose_definition_is_unknown_is_withheld_from_a_denied_member(self) -> None:
+        # Predating the config snapshot with its check deleted, so what it read cannot be established.
+        # Withheld rather than served, matching the fail-closed choice everywhere else in this surface.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run=suite).update(
+            check_config=None, quality_check=None
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
 
     @parameterized.expand(
         [

@@ -423,8 +423,13 @@ class _BaseSuiteRunViewSet(
     @action(methods=["GET"], detail=True, url_path="check_runs", pagination_class=None)
     def check_runs(self, request: Request, **kwargs) -> Response:
         suite_run = self.get_object()
-        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run).order_by("-created_at")
-        return Response(DataQualityCheckRunSerializer(runs, many=True).data)
+        runs = list(
+            DataQualityCheckRun.objects.for_team(self.team_id)
+            .filter(suite_run=suite_run)
+            .select_related("quality_check")
+            .order_by("-created_at")
+        )
+        return Response(DataQualityCheckRunSerializer(self._readable_runs(runs), many=True).data)
 
 
 def _parent_id_parameter(name: str, description: str) -> Callable[[type], type]:
