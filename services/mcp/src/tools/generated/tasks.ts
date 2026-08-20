@@ -530,6 +530,7 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                 ci_status: params.ci_status,
                 commented_by: params.commented_by,
                 created_by: params.created_by,
+                exclude_origin_product: params.exclude_origin_product,
                 internal: params.internal,
                 limit: params.limit,
                 mentions: params.mentions,
