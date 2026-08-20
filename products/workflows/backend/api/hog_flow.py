@@ -2056,10 +2056,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Action ids already stored with a flag-gated template, so the gate only polices new
         # adoption: a flow that was allowed to hold the step keeps validating after a flag
         # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
-        # failing refresh_hog_flows.
+        # failing refresh_hog_flows. Only an active flow's steps count - active means the step
+        # passed the gate at activation, whereas a draft can hold the step without ever passing
+        # it (lenient web saves skip strict validation), so grandfathering a draft would let an
+        # unflagged team activate the step.
         self.context["stored_gated_template_action_ids"] = {
             action["id"]
-            for action in ((instance.actions if instance else None) or [])
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
             if isinstance(action, dict)
             and action.get("id")
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS

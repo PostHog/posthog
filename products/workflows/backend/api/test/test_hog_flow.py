@@ -4931,6 +4931,27 @@ class TestFlagGatedTemplates(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
+    def _post_flow_with_create_task_action_as_web(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+        }
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+        )
+
     @parameterized.expand(
         [
             ("flag_on", True, status.HTTP_201_CREATED),
@@ -4997,6 +5018,23 @@ class TestFlagGatedTemplates(APIBaseTest):
             call_command("refresh_hog_flows", "--team-id", str(self.team.id), stdout=out)
 
         assert "Errors: 0" in out.getvalue(), out.getvalue()
+
+    def test_a_step_smuggled_into_a_draft_cannot_activate(self):
+        # Lenient web draft saves skip the gate, so an unflagged user can store the step in a
+        # draft. Grandfathering must not treat that as authorization: activation re-checks the
+        # flag, or the draft path becomes a gate bypass.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            create = self._post_flow_with_create_task_action_as_web()
+            assert create.status_code == status.HTTP_201_CREATED, create.json()
+            flow_id = create.json()["id"]
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": "active"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Template not found" in str(response.json())
 
     def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self):
         flow_id = self._create_active_flow_with_gated_step()
