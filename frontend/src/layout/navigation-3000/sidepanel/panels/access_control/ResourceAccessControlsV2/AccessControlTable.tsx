@@ -2,14 +2,14 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
-import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject } from '~/types'
 
 import { getAccessSummaryTags, getEntryId, isMemberEntry, isRoleEntry } from './helpers'
+import { MemberProfileCell } from './MemberProfileCell'
 import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
 const MAX_VISIBLE_TAGS = 4
@@ -35,23 +35,7 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                         if (!isMemberEntry(entry)) {
                             return null
                         }
-                        return (
-                            <div className="flex items-center gap-3">
-                                <ProfilePicture user={entry.user} />
-                                <div className="overflow-hidden">
-                                    {entry.user.first_name ? (
-                                        <>
-                                            <p className="font-medium mb-0 truncate">{fullName(entry.user)}</p>
-                                            <p className="text-secondary font-light mb-0 truncate text-xs">
-                                                {entry.user.email}
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <p className="text-secondary mb-0 truncate">{entry.user.email}</p>
-                                    )}
-                                </div>
-                            </div>
-                        )
+                        return <MemberProfileCell user={entry.user} />
                     },
                 },
             ]

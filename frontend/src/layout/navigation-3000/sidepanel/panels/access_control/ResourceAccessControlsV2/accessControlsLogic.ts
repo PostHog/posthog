@@ -17,7 +17,7 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
@@ -131,6 +131,7 @@ export interface accessControlsLogicValues {
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
+    membersLosingProjectAccess: AccessControlMemberEntry[]
     objectRuleResourceOptions: ObjectRuleResource[]
     panelEntry: AccessControlSettingsEntry | null
     panelEntryLoading: boolean
@@ -146,6 +147,7 @@ export interface accessControlsLogicValues {
     }[]
     rolesData: AccessControlRolesResponse | null
     rolesDataLoading: boolean
+    privateProjectConfirmOpen: boolean
     ruleModalState: GroupedAccessControlRuleModalLogicProps | null
     ruleOptions: {
         key: AccessControlLevel
@@ -302,6 +304,15 @@ export interface accessControlsLogicActions {
     } // roleAccessControlLogic
     closeRuleModal: () => {
         value: true
+    }
+    openPrivateProjectConfirm: () => {
+        value: true
+    }
+    closePrivateProjectConfirm: () => {
+        value: true
+    }
+    confirmPrivateProject: (preserveMembers: boolean) => {
+        preserveMembers: boolean
     }
     loadDefaults: () => any
     loadDefaultsFailure: (
@@ -999,6 +1010,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
+        openPrivateProjectConfirm: true,
+        closePrivateProjectConfirm: true,
+        confirmPrivateProject: (preserveMembers: boolean) => ({ preserveMembers }),
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
         setShowAllTools: (show: boolean) => ({ show }),
@@ -1082,6 +1096,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     { state }: { state: GroupedAccessControlRuleModalLogicProps }
                 ) => state,
                 closeRuleModal: () => null,
+            },
+        ],
+        privateProjectConfirmOpen: [
+            false,
+            {
+                openPrivateProjectConfirm: () => true,
+                closePrivateProjectConfirm: () => false,
+                confirmPrivateProject: () => false,
             },
         ],
         /**
@@ -1332,6 +1354,35 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (defaultsLoading: boolean, rolesLoading: boolean, membersLoading: boolean): boolean =>
                 defaultsLoading || rolesLoading || membersLoading,
         ],
+
+        // Members who reach this project only through the default. Setting the default to "no access"
+        // removes their access, so the confirm dialog offers to keep them as explicit members first.
+        membersLosingProjectAccess: [
+            (s) => [s.membersData],
+            (membersData: AccessControlMembersResponse | null): AccessControlMemberEntry[] => {
+                if (!membersData) {
+                    return []
+                }
+                return membersData.results.filter((member) => {
+                    // Organization admins and owners keep access to every project.
+                    if (member.organization_level >= OrganizationMembershipLevel.Admin) {
+                        return false
+                    }
+                    // A member's own project rule survives the default change.
+                    const ownLevel = member.project.access_level
+                    if (ownLevel === AccessControlLevel.Member || ownLevel === AccessControlLevel.Admin) {
+                        return false
+                    }
+                    // Only members who currently reach the project can lose it.
+                    const effective = member.project.effective_access_level
+                    if (effective === null || effective === AccessControlLevel.None) {
+                        return false
+                    }
+                    // Access granted through a role also survives the default change.
+                    return member.project.inherited_access?.source_subject !== 'role'
+                })
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -1354,6 +1405,26 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 scope_type: state.scopeType,
                 ui_version: 'v2',
             })
+        },
+
+        openPrivateProjectConfirm: () => {
+            // The list of who loses access needs the members data, which is otherwise lazy-loaded.
+            if (!values.membersData && !values.membersDataLoading) {
+                actions.loadMembers()
+            }
+        },
+
+        confirmPrivateProject: ({ preserveMembers }) => {
+            if (preserveMembers) {
+                const memberRules = values.membersLosingProjectAccess.map((member) => ({
+                    member: member.organization_membership_id,
+                    level: AccessControlLevel.Member,
+                }))
+                if (memberRules.length > 0) {
+                    actions.updateAccessControlMembers(memberRules, 'v2')
+                }
+            }
+            actions.updateAccessControlDefault(AccessControlLevel.None, 'v2')
         },
 
         openAccessDetailPanel: ({ scopeType, subjectId }) => {

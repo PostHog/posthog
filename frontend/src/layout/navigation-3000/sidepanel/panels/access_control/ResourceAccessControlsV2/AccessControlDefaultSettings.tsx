@@ -11,13 +11,14 @@ import { AccessControlLevel, AvailableFeature } from '~/types'
 import { accessControlsLogic } from './accessControlsLogic'
 import { getLevelOptionsForResource } from './helpers'
 import { ObjectAccessRules } from './ObjectAccessRules'
+import { PrivateProjectConfirmModal } from './PrivateProjectConfirmModal'
 import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
     const { defaults, resourceKeys, loading, accessDetailPanelEnabled } = useValues(logic)
-    const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
+    const { updateAccessControlDefault, updateResourceAccessControls, openPrivateProjectConfirm } = useActions(logic)
 
     const {
         can_edit: canEdit = false,
@@ -48,7 +49,12 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             size="small"
                             className="w-36"
                             onChange={(newValue) => {
-                                updateAccessControlDefault(newValue as AccessControlLevel, 'v2')
+                                // No access silently drops everyone who relies on the default, so confirm first.
+                                if (newValue === AccessControlLevel.None) {
+                                    openPrivateProjectConfirm()
+                                } else {
+                                    updateAccessControlDefault(newValue as AccessControlLevel, 'v2')
+                                }
                             }}
                             options={getLevelOptionsForResource(projectLevels)}
                         />
@@ -192,6 +198,8 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         />
                     </>
                 )}
+
+                <PrivateProjectConfirmModal projectId={projectId} />
             </div>
         </PayGateMini>
     )

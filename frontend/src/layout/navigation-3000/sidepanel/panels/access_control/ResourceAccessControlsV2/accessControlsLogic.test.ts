@@ -236,6 +236,122 @@ describe('accessControlsLogic', () => {
         })
     })
 
+    describe('membersLosingProjectAccess', () => {
+        let logic: ReturnType<typeof accessControlsLogic.build>
+
+        const roleInherited = {
+            access_level: AccessControlLevel.Admin,
+            source: 'org_membership' as const,
+            source_subject: 'role' as const,
+            source_resource: 'project' as APIScopeObject,
+            source_resource_id: null,
+            source_display_name: 'Engineering',
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:id/access_control_members': {
+                        available_project_levels: [
+                            AccessControlLevel.None,
+                            AccessControlLevel.Member,
+                            AccessControlLevel.Admin,
+                        ],
+                        available_resource_levels: [],
+                        can_edit: true,
+                        results: [
+                            {
+                                organization_membership_id: 'member-default',
+                                user: { uuid: 'u1', first_name: 'Default', email: 'default@example.com' },
+                                organization_level: 1,
+                                project: makeEffectiveEntry(AccessControlLevel.Member, { access_level: null }),
+                                resources: {},
+                            },
+                            {
+                                organization_membership_id: 'member-admin',
+                                user: { uuid: 'u2', first_name: 'Admin', email: 'admin@example.com' },
+                                organization_level: 8,
+                                project: makeEffectiveEntry(AccessControlLevel.Admin),
+                                resources: {},
+                            },
+                            {
+                                organization_membership_id: 'member-own-rule',
+                                user: { uuid: 'u3', first_name: 'Own', email: 'own@example.com' },
+                                organization_level: 1,
+                                project: makeEffectiveEntry(AccessControlLevel.Member, {
+                                    access_level: AccessControlLevel.Member,
+                                }),
+                                resources: {},
+                            },
+                            {
+                                organization_membership_id: 'member-role',
+                                user: { uuid: 'u4', first_name: 'Role', email: 'role@example.com' },
+                                organization_level: 1,
+                                project: makeEffectiveEntry(AccessControlLevel.Admin, {
+                                    access_level: null,
+                                    inherited_access: roleInherited,
+                                }),
+                                resources: {},
+                            },
+                            {
+                                organization_membership_id: 'member-no-access',
+                                user: { uuid: 'u5', first_name: 'None', email: 'none@example.com' },
+                                organization_level: 1,
+                                project: makeEffectiveEntry(AccessControlLevel.None),
+                                resources: {},
+                            },
+                        ],
+                    },
+                },
+                put: {
+                    '/api/projects/:id/access_controls': {},
+                },
+            })
+            initKeaTests()
+            logic = accessControlsLogic.build({ projectId: '997' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('only flags members who reach the project through the default', async () => {
+            await expectLogic(logic, () => logic.actions.loadMembers()).toDispatchActions(['loadMembersSuccess'])
+
+            expect(logic.values.membersLosingProjectAccess.map((m) => m.organization_membership_id)).toEqual([
+                'member-default',
+            ])
+        })
+
+        it('preserves flagged members as explicit members before setting no access', async () => {
+            await expectLogic(logic, () => logic.actions.loadMembers()).toDispatchActions(['loadMembersSuccess'])
+
+            await expectLogic(logic, () => logic.actions.confirmPrivateProject(true)).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.updateAccessControlMembers &&
+                    action.payload.accessControls.length === 1 &&
+                    action.payload.accessControls[0].member === 'member-default' &&
+                    action.payload.accessControls[0].level === AccessControlLevel.Member,
+                (action) =>
+                    action.type === logic.actionTypes.updateAccessControlDefault &&
+                    action.payload.level === AccessControlLevel.None,
+            ])
+        })
+
+        it('sets no access without preserving anyone when the admin declines', async () => {
+            await expectLogic(logic, () => logic.actions.loadMembers()).toDispatchActions(['loadMembersSuccess'])
+
+            await expectLogic(logic, () => logic.actions.confirmPrivateProject(false))
+                .toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.updateAccessControlDefault &&
+                        action.payload.level === AccessControlLevel.None,
+                ])
+                .toNotHaveDispatchedActions([logic.actionTypes.updateAccessControlMembers])
+        })
+    })
+
     describe('panel entry loading', () => {
         let logic: ReturnType<typeof accessControlsLogic.build>
 
