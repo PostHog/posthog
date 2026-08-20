@@ -87,7 +87,10 @@ class EtsyClient:
     def _mint_token(self) -> str:
         response = self._session.post(
             ETSY_TOKEN_URL,
-            json={
+            # Etsy's token endpoint requires application/x-www-form-urlencoded per RFC 6749; a JSON
+            # body is rejected (and Etsy's resulting error talks about the x-api-key header instead,
+            # since it can't read client_id out of the body it got).
+            data={
                 "grant_type": "refresh_token",
                 "client_id": self._api_key,
                 "refresh_token": self._refresh_token,
