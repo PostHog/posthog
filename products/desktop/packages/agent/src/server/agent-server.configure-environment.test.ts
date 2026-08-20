@@ -15,7 +15,7 @@ interface TestableServer {
     taskTitle?: string | null;
     repository?: string | null;
     runtimeAdapter?: string | null;
-    sandboxEnvironmentConfigured?: boolean | null;
+    sandboxEnvironmentId?: string | null;
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
     client?: "desktop" | "cloud_sandbox";
@@ -213,13 +213,13 @@ describe("AgentServer.configureEnvironment", () => {
       aiStage: "research",
       taskId: "task-abc",
       taskRunId: "run-xyz",
-    taskUserId: 42,
-    taskTitle: "Fix the bug",
-    repository: "posthog/posthog",
-    runtimeAdapter: "claude",
-    sandboxEnvironmentConfigured: true,
-    snapshotKind: "filesystem",
-    prewarmed: false,
+      taskUserId: 42,
+      taskTitle: "Fix the bug",
+      repository: "posthog/posthog",
+      runtimeAdapter: "claude",
+      sandboxEnvironmentId: "environment-123",
+      snapshotKind: "filesystem",
+      prewarmed: false,
     });
 
     expect(env.openaiCustomHeaders).toEqual({
@@ -233,7 +233,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_title": "Fix the bug",
       "x-posthog-property-task_repository": "posthog/posthog",
       "x-posthog-property-task_runtime_adapter": "claude",
-      "x-posthog-property-task_sandbox_environment_configured": "true",
+      "x-posthog-property-task_sandbox_environment_id": "environment-123",
       "x-posthog-property-task_snapshot_kind": "filesystem",
       "x-posthog-property-task_prewarmed": "false",
       "x-posthog-property-client": "cloud_sandbox",
@@ -251,13 +251,13 @@ describe("AgentServer.configureEnvironment", () => {
       aiStage: "research",
       taskId: "task-abc",
       taskRunId: "run-xyz",
-    taskUserId: 42,
-    taskTitle: "Fix the bug",
-    repository: "posthog/posthog",
-    runtimeAdapter: "claude",
-    sandboxEnvironmentConfigured: true,
-    snapshotKind: "filesystem",
-    prewarmed: false,
+      taskUserId: 42,
+      taskTitle: "Fix the bug",
+      repository: "posthog/posthog",
+      runtimeAdapter: "claude",
+      sandboxEnvironmentId: "environment-123",
+      snapshotKind: "filesystem",
+      prewarmed: false,
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -272,7 +272,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_title: Fix the bug",
         "x-posthog-property-task_repository: posthog/posthog",
         "x-posthog-property-task_runtime_adapter: claude",
-        "x-posthog-property-task_sandbox_environment_configured: true",
+        "x-posthog-property-task_sandbox_environment_id: environment-123",
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-client: cloud_sandbox",

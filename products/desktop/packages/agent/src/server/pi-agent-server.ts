@@ -554,9 +554,10 @@ export class PiAgentServer {
       task_origin_product: task?.origin_product ?? null,
       task_repository: task?.repositories?.[0] ?? task?.repository ?? null,
       task_runtime_adapter: "pi",
-      task_sandbox_environment_configured: Boolean(
-        runState?.sandbox_environment_id,
-      ),
+      task_sandbox_environment_id:
+        typeof runState?.sandbox_environment_id === "string"
+          ? runState.sandbox_environment_id
+          : null,
       task_snapshot_kind: taskSnapshotKind,
       task_prewarmed: runState?.prewarmed === true,
       ai_stage:

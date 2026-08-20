@@ -1696,9 +1696,9 @@ export class AgentServer {
       taskTitle: preTask?.title,
       repository: this.taskRepositories[0] ?? null,
       runtimeAdapter,
-      sandboxEnvironmentConfigured: Boolean(
-        (preTaskRun?.state as Record<string, unknown> | undefined)
-          ?.sandbox_environment_id,
+      sandboxEnvironmentId: getTaskRunStateString(
+        preTaskRun,
+        "sandbox_environment_id",
       ),
       snapshotKind:
         getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent",
@@ -4234,7 +4234,7 @@ ${commonInstructions}
     taskTitle,
     repository,
     runtimeAdapter,
-    sandboxEnvironmentConfigured,
+    sandboxEnvironmentId,
     snapshotKind,
     prewarmed,
     client,
@@ -4249,7 +4249,7 @@ ${commonInstructions}
     taskTitle?: string | null;
     repository?: string | null;
     runtimeAdapter?: string | null;
-    sandboxEnvironmentConfigured?: boolean | null;
+    sandboxEnvironmentId?: string | null;
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
     client?: "desktop" | "cloud_sandbox";
@@ -4298,7 +4298,7 @@ ${commonInstructions}
       task_title: taskTitle,
       task_repository: repository,
       task_runtime_adapter: runtimeAdapter,
-      task_sandbox_environment_configured: sandboxEnvironmentConfigured,
+      task_sandbox_environment_id: sandboxEnvironmentId,
       task_snapshot_kind: snapshotKind,
       task_prewarmed: prewarmed,
       client: client ?? "cloud_sandbox",
