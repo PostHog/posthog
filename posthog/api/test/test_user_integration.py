@@ -357,8 +357,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_creates_user_integration_without_installation_in_query(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
@@ -417,8 +417,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_ignores_query_installation_id_when_state_binds_one(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
@@ -476,8 +476,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_creates_user_integration_from_visible_installation(
         self, mock_user_from_code, mock_client_request, mock_requests_get
     ):
@@ -532,7 +532,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_redirects_to_app_install_when_no_installations(
         self, mock_user_from_code, mock_requests_get, _mock_settings
     ):
@@ -562,8 +562,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_creates_user_integration(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
@@ -608,8 +608,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_redirects_to_client_destination_on_success(
         self,
         connect_from,
@@ -783,10 +783,10 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_team_oauth_authorize_creates_team_integration(
         self,
         mock_user_from_code,
@@ -1176,7 +1176,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
 
 class TestGithubUserFromCode(APIBaseTest):
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.github.requests.post")
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     def test_returns_full_authorization_including_tokens(self, mock_post, mock_get):
         mock_post.return_value = MagicMock(
