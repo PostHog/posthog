@@ -141,6 +141,11 @@ pub async fn extract_body_with_timeout(
             Some(Ok(chunk)) => {
                 // Check size limit before appending
                 if buf.len() + chunk.len() > payload_size_limit {
+                    // The drain can run for seconds. Holding the buffer and the
+                    // oversize chunk across it turns every rejection into a memory
+                    // spike the size of the limit we just refused.
+                    drop(buf);
+                    drop(chunk);
                     // Consume what is left so the 413 reaches the client rather than a
                     // connection reset. Bounded by the size we were willing to accept
                     // in the first place.
