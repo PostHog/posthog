@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -114,15 +115,18 @@ class TestLightspeedRetailSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
+        # An unpinned source probes the default version.
         mock_validate.assert_called_once_with(
-            self.config.domain_prefix, self.config.api_token, LIGHTSPEED_RETAIL_API_VERSION_2026_01
+            self.config.domain_prefix, self.config.api_token, LIGHTSPEED_RETAIL_API_VERSION_2026_07
         )
 
     @pytest.mark.parametrize(
         "pinned, expected",
         [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
             (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
         ],
     )
     @mock.patch(
@@ -170,8 +174,10 @@ class TestLightspeedRetailSource:
     @pytest.mark.parametrize(
         "pinned, expected",
         [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
             (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
         ],
     )
     @mock.patch(
