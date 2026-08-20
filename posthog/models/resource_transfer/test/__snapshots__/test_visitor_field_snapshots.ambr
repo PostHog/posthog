@@ -222,6 +222,8 @@
     'created_at',
     'deleted',
     'deleted_at',
+    'incremental_config',
+    'incremental_state',
     'is_materialized',
     'name',
     'origin',
