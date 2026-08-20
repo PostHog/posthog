@@ -4,7 +4,9 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+# Tests patch fields on these config records, so freezing them is a change of its own. The class
+# stays tracked in dataclass_frozen_baseline.txt for that migration.
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- tests mutate these config records
 class GithubEndpointConfig:
     name: str
     path: str  # Path template with {repository}, {organization}, and fan-out placeholders
@@ -49,10 +51,13 @@ class GithubEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway
     # pagination. A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 50
-    # First-sync floor: when set, the very first incremental sync only fans out
-    # over parents created within this many days, instead of crawling the whole
-    # repo history. The webhook carries steady-state, so only the one-off backfill
-    # needs a bound; later syncs advance from the stored watermark and ignore this.
+    # First-sync floor: the very first incremental sync only reaches back this many
+    # days instead of crawling the whole repo history. For a fan-out child it bounds
+    # the parent walk; for a repo-wide endpoint with `since` support it becomes a
+    # server-side `since` floor. The webhook carries steady-state, so only the
+    # one-off backfill needs a bound; later syncs advance from the stored watermark
+    # and ignore this. Zero means the poll does no backfill at all, which is what
+    # marks a webhook-capable endpoint webhook-only.
     initial_lookback_days: Optional[int] = None
     # Steady-state reconciliation for a webhook-fed fan-out child whose events GitHub does not
     # always deliver: after each webhook drain, re-fan parents created within this many days so
@@ -471,6 +476,17 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+        # A comment is editable, so created/edited/deleted deliveries for one id can land in the
+        # same webhook batch. GitHub bumps updated_at on every edit, so it ranks them; the delta
+        # merge does not dedupe within a batch, so without this the row keeps whichever event
+        # happened to arrive last rather than the latest edit.
+        version_keys=["updated_at"],
+        # Bound the bootstrap: without a floor the first sync walks every comment ever written
+        # before webhook mode can activate (webhook_enabled needs initial_sync_complete), which on
+        # a large repo is thousands of requests against the shared budget. Steady state is the
+        # webhook, or a `since`-bounded poll, so only the backfill window is at stake; deeper
+        # history is a deliberate one-off backfill.
+        initial_lookback_days=14,
     ),
     "pull_request_comments": GithubEndpointConfig(
         name="pull_request_comments",
@@ -482,6 +498,8 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+        version_keys=["updated_at"],  # Editable, same as issue_comments.
+        initial_lookback_days=14,  # Bound the bootstrap, same as issue_comments.
     ),
     "commit_comments": GithubEndpointConfig(
         name="commit_comments",
@@ -490,9 +508,12 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/comments",
         partition_key="created_at",
         # Rows come back ordered by ascending id and the endpoint takes no `since` filter or sort,
-        # so an incremental sync would still walk every page. Full refresh only.
+        # so an incremental sync would still walk every page. Full refresh only, which is why the
+        # commit_comment webhook matters more here than for the other two comment tables: it is the
+        # only way this table stops re-pulling the whole collection on every sync.
         incremental_fields=[],
         param_style="plain",
+        version_keys=["updated_at"],  # Editable, same as issue_comments.
     ),
     "issue_types": GithubEndpointConfig(
         name="issue_types",
@@ -647,13 +668,19 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # filter=all returns every check run for the ref, not just the latest per check name —
         # required for re-run and flake analysis.
         extra_params={"filter": "all"},
-        # One call per commit, so a first incremental sync would otherwise crawl the repo's entire
-        # commit history against a shared, rate-limited budget. Floor it at a recent window; later
-        # syncs advance from the watermark. A deliberate full refresh still pulls everything.
-        initial_lookback_days=7,
-        # A commit-grained fan-out is far more expensive than the repo-wide tables, so leave it
-        # deselected and let users opt in rather than paying for it on every default connection.
+        # Webhook-only marker, like reviews: the poll costs one call per commit, so any poll mode
+        # is a per-commit fan-out over a shared, rate-limited budget however tight the window is.
+        # initial_lookback_days == 0 makes source.py offer this schema webhook-only, activates
+        # webhook mode from the first sync, and makes the poll path yield no rows. History, if
+        # wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
+        # A busy repo produces check runs at commit x check-name grain, which is far more volume
+        # than most connections want, so leave it deselected and let users opt in.
         should_sync_default=False,
+        # A check run emits queued -> in_progress -> completed events sharing an id and carries no
+        # updated_at, so rank by how far the run progressed: completed_at (terminal) outranks
+        # started_at, and both are NULL while queued, so NULLs-last ordering keeps the latest state.
+        version_keys=["completed_at", "started_at"],
     ),
     "commit_statuses": GithubEndpointConfig(
         name="commit_statuses",
@@ -670,10 +697,22 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         fan_out_parent="commits",
         fan_out_path_param="ref",
         fan_out_parent_field="sha",
-        # A status carries no sha of its own, so inject the commit it was posted against.
+        # A status carries no sha of its own, so inject the commit it was posted against. The Hog
+        # template fills the same column from the `status` event's top-level `sha`, so webhook rows
+        # carry both halves of the composite key too.
         fan_out_include_parent_fields={"sha": "commit_sha"},
-        initial_lookback_days=7,
-        should_sync_default=False,  # Same commit-grained fan-out cost as check_runs.
+        # Webhook-only marker, like check_runs: the poll is a per-commit fan-out, and it also
+        # bounds the parent walk on the commit's immutable created_at with no
+        # fan_out_parent_recency_field, so a status posted after the watermark passed its commit is
+        # never fetched. The `status` webhook carries every status as it is posted, which fixes both.
+        initial_lookback_days=0,
+        # Statuses arrive at commit x context grain on a busy repo, so leave the table deselected
+        # and let users opt in.
+        should_sync_default=False,
+        # No version_keys on purpose: statuses are append-only (a re-run posts a new status id
+        # rather than mutating one), so there is nothing to collapse within a batch. The dedupe
+        # transformer would also be wrong here, because it ranks on the first primary-key column
+        # only, which is commit_sha for this composite key, and would keep one status per commit.
     ),
     # --- Security posture ------------------------------------------------------------------
     "code_scanning_alerts": GithubEndpointConfig(
