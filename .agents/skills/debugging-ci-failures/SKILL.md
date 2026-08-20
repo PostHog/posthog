@@ -7,10 +7,10 @@ description: >
   current CI or master status, or mentions a failing check, GitHub Actions run,
   Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Start with the `hogli ci:insights` digest (aggregated cross-run
-  CI intelligence), then guides read-only inspection, failure classification,
-  smallest local reproduction with hogli, and safe reporting without rerunning CI
-  or posting to GitHub.
+  build failure. Start with the `hogli ci:insights` digest (cross-run CI history
+  from engineering analytics), then guides read-only inspection, failure
+  classification, smallest local reproduction with hogli, and safe reporting
+  without rerunning CI or posting to GitHub.
 ---
 
 # Debugging PostHog CI failures
@@ -19,13 +19,18 @@ Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
-Always start with the `hogli ci:insights` digest. It is the institutional,
-cross-run source of truth, and it is fresher and more reliable than scraping
-`gh run list` / the GitHub Actions API, which can lag or rate-limit.
+Always start with the `hogli ci:insights` digest. It aggregates across runs and
+branches, which `gh` cannot do cheaply, and tells you whether a failure is
+likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
+authoritative for one run's current state and attribution. Use the digest to
+decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
+what failed in a given run.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
-fixing, and N-run validation.
+fixing, and N-run validation. For "who broke master" — the culprit commit and
+the commit that fixed it — hand off to the `investigating-ci-failures` skill,
+which owns the green/red boundary analysis.
 
 ## Safety rules
 
@@ -47,31 +52,62 @@ overwrite unrelated work.
 
 ### 1. Start with CI insights (always first)
 
-`hogli ci:insights` is the institutional CI-intelligence backend. It aggregates
-cross-run history — recurring flakes, occurrence counts, confidence, and any
-proposed or merged fix — that a single run can't show. Consult it before any raw
-`gh` log archaeology; the raw GitHub Actions API can lag or rate-limit, while the
-insights digest is the freshest aggregated view.
+`hogli ci:insights` reads PostHog's own engineering analytics — the cross-run
+failure history a single run can't show. Consult it before any raw `gh` log
+archaeology.
 
 ```bash
 hogli ci:insights                                # digest for the current repo + branch
 hogli ci:insights search "<error or test name>"  # match a specific failure
-hogli ci:insights view <id>                       # one insight + its remediation actions
-hogli ci:insights plan <id>                       # print the recommended fix plan (does not apply it)
+hogli ci:insights view <ref>                     # one failure in full
+hogli ci:insights view <ref> --logs              # ...plus the failing log lines
 ```
 
 - Broad question ("is CI red?", "is master green today?", "what's broken right
-  now?"): the no-arg digest answers directly — it lists open / in-progress /
-  resolved counts and the most recent insights with severity and confidence. You
-  often do not need a target PR or run at all; report from the digest.
-- Specific failure: run `search "<error>"` to match it before reading logs. When
-  a matching insight exists, weigh its confidence and occurrence history, and note
-  whether a fix is already merged (the failure may already be resolved on
-  `master`) or proposed (a plan you can adapt).
+  now?"): the no-arg digest answers directly. It gives the default-branch verdict
+  (how many workflows are failing on their latest run, and which), the live
+  failures grouped by state, the jobs red on trunk right now, a grouped feed of
+  default-branch failures, and the PR your branch belongs to. You often do not
+  need a target PR or run at all; report from the digest.
+- Specific failure: run `search "<error>"` to match it before reading logs, then
+  `view <ref>` on a row the digest or search printed. `--logs` prints the thinned
+  failing lines from that failure's latest run, which is usually enough to
+  classify without touching `gh`.
 
-`hogli ci:insights` prints a setup hint if the backend isn't installed or
-authenticated — if so, fall back to the `gh`-based inspection below. Surface what
-you find per the Safety rules — do not auto-apply a fix.
+Read each row's `state` as a triage ranking:
+
+| State                  | Means                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `breaking_master`      | failing on the default branch and that job's latest run is still red         |
+| `blocking_merge_queue` | failed only on merge-queue gate branches in the window                       |
+| `novel_burst`          | new within a day, already spreading across branches, not on trunk yet        |
+| `potentially_resolved` | hit trunk but that job's latest run is green again                           |
+| `flaky`                | sporadic across two or more branches over more than a day                    |
+| `pr_only`              | limited branch spread; job status may be missing or behind the failure lines |
+
+`potentially_resolved` is a hint, not a conclusion: confirm from run data before
+reporting a failure as already fixed.
+
+`blocking_merge_queue` proves a gate failure happened in the window, not that it
+still blocks landings. Check the current queue run with `gh` before reporting it
+as active. Likewise, confirm `pr_only` from the current run before assigning the
+failure to a PR; it is also the fallback when job status is missing or stale.
+
+Caveats to carry into whatever you report:
+
+- Failure grouping is pytest-only. Jest, Playwright, and cargo failures appear
+  only in the digest's grouped master-failures section, never as a row with a ref.
+- Every count is absolute, never a rate. Passing runs are not in this data, so
+  there is no denominator and no failure rate to quote.
+- A run's conclusion can lag until GitHub's `workflow_run` webhook settles it, so
+  during a live incident confirm a specific run against `gh`.
+
+If nobody has signed in on this machine, `hogli ci:insights` exits `78`. Treat
+exit `78` as "no CI insights available" and fall back to the `gh`-based
+inspection below — then tell the user they can run `hogli posthog:login`
+once, which opens a browser and needs no API key. Do not run it yourself: it
+waits on a consent screen you cannot see. Surface what you find per the Safety
+rules — do not auto-apply a fix.
 
 ### 2. Find the failing run (for a specific failure)
 
