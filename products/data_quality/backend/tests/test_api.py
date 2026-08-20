@@ -277,6 +277,17 @@ class TestDataQualityCheckAPI(APIBaseTest):
         first.refresh_from_db()
         assert first.deleted is True
 
+    def test_a_name_freed_by_deletion_can_be_used_again(self) -> None:
+        # A deleted check keeps its name as history. Holding it against a new check would make the
+        # delete irreversible for anyone who wants that name back.
+        first = self._create_check(name="orders_customer_id_not_null")
+        assert self.client.delete(f"{self.url}/{first.id}/").status_code == status.HTTP_204_NO_CONTENT
+
+        again = self.client.post(f"{self.url}/", self._payload(column_name="total", name="orders_customer_id_not_null"))
+
+        assert again.status_code == status.HTTP_201_CREATED, again.json()
+        assert again.json()["id"] != str(first.id)
+
     def test_a_definition_race_lost_to_the_constraint_reads_as_a_conflict(self) -> None:
         # Two rows can both clear the duplicate precheck and race to commit one fingerprint; the
         # active-only constraint settles it, and the loser must see the same field error the

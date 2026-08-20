@@ -344,15 +344,11 @@ def _record_run(
 def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
     check.last_status = outcome.status
     check.last_run_at = datetime.now(UTC)
+    updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
         check.last_succeeded_at = check.last_run_at
-    check.save(
-        update_fields=[
-            "last_status",
-            "last_run_at",
-            "last_succeeded_at",
-            "subject_name",
-            "subject_status",
-            "updated_at",
-        ]
-    )
+        # Written only by the run that earned it. A failing run holds whatever this row said when its
+        # batch loaded it, so listing the column unconditionally would let it overwrite a success a
+        # concurrent run committed in between.
+        updated.append("last_succeeded_at")
+    check.save(update_fields=updated)

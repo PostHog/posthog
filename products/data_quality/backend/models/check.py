@@ -223,10 +223,12 @@ class DataQualityCheck(
                 condition=models.Q(table__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_table",
             ),
-            # Partial: a blank name is the "address me by id" case, and many checks share it.
+            # Partial on both counts: a blank name is the "address me by id" case, which many checks
+            # share, and a deleted check keeps its name only as history -- holding the name against a
+            # new check would make a delete irreversible for anyone who wants that name back.
             models.UniqueConstraint(
                 fields=["team", "name"],
-                condition=~models.Q(name=""),
+                condition=~models.Q(name="") & ACTIVE,
                 name="unique_quality_check_name_per_team",
             ),
         ]

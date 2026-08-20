@@ -385,9 +385,10 @@ def empty_check_suite(*, team: Team, user: User | None = None) -> DataQualitySui
 
 
 def _name_taken(team_id: int, name: str, exclude_id: UUID | str | None = None) -> bool:
+    """Whether an *active* check already holds this name. Deleted ones keep theirs only as history."""
     if not name:
         return False
-    clashes = DataQualityCheck.objects.for_team(team_id).filter(name=name)
+    clashes = DataQualityCheck.objects.for_team(team_id).filter(name=name, deleted=False)
     if exclude_id is not None:
         clashes = clashes.exclude(id=exclude_id)
     return clashes.exists()

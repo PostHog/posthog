@@ -247,6 +247,20 @@ class TestCheckRunner(BaseTest):
         assert last_succeeded_at is not None
         assert (last_succeeded_at > earlier) is advances
 
+    def test_a_failing_run_cannot_erase_a_success_recorded_beside_it(self) -> None:
+        # Batches load their checks up front, so a failing run holds whatever last_succeeded_at said
+        # then. Writing the column back would undo a pass another batch committed in between.
+        check = self._check(last_succeeded_at=None)
+        stale = DataQualityCheck.objects.for_team(self.team.id).get(id=check.id)
+        succeeded_at = datetime(2026, 1, 1, tzinfo=UTC)
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_succeeded_at=succeeded_at)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            run_check(stale, self.suite_run, self.team)
+
+        stale.refresh_from_db()
+        assert stale.last_succeeded_at == succeeded_at
+
     def test_a_run_snapshots_the_definition_it_executed(self) -> None:
         # History has to keep reading as what actually ran, even after the definition is edited.
         check = self._check(
