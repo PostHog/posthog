@@ -30,6 +30,7 @@ for cold or stale mappings.
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage and read tables | `NodeRole.DATA` |
 | HyperCache store | a dedicated serverless Valkey cluster |
+| Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 
 `warpstream-shared` carries the low-volume topics that do not justify a cluster
