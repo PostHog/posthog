@@ -19,7 +19,7 @@ How correctness is shared with the storage engine:
 import json
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
@@ -121,7 +121,7 @@ class TableConfig:
         return " ".join(parts)
 
 
-@dataclass
+@frozen
 class IncrementalState:
     last_sync_timestamp: Optional[datetime] = None
     rows_synced: int = 0
@@ -710,7 +710,6 @@ def _sync_table(
 ) -> IncrementalState:
     with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
         cfg = TABLE_CONFIGS[table_name]
-        state = IncrementalState()
         context.log.info(f"Starting {table_name} sync (full_refresh={config.full_refresh})")
 
         create_clickhouse_tables(context)
@@ -735,6 +734,7 @@ def _sync_table(
         try:
             total_rows = 0
             batch_num = 0
+            watermark: Optional[datetime] = None
             for batch in fetch_rows_in_batches(pg_conn, table_name, last_sync, config.batch_size):
                 batch_num += 1
                 rows_inserted = insert_rows_to_clickhouse(table_name, batch, batch_size=config.batch_size)
@@ -743,17 +743,14 @@ def _sync_table(
                     (row[cfg.watermark_column] for row in batch if row.get(cfg.watermark_column) is not None),
                     default=None,
                 )
-                if batch_max is not None and (
-                    state.last_sync_timestamp is None or batch_max > state.last_sync_timestamp
-                ):
-                    state.last_sync_timestamp = batch_max
+                if batch_max is not None and (watermark is None or batch_max > watermark):
+                    watermark = batch_max
                 context.log.info(f"Batch {batch_num}: +{rows_inserted} → models.{table_name} (total {total_rows})")
-            state.rows_synced = total_rows
             context.log.info(f"Completed {table_name} sync: {total_rows} rows")
         finally:
             pg_conn.close()
 
-        return state
+        return IncrementalState(last_sync_timestamp=watermark, rows_synced=total_rows)
 
 
 def _sync_metadata(context: OpExecutionContext, state: IncrementalState, config: PostgresToClickHouseETLConfig) -> None:
