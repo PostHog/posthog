@@ -7,6 +7,7 @@ import {
   PushPinIcon,
   PushPinSlashIcon,
   SquaresFourIcon,
+  StopCircle,
   TrashIcon,
 } from "@phosphor-icons/react";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
@@ -58,6 +59,7 @@ export interface TaskRowMenuProps {
   onAddToCommandCenter?: () => void;
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
+  onStop?: () => void;
   onTogglePin: () => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
@@ -134,6 +136,12 @@ function TaskRowMenuItems({
         <Item onClick={menu.onRename}>
           <PencilSimpleIcon size={14} />
           Rename
+        </Item>
+      )}
+      {menu.onStop && (
+        <Item onClick={menu.onStop}>
+          <StopCircle size={14} />
+          Stop task
         </Item>
       )}
       {isTask && (

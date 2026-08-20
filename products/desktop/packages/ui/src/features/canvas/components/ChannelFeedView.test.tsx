@@ -23,8 +23,11 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
 }));
+const { channelTaskData } = vi.hoisted(() => ({
+  channelTaskData: { current: undefined as unknown },
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskData", () => ({
-  useChannelTaskData: () => undefined,
+  useChannelTaskData: () => channelTaskData.current,
 }));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null }),
@@ -40,6 +43,10 @@ vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
 }));
 vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
   useArchiveTask: () => ({ archiveTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/sessions/components/StopCloudRunDialog", () => ({
+  StopCloudRunDialog: ({ open, title }: { open: boolean; title: string }) =>
+    open ? <div>{title}</div> : null,
 }));
 const { archivedTaskIds } = vi.hoisted(() => ({
   archivedTaskIds: { current: new Set<string>() },
@@ -100,6 +107,7 @@ const task = {
 afterEach(() => {
   vi.restoreAllMocks();
   archivedTaskIds.current = new Set<string>();
+  channelTaskData.current = undefined;
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
@@ -229,6 +237,40 @@ describe("ChannelFeedView", () => {
     await waitFor(() =>
       expect(screen.queryByText("Pin")).not.toBeInTheDocument(),
     );
+  });
+
+  it("opens the stop confirmation for an active cloud task", async () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    fireEvent.mouseDown(screen.getByLabelText(`Options for ${task.title}`), {
+      button: 0,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Stop task")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText("Stop task"));
+
+    expect(screen.getByText(`Stop "${task.title}"?`)).toBeInTheDocument();
   });
 
   it("reports when its task is opened", async () => {

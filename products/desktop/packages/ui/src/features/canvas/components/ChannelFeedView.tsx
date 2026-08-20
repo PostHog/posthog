@@ -16,6 +16,7 @@ import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
+import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
   AvatarGroup,
   Badge,
@@ -69,6 +70,7 @@ import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifac
 import { usePrTitles } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
+import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
   type SidebarPrState,
@@ -729,6 +731,9 @@ const FeedItem = memo(function FeedItem({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(task.title);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const canStop =
+    taskData?.taskRunEnvironment === "cloud" && isTaskActivelyRunning(taskData);
   const starter = channelTaskStarter(task);
   const prompt = useMemo(
     () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
@@ -822,6 +827,7 @@ const FeedItem = memo(function FeedItem({
         ? undefined
         : () => placeTaskInCommandCenter(task.id, task.title),
       onRename: beginTitleEdit,
+      onStop: canStop ? () => setStopConfirmOpen(true) : undefined,
       onTogglePin: () => {
         void togglePin(task.id).catch(() => {
           toast.error("Couldn't update pin", { description: "Try again." });
@@ -836,6 +842,7 @@ const FeedItem = memo(function FeedItem({
     [
       archiveTask,
       beginTitleEdit,
+      canStop,
       commandCenterCells,
       task.channel,
       task.id,
@@ -1098,6 +1105,15 @@ const FeedItem = memo(function FeedItem({
           </div>
         </CardContent>
       </Card>
+      <StopCloudRunDialog
+        open={stopConfirmOpen}
+        taskId={task.id}
+        runId={task.latest_run?.id}
+        title={`Stop "${task.title}"?`}
+        buttonLabel="Stop task"
+        onOpenChange={setStopConfirmOpen}
+        onStopped={() => toast.success("Stop requested")}
+      />
     </TaskRowContextMenu>
   );
 });
