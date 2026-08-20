@@ -1,12 +1,13 @@
 import re
 import datetime
-import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -34,7 +35,7 @@ class XeroAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class XeroResumeConfig:
     cursor: int
     """Next page number (page mode) or JournalNumber offset (offset mode) to request."""
