@@ -156,6 +156,41 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    def test_can_file_canvas_to_another_visible_channel(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel"] == str(destination.id)
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == destination.id
+
+    def test_cannot_file_canvas_to_another_users_personal_channel(self):
+        canvas_id = self._create_canvas()
+        other_user = self._create_user("canvas-owner@example.com")
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(
+                team=self.team,
+                name="me",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=other_user,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
+
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
         # list omits it, and every detail/write action 404s for anyone else.

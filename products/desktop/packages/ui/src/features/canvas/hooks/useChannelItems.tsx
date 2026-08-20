@@ -64,8 +64,11 @@ export function useChannelItems(channelId: string): {
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
-  const { setPinned: setCanvasPinned, invalidateDashboards } =
-    useDashboardMutations();
+  const {
+    setPinned: setCanvasPinned,
+    fileDashboard,
+    invalidateDashboards,
+  } = useDashboardMutations();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -203,6 +206,23 @@ export function useChannelItems(channelId: string): {
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
+      fileCanvas: (item, targetChannelId) => {
+        fileDashboard(item.id, targetChannelId)
+          .then(() => {
+            const targetName = channels.find(
+              (candidate) => candidate.id === targetChannelId,
+            )?.name;
+            toast.success(
+              targetName ? `Filed to ${targetName}` : "Canvas filed",
+            );
+          })
+          .catch((error) => {
+            toast.error("Couldn't file canvas", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            });
+          });
+      },
       // Canvases only, and through the shared undo window: the row disappears at
       // once and the host isn't told until the toast expires, so an accidental
       // delete costs nothing.
@@ -224,6 +244,8 @@ export function useChannelItems(channelId: string): {
       togglePin,
       setPinnedMany,
       archiveTask,
+      fileDashboard,
+      channels,
       invalidateDashboards,
     ],
   );

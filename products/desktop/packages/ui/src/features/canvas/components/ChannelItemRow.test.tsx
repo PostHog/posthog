@@ -54,6 +54,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -452,7 +453,7 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("lets a canvas be filed to another space", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
@@ -469,9 +470,8 @@ describe("ChannelItemRow", () => {
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
-    // A canvas can't be archived, filed to a space, or given a command-centre
-    // cell, so those items aren't drawn at all rather than drawn dead.
-    for (const absent of ["Archive", "File to…", "Add to Command Center"]) {
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
+    for (const absent of ["Archive", "Add to Command Center"]) {
       expect(screen.queryByRole("button", { name: absent })).toBeNull();
     }
   });
