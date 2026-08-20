@@ -803,10 +803,10 @@ def get_hogql_autocomplete(
                                             type=property_type,
                                         )
 
-# Fetch one row past the limit so we can set `incomplete_list` without an unbounded COUNT(*).
-# When match_term is empty, `name__contains=""` becomes `LIKE '%%'`, so COUNT(*) scanned the whole project.
-# Order by `name` so Postgres can satisfy `ORDER BY name LIMIT ...` via the `posthog_propdef_proj_uniq` index
-# on (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1)) without a separate sort.
+                                    # One row past the limit sets `incomplete_list` without an unbounded COUNT(*):
+                                    # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
+                                    # project's whole taxonomy. `posthog_propdef_proj_uniq` is keyed on (project,
+                                    # name, ...), so ordering by name reads it in index order and stops at the limit.
                                     with timings.measure("property_get_values"):
                                         properties = list(
                                             property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values(
@@ -814,8 +814,8 @@ def get_hogql_autocomplete(
                                             )
                                         )
 
-response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
-properties = properties[:PROPERTY_DEFINITION_LIMIT]
+                                    response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
+                                    properties = properties[:PROPERTY_DEFINITION_LIMIT]
 
                                     extend_responses(
                                         keys=[prop["name"] for prop in properties],
