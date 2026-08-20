@@ -182,6 +182,7 @@ def _build_initial_params(
     params["sort"] = "created"
     params["direction"] = "asc"
 
+    since_capable = endpoint in ("issues", "commits") or config.supports_since_param
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
         incremental = incremental_field or config.default_incremental_field or "updated_at"
@@ -195,8 +196,18 @@ def _build_initial_params(
             )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
-        if endpoint in ("issues", "commits") or config.supports_since_param:
+        if since_capable:
             params["since"] = formatted_value
+    elif should_use_incremental_field and config.initial_lookback_days is not None and since_capable:
+        # First incremental sync with no watermark: floor the backfill with a server-side `since`
+        # window instead of walking the endpoint's whole history, the repo-wide counterpart of the
+        # fan-out parent floor in _fan_out_get_rows. Scoped to the first incremental run on
+        # purpose, because an explicit full refresh should still pull everything, and once a
+        # watermark exists the branch above bounds the read with it. History past the window is a
+        # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
+        # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
+        # nothing, rather than reading as "no floor" and walking the whole history.
+        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
 
     return params
 
@@ -1472,9 +1483,11 @@ def github_source(
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
-            # Webhook-capable endpoints all key on a single column; the dedupe transformer
-            # collapses one pk column, so pass the first (only) key. Fan-out children with
-            # composite keys have no version_keys, so this branch never runs for them.
+            # The dedupe transformer collapses on one pk column, so pass the first key. That is
+            # sound only while every endpoint declaring version_keys keys on a single column:
+            # commit_statuses is webhook-capable with a composite ["commit_sha", "id"] key, and
+            # giving it version_keys would collapse a commit's statuses to one row. Guarded by
+            # test_no_composite_key_endpoint_declares_version_keys.
             transformer = (
                 _make_webhook_dedupe_transformer(
                     _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
