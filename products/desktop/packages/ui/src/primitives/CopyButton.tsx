@@ -1,10 +1,6 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 
-/**
- * Copy-to-clipboard button with a transient check. Icon-only by default;
- * `bare` drops the border/background so it can nest inside another pill.
- */
 export function CopyButton({
   text,
   label = "Copy",
@@ -17,15 +13,17 @@ export function CopyButton({
   bare?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  async function copy() {
+
+  async function copy(): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard can be blocked (insecure context) — the text stays selectable.
+      // Clipboard access can be blocked while the text remains selectable.
     }
   }
+
   return (
     <button
       type="button"

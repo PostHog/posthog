@@ -50259,7 +50259,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 255 */
       name?: string;
-      /** @maxLength 100 */
+      /** @maxLength 2048 */
       client_id?: string;
       readonly redirect_uris_list: readonly string[];
       /** True if this application has been verified by PostHog */

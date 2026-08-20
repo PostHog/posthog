@@ -100,6 +100,14 @@ import { parseStructuredOutput } from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
+const ACP_INTERNAL_ERROR_CODE = -32603;
+const CYBER_POLICY_ERROR_MESSAGE =
+  "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.";
+const POLICY_ERROR_MESSAGE =
+  "This request was blocked by a safety policy. Revise the request and try again.";
+const GENERIC_FATAL_ERROR_MESSAGE =
+  "The agent stopped before completing this request. Please try again.";
+
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
   systemPrompt?: string | { append?: string };
@@ -1407,15 +1415,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Emit a plain agent message (user-facing status the model didn't produce). */
   private broadcastAgentText(text: string): void {
     if (!this.sessionId) return;
-    void this.client
-      .sessionUpdate({
-        sessionId: this.sessionId,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text },
-        },
-      })
-      .catch(() => undefined);
+    const notification = {
+      sessionId: this.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    } as unknown as Parameters<AgentSideConnection["sessionUpdate"]>[0];
+    this.emitSessionNotification(notification);
   }
 
   /** The mode's sandbox with the session's extra writable roots folded into workspaceWrite. */
@@ -1615,6 +1622,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       }
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
+      if (turn?.status === "failed") {
+        this.deferFailedTurnFinalization(
+          turn?.id,
+          this.turns.currentGeneration,
+        );
+        return;
+      }
       void this.finalizeTurn(mapTurnStopReason(turn?.status));
     }
 
@@ -1634,32 +1648,36 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.ERROR) {
       // A non-retried fatal error: resolve the turn so prompt() returns rather than hangs.
-      const { willRetry, error } = (params ?? {}) as {
+      const { willRetry, turnId, error } = (params ?? {}) as {
         willRetry?: boolean;
-        error?: { message?: string };
+        turnId?: string;
+        error?: { message?: unknown; codexErrorInfo?: unknown };
       };
       if (willRetry === false) {
+        if (turnId && turnId !== this.turns.activeTurnId) {
+          return;
+        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = error?.message ?? "";
+        const message = typeof error?.message === "string" ? error.message : "";
+        const codexErrorInfo =
+          typeof error?.codexErrorInfo === "string"
+            ? error.codexErrorInfo
+            : undefined;
         // A gateway billing denial rejects the prompt so the host classifies
         // it and shows the upgrade gate. It must be a RequestError: a plain
         // Error serializes to a bare "Internal error" at the ACP boundary,
         // which the host reads as fatal and answers with a respawn loop.
         if (classifyGatewayLimitError(message) !== null) {
-          if (this.compactionActive) {
-            this.compactionActive = false;
-            this.emitCompactionBoundary();
-          }
-          this.turns.fail(RequestError.internalError(undefined, message));
+          void this.failTurn(RequestError.internalError(undefined, message));
           return;
         }
         if (
           message.includes("413") ||
           message.toLowerCase().includes("request body too large")
         ) {
-          this.turns.fail(
+          void this.failTurn(
             RequestError.internalError(
               undefined,
               "This conversation is too large to continue. Start a new task and carry over a text summary instead of image or tool output.",
@@ -1667,7 +1685,22 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           );
           return;
         }
-        void this.finalizeTurn("refusal");
+        let policyErrorMessage: string | null = null;
+        if (codexErrorInfo === "cyberPolicy") {
+          policyErrorMessage = CYBER_POLICY_ERROR_MESSAGE;
+        } else if (message.toLowerCase().includes("usage policy")) {
+          policyErrorMessage = POLICY_ERROR_MESSAGE;
+        }
+        if (policyErrorMessage) {
+          void this.refuseTurnWithMessage(policyErrorMessage);
+          return;
+        }
+        void this.failTurn(
+          new RequestError(
+            ACP_INTERNAL_ERROR_CODE,
+            GENERIC_FATAL_ERROR_MESSAGE,
+          ),
+        );
       }
     }
   }
@@ -1980,6 +2013,57 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
     pending.resolve({
       stopReason: reason,
+      ...(usage ? { usage } : {}),
+    });
+  }
+
+  private async failTurn(error: Error): Promise<void> {
+    this.turns.markInterrupted();
+    const pending = this.turns.claim();
+    if (!pending) return;
+    if (this.compactionActive) {
+      this.compactionActive = false;
+      this.emitCompactionBoundary();
+    }
+    const usage = this.usage.perTurnUsage();
+    pending.reject(error);
+    void this.emitTurnCompleteSignal("refusal", usage);
+    void this.emitUsageBreakdown(this.usage.contextTokens());
+  }
+
+  private deferFailedTurnFinalization(
+    turnId: string | undefined,
+    generation: number,
+  ): void {
+    setTimeout(() => {
+      if (generation !== this.turns.currentGeneration) return;
+      if (
+        turnId &&
+        this.turns.activeTurnId &&
+        this.turns.activeTurnId !== turnId
+      ) {
+        return;
+      }
+      if (!this.turns.isPending) return;
+      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
+    }, 250);
+  }
+
+  private refuseTurnWithMessage(message: string): void {
+    if (this.session.cancelled) return;
+    this.turns.markInterrupted();
+    const pending = this.turns.claim();
+    if (!pending) return;
+    this.broadcastAgentText(message);
+    if (this.compactionActive) {
+      this.compactionActive = false;
+      this.emitCompactionBoundary();
+    }
+    const usage = this.usage.perTurnUsage();
+    void this.emitTurnCompleteSignal("refusal", usage);
+    void this.emitUsageBreakdown(this.usage.contextTokens());
+    pending.resolve({
+      stopReason: "refusal",
       ...(usage ? { usage } : {}),
     });
   }
