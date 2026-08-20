@@ -457,6 +457,27 @@ describe('mcpClusteringLogic category scope', () => {
         expect(logic.values.selectedToolName).toBeNull()
     })
 
+    // A recompute reloads the snapshot but not the category map, so the reload's own reconcile
+    // has to honour the active scope. Reconciling against the unscoped snapshot would fall back
+    // to the highest-volume cluster overall, which can sit outside the scope — stranding the
+    // detail there while the list shows the scoped subset.
+    it('falls back to the scoped top, not the snapshot top, when a recompute drops the selection', async () => {
+        logic.actions.setSelectedCategories(['Insights'])
+        logic.actions.selectCluster(CONCENTRATED_ID)
+        expect(logic.values.selectedClusterId).toBe(CONCENTRATED_ID)
+
+        // Drop the selected cluster. The new unscoped top is cluster 2, which routes only to Data
+        // tools, so an unscoped fallback would land the detail outside the Insights scope.
+        const survivors = SHAPED_CLUSTERS.filter((c) => c.id !== CONCENTRATED_ID)
+        mockRetrieve.mockResolvedValue({ ...SCOPED_SNAPSHOT, clusters: survivors })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // SPREAD_ID is the highest-volume Insights cluster left, so the reconcile picks it.
+        expect(logic.values.selectedClusterId).toBe(SPREAD_ID)
+        expect(logic.values.scopedClusters.map((c) => c.id)).toContain(logic.values.selectedClusterId)
+    })
+
     // A single category comes back from the url as a bare string rather than an array,
     // which would otherwise scope to the individual characters of its name.
     it.each([
