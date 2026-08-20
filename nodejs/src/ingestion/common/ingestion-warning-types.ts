@@ -81,6 +81,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
+    // `$elements` is present but is not an array, so no elements chain can be built.
+    // The event still ingests, only with an empty elements_chain.
+    invalid_elements: { category: 'event', severity: 'warning' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
     // Cookieless mode — events missing the data required to compute a cookieless distinct id

@@ -146,6 +146,12 @@
       "captureProduced": true
     },
     {
+      "type": "invalid_elements",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": false
+    },
+    {
       "type": "invalid_event_timestamp",
       "category": "event",
       "severity": "error",

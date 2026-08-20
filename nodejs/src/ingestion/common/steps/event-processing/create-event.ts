@@ -14,6 +14,13 @@ const elementsOrElementsChainCounter = new Counter({
     labelNames: ['type'],
 })
 
+// `$elements` is only usable when it is an array. A truthy non-array value (a string, or an
+// object with a `length` key) used to slip past the old `elements.length` guard and throw.
+export function hasInvalidElements(properties: Properties): boolean {
+    const elements = properties['$elements']
+    return !!elements && !Array.isArray(elements)
+}
+
 export function getElementsChain(properties: Properties): string {
     /*
     We're deprecating $elements in favor of $elements_chain, which doesn't require extra
@@ -29,7 +36,7 @@ export function getElementsChain(properties: Properties): string {
     } else if (properties['$elements']) {
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
-        if (elements && elements.length) {
+        if (Array.isArray(elements) && elements.length) {
             elementsList = extractElements(elements)
             elementsChain = elementsToString(elementsList)
         }

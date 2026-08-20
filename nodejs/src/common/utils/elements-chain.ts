@@ -108,6 +108,9 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
 }
 
 export function extractElements(elements: Array<Record<string, any>>): Element[] {
+    if (!Array.isArray(elements)) {
+        return []
+    }
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
         tag_name: el['tag_name'],

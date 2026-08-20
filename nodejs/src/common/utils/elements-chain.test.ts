@@ -181,4 +181,12 @@ describe('extractElements()', () => {
             })
         )
     })
+
+    // A non-array `$elements` used to reach `.map` and throw a TypeError.
+    it.each([
+        ['a non-empty string', 'div'],
+        ['an object with a length key', { length: 3 }],
+    ])('returns an empty array for %s', (_label, input) => {
+        expect(extractElements(input as any)).toEqual([])
+    })
 })

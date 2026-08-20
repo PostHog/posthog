@@ -2,7 +2,8 @@ import { Message } from 'node-rdkafka'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { parseTeamsList } from '~/common/utils/env-utils'
-import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
+import { createEvent, hasInvalidElements } from '~/ingestion/common/steps/event-processing/create-event'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, Person, PreIngestionEvent } from '~/types'
@@ -56,6 +57,20 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
     return function createEventStep(input) {
         const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
+        // Read before createEvent, which deletes `$elements` while building the elements chain.
+        const warnings: PipelineWarning[] = []
+        if (hasInvalidElements(preparedEvent.properties)) {
+            warnings.push({
+                type: 'invalid_elements',
+                details: {
+                    eventUuid: preparedEvent.eventUuid,
+                    distinctId: preparedEvent.distinctId,
+                    elementsType: typeof preparedEvent.properties['$elements'],
+                },
+                key: preparedEvent.distinctId,
+            })
+        }
+
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
@@ -86,6 +101,6 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             message,
         }
 
-        return Promise.resolve(ok(result, []))
+        return Promise.resolve(ok(result, [], warnings))
     }
 }
