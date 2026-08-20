@@ -63,10 +63,17 @@ jobs:
                   fetch-depth: 1000
                   filter: blob:none
 
-            - name: Fetch PR base for the changed-file diff
+            # The default branch, not `base.ref`. A stacked PR's base is the layer
+            # below it, but the queue tests the whole stack merged into master, so
+            # master is the radius Trunk schedules against. Diffing against a stack
+            # parent that has fallen behind master counts every commit the head
+            # picked up in between as this PR's own, and a change set that wide
+            # claims every lane — which serializes the queue behind a PR that
+            # touched none of them.
+            - name: Fetch the merge target for the changed-file diff
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$MERGE_TARGET:refs/remotes/origin/$MERGE_TARGET"
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -76,7 +83,7 @@ jobs:
             - name: Compute impacted targets
               id: targets
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
               run: |
                   set -uo pipefail
 
@@ -84,8 +91,8 @@ jobs:
                   # any diff failure has to widen to ALL rather than upload a
                   # partial file list, which Trunk cannot distinguish from a
                   # complete one.
-                  if ! merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)"; then
-                      echo "::warning::No merge base against $BASE_REF within the fetched depth; reporting ALL."
+                  if ! merge_base="$(git merge-base "refs/remotes/origin/$MERGE_TARGET" HEAD 2>/dev/null)"; then
+                      echo "::warning::No merge base against $MERGE_TARGET within the fetched depth; reporting ALL."
                       echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
