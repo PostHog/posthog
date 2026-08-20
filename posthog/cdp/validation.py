@@ -742,6 +742,11 @@ class InputsSerializer(serializers.DictField):
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
 
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # The destination editor pre-fills defaults from the template schema, but callers that
+                # build inputs by hand cannot, so a required input with a default would reject them.
+                value = {"value": schema["default"]}
+
             self.context["schema"] = schema
 
             # Propagate templating from schema to input item, if set
