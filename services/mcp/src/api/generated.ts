@@ -219,6 +219,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at?: string | null;
+      /**
+         * When Track Rules ignored the account. Null means the account is tracked.
+         * @nullable
+         */
+      readonly ignored_at: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -902,6 +907,8 @@ export namespace Schemas {
       assignedToUserIds?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
+      /** Include ignored accounts. Ignored accounts are hidden by default. */
+      includeIgnored?: boolean | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
       /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -928,6 +935,7 @@ export namespace Schemas {
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
       ChurnedAt: 'churned_at',
+      IgnoredAt: 'ignored_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1170,6 +1178,8 @@ export namespace Schemas {
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
+      /** Include ignored accounts. Ignored accounts are hidden by default. */
+      includeIgnored?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -10257,6 +10267,10 @@ export namespace Schemas {
       matched_pct: number;
       /** Sample of likely-yours unmatched utm_source values */
       sample_unmatched_utm_sources: UnmatchedUtmSample[];
+      /** Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or a gclid/gad_source click id. */
+      events_matched_paid_last_7d: number;
+      /** Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing. */
+      events_matched_tagged_medium_last_7d: number;
     }
 
     export type AttributionMode = typeof AttributionMode[keyof typeof AttributionMode];
@@ -13538,6 +13552,38 @@ export namespace Schemas {
          * @nullable
          */
       current_period_end: string | null;
+    }
+
+    /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: number;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
     }
 
     /**
@@ -17852,6 +17898,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface CommunitySkillPublishResult {
+      /** URL of the pull request opened in the community-skills repo for maintainer review. */
+      pr_url: string;
+      /** Number of the opened pull request. */
+      pr_number: number;
+      /** Name of the branch created in the community-skills repo. */
+      branch: string;
+    }
+
     export interface CommunitySkillVoteResponse {
       /** Total upvotes after applying the toggle. */
       vote_count: number;
@@ -19790,6 +19845,35 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide
+     */
+    export type TileSpacingEnum = typeof TileSpacingEnum[keyof typeof TileSpacingEnum];
+
+
+    export const TileSpacingEnum = {
+      Tight: 'tight',
+      Condensed: 'condensed',
+      Standard: 'standard',
+      Relaxed: 'relaxed',
+      Wide: 'wide',
+    } as const;
+
+    export interface DashboardCustomization {
+      /** Named tile density preset.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      tile_spacing?: TileSpacingEnum;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -19857,6 +19941,16 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -20251,6 +20345,49 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * A metric the bulk action did not act on, and why.
+     */
+    export interface DataCatalogMetricBulkSkip {
+      /** Name of the metric that was skipped. */
+      name: string;
+      /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
+      reason: string;
+    }
+
+    /**
+     * Outcome of a bulk approve: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkApprove {
+      /** The metrics that are now approved, freshly serialized. */
+      approved: DataCatalogMetric[];
+      /** Requested metrics that were not approved, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Outcome of a bulk delete: which names are gone, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkDelete {
+      /** Names of the metrics that were deleted, now free for reuse. */
+      deleted: string[];
+      /** Requested metrics that were not deleted, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for the bulk metric actions: the metric names to act on.
+     */
+    export interface DataCatalogMetricBulkNamesRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
     }
 
     /**
@@ -22979,6 +23116,8 @@ export namespace Schemas {
      * * `SamCart` - SamCart
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24284,6 +24423,8 @@ export namespace Schemas {
       SamCart: 'SamCart',
       IronSourceAds: 'IronSourceAds',
       MicrosoftExcel: 'MicrosoftExcel',
+      Profound: 'Profound',
+      Airwallex: 'Airwallex',
     } as const;
 
     /**
@@ -25602,7 +25743,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27615,7 +27758,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29572,6 +29717,32 @@ export namespace Schemas {
       properties?: ErrorTrackingEventProperties;
     }
 
+    /**
+     * Payload to send back as external_context when creating a reference to this issue.
+     */
+    export type ErrorTrackingExternalIssueResultExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalIssueResult {
+      /** Provider-native identifier of the issue (e.g. issue key or number). */
+      id: string;
+      /** Human-readable issue title, for display in the picker. */
+      title: string;
+      /** Link to the issue in the provider's system. */
+      url: string;
+      /** Payload to send back as external_context when creating a reference to this issue. */
+      external_context: ErrorTrackingExternalIssueResultExternalContext;
+    }
+
+    export interface ErrorTrackingExternalIssueSearchResult {
+      /** Matching existing issues. */
+      issues: ErrorTrackingExternalIssueResult[];
+    }
+
+    /**
+     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     */
+    export type ErrorTrackingExternalReferenceCreateConfig = {[key: string]: string};
+
     export interface ErrorTrackingExternalReferenceIntegrationResult {
       /** ID of the integration backing this external reference. */
       readonly id: number;
@@ -29582,21 +29753,45 @@ export namespace Schemas {
     }
 
     /**
-     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     * Payload for creating a new provider issue and linking it to an error tracking issue.
      */
-    export type ErrorTrackingExternalReferenceResultConfig = {[key: string]: string};
+    export interface ErrorTrackingExternalReferenceCreate {
+      /** Unique ID of the external reference. */
+      readonly id: string;
+      /** The connected integration this reference was created through. */
+      readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
+      /** URL of the linked external issue in the provider's system. */
+      readonly external_url: string;
+      /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
+      integration_id: number;
+      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+      config: ErrorTrackingExternalReferenceCreateConfig;
+      /** ID of the error tracking issue to link the reference to. */
+      issue: string;
+    }
 
+    /**
+     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     */
+    export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalReferenceLink {
+      /** ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira'). */
+      integration_id: number;
+      /** ID of the error tracking issue to link the reference to. */
+      issue: string;
+      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      external_context: ErrorTrackingExternalReferenceLinkExternalContext;
+    }
+
+    /**
+     * Read-only shape of an external reference, shared by every response.
+     */
     export interface ErrorTrackingExternalReferenceResult {
       /** Unique ID of the external reference. */
       readonly id: string;
       /** The connected integration this reference was created through. */
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
-      /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
-      integration_id: number;
-      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
-      config: ErrorTrackingExternalReferenceResultConfig;
-      /** ID of the error tracking issue to link the reference to. */
-      issue: string;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
     }
@@ -33717,6 +33912,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at: string | null;
+      /**
+         * When Track Rules ignored the account, or null if it is tracked.
+         * @nullable
+         */
+      ignored_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -35356,7 +35556,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36695,7 +36897,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -43101,6 +43305,24 @@ export namespace Schemas {
       skipped: InsightBulkOperationSkipped[];
     }
 
+    export interface InsightBulkSetTestAccountFilterRequest {
+      /** Whether every existing insight should filter out internal and test users. */
+      enabled: boolean;
+    }
+
+    export interface InsightBulkSetTestAccountFilterResponse {
+      /** Number of insights whose test account filter was changed. */
+      updated: number;
+      /** Number of insights that already had the requested value. */
+      unchanged: number;
+      /** Number of insights with no test account filter to set, such as SQL insights. */
+      unsupported: number;
+      /** Number of insights the requester cannot edit. */
+      skipped: number;
+      /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+      legacy: number;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -44412,6 +44634,26 @@ export namespace Schemas {
     export interface LLMSkillMarketplaceIssue {
       /** Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential. */
       rotate?: boolean;
+    }
+
+    export interface LLMSkillPublishToCommunity {
+      /**
+         * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
+         * @maxLength 64
+         * @pattern ^[^\u0000-\u001f\u007f]*$
+         */
+      display_name?: string;
+      /**
+         * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+         * @items.maxLength 64
+         */
+      tags?: string[];
+      /**
+         * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
+         * @maxLength 39
+         * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
+         */
+      author_handle?: string;
     }
 
     export interface LLMSkillVersionSummary {
@@ -49596,6 +49838,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -49619,6 +49862,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -55936,6 +56180,11 @@ export namespace Schemas {
          * @nullable
          */
       churned_at?: string | null;
+      /**
+         * When Track Rules ignored the account. Null means the account is tracked.
+         * @nullable
+         */
+      readonly ignored_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -60241,6 +60490,14 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
@@ -63007,7 +63264,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -74364,7 +74622,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -75711,7 +75971,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -77048,7 +77310,9 @@ export namespace Schemas {
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
-       * * `MicrosoftExcel` - MicrosoftExcel */
+       * * `MicrosoftExcel` - MicrosoftExcel
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -78694,7 +78958,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -79855,7 +80120,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -80760,6 +81026,14 @@ export namespace Schemas {
     export interface UserGitHubPrepareCallbackRequest {
       /** GitHub App installation id being managed on github.com. */
       installation_id: string;
+    }
+
+    export interface UserGithubLogin {
+      /**
+         * The user's resolved GitHub login, or null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
     }
 
     /**
@@ -83428,6 +83702,66 @@ export namespace Schemas {
       query: _TracingTreeQueryBody;
     }
 
+    export type BillingSpendRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
     export type CohortsStaffListParams = {
     /**
      * Cohort ids to look up (max 50 per request). Repeat the param (?cohort_ids=1&cohort_ids=2) or pass one comma-separated value (?cohort_ids=1,2).
@@ -83446,6 +83780,10 @@ export namespace Schemas {
      * Account UUID from `next_cursor` to continue listing from. Omit for the first page.
      */
     cursor?: string;
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean;
     /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
@@ -84060,6 +84398,10 @@ export namespace Schemas {
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean;
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -86966,6 +87308,22 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number;
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string;
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string;
+    };
+
     export type ErrorTrackingFingerprintsListParams = {
     /**
      * Number of results to return per page.
@@ -89360,6 +89718,18 @@ export namespace Schemas {
 
 
     export const InsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkSetTestAccountFilterCreateParams = {
+    format?: InsightsBulkSetTestAccountFilterCreateFormat;
+    };
+
+    export type InsightsBulkSetTestAccountFilterCreateFormat = typeof InsightsBulkSetTestAccountFilterCreateFormat[keyof typeof InsightsBulkSetTestAccountFilterCreateFormat];
+
+
+    export const InsightsBulkSetTestAccountFilterCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
