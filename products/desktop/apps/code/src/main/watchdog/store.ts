@@ -155,21 +155,30 @@ export class WatchdogStore {
     );
   }
 
+  /**
+   * A report is a directory with a parsable `summary.json`. A capture killed
+   * mid-write leaves the directory without one, so both listing and pruning go
+   * through here and agree on what counts.
+   */
+  private async readReportSummary(
+    name: string,
+  ): Promise<WatchdogReport | null> {
+    try {
+      const content = await fsPromises.readFile(
+        path.join(this.reportsDirectory, name, SUMMARY_FILE),
+        "utf-8",
+      );
+      return JSON.parse(content) as WatchdogReport;
+    } catch {
+      return null;
+    }
+  }
+
   async listReports(): Promise<WatchdogReport[]> {
     const names = await this.readReportDirectoryNames();
 
     const summaries = await Promise.all(
-      names.map(async (name) => {
-        try {
-          const content = await fsPromises.readFile(
-            path.join(this.reportsDirectory, name, SUMMARY_FILE),
-            "utf-8",
-          );
-          return JSON.parse(content) as WatchdogReport;
-        } catch {
-          return null;
-        }
-      }),
+      names.map((name) => this.readReportSummary(name)),
     );
 
     const found: WatchdogReport[] = [];
@@ -181,10 +190,31 @@ export class WatchdogStore {
     return found.sort((a, b) => b.at.localeCompare(a.at));
   }
 
-  /** Report directories can hold heap snapshots, so old ones cannot linger. */
+  /**
+   * Report directories can hold heap snapshots, so old ones cannot linger.
+   * Directories with no valid `summary.json` are removed outright and never
+   * counted against `maxReports`: otherwise a crash-truncated directory would
+   * occupy a retention slot and displace a report `listReports` can still read.
+   */
   async pruneReports(maxReports: number): Promise<string[]> {
     const names = await this.readReportDirectoryNames();
-    const doomed = names.slice(0, Math.max(0, names.length - maxReports));
+    const summaries = await Promise.all(
+      names.map((name) => this.readReportSummary(name)),
+    );
+
+    const complete: string[] = [];
+    const doomed: string[] = [];
+    names.forEach((name, index) => {
+      if (summaries[index] !== null) {
+        complete.push(name);
+      } else {
+        doomed.push(name);
+      }
+    });
+    doomed.push(
+      ...complete.slice(0, Math.max(0, complete.length - maxReports)),
+    );
+
     for (const name of doomed) {
       await fsPromises.rm(path.join(this.reportsDirectory, name), {
         recursive: true,
