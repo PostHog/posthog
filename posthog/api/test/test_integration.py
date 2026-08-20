@@ -637,6 +637,11 @@ class TestAWSIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
     @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
@@ -650,6 +655,7 @@ class TestAWSIntegration:
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
                     "aws_secret_access_key": "secret",
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -662,7 +668,7 @@ class TestAWSIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
+        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012", **self.extra_config}
         assert integration.sensitive_config == {
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
@@ -702,7 +708,12 @@ class TestAWSIntegration:
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            "config": {
+                "name": "prod-aws",
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "secret",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
