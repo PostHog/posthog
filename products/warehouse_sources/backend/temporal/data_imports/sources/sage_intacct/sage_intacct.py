@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -6,6 +5,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,7 +37,7 @@ class SageIntacctRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class SageIntacctResumeConfig:
     # The query service pages with a numeric `start` offset.
     offset: int
@@ -46,7 +47,9 @@ class SageIntacctResumeConfig:
 
 
 def _get_session(client_secret: str, refresh_token: Optional[str]) -> requests.Session:
-    return make_tracked_session(redact_values=tuple(v for v in (client_secret, refresh_token) if v))
+    # capture=False: this session carries general-ledger, invoice, payment, and other
+    # accounting response bodies that the generic scrubber does not redact.
+    return make_tracked_session(redact_values=tuple(v for v in (client_secret, refresh_token) if v), capture=False)
 
 
 def _mint_token(session: requests.Session, client_id: str, client_secret: str, refresh_token: Optional[str]) -> str:
