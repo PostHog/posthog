@@ -42,6 +42,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.permissions import ChannelCeilingPermission
+
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
@@ -252,9 +254,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement is a tenant boundary, not an authorization level: views that
-            # shape their own permission chain cannot opt out of it.
-            return [*dangerously_defined, VerifiedDomainEnforcementPermission()]
+            # Domain enforcement and channel ceilings are tenant boundaries, not authorization
+            # levels: views that shape their own permission chain cannot opt out of them.
+            return [*dangerously_defined, ChannelCeilingPermission(), VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -267,7 +269,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
+        permission_classes: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            ChannelCeilingPermission,
+            AccessControlPermission,
+        ]
 
         if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
