@@ -21,6 +21,18 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# Clover apps are registered per deployment region, so each region has its own app id and secret
+# (see CLOVER_OAUTH_REGIONS in posthog/models/integration/oauth.py). Empty defaults keep the app
+# importable and each region's Connect flow dormant until that region's app is registered.
+CLOVER_APP_CLIENT_ID = get_from_env("CLOVER_APP_CLIENT_ID", "")
+CLOVER_APP_CLIENT_SECRET = get_from_env("CLOVER_APP_CLIENT_SECRET", "")
+CLOVER_EU_APP_CLIENT_ID = get_from_env("CLOVER_EU_APP_CLIENT_ID", "")
+CLOVER_EU_APP_CLIENT_SECRET = get_from_env("CLOVER_EU_APP_CLIENT_SECRET", "")
+CLOVER_LATAM_APP_CLIENT_ID = get_from_env("CLOVER_LATAM_APP_CLIENT_ID", "")
+CLOVER_LATAM_APP_CLIENT_SECRET = get_from_env("CLOVER_LATAM_APP_CLIENT_SECRET", "")
+CLOVER_SANDBOX_APP_CLIENT_ID = get_from_env("CLOVER_SANDBOX_APP_CLIENT_ID", "")
+CLOVER_SANDBOX_APP_CLIENT_SECRET = get_from_env("CLOVER_SANDBOX_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 

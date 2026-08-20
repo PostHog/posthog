@@ -6295,6 +6295,10 @@ export namespace Schemas {
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
+      Clover: 'clover',
+      CloverEu: 'clover-eu',
+      CloverLatam: 'clover-latam',
+      CloverSandbox: 'clover-sandbox',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -43940,6 +43944,10 @@ export namespace Schemas {
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
+     * * `clover` - Clover
+     * * `clover-eu` - Clover Eu
+     * * `clover-latam` - Clover Latam
+     * * `clover-sandbox` - Clover Sandbox
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
@@ -43992,6 +44000,10 @@ export namespace Schemas {
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
+      Clover: 'clover',
+      CloverEu: 'clover-eu',
+      CloverLatam: 'clover-latam',
+      CloverSandbox: 'clover-sandbox',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
@@ -44044,6 +44056,10 @@ export namespace Schemas {
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
+       * * `clover` - Clover
+       * * `clover-eu` - Clover Eu
+       * * `clover-latam` - Clover Latam
+       * * `clover-sandbox` - Clover Sandbox
        * * `customerio-app` - Customerio App
        * * `customerio-track` - Customerio Track
        * * `customerio-webhook` - Customerio Webhook
@@ -90624,6 +90640,10 @@ export namespace Schemas {
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
+     * * `clover` - Clover
+     * * `clover-eu` - Clover Eu
+     * * `clover-latam` - Clover Latam
+     * * `clover-sandbox` - Clover Sandbox
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
@@ -90687,6 +90707,10 @@ export namespace Schemas {
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
+      Clover: 'clover',
+      CloverEu: 'clover-eu',
+      CloverLatam: 'clover-latam',
+      CloverSandbox: 'clover-sandbox',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',

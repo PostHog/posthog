@@ -1582,3 +1582,119 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(
+    CLOVER_APP_CLIENT_ID="clover-na-id",
+    CLOVER_APP_CLIENT_SECRET="clover-na-secret",
+    CLOVER_EU_APP_CLIENT_ID="clover-eu-id",
+    CLOVER_EU_APP_CLIENT_SECRET="clover-eu-secret",
+)
+class TestCloverIntegrationModel(BaseTest):
+    @parameterized.expand(
+        [
+            ("clover", "https://www.clover.com", "https://api.clover.com", "clover-na-id", "clover-na-secret"),
+            (
+                "clover-eu",
+                "https://www.eu.clover.com",
+                "https://api.eu.clover.com",
+                "clover-eu-id",
+                "clover-eu-secret",
+            ),
+        ]
+    )
+    def test_oauth_config_per_region(self, kind, web_host, api_host, client_id, client_secret):
+        config = OauthIntegration.oauth_config_for_kind(kind)
+
+        assert config.authorize_url == f"{web_host}/oauth/v2/authorize"
+        assert config.token_url == f"{api_host}/oauth/v2/token"
+        assert config.refresh_url == f"{api_host}/oauth/v2/refresh"
+        assert config.client_id == client_id
+        assert config.client_secret == client_secret
+        # Clover has no OAuth scope parameter; permissions are declared on the app itself.
+        assert config.scope == ""
+        assert config.pkce is False
+        assert config.id_path == "merchant_id"
+
+    @parameterized.expand([("clover-latam",), ("clover-sandbox",)])
+    def test_oauth_config_unconfigured_raises(self, kind):
+        with pytest.raises(NotImplementedError, match="Clover app not configured"):
+            OauthIntegration.oauth_config_for_kind(kind)
+
+    def test_authorize_url_omits_the_scope_parameter(self):
+        url = OauthIntegration.authorize_url("clover", token="state_token")
+        assert "scope" not in parse_qs(url.split("?", 1)[1])
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_records_the_merchant(self, mock_post, mock_get):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"id": "6MRDFDQMRSSTZ", "name": "Acme Coffee"}
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "access_token_expiration": 1704112200,  # 2024-01-01T12:30:00Z
+            "refresh_token": "rt_1",
+            "refresh_token_expiration": 1735646400,
+        }
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "clover",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token", "merchant_id": "6MRDFDQMRSSTZ"},
+            )
+
+        assert integration.integration_id == "6MRDFDQMRSSTZ"
+        assert integration.config["merchant_id"] == "6MRDFDQMRSSTZ"
+        assert integration.display_name == "Acme Coffee"
+        # Clover states an absolute expiry, which has to become a TTL or the token never refreshes.
+        assert integration.config["expires_in"] == 1800
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+        assert mock_post.call_args.kwargs["json"] == {
+            "client_id": "clover-na-id",
+            "client_secret": "clover-na-secret",
+            "code": "code",
+        }
+
+    @parameterized.expand([("",), ("../evil",)])
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_rejects_a_missing_merchant(self, merchant_id, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1"}
+
+        with pytest.raises(ValidationError, match="which merchant you authorized"):
+            OauthIntegration.integration_from_oauth_response(
+                "clover",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token", "merchant_id": merchant_id},
+            )
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_persists_the_rotated_refresh_token(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="clover",
+            integration_id="6MRDFDQMRSSTZ",
+            config={"merchant_id": "6MRDFDQMRSSTZ", "expires_in": 1800, "refreshed_at": 1704110400},
+            sensitive_config={"access_token": "at_1", "refresh_token": "rt_1"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_2",
+            "access_token_expiration": 1704112200,
+            "refresh_token": "rt_2",
+        }
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            OauthIntegration(integration).refresh_access_token()
+
+        # Clover's refresh token is single-use: losing the rotated value orphans the grant.
+        assert integration.sensitive_config["refresh_token"] == "rt_2"
+        assert integration.sensitive_config["access_token"] == "at_2"
+        assert integration.config["expires_in"] == 1800
+        assert mock_post.call_args.args[0] == "https://api.clover.com/oauth/v2/refresh"
+        assert mock_post.call_args.kwargs["json"] == {"client_id": "clover-na-id", "refresh_token": "rt_1"}

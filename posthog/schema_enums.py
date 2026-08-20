@@ -2976,6 +2976,10 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    CLOVER = "clover"
+    CLOVER_EU = "clover-eu"
+    CLOVER_LATAM = "clover-latam"
+    CLOVER_SANDBOX = "clover-sandbox"
 
 
 class IntervalType(StrEnum):

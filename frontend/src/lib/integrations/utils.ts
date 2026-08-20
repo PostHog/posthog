@@ -7,6 +7,7 @@ import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconClover from 'public/services/clover.png'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
@@ -108,6 +109,10 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    clover: IconClover,
+    'clover-eu': IconClover,
+    'clover-latam': IconClover,
+    'clover-sandbox': IconClover,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -158,6 +163,12 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'S3-compatible storage'
         case 'youtube-analytics':
             return 'YouTube Analytics'
+        case 'clover-eu':
+            return 'Clover (Europe)'
+        case 'clover-latam':
+            return 'Clover (Latin America)'
+        case 'clover-sandbox':
+            return 'Clover (sandbox)'
         default:
             return capitalizeFirstLetter(kind)
     }
