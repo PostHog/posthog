@@ -1,3 +1,4 @@
+from datetime import date
 from typing import cast
 
 from posthog.schema import (
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -87,6 +89,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
     supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
     default_version = META_ADS_API_VERSION_V26
     api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
+    deprecated_versions = (VersionDeprecation(version=META_ADS_API_VERSION_V25, sunset_at=date(2028, 7, 29)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
