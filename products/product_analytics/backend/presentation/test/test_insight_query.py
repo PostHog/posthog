@@ -8,7 +8,7 @@ from rest_framework import status
 from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,

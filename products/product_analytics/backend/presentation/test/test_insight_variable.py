@@ -9,8 +9,8 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import SharingAccessTokenAuthentication
 
-from products.product_analytics.backend.logic import map_stale_to_latest
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import map_stale_to_latest
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.product_analytics.backend.presentation.insight_variable import (
     InsightVariableSerializer,
     InsightVariableViewSet,

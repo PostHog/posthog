@@ -22,7 +22,7 @@ from posthog.llm.completions import hit_openai
 from posthog.models import Team
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_query_date_range
-from products.product_analytics.backend.logic import get_query_specific_instructions
+from products.product_analytics.backend.facade.api import get_query_specific_instructions
 from products.product_analytics.backend.presentation.ai_billing import billable_ai_properties
 
 logger = structlog.get_logger(__name__)

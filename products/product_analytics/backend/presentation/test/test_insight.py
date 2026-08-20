@@ -60,8 +60,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 
 from ee.models.rbac.access_control import AccessControl
 

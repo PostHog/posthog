@@ -152,10 +152,8 @@ from products.dashboards.backend.access import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.insight_test_account_filters import plan_test_account_filter_update
-from products.product_analytics.backend.logic import map_stale_to_latest
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
+from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
