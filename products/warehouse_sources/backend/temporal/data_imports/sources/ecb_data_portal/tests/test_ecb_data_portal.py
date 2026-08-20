@@ -79,6 +79,7 @@ class TestDaterangeChunks:
         # No gaps or overlaps between consecutive windows.
         for (_, prev_end), (next_start, _) in zip(chunks, chunks[1:]):
             assert prev_end is not None
+            assert next_start is not None
             assert (next_start - prev_end).days == 1
 
     def test_leap_day_anchor_does_not_crash(self) -> None:
