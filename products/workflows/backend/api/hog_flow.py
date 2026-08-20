@@ -740,6 +740,27 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     return source is not None and source != EventSource.WEB
 
 
+def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
+    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+
+    Which variant a save should be compared against depends on how the request routes (a
+    builder save targets the draft, a raw API write targets live), so validation grandfathers
+    a value matching either - both are values already stored on the workflow.
+    """
+    result: dict[str, list[dict]] = {}
+    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    for actions in (instance.actions, draft.get("actions")):
+        for stored_action in actions or []:
+            if not isinstance(stored_action, dict) or not stored_action.get("id"):
+                continue
+            email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
+            value = email_input.get("value") if isinstance(email_input, dict) else None
+            from_value = value.get("from") if isinstance(value, dict) else None
+            if isinstance(from_value, dict):
+                result.setdefault(stored_action["id"], []).append(from_value)
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1251,6 +1272,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # {"secret": true} marker recovers the stored value instead of wiping it.
                         "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
                         or {},
+                        # Team plus this action's stored sender override, so a literal custom
+                        # sender address is checked against the integration's verified domain at
+                        # save time, while an unchanged stored value is grandfathered.
+                        "get_team": self.context.get("get_team"),
+                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
+                            data.get("id")
+                        ),
+                        # Request-scoped: a drip sequence's steps share senders, and the actions
+                        # list validates one action at a time (mirrors _message_template_cache).
+                        "email_integration_domain_cache": self.context.setdefault(
+                            "_email_integration_domain_cache", {}
+                        ),
                     },
                 )
 
@@ -1992,6 +2025,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
             self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
+            # Stored sender overrides, keyed by action id, so child action validation only holds
+            # newly written custom sender addresses to the verified-domain rule. Draft wins over
+            # live for the same reason as secrets: it is the value the client last saw.
+            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
