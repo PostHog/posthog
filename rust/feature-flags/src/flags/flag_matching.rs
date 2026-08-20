@@ -6,6 +6,7 @@ use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
+use crate::database::pool_names::{PERSONS_READER, PERSONS_WRITER};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
@@ -717,14 +718,15 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (self.router.get_persons_writer().clone(), PERSONS_WRITER)
         } else {
-            self.router.get_persons_reader().clone()
+            (self.router.get_persons_reader().clone(), PERSONS_READER)
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
             self.team_id,
             target_distinct_ids,
         )
@@ -2375,9 +2377,17 @@ impl FeatureFlagMatcher {
                     // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
                     // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
                     // In addition, this behavior is consistent with /decide.
+                    //
+                    // Read from the writer (primary), not the replica. A stored override that hasn't
+                    // yet replicated would come back empty from the replica, and `hashed_identifier`
+                    // would silently fall back to bucketing on the raw distinct_id — placing the user
+                    // in a different variant with no error. The write path reads from the writer for
+                    // the same read-after-write reason; server-side evaluations (no $anon_distinct_id)
+                    // need the same floor so they never mis-bucket on lagging replica data.
                     None => {
                         match get_feature_flag_hash_key_overrides(
-                            self.router.get_persons_reader().clone(),
+                            self.router.get_persons_writer().clone(),
+                            PERSONS_WRITER,
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )
@@ -2646,6 +2656,101 @@ mod tests {
             .unwrap();
 
         assert_eq!(identifier, expected_identifier);
+    }
+
+    /// Server-side evaluations carry no `$anon_distinct_id`, so they take the no-anon-id
+    /// branch of hash key override processing. That branch must read the stored override
+    /// from the persons writer (primary), never the replica: a replica that hasn't caught
+    /// up returns an empty map, and `hashed_identifier` would then silently fall back to
+    /// bucketing on the raw distinct_id — placing the user in a different variant with no
+    /// error. Here the replica is stood in for by an unreachable pool; the override still
+    /// resolves because the writer is authoritative.
+    #[tokio::test]
+    async fn test_no_anon_id_reads_hash_key_override_from_writer_not_replica() {
+        use crate::utils::test_utils::{
+            insert_person_for_team_in_pg, mock_group_type_cache, TestContext,
+        };
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let distinct_id = "server-side-user".to_string();
+        let person_id = insert_person_for_team_in_pg(
+            context.persons_writer.clone(),
+            team.id,
+            distinct_id.clone(),
+            None,
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // A hash key override written earlier (e.g. by a client SDK at login time).
+        let mut conn = context
+            .persons_writer
+            .get_connection()
+            .await
+            .expect("Failed to get writer connection");
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(team.id)
+        .bind(person_id)
+        .bind("my-flag")
+        .bind("anon-before-login")
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert hash key override");
+        drop(conn);
+
+        // Stand in for a replica that hasn't caught up: an unreachable pool that can never
+        // serve the row. Reading it instead of the writer would drop the override.
+        let lagging_replica = Arc::new(
+            common_database::get_pool_with_timeout(
+                "postgres://posthog:posthog@localhost:1/nonexistent",
+                1,
+                std::time::Duration::from_millis(200),
+            )
+            .expect("Failed to create lagging replica pool"),
+        );
+
+        let router = PostgresRouter::new(
+            lagging_replica,
+            context.persons_writer.clone(),
+            context.non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            mock_group_type_cache(HashMap::new()),
+            None,
+        );
+
+        // No override in the request (server-side SDK) but a continuity lookup is required.
+        let (overrides, error) = matcher
+            .process_hash_key_override_if_needed(true, None)
+            .await;
+
+        assert!(!error, "hash key override processing should not error");
+        let overrides = overrides.expect("overrides should be present");
+        assert_eq!(
+            overrides.get("my-flag").map(String::as_str),
+            Some("anon-before-login"),
+            "stored override must be read from the writer, not the lagging replica",
+        );
     }
 
     #[rstest::rstest]

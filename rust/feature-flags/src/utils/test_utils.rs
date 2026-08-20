@@ -1,3 +1,4 @@
+use crate::database::pool_names::PERSONS_READER;
 use crate::{
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
@@ -1383,6 +1384,7 @@ impl TestContext {
     {
         super::super::flags::flag_matching_utils::get_feature_flag_hash_key_overrides(
             self.persons_reader.clone(),
+            PERSONS_READER,
             team_id,
             distinct_ids,
         )
