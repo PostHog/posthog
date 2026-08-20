@@ -12,6 +12,7 @@ import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -112,7 +113,7 @@ class PrepareSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
