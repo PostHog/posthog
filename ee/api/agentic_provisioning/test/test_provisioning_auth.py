@@ -9,7 +9,6 @@ from parameterized import parameterized
 
 from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
 from posthog.models.oauth import OAuthApplication
-from posthog.models.oauth_provisioning import ProvisioningRateLimits
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
@@ -525,7 +524,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 active=True,
                 can_create_accounts=True,
                 can_provision_resources=True,
-                rate_limits=ProvisioningRateLimits(account_requests=10),
+                rate_limits={"account_requests": 10},
             ),
         )
 

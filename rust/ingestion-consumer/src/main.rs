@@ -84,6 +84,16 @@ async fn async_main(config: Config) -> Result<()> {
 
     info!("Starting ingestion consumer");
 
+    // Keep the returned agents alive for the duration of the program.
+    // Fails gracefully - logs error but doesn't prevent service from starting.
+    let _profiling_agents = match config.continuous_profiling.start_agent() {
+        Ok(agents) => agents,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e:#}");
+            None
+        }
+    };
+
     // Lifecycle manager handles signals, health, and shutdown coordination
     let mut manager = Manager::builder("ingestion-consumer")
         .with_global_shutdown_timeout(Duration::from_secs(90))

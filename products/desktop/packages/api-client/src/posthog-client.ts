@@ -228,6 +228,12 @@ export interface TaskRunSessionLogsPage {
   matchingCount: number | null;
 }
 
+export interface TaskUsage {
+  token_cost_usd: number;
+  compute_cost_usd: number;
+  total_cost_usd: number;
+}
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -360,6 +366,20 @@ export interface UserGitHubIntegration {
   } | null;
   uses_shared_installation?: boolean;
   created_at?: string;
+}
+
+/** A personal GitHub App install awaiting (or granted) org-owner approval; the
+ * durable server-side counterpart to the in-flight connect spinner. Mirrors
+ * `GitHubInstallRequest` on the backend. */
+export interface GitHubInstallRequest {
+  id: string;
+  github_login: string;
+  /** `unidentified` means the requester could not be resolved, so approval can
+   *  never be detected and the user has to restart the connect flow. */
+  status: "pending" | "approved" | "unidentified";
+  installation_id?: string | null;
+  requested_at: string;
+  resolved_at?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -1577,7 +1597,6 @@ export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
   private githubConnectFrom: string;
-  private readonly fetch: FetchImplementation;
   private readonly apiHost: string;
 
   constructor(
@@ -1590,7 +1609,6 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -1764,6 +1782,27 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as {
       results?: UserGitHubIntegration[];
+    };
+    return data.results ?? [];
+  }
+
+  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      results?: GitHubInstallRequest[];
     };
     return data.results ?? [];
   }
@@ -2460,6 +2499,20 @@ export class PostHogAPIClient {
       path: { project_id: teamId.toString(), id: taskId },
     });
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async getTaskUsage(taskId: string): Promise<TaskUsage> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch task usage: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskUsage;
   }
 
   async getPinnedTaskIds(): Promise<string[]> {
@@ -3663,15 +3716,6 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTaskRunSessionLogs(
-    taskId: string,
-    runId: string,
-    options?: { limit?: number; after?: string },
-  ): Promise<StoredLogEntry[]> {
-    return (await this.getTaskRunSessionLogsResult(taskId, runId, options))
-      .entries;
-  }
-
   // AbortController + setTimeout because Hermes, which runs this client on
   // mobile, has no AbortSignal.timeout.
   private async fetchSessionLogsPage(
@@ -3795,39 +3839,6 @@ export class PostHogAPIClient {
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);
       return { entries, complete: false, truncatedHeadCount };
-    }
-  }
-
-  async getTaskLogs(taskId: string): Promise<StoredLogEntry[]> {
-    try {
-      const task = await this.getTask(taskId);
-      const logUrl = task?.latest_run?.log_url;
-
-      if (!logUrl) {
-        return [];
-      }
-
-      const response = await this.fetch(logUrl);
-
-      if (!response.ok) {
-        log.warn(
-          `Failed to fetch logs: ${response.status} ${response.statusText}`,
-        );
-        return [];
-      }
-
-      const content = await response.text();
-
-      if (!content.trim()) {
-        return [];
-      }
-      return content
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as StoredLogEntry);
-    } catch (err) {
-      log.warn("Failed to fetch task logs from latest run", err);
-      return [];
     }
   }
 

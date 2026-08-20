@@ -112,8 +112,11 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
-        # Create a copy to avoid mutating the input
-        criteria_copy = exposure_criteria.copy()
+        # Copy only known fields before the strict (extra="forbid") parse: the write-side
+        # validator never rejected unknown top-level keys, so saved criteria can carry
+        # stray ones (e.g. `properties`, which belongs at exposure_config.properties) —
+        # erroring here would break every results/exposure query for that experiment.
+        criteria_copy = {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
         # Also normalize nested configs if present
         for config_key in ("exposure_config", "activation_config"):
             config = criteria_copy.get(config_key)

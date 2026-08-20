@@ -225,6 +225,16 @@ class TestUserAccessControl(BaseUserAccessControlTest):
             is True  # This is the default
         )  # Fix this - need to load all access controls...
 
+    def test_project_default_survives_a_resource_level_project_rule(self):
+        # A rule about "project" written without a resource_id is not a shape the product writes,
+        # and enforcement never reads it. It must not send the walk to the resource tier, which
+        # answers with the built-in project default and would promote everyone to admin
+        self._create_access_control(resource="project", resource_id=self.team.id, access_level="member")
+        self._create_access_control(resource="project", resource_id=None, access_level="none")
+        self._clear_uac_caches()
+
+        assert self.user_access_control.get_user_access_level(self.team) == "member"
+
     def test_ac_object_project_access_control(self):
         # Setup no access by default
         ac = self._create_access_control(resource_id=self.team.id, access_level="none")
@@ -1141,7 +1151,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_insight_specific_access_control(self):
         """Test insight-specific access controls"""
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 

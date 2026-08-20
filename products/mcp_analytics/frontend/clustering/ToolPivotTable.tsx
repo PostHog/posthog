@@ -93,7 +93,12 @@ export function ToolPivotTable(): JSX.Element {
                             <TableRow
                                 key={tool.tool}
                                 onClick={() => selectTool(tool.tool)}
-                                className={`cursor-pointer ${selectedToolName === tool.tool ? 'bg-accent/10' : ''}`}
+                                data-state={selectedToolName === tool.tool ? 'selected' : undefined}
+                                className={`cursor-pointer ${
+                                    selectedToolName === tool.tool
+                                        ? 'bg-accent-highlight-secondary'
+                                        : 'hover:bg-accent-highlight-secondary'
+                                }`}
                             >
                                 <TableCell expand>
                                     <span className="font-mono">{tool.tool}</span>

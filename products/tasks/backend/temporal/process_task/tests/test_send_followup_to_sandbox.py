@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
+    SandboxRebindFailure,
     SendFollowupToSandboxInput,
     _refresh_sandbox_github,
     _refresh_sandbox_mcp,
@@ -249,9 +250,9 @@ class TestRefreshSandboxMcp:
         mark_sandbox_mcp_session("run-1", 99)
 
         actor = MagicMock(id=42)
-        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+        failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is False
+        assert failure == SandboxRebindFailure.REFRESH_SESSION_FAILED
         assert get_sandbox_mcp_session_user("run-1") == 99
 
     def test_unknown_binding_refresh_failure_fails_closed(
@@ -267,9 +268,9 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
 
         actor = MagicMock(id=42)
-        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+        failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is False
+        assert failure == SandboxRebindFailure.REFRESH_SESSION_FAILED
 
 
 @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
@@ -369,9 +370,9 @@ class TestSessionIdentityGate:
         mark_sandbox_mcp_session("run-1", 99)
 
         actor = MagicMock(id=42)
-        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+        failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is False  # fail closed: prior session may still be live
+        assert failure == SandboxRebindFailure.NO_CONFIGS_ON_TRANSITION  # fail closed: prior session may still be live
         mock_send_refresh.assert_not_called()
         assert get_sandbox_mcp_session_user("run-1") == 99  # binding unchanged
 
@@ -386,9 +387,9 @@ class TestSessionIdentityGate:
         mock_user_configs.return_value = []
 
         actor = MagicMock(id=42)
-        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+        failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is True
+        assert failure is None
         mock_send_refresh.assert_not_called()
         assert get_sandbox_mcp_session_user("run-1") == 42  # binding recorded
 
@@ -418,7 +419,7 @@ class TestSandboxGithubIdentityGate:
         mock_apply.return_value = True
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_token"
         mock_clear.assert_not_called()
@@ -434,7 +435,7 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = True
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_clear.assert_called_once()
         mock_apply.assert_not_called()
 
@@ -450,7 +451,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
 
     def test_a_transition_that_cannot_clear_still_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -462,7 +466,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
 
     def test_reconnecting_after_a_logout_rebinds_the_actor(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -475,13 +482,13 @@ class TestSandboxGithubIdentityGate:
         mock_get_token.return_value = None
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         assert get_sandbox_github_identity_user("run-1") == 42
 
         mock_get_token.return_value = "ghu_reconnected"
         mock_apply.return_value = True
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_reconnected"
 
@@ -493,7 +500,7 @@ class TestSandboxGithubIdentityGate:
         mock_authorship.return_value = PrAuthorshipMode.BOT
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
@@ -507,7 +514,7 @@ class TestSandboxGithubIdentityGate:
         mock_apply.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_newtoken"
         mock_clear.assert_not_called()
@@ -522,7 +529,7 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
@@ -539,7 +546,7 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         mock_clear.assert_called_once()  # fell through to logout so no stale creds remain
 
@@ -556,7 +563,7 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
@@ -573,7 +580,10 @@ class TestSandboxGithubIdentityGate:
         mock_resolve.return_value = None
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.NO_SANDBOX_HANDLE
+        )
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
@@ -590,7 +600,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
         assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
     def test_logout_exception_fails_closed(
@@ -604,7 +617,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.side_effect = RuntimeError("sandbox stopped")
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_ERRORED
+        )
         assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
     def test_credential_unavailable_logs_out(
@@ -620,7 +636,7 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
         # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
@@ -643,12 +659,13 @@ class TestSendFollowupActivityRefreshOrdering:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
             ) as mock_conn_token,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp",
+                return_value=None,
             ) as mock_refresh,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_github",
-                return_value=True,
-            ),
+                return_value=None,
+            ) as mock_refresh_github,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
             ) as mock_user_msg,
@@ -668,6 +685,7 @@ class TestSendFollowupActivityRefreshOrdering:
                 "task_run": task_run,
                 "task_run_cls": mock_task_run_cls,
                 "refresh": mock_refresh,
+                "refresh_github": mock_refresh_github,
                 "user_msg": mock_user_msg,
                 "conn_token": mock_conn_token,
             }
@@ -677,7 +695,7 @@ class TestSendFollowupActivityRefreshOrdering:
 
         def _record_refresh(*a, **kw):
             call_order.append("refresh")
-            return True  # refresh confirmed the session is safe; gate lets the turn proceed
+            return None  # refresh confirmed the session is safe; gate lets the turn proceed
 
         def _record_user_msg(*a, **kw):
             call_order.append("user_message")
@@ -689,6 +707,20 @@ class TestSendFollowupActivityRefreshOrdering:
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="full"))
 
         assert call_order == ["refresh", "user_message"]
+
+    @pytest.mark.parametrize(
+        "gate,reason",
+        [("refresh", "refresh_session_failed"), ("refresh_github", "logout_unconfirmed")],
+    )
+    def test_gate_rejection_names_its_reason_in_the_failure(self, _patches, gate, reason):
+        # A fail-closed follow-up raises without delivering, so the reason the gate
+        # gave is the only account of why the run stopped.
+        _patches[gate].return_value = reason
+
+        with pytest.raises(RuntimeError, match=reason):
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        _patches["user_msg"].assert_not_called()
 
     def test_scopes_flow_from_input_to_refresh(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
@@ -784,11 +816,12 @@ class TestSendFollowupTurnTimeout:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
             ) as mock_conn_token,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp",
+                return_value=None,
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_github",
-                return_value=True,
+                return_value=None,
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
