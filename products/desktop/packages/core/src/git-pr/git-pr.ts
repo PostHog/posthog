@@ -35,6 +35,7 @@ export class GitPrService {
   async generateCommitMessage(
     directoryPath: string,
     conversationContext?: string,
+    taskId?: string,
   ): Promise<{ message: string }> {
     const [stagedDiff, unstagedDiff, conventions, changedFiles] =
       await Promise.all([
@@ -103,7 +104,11 @@ ${truncatedDiff}${contextSection}`;
       {
         system,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "commit_message" },
+        posthogProperties: {
+          $ai_span_name: "commit_message",
+          client: "desktop",
+          ...(taskId ? { task_id: taskId } : {}),
+        },
       },
     );
 
@@ -113,6 +118,7 @@ ${truncatedDiff}${contextSection}`;
   async generatePrTitleAndBody(
     directoryPath: string,
     conversationContext?: string,
+    taskId?: string,
   ): Promise<{ title: string; body: string }> {
     await this.gitDiff.fetchFromRemote(directoryPath);
 
@@ -219,7 +225,11 @@ ${truncatedDiff || "(no diff available)"}${contextSection}`;
         system,
         maxTokens: 2000,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "pr_description" },
+        posthogProperties: {
+          $ai_span_name: "pr_description",
+          client: "desktop",
+          ...(taskId ? { task_id: taskId } : {}),
+        },
       },
     );
 
@@ -236,6 +246,7 @@ ${truncatedDiff || "(no diff available)"}${contextSection}`;
   async generatePrShortSummary(
     conversationContext?: string,
     prTitle?: string,
+    taskId?: string,
   ): Promise<{ summary: string }> {
     if (!conversationContext && !prTitle) return { summary: "" };
 
@@ -259,7 +270,11 @@ Rules:
         system,
         maxTokens: 30,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "pr_short_summary" },
+        posthogProperties: {
+          $ai_span_name: "pr_short_summary",
+          client: "desktop",
+          ...(taskId ? { task_id: taskId } : {}),
+        },
       },
     );
 
@@ -287,7 +302,11 @@ Rules:
         createBranch: (dir, name) => host.createBranch(dir, name),
         getChangedFilesHead: (dir) => host.getChangedFilesHead(dir),
         generateCommitMessage: (dir) =>
-          this.generateCommitMessage(dir, input.conversationContext),
+          this.generateCommitMessage(
+            dir,
+            input.conversationContext,
+            input.taskId,
+          ),
         getHeadSha: (dir) => host.getHeadSha(dir),
         commit: (dir, message, options) =>
           host.commit(dir, message, { ...options, env: sessionEnv }),
@@ -296,7 +315,11 @@ Rules:
         push: (dir) => host.push(dir, sessionEnv),
         publish: (dir) => host.publish(dir, sessionEnv),
         generatePrTitleAndBody: (dir) =>
-          this.generatePrTitleAndBody(dir, input.conversationContext),
+          this.generatePrTitleAndBody(
+            dir,
+            input.conversationContext,
+            input.taskId,
+          ),
         createPr: (dir, title, body, draft) =>
           host.createPrViaGh(dir, title, body, draft, sessionEnv),
         onProgress,

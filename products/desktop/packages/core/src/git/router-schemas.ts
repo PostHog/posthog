@@ -489,6 +489,7 @@ export const getLocalBranchChangedFilesOutput = z.array(changedFileSchema);
 export const generateCommitMessageInput = z.object({
   directoryPath: z.string(),
   conversationContext: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 export const generateCommitMessageOutput = z.object({
@@ -498,6 +499,7 @@ export const generateCommitMessageOutput = z.object({
 export const generatePrTitleAndBodyInput = z.object({
   directoryPath: z.string(),
   conversationContext: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 export const generatePrTitleAndBodyOutput = z.object({
@@ -508,6 +510,7 @@ export const generatePrTitleAndBodyOutput = z.object({
 export const generatePrShortSummaryInput = z.object({
   conversationContext: z.string().optional(),
   prTitle: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 export const generatePrShortSummaryOutput = z.object({

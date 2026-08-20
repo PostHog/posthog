@@ -13,6 +13,12 @@ interface TestableServer {
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    repository?: string | null;
+    runtimeAdapter?: string | null;
+    sandboxEnvironmentConfigured?: boolean | null;
+    snapshotKind?: string | null;
+    prewarmed?: boolean | null;
+    client?: "desktop" | "cloud_sandbox";
   }): GatewayEnv;
 }
 
@@ -207,8 +213,13 @@ describe("AgentServer.configureEnvironment", () => {
       aiStage: "research",
       taskId: "task-abc",
       taskRunId: "run-xyz",
-      taskUserId: 42,
-      taskTitle: "Fix the bug",
+    taskUserId: 42,
+    taskTitle: "Fix the bug",
+    repository: "posthog/posthog",
+    runtimeAdapter: "claude",
+    sandboxEnvironmentConfigured: true,
+    snapshotKind: "filesystem",
+    prewarmed: false,
     });
 
     expect(env.openaiCustomHeaders).toEqual({
@@ -220,6 +231,12 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_run_id": "run-xyz",
       "x-posthog-property-task_user_id": "42",
       "x-posthog-property-task_title": "Fix the bug",
+      "x-posthog-property-task_repository": "posthog/posthog",
+      "x-posthog-property-task_runtime_adapter": "claude",
+      "x-posthog-property-task_sandbox_environment_configured": "true",
+      "x-posthog-property-task_snapshot_kind": "filesystem",
+      "x-posthog-property-task_prewarmed": "false",
+      "x-posthog-property-client": "cloud_sandbox",
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
       "X-PostHog-Project-Id": "1",
@@ -234,8 +251,13 @@ describe("AgentServer.configureEnvironment", () => {
       aiStage: "research",
       taskId: "task-abc",
       taskRunId: "run-xyz",
-      taskUserId: 42,
-      taskTitle: "Fix the bug",
+    taskUserId: 42,
+    taskTitle: "Fix the bug",
+    repository: "posthog/posthog",
+    runtimeAdapter: "claude",
+    sandboxEnvironmentConfigured: true,
+    snapshotKind: "filesystem",
+    prewarmed: false,
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -248,6 +270,12 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
         "x-posthog-property-task_title: Fix the bug",
+        "x-posthog-property-task_repository: posthog/posthog",
+        "x-posthog-property-task_runtime_adapter: claude",
+        "x-posthog-property-task_sandbox_environment_configured: true",
+        "x-posthog-property-task_snapshot_kind: filesystem",
+        "x-posthog-property-task_prewarmed: false",
+        "x-posthog-property-client: cloud_sandbox",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
@@ -290,7 +318,9 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicCustomHeaders).toBe(
-      "x-posthog-property-task_internal: false\nX-PostHog-Project-Id: 1",
+      "x-posthog-property-task_internal: false\n" +
+        "x-posthog-property-client: cloud_sandbox\n" +
+        "X-PostHog-Project-Id: 1",
     );
   });
 

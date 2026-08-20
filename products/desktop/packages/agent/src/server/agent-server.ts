@@ -1683,6 +1683,8 @@ export class AgentServer {
       true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
+    const runtimeAdapter = this.getRuntimeAdapter();
+
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
@@ -1692,6 +1694,16 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      repository: this.taskRepositories[0] ?? null,
+      runtimeAdapter,
+      sandboxEnvironmentConfigured: Boolean(
+        (preTaskRun?.state as Record<string, unknown> | undefined)
+          ?.sandbox_environment_id,
+      ),
+      snapshotKind:
+        getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent",
+      prewarmed: this.prewarmedRun,
+      client: "cloud_sandbox",
     });
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
@@ -1727,7 +1739,6 @@ export class AgentServer {
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
 
-    const runtimeAdapter = this.getRuntimeAdapter();
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
@@ -4221,6 +4232,12 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    repository,
+    runtimeAdapter,
+    sandboxEnvironmentConfigured,
+    snapshotKind,
+    prewarmed,
+    client,
   }: {
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
@@ -4230,6 +4247,12 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    repository?: string | null;
+    runtimeAdapter?: string | null;
+    sandboxEnvironmentConfigured?: boolean | null;
+    snapshotKind?: string | null;
+    prewarmed?: boolean | null;
+    client?: "desktop" | "cloud_sandbox";
   } = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
     const product = resolveGatewayProduct({ isInternal, originProduct });
@@ -4273,6 +4296,12 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_repository: repository,
+      task_runtime_adapter: runtimeAdapter,
+      task_sandbox_environment_configured: sandboxEnvironmentConfigured,
+      task_snapshot_kind: snapshotKind,
+      task_prewarmed: prewarmed,
+      client: client ?? "cloud_sandbox",
     };
     // The Claude path appends the project scope in buildEnvironment from
     // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below

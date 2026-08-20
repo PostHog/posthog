@@ -659,6 +659,7 @@ export const gitRouter = router({
       getGitPrService(ctx.container).generateCommitMessage(
         input.directoryPath,
         input.conversationContext,
+        input.taskId,
       ),
     ),
 
@@ -669,6 +670,7 @@ export const gitRouter = router({
       getGitPrService(ctx.container).generatePrTitleAndBody(
         input.directoryPath,
         input.conversationContext,
+        input.taskId,
       ),
     ),
 
@@ -679,6 +681,7 @@ export const gitRouter = router({
       getGitPrService(ctx.container).generatePrShortSummary(
         input.conversationContext,
         input.prTitle,
+        input.taskId,
       ),
     ),
 
