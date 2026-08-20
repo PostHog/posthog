@@ -11,6 +11,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.ai_observability.backend.summarization.llm.schema import (
@@ -142,21 +143,30 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
 
+    @parameterized.expand(
+        [
+            ("empty_generation", {"event": {"id": "gen-empty", "event": "$ai_generation", "properties": {}}}, "event"),
+            (
+                "state_less_span",
+                {"event": {"id": "span-empty", "event": "$ai_span", "properties": {"$ai_span_name": "my span"}}},
+                "event",
+            ),
+            (
+                "trace_without_events_or_state",
+                {"trace": {"id": "t-empty", "properties": {"$ai_span_name": "grouping"}}, "hierarchy": []},
+                "trace",
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_empty_event_short_circuits_without_calling_the_model(self, mock_summarize):
-        """An event with no input or output must answer directly, not pay for an LLM call."""
+    def test_empty_entity_short_circuits_without_calling_the_model(self, _name, data, summarize_type, mock_summarize):
+        """A payload-less generation, span, or trace must answer directly, not pay for an LLM call."""
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        request_data = {
-            "summarize_type": "event",
-            "mode": "minimal",
-            "data": {"event": {"id": "gen-empty", "event": "$ai_generation", "properties": {}}},
-        }
-
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/summarization/",
-            request_data,
+            {"summarize_type": summarize_type, "mode": "minimal", "data": data},
             format="json",
         )
 

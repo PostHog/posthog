@@ -9,9 +9,9 @@ Endpoints:
 - POST /api/projects/:id/llm_analytics/summarization/batch_check/ - Check cached summaries for multiple traces
 """
 
-import re
 import time
 from datetime import datetime
+from typing import Any
 
 from django.core.cache import cache
 
@@ -60,19 +60,51 @@ logger = structlog.get_logger(__name__)
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
 
-# Strips the "L12: " line-number prefix the formatters add, so an otherwise empty representation
-# is recognised as empty rather than as one line of content.
-_LINE_NUMBER_PREFIX = re.compile(r"^L\d+:\s?", re.MULTILINE)
+# Properties that carry a summarizable payload on a generation or span event.
+_EVENT_CONTENT_PROPERTIES = (
+    "$ai_input",
+    "$ai_output",
+    "$ai_output_choices",
+    "$ai_tools",
+    "$ai_input_state",
+    "$ai_output_state",
+    "$ai_error",
+    "$ai_is_error",
+)
+
+# Trace-level properties that carry a summarizable payload when a trace has no events.
+_TRACE_CONTENT_PROPERTIES = ("$ai_input_state", "$ai_output_state", "$ai_error")
+
+# Event types the formatters always render with fixed, descriptive text.
+_ALWAYS_RENDERED_EVENT_TYPES = frozenset({"$ai_embedding", "$ai_evaluation"})
 
 
-def _text_repr_has_content(text_repr: str) -> bool:
-    """True when the representation holds anything beyond line-number scaffolding.
+def _event_has_content(event: dict[str, Any]) -> bool:
+    """True when a single event has a payload worth summarizing.
 
-    A generation with no input, output, or tools formats to an empty string, which becomes just
-    "L1: " once numbered. Summarizing that spends an LLM call to describe nothing, and the model
-    then invents an "empty input" summary of what the trace view still shows as populated.
+    Checked on the source properties, not the rendered text: a generation with no payload formats
+    to an empty string, but a span formats to just its name and a separator, so the text alone is
+    not a reliable emptiness signal. Embeddings and evaluations always render descriptive text.
     """
-    return bool(_LINE_NUMBER_PREFIX.sub("", text_repr).strip())
+    if event.get("event") in _ALWAYS_RENDERED_EVENT_TYPES:
+        return True
+    props = event.get("properties") or {}
+    return any(props.get(key) for key in _EVENT_CONTENT_PROPERTIES)
+
+
+def _entity_has_content(summarize_type: str, entity_data: dict[str, Any]) -> bool:
+    """True when the trace or event has a payload worth spending an LLM call on.
+
+    An empty trace (one `$ai_trace` event with no children and no input/output state) and a
+    state-less span both render as header-only scaffolding, which the model would otherwise
+    summarize into an invented "empty" description.
+    """
+    if summarize_type == "trace":
+        if entity_data.get("hierarchy"):
+            return True
+        props = (entity_data.get("trace") or {}).get("properties") or {}
+        return any(props.get(key) for key in _TRACE_CONTENT_PROPERTIES)
+    return _event_has_content(entity_data.get("event") or {})
 
 
 # Request/Response Serializers
@@ -582,9 +614,9 @@ The response includes the structured summary, the text representation, and metad
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 
-            # An empty representation would make the LLM invent a summary of nothing, so answer
-            # directly instead of paying for the call.
-            if not _text_repr_has_content(text_repr):
+            # A trace or event with no payload would make the LLM invent a summary of scaffolding,
+            # so answer directly instead of paying for the call.
+            if not _entity_has_content(summarize_type, entity_data):
                 result = self._build_empty_summary_response(text_repr, summarize_type)
                 cache.set(cache_key, result, timeout=3600)
                 logger.info(
