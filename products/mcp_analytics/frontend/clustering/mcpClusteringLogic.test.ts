@@ -496,6 +496,44 @@ describe('mcpClusteringLogic category scope', () => {
         expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
     })
 
+    // Requesting the map sets a flag that stops urlToAction refetching on every click. Left set
+    // through a failure, one blip makes the tab unfilterable for the session; cleared without a
+    // bound, a failing ClickHouse query lands behind every row the user clicks.
+    it('retries a failed category map once, then stops', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        const before = mockQuery.mock.calls.length
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(1)
+
+        logic.actions.selectCluster(SPREAD_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(2)
+
+        logic.actions.selectTool('b')
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(2)
+    })
+
+    // The selector hides itself when no tool carries a category, which is also what a failed
+    // map load looks like. Offering only what the map knows would hide a category arriving from
+    // a bookmarked url behind no control at all, leaving no way to see or clear it.
+    it('keeps a url category clearable when the map load fails', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: 'Data' })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.availableCategories).toEqual([])
+        expect(logic.values.categoryScopeOptions).toEqual(['Data'])
+    })
+
     // Tool names come from events, so a call named `__proto__` or `constructor` can reach the
     // category map. A plain-object lookup resolves those to inherited values and throws on the
     // `.includes` check, taking the whole view down; the map has to be prototype-free.

@@ -42,22 +42,23 @@ function ViewToggle(): JSX.Element {
 }
 
 /**
- * Scopes both views to tools in the chosen categories. Hidden until at least one tool
- * carries a category — an always-visible empty dropdown would read as broken on a project
- * that never sets $mcp_tool_category.
+ * Scopes both views to tools in the chosen categories. Hidden until a category is worth
+ * showing: an always-visible empty dropdown would read as broken on a project that never
+ * sets $mcp_tool_category. A selection carried in from the url counts, so a failed map
+ * load still leaves the user a way to see and clear it.
  */
 function CategoryScope(): JSX.Element | null {
-    const { availableCategories, selectedCategories } = useValues(mcpClusteringLogic)
+    const { categoryScopeOptions, selectedCategories } = useValues(mcpClusteringLogic)
     const { setSelectedCategories } = useActions(mcpClusteringLogic)
 
-    if (availableCategories.length === 0) {
+    if (categoryScopeOptions.length === 0) {
         return null
     }
 
     return (
         <div className="w-full max-w-[420px] sm:w-[320px]">
             <TagsCombobox
-                options={availableCategories}
+                options={categoryScopeOptions}
                 value={selectedCategories}
                 onChange={setSelectedCategories}
                 placeholder="All categories"

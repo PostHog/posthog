@@ -36,6 +36,10 @@ const POLL_INTERVAL_MS = 3000
 // 7 days by default but configurable per run. A wider window can only add tools the snapshot
 // never names — harmless — while a narrower one would drop tools from the filter entirely.
 const CATEGORY_LOOKBACK = '-30d'
+// A failed map load has to be retryable, or one blip leaves the tab unfilterable for the
+// session. It cannot retry freely either: urlToAction re-runs on every selection, so an
+// unbounded re-arm would refetch on each click. One retry, then the tab stays unscoped.
+const MAX_CATEGORY_MAP_ATTEMPTS = 2
 
 /** Segments drawn on a cluster row's routing bar before the rest is aggregated. */
 export const ROUTING_BAR_SEGMENTS = 3
@@ -221,8 +225,10 @@ export interface mcpClusteringLogicValues {
     availableCategories: string[]
     categoriesByTool: Record<string, string[]>
     categoryMap: MCPToolCategoryMapItem[]
+    categoryMapAttempts: number
     categoryMapLoading: boolean
     categoryMapRequested: boolean
+    categoryScopeOptions: string[]
     clusterFilter: ClusterFilter
     clusters: readonly MCPIntentClusterApi[]
     discoveryMedian: number | null
@@ -350,6 +356,7 @@ export interface mcpClusteringLogicMeta {
         tools: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPToolPivotApi[]
         categoriesByTool: (categoryMap: MCPToolCategoryMapItem[]) => Record<string, string[]>
         availableCategories: (categoryMap: MCPToolCategoryMapItem[]) => string[]
+        categoryScopeOptions: (availableCategories: string[], selectedCategories: string[]) => string[]
         toolsInScope: (categoryMap: MCPToolCategoryMapItem[], selectedCategories: string[]) => Set<string> | null
         toolOverlaps: (
             snapshot: MCPIntentClusterSnapshotApi,
@@ -508,6 +515,15 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             false,
             {
                 loadCategoryMap: () => true,
+                // Re-arm on failure so a later navigation can retry; the attempt count is
+                // what stops that from becoming a request per click.
+                loadCategoryMapFailure: () => false,
+            },
+        ],
+        categoryMapAttempts: [
+            0,
+            {
+                loadCategoryMap: (state: number) => state + 1,
             },
         ],
     }),
@@ -546,6 +562,15 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.categoryMap],
             (categoryMap: MCPToolCategoryMapItem[]): string[] =>
                 Array.from(new Set(categoryMap.map((row) => row.category))).sort((a, b) => a.localeCompare(b)),
+        ],
+        // What the scope selector offers, which is not the same as what the map knows. A
+        // category carried in from the url survives a failed map load, and the selector is
+        // the only way to clear it, so the selection is always offered back even when the
+        // map contributed nothing.
+        categoryScopeOptions: [
+            (s) => [s.availableCategories, s.selectedCategories],
+            (availableCategories: string[], selectedCategories: string[]): string[] =>
+                Array.from(new Set([...availableCategories, ...selectedCategories])).sort((a, b) => a.localeCompare(b)),
         ],
         // Null rather than an empty set means "no scope, show everything". Two cases return it:
         // nothing is selected, or there is no map to scope against — still loading, the query
@@ -774,6 +799,15 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         loadCategoryMapSuccess: () => {
             actions.keepSelectionVisible()
         },
+        // Only once the retry is spent: a toast on the first failure would fire twice, and
+        // silence would leave a category in the url quietly doing nothing.
+        loadCategoryMapFailure: () => {
+            if (values.categoryMapAttempts >= MAX_CATEGORY_MAP_ATTEMPTS) {
+                lemonToast.error(
+                    'Could not load tool categories, so category filtering is unavailable. Refresh the page to try again.'
+                )
+            }
+        },
         triggerRecomputeSuccess: ({ snapshot }) => {
             lemonToast.info('Clustering started — this usually takes 30–60 seconds.')
             if (snapshot.status === 'computing') {
@@ -887,7 +921,7 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         [urls.mcpAnalyticsIntentClustering()]: (_, searchParams) => {
-            if (!values.categoryMapRequested) {
+            if (!values.categoryMapRequested && values.categoryMapAttempts < MAX_CATEGORY_MAP_ATTEMPTS) {
                 actions.loadCategoryMap()
             }
             const viewMode: ClusteringViewMode = searchParams.view === 'tools' ? 'tools' : 'intents'
