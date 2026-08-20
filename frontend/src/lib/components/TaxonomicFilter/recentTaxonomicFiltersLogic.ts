@@ -50,7 +50,14 @@ export interface RecentItemContext {
 }
 
 export function hasRecentContext(item: unknown): item is Record<string, any> & { _recentContext: RecentItemContext } {
-    return typeof item === 'object' && item != null && '_recentContext' in item && (item as any)._recentContext != null
+    if (typeof item !== 'object' || item == null || !('_recentContext' in item)) {
+        return false
+    }
+    // A persisted entry can lack its group type (older or corrupt storage). Only narrow to
+    // RecentItemContext when sourceGroupType is present, so consumers can read it and fall
+    // back to the live group when it is not.
+    const context = (item as any)._recentContext
+    return context != null && typeof context.sourceGroupType === 'string'
 }
 
 export function stripRecentContext<T extends Record<string, any>>(item: T): Omit<T, '_recentContext'> {

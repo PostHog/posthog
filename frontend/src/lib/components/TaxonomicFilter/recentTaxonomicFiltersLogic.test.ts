@@ -2,6 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { LogPropertyFilter, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    hasRecentContext,
     MAX_RECENT_FILTERS,
     RECENT_FILTER_MAX_AGE_MS,
     recentTaxonomicFiltersLogic,
@@ -584,6 +585,25 @@ describe('recentTaxonomicFiltersLogic', () => {
             })
 
             expect(logic.values.recentFilters.map((f) => f.propertyFilter?.value)).toEqual(['baz', 'foobar'])
+        })
+    })
+
+    describe('hasRecentContext', () => {
+        it('narrows an entry that carries a source group type', () => {
+            const item = { name: '$pageview', _recentContext: { sourceGroupType: TaxonomicFilterGroupType.Events } }
+            expect(hasRecentContext(item)).toBe(true)
+        })
+
+        // A persisted entry can miss its group type (older or corrupt storage). The consumer then reads
+        // `sourceGroupType.startsWith(...)` and throws, so the guard must reject it and let the caller
+        // fall back to the live group.
+        it.each([
+            ['null recent context', { name: '$pageview', _recentContext: null }],
+            ['recent context without a source group type', { name: '$pageview', _recentContext: {} }],
+            ['undefined source group type', { name: '$pageview', _recentContext: { sourceGroupType: undefined } }],
+            ['no recent context at all', { name: '$pageview' }],
+        ])('does not narrow an entry with %s', (_label, item) => {
+            expect(hasRecentContext(item)).toBe(false)
         })
     })
 })
