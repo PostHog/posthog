@@ -3194,6 +3194,7 @@ export interface CredentialApi {
  * * `Profound` - Profound
  * * `Airwallex` - Airwallex
  * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4502,6 +4503,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Profound: 'Profound',
     Airwallex: 'Airwallex',
     Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

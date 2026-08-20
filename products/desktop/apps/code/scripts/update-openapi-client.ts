@@ -2,8 +2,14 @@
 
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import * as yaml from "yaml";
+
+// Anchor to apps/code so the relative paths below (and dotenv, and the pnpm binary lookup)
+// resolve the same way no matter which directory the script is invoked from.
+process.chdir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 
 config();
 
@@ -14,7 +20,7 @@ if (!POSTHOG_API_HOST) {
 
 const SCHEMA_URL = `${POSTHOG_API_HOST}/api/schema/`;
 const TEMP_SCHEMA_PATH = "temp-openapi.yaml";
-const OUTPUT_PATH = "src/renderer/api/generated.ts";
+const OUTPUT_PATH = "../../packages/api-client/src/generated.ts";
 
 const INCLUDED_ENDPOINT_PREFIXES = [
   "/api/projects/{project_id}/tasks",
