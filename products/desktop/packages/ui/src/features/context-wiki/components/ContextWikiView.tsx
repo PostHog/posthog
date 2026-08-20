@@ -19,13 +19,13 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   useContextWikiTree,
   useEnableContextWiki,
 } from "../hooks/useContextWiki";
 import { buildWikiTree } from "../wikiTree";
-import { ContextWikiPagePane } from "./ContextWikiPagePane";
+import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
 
 /**
  * The organization context wiki explorer: a tree of every wiki page on the
@@ -65,6 +65,18 @@ function ContextWikiBody() {
   const { data: tree, isLoading, error, refetch } = useContextWikiTree();
   const enable = useEnableContextWiki();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Drafts are keyed by path and held here rather than in the pane, which the
+  // explorer remounts on every selection — so switching pages mid-edit, or
+  // being moved off a page an agent deleted, no longer destroys the text.
+  const [drafts, setDrafts] = useState<Record<string, WikiDraft>>({});
+
+  const setDraft = useCallback((path: string, draft: WikiDraft) => {
+    setDrafts((current) => ({ ...current, [path]: draft }));
+  }, []);
+
+  const discardDraft = useCallback((path: string) => {
+    setDrafts(({ [path]: _discarded, ...rest }) => rest);
+  }, []);
 
   const wikiRoot = useMemo(
     () => (tree ? buildWikiTree(tree.paths) : null),
@@ -167,8 +179,15 @@ function ContextWikiBody() {
       storageKey="context-wiki-explorer"
     >
       {effectivePath ? (
-        // Keyed by path so draft/mode state never leaks across pages.
-        <ContextWikiPagePane key={effectivePath} path={effectivePath} />
+        // Keyed by path so view state never leaks across pages; the draft is
+        // held above this so the remount does not take it with it.
+        <ContextWikiPagePane
+          key={effectivePath}
+          path={effectivePath}
+          draft={drafts[effectivePath]}
+          onDraftChange={setDraft}
+          onDraftDiscard={discardDraft}
+        />
       ) : (
         <div className="flex flex-1 items-center justify-center text-[13px] text-gray-10">
           The wiki has no pages yet.
