@@ -9,6 +9,7 @@ import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconDisplayVideo360 from 'public/services/display_video_360.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
@@ -77,6 +78,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-calendar': IconGoogleCalendar,
     'google-search-console': IconGoogleSearchConsole,
     'google-sheets': IconGoogleSheets,
+    'display-video-360': IconDisplayVideo360,
     snapchat: IconSnapchat,
     stripe: IconStripe,
     intercom: IconIntercom,
@@ -130,6 +132,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Search Console'
         case 'google-cloud-service-account':
             return 'Google Cloud service account'
+        case 'display-video-360':
+            return 'Display & Video 360'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':

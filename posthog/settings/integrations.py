@@ -45,6 +45,12 @@ GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SEC
 YOUTUBE_ANALYTICS_APP_CLIENT_ID = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_ID", "")
 YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_SECRET", "")
 
+# Display & Video 360 uses its own Google Cloud OAuth client so the display-video and
+# doubleclickbidmanager scopes stay off the other Google apps' consent screens. Empty defaults keep
+# the app importable and the OAuth auth method dormant until the client is provisioned.
+DISPLAY_VIDEO_360_APP_CLIENT_ID = get_from_env("DISPLAY_VIDEO_360_APP_CLIENT_ID", "")
+DISPLAY_VIDEO_360_APP_CLIENT_SECRET = get_from_env("DISPLAY_VIDEO_360_APP_CLIENT_SECRET", "")
+
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 

@@ -237,6 +237,7 @@ the row lists both.
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
 | digitalocean                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | discourse                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| display_video_360                | HTTP                        | requests                                                        | ✅                          |
 | dixa                             | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                        | HTTP                        | requests                                                        | ✅                          |
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
@@ -977,7 +978,7 @@ doesn't conflict with concurrent PRs.
 - dialpad
 - directus
 - discord
-- display_video_360
+- dodopayments
 - dokploy
 - dolibarr
 - donorbox

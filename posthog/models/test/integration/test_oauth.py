@@ -1582,3 +1582,32 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(
+    DISPLAY_VIDEO_360_APP_CLIENT_ID="dv360-client-id",
+    DISPLAY_VIDEO_360_APP_CLIENT_SECRET="dv360-client-secret",
+)
+class TestDisplayVideo360IntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("display-video-360")
+
+        assert config.authorize_url == "https://accounts.google.com/o/oauth2/v2/auth"
+        assert config.token_url == "https://oauth2.googleapis.com/token"
+        assert config.client_id == "dv360-client-id"
+        assert config.client_secret == "dv360-client-secret"
+        # Entity reads use the Display & Video 360 API; the performance tables are Bid Manager reports.
+        assert config.scope == (
+            "https://www.googleapis.com/auth/display-video "
+            "https://www.googleapis.com/auth/doubleclickbidmanager "
+            "https://www.googleapis.com/auth/userinfo.email"
+        )
+        # Without offline access Google never returns a refresh token, so syncs would die after an hour.
+        assert config.additional_authorize_params == {"access_type": "offline", "prompt": "consent"}
+        assert config.id_path == "sub"
+        assert config.name_path == "email"
+
+    @override_settings(DISPLAY_VIDEO_360_APP_CLIENT_ID="", DISPLAY_VIDEO_360_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Display & Video 360 app not configured"):
+            OauthIntegration.oauth_config_for_kind("display-video-360")
