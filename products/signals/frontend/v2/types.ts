@@ -182,7 +182,7 @@ export interface DemoReport {
 /** Fix lifecycle phases on the full report page. */
 export type ReportFixPhase = 'reported' | 'generating' | 'proposed' | 'sent' | 'committed' | 'launched'
 
-export type InboxDemoFilter = 'all' | 'attention' | 'open' | 'monitoring' | 'archived'
+export type InboxDemoFilter = 'all' | 'open' | 'monitoring' | 'archived'
 export type InboxDemoSort = 'impact' | 'recency'
 export type InboxDemoTab = 'reports' | 'scouts' | 'settings'
 

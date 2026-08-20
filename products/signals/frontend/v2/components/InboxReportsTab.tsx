@@ -11,7 +11,6 @@ import { ReportRow } from './ReportRow'
 
 const FILTER_OPTIONS: { value: InboxDemoFilter; label: string }[] = [
     { value: 'all', label: 'All' },
-    { value: 'attention', label: 'Needs attention' },
     { value: 'open', label: 'Open' },
     { value: 'monitoring', label: 'Monitoring' },
     { value: 'archived', label: 'Archived' },

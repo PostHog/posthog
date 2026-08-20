@@ -13,8 +13,6 @@ export interface InboxPrModalTarget {
 
 function matchesFilter(report: DemoReport, filter: InboxDemoFilter): boolean {
     switch (filter) {
-        case 'attention':
-            return !!report.unread || !!report.live || report.trend === 'up'
         case 'open':
             return report.status !== 'Resolved' && report.status !== 'Dismissed'
         case 'monitoring':
