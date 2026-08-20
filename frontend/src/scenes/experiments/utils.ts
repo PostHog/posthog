@@ -1198,7 +1198,16 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
-            // Merge breakdowns from metadata into breakdownFilter
+            /**
+             * Merge per-experiment breakdown attribution from metadata into the query
+             */
+            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+            }),
+            /**
+             * Merge breakdowns from metadata into breakdownFilter
+             */
             breakdownFilter: {
                 ...sharedMetric.query?.breakdownFilter,
                 breakdowns: sharedMetric.metadata?.breakdowns || [],
@@ -1408,6 +1417,16 @@ export const metricResults =
                 name: sharedMetric.name,
                 sharedMetricId: sharedMetric.saved_metric,
                 isSharedMetric: true,
+                /**
+                 * Merge per-experiment breakdown attribution from metadata into the query
+                 */
+                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+                }),
+                /**
+                 * Merge breakdowns from metadata into breakdownFilter
+                 */
                 breakdownFilter: {
                     ...sharedMetric.query?.breakdownFilter,
                     breakdowns: sharedMetric.metadata?.breakdowns || [],
