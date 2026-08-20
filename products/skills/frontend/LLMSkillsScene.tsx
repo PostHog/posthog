@@ -472,7 +472,7 @@ export function LLMSkillsScene(): JSX.Element {
         LemonDialog.openForm({
             title: 'Publish to community',
             description:
-                'Open a pull request adding this skill to the PostHog community catalog. A maintainer reviews it before it goes live.',
+                "Publishing commits the skill's instructions and every bundled file to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
             initialValues: {
                 display_name: skill.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
                 tags: '',
