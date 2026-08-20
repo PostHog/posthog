@@ -19,7 +19,7 @@ import structlog
 from posthog.cdp.internal_events import is_managed_alert_internal_event
 
 from products.alerts.backend.destination_configs import DESTINATION_SECRET_INPUT_KEYS, DESTINATION_TEMPLATE_IDS
-from products.alerts.backend.destinations import _receipt_safe_name
+from products.alerts.backend.destinations import _DESTINATION_NAME_SEPARATOR, _receipt_safe_name
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +29,16 @@ _TEMPLATE_ID_TO_SECRET_KEYS: dict[str, tuple[str, ...]] = {
     for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
     if DESTINATION_SECRET_INPUT_KEYS[destination_type]
 }
+
+
+def _host_only_destination_segment(name: str) -> str:
+    """Names read "<product> — <alert> (<kind>) → <destination>". Only the destination segment
+    carries the webhook URL, and an alert name may legitimately contain a URL of its own, so
+    rewrite the trailing segment and leave the prefix as the user wrote it."""
+    prefix, separator, destination = name.rpartition(_DESTINATION_NAME_SEPARATOR)
+    if not separator:
+        return _receipt_safe_name(name)
+    return f"{prefix}{separator}{_receipt_safe_name(destination)}"
 
 
 def _is_alert_owned(hog_function: HogFunction) -> bool:
@@ -68,7 +78,7 @@ class Command(BaseCommand):
                     schema_changed = True
                 new_schema.append(schema)
 
-            new_name = _receipt_safe_name(hog_function.name or "")
+            new_name = _host_only_destination_segment(hog_function.name or "")
             name_changed = new_name != (hog_function.name or "")
 
             if not schema_changed and not name_changed:

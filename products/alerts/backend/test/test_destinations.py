@@ -404,8 +404,8 @@ class TestCreateAlertDestinationSecretInputs(APIBaseTest):
         hog_function = created[0]
         assert url_key not in (hog_function.inputs or {})
         assert (hog_function.encrypted_inputs or {})[url_key]["value"] == webhook_url
-        assert "secret" not in hog_function.name
-        schema_by_key = {schema["key"]: schema for schema in hog_function.inputs_schema}
+        assert "secret" not in (hog_function.name or "")
+        schema_by_key = {schema["key"]: schema for schema in hog_function.inputs_schema or []}
         assert schema_by_key[url_key]["secret"] is True
 
 
@@ -439,7 +439,7 @@ class TestHardenAlertDestinationSecrets(APIBaseTest):
         call_command("harden_alert_destination_secrets")
         managed.refresh_from_db()
         assert (managed.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
-        assert managed.name.endswith("Webhook https://hooks.example.com/T123/secret")
+        assert (managed.name or "").endswith("Webhook https://hooks.example.com/T123/secret")
 
         call_command("harden_alert_destination_secrets", "--live")
 
@@ -453,3 +453,14 @@ class TestHardenAlertDestinationSecrets(APIBaseTest):
         legacy_insight.refresh_from_db()
         assert (legacy_insight.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
         assert legacy_insight.name == "Webhook https://hooks.example.com/T123/secret"
+
+    def test_backfill_keeps_a_url_the_user_put_in_the_alert_name(self) -> None:
+        row = self._legacy_row(
+            event_id="$logs_alert_firing",
+            name="Logs alert on https://api.example.com/checkout (firing) → Webhook https://hooks.example.com/T123/secret",
+        )
+
+        call_command("harden_alert_destination_secrets", "--live")
+
+        row.refresh_from_db()
+        assert row.name == "Logs alert on https://api.example.com/checkout (firing) → Webhook hooks.example.com"

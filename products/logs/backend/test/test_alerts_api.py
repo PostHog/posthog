@@ -894,7 +894,7 @@ class TestLogsAlertAPI(APIBaseTest):
         for hf in hog_functions:
             assert hf.template_id == "template-webhook"
             inputs = hf.inputs or {}
-            assert inputs["url"]["value"] == "https://example.com/hook"
+            assert (hf.encrypted_inputs or {})["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
             assert body["type"] in (
                 "logs_alert.firing",
@@ -920,7 +920,7 @@ class TestLogsAlertAPI(APIBaseTest):
         for hf in hog_functions:
             assert hf.template_id == "template-microsoft-teams"
             inputs = hf.inputs or {}
-            assert inputs["webhookUrl"]["value"] == teams_url
+            assert (hf.encrypted_inputs or {})["webhookUrl"]["value"] == teams_url
             text_value = inputs["text"]["value"]
             # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
             assert text_value.startswith("**")

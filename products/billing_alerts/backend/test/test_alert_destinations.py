@@ -135,7 +135,7 @@ class TestBillingAlertDestinations(APIBaseTest):
         for hog_function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"]):
             assert "url" not in (hog_function.inputs or {})
             assert (hog_function.encrypted_inputs or {})["url"]["value"] == webhook_url
-            assert "secret-path" not in hog_function.name
+            assert "secret-path" not in (hog_function.name or "")
 
     def test_configuration_and_destination_changes_commit_atomically(self) -> None:
         self._sync_webhook_template()
