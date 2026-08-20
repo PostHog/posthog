@@ -2070,6 +2070,72 @@ describe("SessionService", () => {
       expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
     });
 
+    it("keeps paged-in older history when a windowed snapshot overlaps the transcript", () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+        processedLineCount: 5000,
+        transcriptWindowStart: 4000,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockConvertStoredEntriesToEvents.mockImplementation(
+        (entries: unknown[]) =>
+          entries.map(
+            (_, i) =>
+              ({
+                type: "acp_message",
+                ts: i,
+                message: { jsonrpc: "2.0", method: "session/update" },
+              }) as AcpMessage,
+          ),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
+        .calls[0][1] as {
+        onData: (update: unknown) => void;
+      };
+      const windowEntries = Array.from({ length: 4 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:0${i}Z`,
+        notification: {},
+      }));
+      subscribeOptions.onData({
+        kind: "snapshot",
+        taskId: "task-123",
+        runId: "run-123",
+        newEntries: windowEntries,
+        totalEntryCount: 5002,
+        windowStart: 4998,
+      });
+
+      expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledWith(
+        "run-123",
+        expect.any(Array),
+        5002,
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ events: expect.anything() }),
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ transcriptWindowStart: expect.anything() }),
+      );
+    });
+
     it("waits out a restoring auth before hydrating instead of bailing", async () => {
       const service = getSessionService();
       const session = createMockSession({
