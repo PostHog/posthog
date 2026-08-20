@@ -1,3 +1,4 @@
+import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
@@ -132,6 +133,37 @@ describe("EvidenceRefChip", () => {
     expect(trigger.getAttribute("tabindex")).toBe("0");
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog")).toBeDefined();
+  });
+
+  it.each(POSTHOG_OBJECT_KINDS)(
+    "offers the compact composer action for %s references",
+    (kind) => {
+      renderInTheme(
+        <SessionTaskIdProvider taskId="task-1">
+          <EvidenceRefChip target={{ kind, id: `${kind}-1` }}>
+            {kind} reference
+          </EvidenceRefChip>
+        </SessionTaskIdProvider>,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: `${kind} reference` }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Expand on it" }),
+      ).toBeDefined();
+    },
+  );
+
+  it("hides the composer action outside a task conversation", () => {
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "flag", id: "new-checkout" }}>
+        new-checkout
+      </EvidenceRefChip>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "new-checkout" }));
+    expect(screen.queryByRole("button", { name: "Expand on it" })).toBeNull();
   });
 
   it("adds the exact object reference after an existing composer draft", () => {

@@ -285,33 +285,28 @@ export function EvidenceHoverCard({
             {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}
           </button>
         </div>
-        {url && (
-          <button
-            type="button"
-            onClick={() => onOpen(url)}
-            className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-(--gray-10) text-[10.5px] transition-colors hover:text-(--gray-12)"
-          >
-            Open in PostHog ↗
-          </button>
-        )}
-      </div>
-      {onExpand && (
-        <div className="mt-3 border-(--gray-4) border-t pt-3">
-          <Button
-            variant="primary"
-            size="sm"
-            className="w-full"
-            onClick={() =>
-              onExpand(
-                preview?.title ??
-                  (typeof children === "string" ? children : target.id),
-              )
-            }
-          >
-            Expand on it
-          </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {onExpand && (
+            <Button
+              variant="link"
+              size="xs"
+              onClick={() =>
+                onExpand(
+                  preview?.title ??
+                    (typeof children === "string" ? children : target.id),
+                )
+              }
+            >
+              Expand on it
+            </Button>
+          )}
+          {url && (
+            <Button variant="link-muted" size="xs" onClick={() => onOpen(url)}>
+              Open in PostHog ↗
+            </Button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
