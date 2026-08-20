@@ -365,6 +365,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         if not trace_id:
             return {}
 
+        # nosemgrep: hogql-fstring-audit (only the fixed HEAVY_COLUMN_NAMES constant is interpolated; every user value uses a HogQL placeholder)
         query = parse_select(
             f"""
             SELECT {", ".join(HEAVY_COLUMN_NAMES)}
