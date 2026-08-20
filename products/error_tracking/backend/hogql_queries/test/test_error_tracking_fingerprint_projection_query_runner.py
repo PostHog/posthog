@@ -75,7 +75,8 @@ class TestFingerprintProjectionQueryScope(APIBaseTest):
 
         assert response.status_code == expected_status, response.data
 
-    def test_query_endpoint_throttles_session_requests(self) -> None:
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_query_endpoint_throttles_session_requests(self, _enabled: object) -> None:
         cache.clear()
         self.addCleanup(cache.clear)
 
