@@ -52,6 +52,7 @@ import type {
     ErrorTrackingIssueCohort,
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     DEFAULT_DATE_RANGE,
@@ -182,6 +183,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -197,6 +199,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
@@ -367,6 +370,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -381,6 +385,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
@@ -406,6 +411,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -420,6 +426,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
@@ -445,6 +452,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -459,6 +467,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
@@ -484,6 +493,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
@@ -498,6 +508,7 @@ export interface errorTrackingIssueSceneLogicActions {
             first_seen: string
             id: string
             name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {

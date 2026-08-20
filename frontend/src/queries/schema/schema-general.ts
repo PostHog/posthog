@@ -3769,6 +3769,9 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
+/** @title ErrorTrackingQueryIssueSeverity */
+export type ErrorTrackingQueryIssueSeverity = 'low' | 'medium' | 'high' | 'critical'
+
 /** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema */
 export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     fingerprint: string
@@ -3776,6 +3779,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     issue_name: string | null
     issue_description: string | null
     issue_status: string
+    issue_severity: ErrorTrackingQueryIssueSeverity | null
     assigned_user_id: integer | null
     assigned_role_id: string | null
     /** ISO 8601 datetime string. */
@@ -3929,6 +3933,7 @@ export interface ErrorTrackingRelationalIssue {
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
     status: ErrorTrackingIssueStatus
+    severity?: ErrorTrackingQueryIssueSeverity | null
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]

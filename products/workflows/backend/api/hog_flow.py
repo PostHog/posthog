@@ -56,6 +56,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -1297,6 +1298,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
+            gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
+            already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
+            if template is not None and gating_flag is not None and not already_stored:
+                # Outside a request (internal re-saves, direct construction) there is no team to
+                # evaluate the flag against, and the flow was already allowed to hold this step.
+                get_team = self.context.get("get_team")
+                if get_team is not None and not gated_template_enabled(gating_flag, get_team()):
+                    template = None
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
@@ -2042,6 +2051,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        # Action ids already stored with a flag-gated template, so the gate only polices new
+        # adoption: a flow that was allowed to hold the step keeps validating after a flag
+        # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
+        # failing refresh_hog_flows. Only an active flow's steps count - active means the step
+        # passed the gate at activation, whereas a draft can hold the step without ever passing
+        # it (lenient web saves skip strict validation), so grandfathering a draft would let an
+        # unflagged team activate the step.
+        self.context["stored_gated_template_action_ids"] = {
+            action["id"]
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
         status = data.get("status")

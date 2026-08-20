@@ -11403,6 +11403,11 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
 
+    def test_non_uuid_detail_path_returns_404(self):
+        # A non-UUID id (e.g. a mistyped nested route matched as a pk) must 404, not 500.
+        response = self.client.get(self.detail_url("custom_images"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_private_environment_only_visible_to_creator(self):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(other_user)
