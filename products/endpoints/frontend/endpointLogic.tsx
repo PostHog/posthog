@@ -53,9 +53,6 @@ export interface endpointLogicActions {
     clearMaterializationStatus: () => {
         value: true
     }
-    setEndpointMissing: () => {
-        value: true
-    }
     closeCreateFromInsightModal: () => {
         value: true
     }
@@ -146,6 +143,9 @@ export interface endpointLogicActions {
     }
     setEndpointDescription: (endpointDescription: string | null) => {
         endpointDescription: string | null
+    }
+    setEndpointMissing: () => {
+        value: true
     }
     setEndpointName: (endpointName: string) => {
         endpointName: string
