@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.db_errors import is_transient_db_error
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +143,12 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     """
     if not isinstance(exception, APIException):
         tags = get_query_tags().model_dump(exclude_none=True)
+        # A transient Postgres or PgBouncer fault (query_wait_timeout, a dropped backend
+        # connection, recovery mode) clears on its own, so filing each request that hits it as an
+        # error tracking issue only buries the real cause. Log it and move on instead.
+        if is_transient_db_error(exception):
+            logger.warning("transient_db_error", path=context["request"].path, error=str(exception), **tags)
+            return None
         logger.exception(exception, path=context["request"].path, **tags)
         return capture_exception(exception)
     return None

@@ -33,6 +33,26 @@ export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
 }
 
+/** A kea loader action key the app treats as a background data load, e.g. `loadCohorts`. */
+export function isLoadActionKey(actionKey: unknown): boolean {
+    return typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+}
+
+/**
+ * A background data loader that failed with a 5xx. During a server or gateway incident many of these
+ * fail at once, and each is the same transient fault rather than a defect at the loader's call site.
+ * So the app collapses them into one toast and does not file each as an error tracking issue.
+ * `client_request_failure` (api.ts) still records every response, and server-side error tracking
+ * still captures the backend exception, so the failure stays queryable.
+ */
+export function isBackgroundLoadServerError(actionKey: unknown, error: unknown): boolean {
+    if (!isLoadActionKey(actionKey)) {
+        return false
+    }
+    const status = (error as { status?: number } | null)?.status
+    return typeof status === 'number' && status >= 500 && status < 600
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
