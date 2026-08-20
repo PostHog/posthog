@@ -20,7 +20,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
-from posthog.hogql.errors import QueryError, TableAccessDeniedError
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -37,6 +37,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERRORS,
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
@@ -661,27 +662,30 @@ def export_image(
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            # A revoked creator's access-denied error is a known limitation - report it as an event
-            # rather than surfacing it in error tracking.
-            if isinstance(e, TableAccessDeniedError) and creator_access_revoked(
-                exported_asset.created_by, exported_asset.team
-            ):
-                report_creator_access_revoked(
-                    user=exported_asset.created_by,
-                    team=exported_asset.team,
-                    source="export",
-                    error=e,
-                    properties={
-                        "exported_asset_id": exported_asset.id,
-                        "insight_id": exported_asset.insight_id,
-                        "dashboard_id": exported_asset.dashboard_id,
-                    },
-                )
-            elif isinstance(e, QueryError):
-                # A malformed query (e.g. a saved query that names a warehouse table which no longer
-                # exists) is a user error, not a pipeline failure. The asset is still marked failed
-                # and the message reaches the user, so we skip error tracking to keep it out of the
-                # issue stream.
+            if isinstance(e, TableAccessDeniedError):
+                # A revoked creator's access-denied error is a known limitation - report it as an
+                # event rather than surfacing it in error tracking. A denial while the creator still
+                # has access can mean a real access-rule problem, so it still goes to error tracking.
+                if creator_access_revoked(exported_asset.created_by, exported_asset.team):
+                    report_creator_access_revoked(
+                        user=exported_asset.created_by,
+                        team=exported_asset.team,
+                        source="export",
+                        error=e,
+                        properties={
+                            "exported_asset_id": exported_asset.id,
+                            "insight_id": exported_asset.insight_id,
+                            "dashboard_id": exported_asset.dashboard_id,
+                        },
+                    )
+                else:
+                    capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
+            elif isinstance(e, USER_QUERY_ERRORS):
+                # A user query error (e.g. a saved query that names a warehouse table which no longer
+                # exists, a HogQL syntax error, an invalid export context) is a user error, not a
+                # pipeline failure. The asset is still marked failed and the message reaches the user,
+                # so we skip error tracking to keep it out of the issue stream, matching how the outer
+                # export task classifies these.
                 pass
             else:
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})

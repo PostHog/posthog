@@ -17,9 +17,14 @@ from playwright.sync_api import (
 )
 from prometheus_client import REGISTRY
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
+)
 
 from posthog.caching.insight_result import InsightResult
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -153,9 +158,39 @@ class TestImageExporter(APIBaseTest):
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("query_error", QueryError("Unknown table `hubspot.contacts`. Did you mean: hubspot.prod.contacts?")),
+            ("hogql_syntax_error", HogQLSyntaxError("unexpected token")),
+            ("clickhouse_query_error", CHQueryErrorUnknownTable("Unknown table")),
+            ("invalid_export_context", InvalidExportContext("Invalid query: bad")),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.capture_exception")
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_query_error_is_reraised_without_error_tracking(
+    def test_user_query_errors_are_reraised_without_error_tracking(
+        self,
+        _name: str,
+        error: Exception,
+        mock_calculate: Any,
+        mock_capture: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        # Every member of USER_QUERY_ERRORS must fail the export but stay out of error tracking, so a
+        # mistyped table, a HogQL syntax error, or a bad export context does not open an issue.
+        mock_calculate.side_effect = error
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaises(type(error)) as cm:
+            image_exporter.export_image(self.exported_asset)
+
+        assert cm.exception is error
+        mock_capture.assert_not_called()
+
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_table_access_denied_with_active_creator_still_reports_to_error_tracking(
         self,
         mock_calculate: Any,
         mock_capture: Any,
@@ -163,15 +198,16 @@ class TestImageExporter(APIBaseTest):
         mock_open_file: Any,
         mock_screenshot_asset: Any,
     ) -> None:
-        mock_calculate.side_effect = QueryError(
-            "Unknown table `hubspot.contacts`. Did you mean: hubspot.prod.contacts?"
-        )
+        # A denial while the creator still has org access can be a real access-rule problem, so it
+        # must keep reaching error tracking even though TableAccessDeniedError subclasses QueryError.
+        self.exported_asset.created_by = self.user
+        self.exported_asset.save()
+        mock_calculate.side_effect = TableAccessDeniedError("system.some_table")
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaises(QueryError):
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaises(TableAccessDeniedError):
             image_exporter.export_image(self.exported_asset)
 
-        # A user query error must fail the export but stay out of the error tracking issue stream.
-        mock_capture.assert_not_called()
+        mock_capture.assert_called_once()
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
