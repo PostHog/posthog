@@ -254,6 +254,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "mercado-pago",
         "youtube-analytics",
     ]
     integration: model.Integration
@@ -739,6 +740,34 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind == "mercado-pago":
+            if not settings.MERCADO_PAGO_APP_CLIENT_ID or not settings.MERCADO_PAGO_APP_CLIENT_SECRET:
+                raise NotImplementedError("Mercado Pago app not configured")
+
+            # Mercado Pago serves every country site (.com.ar, .com.br, .com.mx, ...) from one
+            # global authorization host; `platform_id=mp` is what lands the seller on the Mercado
+            # Pago consent screen rather than the Mercado Libre one. `offline_access` is what makes
+            # the token endpoint return a refresh token, and `read` covers the payments, merchant
+            # orders and subscription resources the warehouse source syncs.
+            # The token response identifies the seller by numeric `user_id` only, so /users/me
+            # supplies a readable label (see the mercado-pago branch in
+            # integration_from_oauth_response).
+            # Mercado Pago supports S256 PKCE on the authorization-code flow, so we bind the
+            # code to this browser session: without a challenge an authorization code injected
+            # into the callback would attach an attacker's seller account to this project.
+            return OauthConfig(
+                authorize_url="https://auth.mercadopago.com/authorization",
+                token_url="https://api.mercadopago.com/oauth/token",
+                token_info_url="https://api.mercadopago.com/users/me",
+                token_info_config_fields=["nickname", "email"],
+                additional_authorize_params={"platform_id": "mp"},
+                client_id=settings.MERCADO_PAGO_APP_CLIENT_ID,
+                client_secret=settings.MERCADO_PAGO_APP_CLIENT_SECRET,
+                scope="offline_access read",
+                pkce=True,
+                id_path="user_id",
+                name_path="mercado_pago_account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -1020,6 +1049,14 @@ class OauthIntegration:
                 )
 
         integration_id = common.dot_get(config, oauth_config.id_path)
+
+        # Mercado Pago identifies the seller by numeric user_id only. The /users/me call above
+        # supplies a readable label, but it is best-effort (a failed call only logs), so fall back
+        # to the id rather than leaving the integration listed with no name at all.
+        if kind == "mercado-pago":
+            config["mercado_pago_account_name"] = (
+                config.get("nickname") or config.get("email") or f"Mercado Pago account {integration_id}"
+            )
 
         # Bing Ads id_token is a JWT, extract user ID from it
         if kind == "bing-ads" and not integration_id:

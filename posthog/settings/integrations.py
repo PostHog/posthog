@@ -21,6 +21,11 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# Credentials of the PostHog application registered in the Mercado Pago developer panel. Empty
+# defaults keep the app importable and the Connect flow dormant until the client is provisioned.
+MERCADO_PAGO_APP_CLIENT_ID = get_from_env("MERCADO_PAGO_APP_CLIENT_ID", "")
+MERCADO_PAGO_APP_CLIENT_SECRET = get_from_env("MERCADO_PAGO_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
