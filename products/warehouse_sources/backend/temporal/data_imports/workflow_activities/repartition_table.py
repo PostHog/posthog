@@ -515,6 +515,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     DELTA_REPARTITION_DURATION_SECONDS.labels(team_id=str(inputs.team_id), schema_id=inputs.schema_id).observe(duration)
     DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=result.get("outcome", "completed")).inc()
 
+    if result.get("outcome") != "completed":
+        # A non-completed result is a skip that ran no rewrite (live unreadable or no delta table on
+        # disk), and those paths leave `repartition_pending` set so a later run retries once the table
+        # is revived. The attempt was charged up front, so without this refund three such skips would
+        # spend the whole cap without a rewrite ever running, and the next run would `_give_up`,
+        # discarding the queued rewrite and stamping the cooldown that blocks re-detection. A skip is
+        # not a failed attempt, so it must not count. (A completed rewrite clears the marker itself.)
+        _refund_attempt(schema, charged_attempts, logger)
+
     props = base_event_props(schema, schema.source, inputs.job_id)
     props["trigger_reason"] = trigger_reason
     props["duration_seconds"] = duration

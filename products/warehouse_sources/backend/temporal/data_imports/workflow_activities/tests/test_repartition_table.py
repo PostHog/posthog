@@ -436,6 +436,50 @@ class TestBudgetExhaustion:
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
 
+    @parameterized.expand([("live_unreadable",), ("no_delta_table",)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_skipped_rewrite_does_not_consume_an_attempt(
+        self,
+        reason: str,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A rewrite queued on a table whose delta log is unreadable (an OOM-crashed merge) returns a
+        # skip every run until the import activity's revive heals it, and the skip leaves the pending
+        # marker set for a later run. The attempt is charged up front, so a skip must refund it: three
+        # banked skips would otherwise spend the whole cap without a rewrite ever running, and the next
+        # run would give up and discard the queued rewrite.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": 0},
+        )
+        # Let charge/refund round-trip through the marker so the net attempt count is observable.
+        schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "skipped", "reason": reason}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert schema.repartition_pending["attempts"] == 0
+        schema.clear_repartition_pending.assert_not_called()
+
 
 class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.capture_exception")
