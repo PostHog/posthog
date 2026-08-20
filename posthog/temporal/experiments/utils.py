@@ -28,7 +28,6 @@ from products.notifications.backend.facade.api import (
     SourceType,
     TargetType,
     create_notification,
-    has_been_dispatched,
 )
 
 logger = structlog.get_logger(__name__)
@@ -209,33 +208,46 @@ def check_significance_transition(
         )
 
 
-def check_sample_ratio_mismatch(experiment: Experiment) -> None:
+def _srm_check_metric_uuid(experiment: Experiment) -> str | None:
+    """The one metric whose warming run owns the SRM check for this experiment.
+
+    Discovery emits one activity per metric and the workflow runs up to ten at once, so pinning the
+    check to a single deterministic metric keeps the exposures query to one run per experiment
+    instead of one per metric. Inline primary, then inline secondary, then the first saved metric —
+    the same order both warming workflows see.
+    """
+    for metric in (experiment.metrics or []) + (experiment.metrics_secondary or []):
+        if metric.get("uuid"):
+            return metric["uuid"]
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        query = link.saved_metric.query
+        if isinstance(query, dict) and query.get("uuid"):
+            return query["uuid"]
+    return None
+
+
+def check_sample_ratio_mismatch(experiment: Experiment, metric_uuid: str) -> None:
     """Alert the experiment creator when a running experiment's exposures stop matching its
     configured split.
 
     Runs inside the scheduled metric warming so the check reaches experiments whose exposures
     tab nobody opens. The passive banner already draws the same chi-squared result; this pushes
-    it. Fires at most once per experiment, and only above the alert gate (see
-    ``srm_crosses_alert_threshold``), so a low-volume wobble stays quiet. Failures are swallowed —
-    a missed alert must never fail the metric warming it rides on.
+    it. Runs for one metric per experiment (see ``_srm_check_metric_uuid``) and fires once per
+    run, only above the alert gate (see ``srm_crosses_alert_threshold``), so a low-volume wobble
+    stays quiet. Failures are swallowed — a missed alert must never fail the metric warming it
+    rides on.
     """
     try:
         if experiment.end_date is not None or not experiment.start_date:
             return
 
+        # Only the owning metric runs the check, so M metrics don't run M exposures queries.
+        if metric_uuid != _srm_check_metric_uuid(experiment):
+            return
+
         creator_id = experiment.created_by_id
         feature_flag = experiment.feature_flag
         if not creator_id or not feature_flag:
-            return
-
-        # An SRM that persists across warming runs must not re-notify every day.
-        if has_been_dispatched(
-            notification_type=NotificationType.EXPERIMENT_SAMPLE_RATIO_MISMATCH,
-            target_type=TargetType.USER,
-            target_id=str(creator_id),
-            resource_id=str(experiment.id),
-            source_id=str(experiment.id),
-        ):
             return
 
         exposure_query = ExperimentExposureQuery(
@@ -287,9 +299,9 @@ def check_sample_ratio_mismatch(experiment: Experiment) -> None:
                 source_url=f"/project/{experiment.team.project_id}/experiments/{experiment.id}",
                 source_type=SourceType.EXPERIMENT,
                 source_id=str(experiment.id),
-                # Two metric activities for the same experiment can pass the dispatch check at once;
-                # the idempotency key makes the create race-safe on top of that best-effort skip.
-                idempotency_key=f"experiment_srm:{experiment.id}",
+                # Fire once per run: the version changes on reset, so a relaunch of the same
+                # experiment can alert again. Also makes concurrent creates race-safe.
+                idempotency_key=f"experiment_srm:{experiment.id}:{experiment.version}",
             )
         )
     except Exception:

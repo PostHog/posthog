@@ -232,7 +232,7 @@ def _calculate_experiment_regular_metric_sync(
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
-        check_sample_ratio_mismatch(experiment)
+        check_sample_ratio_mismatch(experiment, metric_uuid)
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -538,7 +538,7 @@ def _calculate_experiment_saved_metric_sync(
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
-        check_sample_ratio_mismatch(experiment)
+        check_sample_ratio_mismatch(experiment, metric_uuid)
 
         logger.info(
             "Successfully calculated experiment saved metric",
