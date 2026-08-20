@@ -148,8 +148,8 @@ async def deliver_webhook(
         # `pinned_request` is synchronous and resolves DNS, so it cannot run on the event loop.
         response = await asyncio.to_thread(pinned_request, "POST", url, timeout=_WEBHOOK_TIMEOUT_SECONDS, json=body)
     except SSRFBlockedError as exc:
-        # Retryable: the host already passed the destination's pattern check when the subscription
-        # was saved, so a block here is most often a failed name resolution.
+        # Retryable rather than permanent, because the likely cause is a failed name resolution.
+        # Callers validate the host on save, so a URL that can never work does not reach here.
         # No exc_info anywhere in this function: a traceback would render the exception text, and a
         # `requests` error carries the full webhook URL in it.
         LOGGER.error(  # noqa: TRY400

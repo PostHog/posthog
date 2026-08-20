@@ -2447,6 +2447,26 @@ async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(t
     assert sub.enabled is False
 
 
+async def test_deliver_ai_subscription_posts_the_report_to_teams(team, user):
+    sub = await _create_ai_subscription(
+        team,
+        user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.delivery_common.pinned_request",
+        return_value=MagicMock(status_code=202),
+    ) as mock_post:
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    body = mock_post.call_args.kwargs["json"]["attachments"][0]["content"]["body"]
+    assert any("# Report" in block["text"] for block in body)
+    assert result.recipient_results[0].status == "success"
+
+
 async def test_deliver_ai_subscription_missing_report_raises_for_retry(team, user):
     # Generation persists the report before delivery is scheduled; a missing report
     # means the row was lost, so delivery must fail loudly rather than send an empty report.

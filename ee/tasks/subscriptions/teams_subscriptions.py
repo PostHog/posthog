@@ -55,6 +55,8 @@ TEAMS_WEBHOOK_URL_ERROR = (
 TEAMS_TEXT_BLOCK_LIMIT = 3000
 TEAMS_REPORT_CHARACTER_BUDGET = 20000
 
+# Bounds one failed chart's exception text, so a run where several fail cannot push the card
+# past the payload limit on its own.
 _MAX_ASSET_ERROR_LENGTH = 2000
 
 
