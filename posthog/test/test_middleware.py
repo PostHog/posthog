@@ -2059,8 +2059,10 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     from django.http import HttpResponse
     from django.test import RequestFactory
 
-    from posthog.clickhouse.query_tagging import get_query_tags
+    from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
     from posthog.middleware import CHQueries
+
+    reset_query_tags()
 
     captured: dict = {}
 
