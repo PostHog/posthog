@@ -133,7 +133,9 @@ class CDPProducer:
                 ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
                 files = [f["Key"] for f in ls_values if f["type"] != "directory"]
                 return files
-            except FileNotFoundError:
+            except (FileNotFoundError, PermissionError):
+                # A missing prefix or a cleanup permission gap both mean there is nothing to
+                # produce. Never let it shadow the real error in the caller.
                 return []
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:

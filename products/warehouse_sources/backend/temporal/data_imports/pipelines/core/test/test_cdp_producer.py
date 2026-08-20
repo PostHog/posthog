@@ -459,8 +459,9 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ls_error", [FileNotFoundError(), PermissionError()])
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
-async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
+async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, ls_error, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -471,8 +472,9 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
         team=team, name="table_1", source=source, table=table
     )
 
+    # A missing prefix and a cleanup permission gap both mean nothing was staged to produce.
     mock_s3_client = mock.AsyncMock()
-    mock_s3_client._ls.side_effect = FileNotFoundError()
+    mock_s3_client._ls.side_effect = ls_error
     mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 

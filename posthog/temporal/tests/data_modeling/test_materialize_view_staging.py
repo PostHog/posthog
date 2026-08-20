@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pyarrow as pa
 
-from posthog.temporal.data_modeling.activities.materialize_view import _stage_person_property_batch
+from posthog.temporal.data_modeling.activities.materialize_view import _CDPRowSink, _stage_person_property_batch
 
 pytestmark = pytest.mark.asyncio
 
@@ -35,3 +35,25 @@ class TestStagePersonPropertyBatch:
         await _stage_person_property_batch(sink, 0, _batch(), fatal=False)
 
         sink.logger.awarning.assert_awaited_once()
+
+
+class TestCDPRowSinkDiscard:
+    async def test_disabled_sink_never_clears(self) -> None:
+        # Most teams have no subscriber, so the sink stays disabled and nothing is ever staged.
+        # A clear() would list a prefix that does not exist and can return AccessDenied, masking the
+        # real failure the run hit.
+        producer = MagicMock(clear=AsyncMock())
+        sink = _CDPRowSink(producer, MagicMock(awarning=AsyncMock()))
+
+        await sink.discard()
+
+        producer.clear.assert_not_awaited()
+
+    async def test_enabled_sink_clears_staged_rows(self) -> None:
+        producer = MagicMock(clear=AsyncMock())
+        sink = _CDPRowSink(producer, MagicMock(awarning=AsyncMock()))
+        sink.enabled = True
+
+        await sink.discard()
+
+        producer.clear.assert_awaited_once()
