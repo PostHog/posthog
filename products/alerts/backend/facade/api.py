@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -80,7 +80,8 @@ def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: di
     # Deferred so the facade does not pull DRF onto its import path.
     from products.alerts.backend.api.alert import AlertSerializer  # noqa: PLC0415
 
-    return AlertSerializer(alerts, many=True, context=context).data
+    # `many=True` yields a ReturnList; the DRF stubs type `.data` as ReturnDict either way.
+    return cast(list[dict[str, Any]], AlertSerializer(alerts, many=True, context=context).data)
 
 
 def snooze_alert_from_slack(
