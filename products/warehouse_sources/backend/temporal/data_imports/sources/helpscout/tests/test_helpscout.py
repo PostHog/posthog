@@ -426,6 +426,16 @@ class TestValidateCredentials:
         assert error is not None and "authentication failed" in error
 
     @mock.patch(HELPSCOUT_SESSION_PATCH)
+    def test_unknown_schema_fails_without_probing(self, helpscout_session) -> None:
+        helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+
+        ok, error = validate_credentials("token", schema_name="not_a_table")
+
+        assert ok is False
+        assert error == "Unknown Help Scout table 'not_a_table'"
+        helpscout_session.return_value.get.assert_not_called()
+
+    @mock.patch(HELPSCOUT_SESSION_PATCH)
     def test_threads_probe_uses_conversations_endpoint(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 

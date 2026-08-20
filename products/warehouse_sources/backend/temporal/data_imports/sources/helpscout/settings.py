@@ -1,7 +1,9 @@
 """Help Scout source settings and endpoint catalog."""
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -12,7 +14,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 HELP_SCOUT_API_BASE = "https://api.helpscout.net/v2"
 
 
-@dataclass
+@frozen
 class HelpScoutEndpointConfig:
     name: str
     path: str

@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -35,7 +36,7 @@ _AUTH_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@frozen
 class HelpScoutResumeConfig:
     # Top-level endpoints: the HAL next-page URL.
     next_url: str = ""
@@ -243,9 +244,11 @@ def validate_credentials(
         return False, _AUTH_ERROR
 
     config = HELP_SCOUT_ENDPOINTS.get(schema_name)
+    if config is None:
+        return False, f"Unknown Help Scout table '{schema_name}'"
     # threads has no bare list endpoint (it's always scoped to a conversation); probe
     # conversations instead, since that's the parent it fans out from.
-    probe_path = HELP_SCOUT_ENDPOINTS["conversations"].path if config is None or config.fanout else config.path
+    probe_path = HELP_SCOUT_ENDPOINTS["conversations"].path if config.fanout else config.path
 
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(access_token,)),
