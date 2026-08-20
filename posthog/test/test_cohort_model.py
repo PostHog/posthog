@@ -83,16 +83,24 @@ class TestCohort(BaseTest):
         create_person(team=self.team, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        calculate_cohort_from_list(
-            cohort.id,
-            ["123", "000", "anonymous-1", "anonymous-2", "anonymous-3"],
-            team_id=self.team.id,
-        )
+        with patch("posthog.tasks.calculate_cohort.logger.warning") as warning:
+            calculate_cohort_from_list(
+                cohort.id,
+                ["123", "000", "anonymous-1", "anonymous-2", "anonymous-3"],
+                team_id=self.team.id,
+            )
         cohort.refresh_from_db()
 
         self.assertEqual(cohort.count, 2)
         self.assertEqual(cohort.last_import_total_count, 5)
         self.assertEqual(cohort.last_import_unmatched_count, 3)
+        warning.assert_called_once_with(
+            "cohort_import_unmatched_ids",
+            cohort_id=cohort.id,
+            team_id=self.team.id,
+            total=5,
+            unmatched=3,
+        )
 
     def test_distinct_id_resolution_accumulates_across_batches(self):
         create_person(team=self.team, distinct_ids=["000"])
@@ -115,17 +123,10 @@ class TestCohort(BaseTest):
         person2 = create_person(team=self.team, distinct_ids=["person-2"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
-        with (
-            patch.object(
-                Cohort,
-                "_get_uuids_for_emails_batch_ch",
-                return_value=[str(person1.uuid), str(person2.uuid)],
-            ),
-            patch.object(
-                Cohort,
-                "_get_matched_emails_batch_ch",
-                return_value={"one@example.com", "two@example.com"},
-            ),
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=([str(person1.uuid), str(person2.uuid)], {"one@example.com", "two@example.com"}),
         ):
             calculate_cohort_from_list(
                 cohort.id,

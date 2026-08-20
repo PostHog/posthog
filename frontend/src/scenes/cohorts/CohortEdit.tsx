@@ -544,7 +544,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     </div>
                                 </div>
                             </SceneSection>
-                            {!isNewCohort && <UnmatchedImportBanner cohort={cohort} />}
+                            {!isNewCohort && (
+                                <div aria-live="polite">
+                                    <UnmatchedImportBanner cohort={cohort} />
+                                </div>
+                            )}
                             {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>

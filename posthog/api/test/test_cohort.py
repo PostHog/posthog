@@ -6822,17 +6822,10 @@ jane@example.com
 
         # pmat_email materialized column doesn't exist in the test CH schema,
         # so we mock the CH lookup to return the expected UUIDs.
-        with (
-            patch.object(
-                Cohort,
-                "_get_uuids_for_emails_batch_ch",
-                return_value=[str(person1.uuid), str(person2.uuid)],
-            ),
-            patch.object(
-                Cohort,
-                "_get_matched_emails_batch_ch",
-                return_value={"john@example.com", "jane@example.com"},
-            ),
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=([str(person1.uuid), str(person2.uuid)], {"john@example.com", "jane@example.com"}),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6973,14 +6966,11 @@ Jane Smith,user456,jane@example.com
 
         # pmat_email materialized column doesn't exist in the test CH schema,
         # so we mock the CH lookup to return the expected UUID.
-        with (
-            patch.object(
-                Cohort,
-                "_get_uuids_for_emails_batch_ch",
-                return_value=[str(person.uuid)],
-            ) as ch_mock,
-            patch.object(Cohort, "_get_matched_emails_batch_ch", return_value={"test@example.com"}),
-        ):
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=([str(person.uuid)], {"test@example.com"}),
+        ) as ch_mock:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
                 {"name": "test_email_ch", "csv": csv_file, "is_static": True},
@@ -6995,7 +6985,7 @@ Jane Smith,user456,jane@example.com
 
     def test_insert_users_by_email_always_uses_clickhouse(self):
         cohort = Cohort.objects.create(team=self.team, name="ch-only", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
         ch_mock.assert_called_once()
 
@@ -7009,7 +6999,7 @@ Jane Smith,user456,jane@example.com
     )
     def test_email_property_key_is_accepted_and_always_routes_to_clickhouse(self, _name, email_property_key):
         cohort = Cohort.objects.create(team=self.team, name="key-compat", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id, email_property_key=email_property_key)
         ch_mock.assert_called_once()
 

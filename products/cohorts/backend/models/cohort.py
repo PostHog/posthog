@@ -172,10 +172,7 @@ class ImportResolution:
 
 
 def _normalize_uuid(value: Any) -> str:
-    try:
-        return str(UUID(str(value)))
-    except (ValueError, AttributeError, TypeError):
-        return str(value).strip().lower()
+    return str(UUID(str(value)))
 
 
 def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
@@ -904,9 +901,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_items = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch_ch(batch_items, team_id)
+            uuids, matched = self._get_uuids_for_emails_batch_ch(batch_items, team_id)
             if import_resolution is not None:
-                matched = self._get_matched_emails_batch_ch(batch_items, uuids, team_id)
                 import_resolution.record([email.strip().lower() for email in batch_items], matched)
             return uuids
 
@@ -915,12 +911,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
         )
 
-    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
+    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> tuple[list[str], set[str]]:
         if not emails:
-            return []
+            return [], set()
 
         query = """
-        SELECT person.id
+        SELECT person.id, argMax(person.pmat_email, person.version)
         FROM person
         WHERE person.team_id = %(team_id)s
           AND person.pmat_email IN %(emails)s
@@ -931,23 +927,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(query, {"team_id": team_id, "emails": emails})
-        return [str(row[0]) for row in result]
-
-    def _get_matched_emails_batch_ch(self, emails: list[str], person_uuids: list[str], team_id: int) -> set[str]:
-        if not emails or not person_uuids:
-            return set()
-
-        query = """
-        SELECT DISTINCT person.pmat_email
-        FROM person
-        WHERE person.team_id = %(team_id)s
-          AND person.id IN %(person_uuids)s
-          AND person.pmat_email IN %(emails)s
-        """
-
-        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-        result = sync_execute(query, {"team_id": team_id, "person_uuids": person_uuids, "emails": emails})
-        return {str(row[0]).strip().lower() for row in result}
+        return [str(row[0]) for row in result], {str(row[1]).strip().lower() for row in result}
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
