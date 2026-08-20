@@ -38,6 +38,7 @@ tools:
             - persisted_variables
             - _create_in_folder
         response:
+            strip_nulls: true
             exclude:
                 - effective_restriction_level
                 - effective_privilege_level
@@ -157,6 +158,7 @@ tools:
             id:
                 cast: string-int
         response:
+            strip_nulls: true
             exclude:
                 - effective_restriction_level
                 - effective_privilege_level
@@ -258,6 +260,7 @@ tools:
             Use `search` to match by name, tags, or description, and `scope` (global | team | organization) to narrow
             where templates come from. Tiles, variables, and filters are omitted here to save context.
         response:
+            strip_nulls: true
             exclude:
                 - tiles
                 - variables
@@ -345,6 +348,7 @@ tools:
             id:
                 cast: string-int
         response:
+            strip_nulls: true
             exclude:
                 - effective_restriction_level
                 - effective_privilege_level

@@ -196,6 +196,13 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /**
+                 * Recursively drop keys whose value is `null` from the response. Applied after
+                 * `include`/`exclude`. Serializers echo every optional field as explicit `null`, which
+                 * can dominate a payload (e.g. a dashboard tile's query object). Removing them is
+                 * lossless for an agent — an absent key reads the same as a `null` one.
+                 */
+                strip_nulls: z.boolean().optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
