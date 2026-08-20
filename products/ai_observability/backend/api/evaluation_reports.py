@@ -21,7 +21,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
-from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.permissions import AccessControlPermission, get_authenticator_scopes, is_service_auth
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportGenerationStatus,
     normalize_metrics_payload,
@@ -578,9 +578,21 @@ class EvaluationReportAccessControlPermission(AccessControlPermission):
         # Report creation targets an existing evaluation, so specific evaluation grants apply.
         report_view.action = "partial_update"
         try:
-            return super().has_permission(request, view)
+            if super().has_permission(request, view):
+                return True
         finally:
             report_view.action = "create"
+
+        # Scoped tokens must pass the shared scope check above. Session users can be authorized
+        # against the submitted parent directly when the generic any-object fallback misses it.
+        if get_authenticator_scopes(request.successful_authenticator) is not None:
+            return False
+        evaluation_id = request.data.get("evaluation")
+        try:
+            evaluation = Evaluation.objects.filter(team_id=report_view.team_id, id=evaluation_id).first()
+        except (TypeError, ValueError):
+            return False
+        return evaluation is not None and self.has_object_permission(request, view, evaluation)
 
     def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
         if not isinstance(obj, (EvaluationReport, Evaluation)):

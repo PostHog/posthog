@@ -211,7 +211,7 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(active_key["state"], "ok")
         self.assertIn("api_key_masked", active_key)
 
-    def test_evaluation_restrictions_do_not_block_shared_model_config(self) -> None:
+    def test_evaluation_restrictions_only_allow_read_only_shared_model_config(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -249,11 +249,14 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         )
         self.client.force_login(limited_user)
 
-        response = self.client.post(
+        get_response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
+
+        set_active_key_response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/set_active_key/",
             {"key_id": str(key.id)},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert EvaluationConfig.objects.filter(team=self.team, active_provider_key=key).exists()
+        assert get_response.status_code == status.HTTP_200_OK
+        assert set_active_key_response.status_code == status.HTTP_403_FORBIDDEN
+        assert not EvaluationConfig.objects.filter(team=self.team, active_provider_key=key).exists()
