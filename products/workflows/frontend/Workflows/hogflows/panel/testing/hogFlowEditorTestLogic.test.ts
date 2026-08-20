@@ -8,10 +8,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
+import type { HogFlow } from '../../types'
 import {
     createGlobalsFromResponse,
     groupSelectColumns,
     hogFlowEditorTestLogic,
+    humanizeWorkflowTestError,
     parseGroupsFromResult,
 } from './hogFlowEditorTestLogic'
 
@@ -143,6 +145,28 @@ describe('hogFlowEditorTestLogic', () => {
         it('defaults groups to an empty object', () => {
             const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
             expect(globals.groups).toEqual({})
+        })
+    })
+
+    describe('humanizeWorkflowTestError', () => {
+        const workflow = {
+            actions: [{ id: 'step_1', name: 'Send Slack message', config: { template_id: 'template-slack' } }],
+        } as unknown as HogFlow
+
+        it('names the step for a template-not-found error instead of exposing the raw id', () => {
+            const message = humanizeWorkflowTestError("Template 'template-slack' not found", workflow)
+            expect(message).toContain('Send Slack message')
+            expect(message).not.toContain('template-slack')
+        })
+
+        it('falls back to a generic message when no step matches the template id', () => {
+            const message = humanizeWorkflowTestError("Template 'template-gone' not found", workflow)
+            expect(message).not.toContain('template-gone')
+            expect(message).toContain('template that is no longer available')
+        })
+
+        it('passes unrelated errors through unchanged', () => {
+            expect(humanizeWorkflowTestError('Some other failure', workflow)).toBe('Some other failure')
         })
     })
 

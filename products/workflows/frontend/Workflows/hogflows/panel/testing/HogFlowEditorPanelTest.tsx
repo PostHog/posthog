@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+import { hogFlowEditorTestLogic, humanizeWorkflowTestError } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
@@ -337,7 +337,10 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                     ? 'Success'
                                     : testResult.status === 'skipped'
                                       ? 'Workflow was skipped because the event did not match the filter criteria'
-                                      : 'Error: ' + testResult.errors?.join(', ')}
+                                      : 'Error: ' +
+                                        (testResult.errors
+                                            ?.map((error) => humanizeWorkflowTestError(error, workflow))
+                                            .join(', ') ?? '')}
                             </LemonBanner>
 
                             <div className="flex flex-col gap-2">

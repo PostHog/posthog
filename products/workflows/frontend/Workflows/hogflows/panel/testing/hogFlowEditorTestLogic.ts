@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -41,6 +42,25 @@ const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
+}
+
+const TEMPLATE_NOT_FOUND_RE = /Template '([^']+)' not found/
+
+// The runtime matcher throws a bare "Template '<id>' not found" carrying an internal template UUID
+// when a step points at a template that no longer exists. Rewrite it to name the step so the user
+// knows which one to fix instead of reading a raw ID.
+export const humanizeWorkflowTestError = (error: string, workflow: HogFlow): string => {
+    const match = error.match(TEMPLATE_NOT_FOUND_RE)
+    if (!match) {
+        return error
+    }
+    const templateId = match[1]
+    const step = workflow.actions?.find(
+        (action) => (action.config as { template_id?: string })?.template_id === templateId
+    )
+    return step?.name
+        ? `Step "${step.name}" uses a template that is no longer available. Replace or remove the step, then test again.`
+        : 'A step uses a template that is no longer available. Replace or remove the step, then test again.'
 }
 
 export const createExampleEvent = (
@@ -802,7 +822,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         )
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
+                            const detail = e.detail || e.message
+                            actions.setSampleGlobalsError(
+                                detail
+                                    ? `Couldn't load matching events: ${detail}`
+                                    : "Couldn't load matching events. Try again."
+                            )
+                            posthog.captureException(e, { scope: 'hogFlowEditorTestLogic.loadSampleGlobals' })
                         }
                         return null
                     }
@@ -873,8 +899,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             values.workflow.name,
                             groups
                         )
-                    } catch {
-                        actions.setSampleGlobalsError('Failed to load event. Please try again.')
+                    } catch (e: any) {
+                        const detail = e.detail || e.message
+                        actions.setSampleGlobalsError(
+                            detail ? `Couldn't load event: ${detail}` : "Couldn't load event. Try again."
+                        )
+                        posthog.captureException(e, { scope: 'hogFlowEditorTestLogic.loadSampleEventByName' })
                         return null
                     }
                 },
@@ -1027,7 +1057,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     return values.testInvocation
                 } catch (error: any) {
                     console.error('Workflow test error:', error)
-                    lemonToast.error('Error testing workflow')
+                    const detail = error?.detail || error?.message
+                    lemonToast.error(
+                        detail ? `Couldn't test workflow: ${detail}` : "Couldn't test workflow. Try again."
+                    )
+                    posthog.captureException(error, { scope: 'hogFlowEditorTestLogic.submitTestInvocation' })
                     throw error
                 }
             },

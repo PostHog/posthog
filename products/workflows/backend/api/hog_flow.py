@@ -1110,18 +1110,23 @@ class HogFlowActionSerializer(serializers.Serializer):
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
-                filters = data.get("config", {}).get("filters", {})
+                filters = data.get("config", {}).get("filters", {}) or {}
                 # Move filter_test_accounts into filters for bytecode compilation
                 if data.get("config", {}).get("filter_test_accounts") is not None:
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
-                if filters:
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    if not strict:
-                        if serializer.is_valid():
-                            data["config"]["filters"] = serializer.validated_data
-                    else:
-                        serializer.is_valid(raise_exception=True)
+                # Compile even when filters are empty. The runtime matcher needs bytecode on the filter
+                # object (empty filters compile to always-true bytecode); a trigger stored without bytecode
+                # makes every test run throw "Filters were not compiled correctly" with no way to clear it
+                # by retrying, since empty filters never change. The old `if filters:` gate skipped this.
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if not strict:
+                    # Web-builder drafts stay lenient so incomplete graphs save mid-edit (e.g. a cohort
+                    # filter that can't compile for real-time); keep the raw filters when invalid.
+                    if serializer.is_valid():
                         data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
                 if strict:

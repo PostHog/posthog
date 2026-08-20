@@ -813,6 +813,22 @@ class TestHogFlowAPI(APIBaseTest):
             "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
         }
 
+    def test_event_trigger_empty_filters_still_compile_bytecode(self):
+        # An event trigger with empty filters means "match every event". The runtime matcher requires
+        # bytecode on the filter object, so empty filters must compile to always-true bytecode. A trigger
+        # stored without bytecode makes every test run throw "Filters were not compiled correctly", and
+        # retrying can never clear it because the filters never change.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"]["filters"] = {}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        assert stored.trigger["filters"].get("bytecode"), stored.trigger["filters"]
+
     def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
         expected_conversion_bytecode = [
             "_H",
