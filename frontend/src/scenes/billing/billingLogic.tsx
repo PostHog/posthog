@@ -36,7 +36,7 @@ import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { OrganizationType, PreflightStatus } from '../../types'
 import {
     buildUsageLimitApproachingMessage,
-    buildUsageLimitExceededMessage,
+    buildUsageLimitReachedMessage,
     canAccessBilling as canAccessBillingUtil,
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
@@ -60,16 +60,20 @@ const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | 
 }
 
 export interface BillingAlertConfig {
+    kind?: 'trial' | 'deactivated' | 'usage_limit'
     status: 'info' | 'warning' | 'error'
     title: string
     message?: string
     contactSupport?: boolean
     buttonCTA?: string
     dismissKey?: string
+    productKey?: ProductKey
     action?: LemonBannerAction
     pathName?: string
     onClose?: () => void
 }
+
+const isManagedBillingAlert = (billingAlert: BillingAlertConfig | null): boolean => billingAlert?.kind !== undefined
 
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
@@ -268,6 +272,7 @@ export interface billingLogicValues {
     products: BillingProductV2Type[]
     productsLoading: boolean
     redirectPath: string
+    registeredCustomLimitKeys: string[]
     scrollToProductKey: ProductKey | null
     showActivateLicenseErrors: boolean
     showBillingHero: boolean
@@ -509,6 +514,9 @@ export interface billingLogicActions {
     setRedirectPath: (redirectPath: string) => {
         redirectPath: string
     }
+    setRegisteredCustomLimitKeys: (keys: string[]) => {
+        keys: string[]
+    }
     setScrollToProductKey: (scrollToProductKey: ProductKey | null) => {
         scrollToProductKey: ProductKey | null
     }
@@ -708,6 +716,7 @@ export const billingLogic = kea<billingLogicType>([
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
+        setRegisteredCustomLimitKeys: (keys: string[]) => ({ keys }),
         scrollToProduct: (productType: string) => ({ productType }),
         setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
     }),
@@ -738,6 +747,12 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingAlertConfig | null,
             {
                 setBillingAlert: (_, { billingAlert }) => billingAlert,
+            },
+        ],
+        registeredCustomLimitKeys: [
+            [] as string[],
+            {
+                setRegisteredCustomLimitKeys: (_, { keys }) => keys,
             },
         ],
         scrollToProductKey: [
@@ -1416,9 +1431,10 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         determineBillingAlert: () => {
-            // If we already have a billing alert, don't show another one
-            if (values.billingAlert) {
-                return
+            const clearBillingAlert = (): void => {
+                if (values.billingAlert) {
+                    actions.setBillingAlert(null)
+                }
             }
 
             if (values.productSpecificAlert) {
@@ -1426,7 +1442,12 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            if (values.billingAlert && !isManagedBillingAlert(values.billingAlert)) {
+                return
+            }
+
             if (!values.billing || !values.preflight?.cloud) {
+                clearBillingAlert()
                 return
             }
 
@@ -1434,12 +1455,14 @@ export const billingLogic = kea<billingLogicType>([
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
                     // Only show for standard ones (managed by sales)
+                    clearBillingAlert()
                     return
                 }
 
                 const remainingDays = dayjs(trial.expires_at).diff(dayjs(), 'days')
                 const remainingHours = dayjs(trial.expires_at).diff(dayjs(), 'hours')
                 if (remainingHours > 72) {
+                    clearBillingAlert()
                     return
                 }
 
@@ -1449,6 +1472,7 @@ export const billingLogic = kea<billingLogicType>([
                     remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                 const planName = capitalizeFirstLetter(trial.target)
                 actions.setBillingAlert({
+                    kind: 'trial',
                     status: 'info',
                     title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Your service will continue without interruption, and you'll be charged for the ${planName} plan.`,
                     message: `Questions? Reach out to ${contactName} at ${contactEmail}.`,
@@ -1458,6 +1482,7 @@ export const billingLogic = kea<billingLogicType>([
 
             if (values.billing.deactivated) {
                 actions.setBillingAlert({
+                    kind: 'deactivated',
                     status: 'error',
                     title: 'Your organization has been temporarily suspended.',
                     message: 'Please contact support to reactivate it.',
@@ -1468,10 +1493,9 @@ export const billingLogic = kea<billingLogicType>([
 
             const billingPeriodEnd = values.billing.billing_period?.current_period_end?.format('YYYY-MM-DD')
 
-            // Find ALL products over limit, filtering out hidden and dismissed ones
-            const productsOverLimit =
+            const productsAtOrOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (x.percentage_usage <= 1 || !x.usage_key) {
+                    if (x.percentage_usage < 1 || !x.usage_key) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1484,23 +1508,26 @@ export const billingLogic = kea<billingLogicType>([
                     return true
                 }) || []
 
-            if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(
-                    productsOverLimit,
+            if (productsAtOrOverLimit.length > 0) {
+                const { title, message } = buildUsageLimitReachedMessage(
+                    productsAtOrOverLimit,
                     values.canAccessBilling,
                     values.minimumBillingAccessLevel
                 )
 
                 actions.setBillingAlert({
+                    kind: 'usage_limit',
                     status: 'error',
                     title,
                     message,
                     dismissKey: 'usage-limit-exceeded',
+                    productKey:
+                        productsAtOrOverLimit.length === 1 ? (productsAtOrOverLimit[0].type as ProductKey) : undefined,
                     onClose: () => {
                         // Store dismissal for all affected products in localStorage
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
-                        for (const product of productsOverLimit) {
+                        for (const product of productsAtOrOverLimit) {
                             storeBillingAlertDismissal(values.currentOrganizationId, product.type, billingPeriodEnd)
                         }
                         actions.setBillingAlert(null)
@@ -1511,11 +1538,9 @@ export const billingLogic = kea<billingLogicType>([
 
             actions.resetUsageLimitExceededKey()
 
-            // Find ALL products approaching limit (but not yet over), filtering out hidden and dismissed ones
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    // Only include products approaching but not over the limit
-                    if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage > 1) {
+                    if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage >= 1) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1538,10 +1563,15 @@ export const billingLogic = kea<billingLogicType>([
                 )
 
                 actions.setBillingAlert({
+                    kind: 'usage_limit',
                     status: 'info',
                     title,
                     message,
                     dismissKey: 'usage-limit-approaching',
+                    productKey:
+                        productsApproachingLimit.length === 1
+                            ? (productsApproachingLimit[0].type as ProductKey)
+                            : undefined,
                     onClose: () => {
                         // Store dismissal for all affected products
                         const billingPeriodEnd =
@@ -1561,6 +1591,7 @@ export const billingLogic = kea<billingLogicType>([
             }
 
             actions.resetUsageLimitApproachingKey()
+            clearBillingAlert()
         },
         setCreditFormValue: ({ name, value }) => {
             if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
@@ -1588,12 +1619,36 @@ export const billingLogic = kea<billingLogicType>([
                     customer_deactivated: values.billing.deactivated,
                     current_total_amount_usd: values.billing.current_total_amount_usd,
                 }
-                if (values.billing.custom_limits_usd) {
-                    for (const product of Object.keys(values.billing.custom_limits_usd)) {
-                        payload[`custom_limits_usd.${product}`] = values.billing.custom_limits_usd[product]
-                    }
-                }
                 if (values.billing.products) {
+                    const customLimitsUsd = values.billing.custom_limits_usd ?? {}
+                    const customLimitKeysToSync = new Set<string>([
+                        ...values.registeredCustomLimitKeys,
+                        ...Object.keys(customLimitsUsd),
+                    ])
+                    const registeredCustomLimitKeys = new Set<string>()
+                    for (const product of values.billing.products) {
+                        customLimitKeysToSync.add(product.type)
+                        if (product.usage_key) {
+                            customLimitKeysToSync.add(product.usage_key)
+                        }
+                    }
+                    for (const product of customLimitKeysToSync) {
+                        const customLimitUsd = customLimitsUsd[product]
+                        const property = `custom_limits_usd.${product}`
+                        if (customLimitUsd === null || customLimitUsd === undefined) {
+                            if (
+                                values.registeredCustomLimitKeys.includes(product) ||
+                                posthog.get_property(property) !== undefined
+                            ) {
+                                posthog.unregister(property)
+                            }
+                        } else {
+                            registeredCustomLimitKeys.add(product)
+                            payload[property] = customLimitUsd
+                        }
+                    }
+                    actions.setRegisteredCustomLimitKeys([...registeredCustomLimitKeys])
+
                     for (const product of values.billing.products) {
                         const type = product.type.toLowerCase()
                         payload[`percentage_usage.${type}`] = product.percentage_usage
