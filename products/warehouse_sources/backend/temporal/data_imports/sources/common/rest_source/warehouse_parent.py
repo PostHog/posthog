@@ -9,6 +9,8 @@ import deltalake
 import structlog
 import pyarrow.compute as pc
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -75,9 +77,18 @@ def _physical_columns_by_api_name(
     return physical_by_api_name
 
 
+@frozen
+class _ResolvedRowFilter:
+    """A row filter resolved against a Delta table's actual column type."""
+
+    scan_filter: pc.Expression | None
+    row_passes: Callable[[dict[str, Any]], bool]
+    physical_column: str
+
+
 def _row_filter_scan_and_predicate(
     delta_table: "deltalake.DeltaTable", parent_name: str, row_filter: ParentRowFilter
-) -> tuple[pc.Expression | None, Callable[[dict[str, Any]], bool], str]:
+) -> _ResolvedRowFilter:
     """Resolve a row filter into an optional parquet-scan pushdown and a matching row check.
 
     The row check (applied to every materialized row regardless of whether a pushdown ran) is
@@ -91,9 +102,9 @@ def _row_filter_scan_and_predicate(
     optimization. NULLs are kept: a row without the filter field carries no recency signal, and
     the tag-values iterator's per-row cutoff (the semantics this reproduces) keeps them too.
 
-    Returns the pushdown expression (or None), the row check, and the filter field's physical
-    column name (the caller must ensure it's projected, even if not requested as output, or the
-    row check would see it as absent and keep every row).
+    `physical_column` is the filter field's physical column name; the caller must ensure it's
+    projected, even if not requested as output, or the row check would see it as absent and
+    keep every row.
     """
     physical = _physical_columns_by_api_name(delta_table, parent_name, [row_filter.field])[row_filter.field]
     field_type = pyarrow_schema_from_arrow_exportable(delta_table.schema()).field(physical).type
@@ -120,7 +131,7 @@ def _row_filter_scan_and_predicate(
         value = row.get(physical)
         return value is None or value >= floor
 
-    return scan_filter, _passes_floor, physical
+    return _ResolvedRowFilter(scan_filter=scan_filter, row_passes=_passes_floor, physical_column=physical)
 
 
 def resolve_parent_table_ref(
@@ -321,17 +332,16 @@ def iter_parent_pages_from_warehouse(
     delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
     physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
 
-    scan_filter: pc.Expression | None = None
-    row_passes_filter: Callable[[dict[str, Any]], bool] | None = None
+    resolved_row_filter: _ResolvedRowFilter | None = None
     projected = list(dict.fromkeys(physical_by_api_name.values()))
     if row_filter is not None:
-        scan_filter, row_passes_filter, filter_physical = _row_filter_scan_and_predicate(
-            delta_table, parent_name, row_filter
-        )
-        if filter_physical not in projected:
+        resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+        if resolved_row_filter.physical_column not in projected:
             # The row check below needs the value even when the caller didn't ask for it as
             # output — otherwise it reads as absent and every row would pass.
-            projected.append(filter_physical)
+            projected.append(resolved_row_filter.physical_column)
+
+    scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
 
     dataset = delta_table.to_pyarrow_dataset()
 
@@ -341,7 +351,7 @@ def iter_parent_pages_from_warehouse(
         page: list[dict[str, Any]] = []
         for batch in dataset.to_batches(columns=projected, batch_size=page_size, filter=scan_filter):
             for row in batch.to_pylist():
-                if row_passes_filter is not None and not row_passes_filter(row):
+                if resolved_row_filter is not None and not resolved_row_filter.row_passes(row):
                     continue
                 page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
                 rows_streamed += 1
