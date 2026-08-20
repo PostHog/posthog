@@ -1387,7 +1387,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
         subject="Reset your two-factor authentication",
         template_name="2fa_reset",
         template_context={
-            "preheader": "An administrator has initiated a 2FA reset for your account.",
+            "preheader": "We received a request to reset two-factor authentication for your account.",
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,
