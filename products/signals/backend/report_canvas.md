@@ -1,6 +1,6 @@
 # Report canvases
 
-Ready reports and reports awaiting input can run through the canvas generation pipeline. This path is gated by the `signals-report-canvases` organization feature flag.
+Ready reports and reports awaiting input can run through the canvas generation pipeline. This path is gated by the `signals-report-canvases` organization feature flag and by the team already having a general space. PostHog Desktop provisions that space on first run, so a team that does not use Desktop generates nothing and never has a space created for it.
 
 Generation is a shadow workflow by default. Each attempt stores its source, status, duration, model metadata, validation result, and failure details in `SignalReportCanvasGeneration`. Reviewers can inspect and label attempts in Django admin without changing what people see in Inbox.
 
@@ -43,7 +43,7 @@ hogli up -d -y
 hogli wait -y
 ```
 
-Add a working LLM provider key to `.env.local`. Report canvases are enabled automatically when Django runs with `DEBUG=True`.
+Add a working LLM provider key to `.env.local`. Report canvases are enabled automatically when Django runs with `DEBUG=True`, but the team still needs a general space: open Desktop once, or call `POST /api/projects/<team-id>/task_channels/provision_defaults/`.
 
 Create a researched report from the included synthetic fixture:
 
