@@ -1258,7 +1258,9 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        # Select only the primary key the query needs, so a new Cohort column that ships ahead of its
+        # migration cannot break cohort resolution on the HogQL hot path.
+        cohort = Cohort.objects.only("id").get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(

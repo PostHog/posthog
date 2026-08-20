@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -951,6 +953,21 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
+
+    def test_cohort_filter_defers_unused_columns(self):
+        # The cohort lookup must select only the primary key it reads, so a new Cohort column that ships
+        # ahead of its migration cannot break cohort resolution on the HogQL hot path.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        with CaptureQueriesContext(connection) as ctx:
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team)
+        cohort_selects = [q["sql"] for q in ctx.captured_queries if '"posthog_cohort"' in q["sql"]]
+        self.assertTrue(cohort_selects)
+        for sql in cohort_selects:
+            self.assertNotIn("last_import_total_count", sql)
+            self.assertNotIn("last_import_unmatched_count", sql)
 
     def test_person_scope(self):
         self.assertEqual(
