@@ -6,9 +6,10 @@ from posthog.schema import LoadingBlock, MarkdownBlock
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 
-# Insight short IDs are alphanumeric, but the model sometimes emits ids that carry a colon or
-# hyphen, so accept those too rather than drop the tag back to literal text.
-_INSIGHT_SHORT_ID = r"[\w:-]+"
+# Persisted insight and artifact short IDs come from an alphanumeric generator, so the id class
+# stays alphanumeric plus underscore and hyphen. A value outside it could never resolve, so it is
+# left as text rather than stored as a dead reference.
+_INSIGHT_SHORT_ID = r"[\w-]+"
 
 # Every insight-reference dialect Max emits, converted to a VisualizationRefBlock. The attribute
 # form is matched first because it is the only one whose id lives in an `id=`/`shortId=` attribute.

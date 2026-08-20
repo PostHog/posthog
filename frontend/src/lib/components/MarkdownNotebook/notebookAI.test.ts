@@ -193,7 +193,6 @@ describe('notebookAI', () => {
     })
 
     it.each([
-        ['colon in the short id', '<insight>W:8ZHl</insight>', 'W:8ZHl'],
         ['equals form', '<insight=v6BHXh2n></insight>', 'v6BHXh2n'],
         ['self-closing equals form', '<insight=v6BHXh2n/>', 'v6BHXh2n'],
         ['attribute form with extra props', '<Insight id="XuCZnclZ" view="results" />', 'XuCZnclZ'],
@@ -206,12 +205,21 @@ describe('notebookAI', () => {
         )
     })
 
-    it('breaks an inline insight tag out into its own query block', () => {
+    it('leaves a colon-bearing reference as text rather than a not-found chart', () => {
+        // A colon can never be a real short id, so it must not become a SavedInsightNode.
         const markdown = '# Notebook\n\nThinking...'
 
-        expect(replaceMarkdown(markdown, 1, 'See <insight>uONk</insight> for details.')).toEqual(
-            '# Notebook\n\nSee \n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\n for details.'
+        expect(replaceMarkdown(markdown, 1, '<insight>W:8ZHl</insight>')).toEqual(
+            '# Notebook\n\n<insight>W:8ZHl</insight>'
         )
+    })
+
+    it('leaves an insight tag inside a table cell untouched', () => {
+        // Breaking the tag onto its own line would split the row and corrupt the table.
+        const markdown = '# Notebook\n\nThinking...'
+        const table = '| Metric | Chart |\n| --- | --- |\n| Signups | <insight>uONk</insight> |'
+
+        expect(replaceMarkdown(markdown, 1, table)).toEqual(`# Notebook\n\n${table}`)
     })
 
     it('defaults AI-inserted query components to results only', () => {

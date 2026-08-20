@@ -43,7 +43,6 @@ class TestParseNotebookContentForStorage(BaseTest):
 
     @parameterized.expand(
         [
-            ("colon in id", "<insight>W:8ZHl</insight>", "W:8ZHl"),
             ("equals form", "<insight=v6BHXh2n></insight>", "v6BHXh2n"),
             ("self-closing equals form", "<insight=v6BHXh2n/>", "v6BHXh2n"),
             ("attribute form with extra props", '<Insight id="XuCZnclZ" view="results" />', "XuCZnclZ"),
@@ -56,6 +55,14 @@ class TestParseNotebookContentForStorage(BaseTest):
         assert len(result) == 1
         assert isinstance(result[0], VisualizationRefBlock)
         assert result[0].artifact_id == expected_id
+
+    def test_colon_bearing_reference_is_left_as_text(self):
+        # A colon can never be a real short id, so the tag stays markdown instead of a dead ref.
+        result = parse_notebook_content_for_storage("<insight>W:8ZHl</insight>")
+
+        assert len(result) == 1
+        assert isinstance(result[0], MarkdownBlock)
+        assert result[0].content == "<insight>W:8ZHl</insight>"
 
     def test_whitespace_in_artifact_id_is_stripped(self):
         result = parse_notebook_content_for_storage("<insight>  abc123  </insight>")
