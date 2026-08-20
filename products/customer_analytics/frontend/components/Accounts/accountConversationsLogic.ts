@@ -256,21 +256,23 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                             : Promise.resolve(null),
                     ])
                     const conversations = [...currentResult.conversations]
-                    const failedSources = [...currentResult.failedSources]
+                    const failedSources = new Set(currentResult.failedSources)
                     let emailCount = currentResult.emailCount
                     let summaryCount = currentResult.summaryCount
                     if (emailResult.status === 'fulfilled' && emailResult.value) {
                         conversations.push(...createEmailConversations(emailResult.value.results))
                         emailCount = emailResult.value.count
+                        failedSources.delete('email')
                     } else if (emailResult.status === 'rejected') {
-                        failedSources.push('email')
+                        failedSources.add('email')
                         captureSourceFailure('email', emailResult.reason)
                     }
                     if (summaryResult.status === 'fulfilled' && summaryResult.value) {
                         conversations.push(...createSlackConversations(summaryResult.value.results))
                         summaryCount = summaryResult.value.count
+                        failedSources.delete('slack')
                     } else if (summaryResult.status === 'rejected') {
-                        failedSources.push('slack')
+                        failedSources.add('slack')
                         captureSourceFailure('slack', summaryResult.reason)
                     }
                     return {
@@ -278,7 +280,7 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                             ...new Map(conversations.map((item) => [item.id, item])).values(),
                         ]),
                         emailCount,
-                        failedSources: [...new Set(failedSources)],
+                        failedSources: [...failedSources],
                         summaryCount,
                     }
                 },

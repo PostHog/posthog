@@ -452,7 +452,8 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
         expandedConversationId,
         olderConversationCount,
     } = useValues(logic)
-    const { setSearchTerm, setSources, openConversation, closeConversation, loadMoreConversations } = useActions(logic)
+    const { setSearchTerm, setSources, openConversation, closeConversation, loadConversations, loadMoreConversations } =
+        useActions(logic)
     const { openThread, closeThread } = useActions(emailLogic)
 
     if (
@@ -479,11 +480,26 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             </div>
         </div>
     )
+    const sourceFailureBanner = conversationsResult.failedSources.length > 0 && (
+        <LemonBanner
+            type={conversationsResult.loadFailed ? 'error' : 'warning'}
+            action={{
+                children: 'Retry',
+                onClick: loadConversations,
+                loading: conversationsResultLoading,
+            }}
+        >
+            {conversationsResult.loadFailed
+                ? "Conversation sources couldn't load."
+                : "Some conversation sources aren't available. Showing the sources that loaded."}
+        </LemonBanner>
+    )
     if (conversationsResult.loadFailed) {
         return (
             <div className="flex flex-col gap-3">
                 {toolbar}
-                <EmptyState title="Couldn't load conversations" detail="Refresh the page to try again." />
+                {sourceFailureBanner}
+                <EmptyState title="Couldn't load conversations" detail="Retry to load this account's conversations." />
             </div>
         )
     }
@@ -491,11 +507,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
         return (
             <div className="flex flex-col gap-3">
                 {toolbar}
-                {conversationsResult.failedSources.length > 0 && (
-                    <LemonBanner type="warning">
-                        Some conversation sources aren't available. Showing the sources that loaded.
-                    </LemonBanner>
-                )}
+                {sourceFailureBanner}
                 <EmptyState
                     title="No conversations yet"
                     detail="Email, Support, and Slack conversations will appear here."
@@ -606,11 +618,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
     return (
         <div className="flex flex-col gap-3">
             {toolbar}
-            {conversationsResult.failedSources.length > 0 && (
-                <LemonBanner type="warning">
-                    Some conversation sources aren't available. Showing the sources that loaded.
-                </LemonBanner>
-            )}
+            {sourceFailureBanner}
             <LemonTable<AccountConversation>
                 data-attr="account-conversations-table"
                 size="small"

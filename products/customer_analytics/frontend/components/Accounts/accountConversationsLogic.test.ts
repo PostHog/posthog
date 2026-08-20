@@ -180,8 +180,10 @@ describe('accountConversationsLogic', () => {
         expect(logic.values.expandedSummaryMessageIds['22222222-2222-2222-2222-222222222222']).toBe(true)
     })
 
-    it('keeps available conversations when one source is forbidden', async () => {
-        mockSupportTickets.mockRejectedValue(new ApiError('Forbidden', 403))
+    it('keeps available conversations and retries a forbidden source', async () => {
+        const supportTickets = await mockSupportTickets('997', 'account-1')
+        jest.clearAllMocks()
+        mockSupportTickets.mockRejectedValueOnce(new ApiError('Forbidden', 403)).mockResolvedValueOnce(supportTickets)
         logic = accountConversationsLogic({ accountId: 'account-1' })
         logic.mount()
 
@@ -191,6 +193,11 @@ describe('accountConversationsLogic', () => {
         expect(logic.values.filteredConversations.map(({ source }) => source)).toEqual(['slack', 'email'])
         expect(logic.values.conversationsResult.loadFailed).toBeUndefined()
         expect(posthog.captureException).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => logic.actions.loadConversations()).toFinishAllListeners()
+
+        expect(logic.values.conversationsResult.failedSources).toEqual([])
+        expect(logic.values.filteredConversations.map(({ source }) => source)).toEqual(['slack', 'email', 'support'])
     })
 
     it('loads older paginated conversations without replacing the current timeline', async () => {
@@ -204,6 +211,7 @@ describe('accountConversationsLogic', () => {
         jest.clearAllMocks()
         mockSummaries
             .mockResolvedValueOnce({ ...firstPage, count: 2 })
+            .mockRejectedValueOnce(new Error('network'))
             .mockResolvedValueOnce({ ...firstPage, count: 2, results: [olderSummary] })
         logic = accountConversationsLogic({ accountId: 'account-1' })
         logic.mount()
@@ -211,8 +219,13 @@ describe('accountConversationsLogic', () => {
 
         expect(logic.values.olderConversationCount).toBe(1)
         await expectLogic(logic, () => logic.actions.loadMoreConversations()).toFinishAllListeners()
+        expect(logic.values.conversationsResult.failedSources).toEqual(['slack'])
+        expect(logic.values.olderConversationCount).toBe(1)
+
+        await expectLogic(logic, () => logic.actions.loadMoreConversations()).toFinishAllListeners()
 
         expect(mockSummaries).toHaveBeenLastCalledWith('997', 'account-1', { limit: 50, offset: 1 })
+        expect(logic.values.conversationsResult.failedSources).toEqual([])
         expect(logic.values.olderConversationCount).toBe(0)
         expect(logic.values.conversationsResult.conversations?.map(({ id }) => id)).toContain(
             'slack:44444444-4444-4444-4444-444444444444'
