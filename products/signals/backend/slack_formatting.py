@@ -124,18 +124,42 @@ def truncate_slack_section(text: str) -> str:
 
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
 # headings are the natural seams to split a long report on for threaded Slack delivery.
-_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}[ \t]+\S", re.MULTILINE)
+_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}[ \t]+\S")
+# Opens or closes a fenced code block (``` or ~~~, up to three leading spaces per CommonMark). A
+# `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
+# the snippet to the mrkdwn converter as prose.
+_MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _heading_line_offsets(text: str) -> list[int]:
+    """Character offsets of the ATX heading lines, skipping any inside a fenced code block."""
+    offsets: list[int] = []
+    fence: str | None = None  # marker of the currently open fence, else None
+    offset = 0
+    for line in text.split("\n"):
+        fence_match = _MARKDOWN_FENCE_RE.match(line)
+        if fence is not None:
+            # Close only on the same fence character, at least as long as the opener (CommonMark).
+            if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
+                fence = None
+        elif fence_match:
+            fence = fence_match.group(1)
+        elif _MARKDOWN_HEADING_RE.match(line):
+            offsets.append(offset)
+        offset += len(line) + 1  # +1 for the "\n" that split dropped
+    return offsets
 
 
 def split_markdown_by_headings(text: str) -> list[str]:
     """Split a Markdown summary into the lead and one segment per heading.
 
     The first element is the text before the first heading (empty when the summary opens with one).
-    Each later element is a heading and the body under it. No content is dropped."""
+    Each later element is a heading and the body under it. Headings inside fenced code blocks are
+    left in place, so a snippet is never split mid-fence. No content is dropped."""
     text = text.strip()
     if not text:
         return []
-    starts = [match.start() for match in _MARKDOWN_HEADING_RE.finditer(text)]
+    starts = _heading_line_offsets(text)
     if not starts:
         return [text]
     segments = [text[: starts[0]]]

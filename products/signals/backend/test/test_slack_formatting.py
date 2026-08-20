@@ -115,6 +115,21 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
     def test_empty_summary_yields_no_segments(self) -> None:
         assert split_markdown_by_headings("   ") == []
 
+    @parameterized.expand([("backtick_fence", "```"), ("tilde_fence", "~~~")])
+    def test_column_zero_hash_inside_a_fence_does_not_split(self, _name: str, fence: str) -> None:
+        # The bug this guards: a `# ` line inside a fenced code block used to be read as a heading and
+        # split there, orphaning the fence and mangling the snippet when each segment was converted.
+        summary = f"Intro.\n\n{fence}\n# not a heading\nconfig value\n{fence}\n\nTail."
+        assert split_markdown_by_headings(summary) == [summary]
+
+    def test_real_heading_after_a_fence_still_splits(self) -> None:
+        summary = "```\n# in code\n```\n\n## Real heading\nbody"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "```\n# in code\n```"
+        assert segments[1].startswith("## Real heading")
+        assert len(segments) == 2
+
 
 class TestChunkSlackMrkdwn(SimpleTestCase):
     def test_short_text_is_one_chunk(self) -> None:
