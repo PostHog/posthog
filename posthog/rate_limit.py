@@ -1167,13 +1167,24 @@ class RefundableRateThrottleMixin:
         return allowed
 
     def refund(self) -> None:
-        # SimpleRateThrottle.throttle_success() puts the timestamp it just charged at index 0.
         key = getattr(self, "key", None)
-        history = getattr(self, "history", None)
-        if not key or not history:
+        # SimpleRateThrottle.throttle_success() charges the window by inserting self.now.
+        charged_at = getattr(self, "now", None)
+        if not key or charged_at is None:
             return
-        history.pop(0)
-        self.cache.set(key, history, self.duration)  # type: ignore[attr-defined]
+        # Re-read the window rather than writing back the snapshot this request captured at
+        # throttle time. A concurrent request from the same user may have been charged since,
+        # and restoring the snapshot would erase that charge and let the window run over its
+        # limit. This narrows the race to the gap between get and set rather than closing it,
+        # because Django's cache API has no atomic list operation; closing it fully would mean
+        # moving this scope onto a Redis-side token bucket.
+        current = self.cache.get(key, [])  # type: ignore[attr-defined]
+        try:
+            current.remove(charged_at)
+        except ValueError:
+            # Already aged out of the window, so there is nothing left to give back.
+            return
+        self.cache.set(key, current, self.duration)  # type: ignore[attr-defined]
 
 
 def refund_rate_limit(request: "Request") -> None:

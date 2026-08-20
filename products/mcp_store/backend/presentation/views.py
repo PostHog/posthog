@@ -718,8 +718,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         # An attempt that errored left the user with no server connected, so it shouldn't spend
         # their hourly budget. Charging for it means a provider that keeps rejecting the handshake
         # exhausts the budget within a few clicks, and the 429 then replaces the error the user
-        # needs to see. 429 is excluded because refunding it would undo the limit being enforced.
-        if response.status_code >= 400 and response.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+        # needs to see.
+        # A 429 refunds too. DRF evaluates every throttle on the view, so the burst throttle
+        # rejecting a request does not stop the sustained one from charging it first, and without
+        # this a one-minute burst lockout would still drain the hourly budget. Refunding cannot
+        # undo the limit that fired, because a throttle only becomes refundable when it allowed
+        # the request.
+        if response.status_code >= 400:
             refund_rate_limit(request)
         return super().finalize_response(request, response, *args, **kwargs)
 
