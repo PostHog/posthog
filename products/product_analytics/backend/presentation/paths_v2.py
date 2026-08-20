@@ -10,11 +10,9 @@ from posthog.schema import PathsV2AnchorType, PathsV2Item, PathsV2Query
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.product_analytics.backend.hogql_queries.paths_v2.funnel_converter import (
+from products.product_analytics.backend.facade.queries import (
     anchored_segment_to_funnels_query,
     edge_to_funnels_query,
-)
-from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
     item_label,
     resolve_step_sources,
     step_source_for_event,
