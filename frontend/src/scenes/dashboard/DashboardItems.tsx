@@ -15,8 +15,11 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
@@ -25,6 +28,7 @@ import {
     isWidgetTileVisibleOnPlacement,
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
+import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
@@ -94,6 +98,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
+        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -114,10 +119,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
+        setAddWidgetModalOpen,
+        setPendingInsertion,
     } = useActions(dashboardLogic)
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
@@ -242,6 +250,28 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const margin = useMemo(
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
+    )
+
+    const getInsertMenuItems = useCallback(
+        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
+            dashboard
+                ? getAddTileMenuItems({
+                      dashboardId: dashboard.id,
+                      dashboardWidgetsEnabled,
+                      onAddInsight: showAddInsightToDashboardModal,
+                      push,
+                      setAddWidgetModalOpen,
+                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
+                  })
+                : [],
+        [
+            dashboard,
+            dashboardWidgetsEnabled,
+            showAddInsightToDashboardModal,
+            push,
+            setAddWidgetModalOpen,
+            setPendingInsertion,
+        ]
     )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
@@ -669,6 +699,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
+                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                        <InsertTileOverlay
+                            layout={layouts['sm']}
+                            gridWidth={gridWidth}
+                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
+                            rowHeight={rowHeight}
+                            marginX={margin[0]}
+                            marginY={margin[1]}
+                            canEditDashboard={canEditDashboard}
+                            isMobileView={isMobileView}
+                            disabled={resizingTileId !== null}
+                            getMenuItems={getInsertMenuItems}
+                            onMenuOpen={() => {
+                                if (dashboard?.id) {
+                                    reportDashboardAddMenuOpened('inline', dashboard.id)
+                                }
+                            }}
+                        />
+                    )}
                 </div>
             )}
             {dashboardStreaming && (

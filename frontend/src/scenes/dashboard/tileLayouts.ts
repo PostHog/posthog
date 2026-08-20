@@ -24,6 +24,9 @@ const MIN_TEXT_TILE_HEIGHT_ROWS = 1
 const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 
+/** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
+export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
+
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
 
 /**
@@ -99,6 +102,53 @@ export function calculateDuplicateLayout(
     for (const smLayout of currentLayouts?.sm || []) {
         // ignore the duplicated tile and tiles above the insertion point
         if (smLayout.i === `${tileId}` || smLayout.y < insertY) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: Number(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+export interface InsertionLayoutResult {
+    newTileLayout: { sm: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+/**
+ * Layout for inserting a tile at a given grid slot: the new tile lands at (`targetX`, `targetY`) and
+ * only tiles sharing its column span (those horizontally overlapping the new tile) that sit at or
+ * below `targetY` are pushed down by `h` rows. Tiles in other columns stay put, so inserting into the
+ * right column doesn't shove the left one. Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape
+ * so persistence is shared.
+ */
+export function calculateInsertionLayout(
+    currentSmLayout: Layout | undefined,
+    newTileId: number,
+    targetY: number,
+    targetX: number,
+    w: number,
+    h: number
+): InsertionLayoutResult {
+    const result: InsertionLayoutResult = {
+        newTileLayout: { sm: { x: targetX, y: targetY, w, h } },
+        tilesToUpdate: [],
+    }
+
+    for (const smLayout of currentSmLayout || []) {
+        // leave the new tile and anything above the insertion point untouched
+        if (smLayout.i === `${newTileId}` || smLayout.y < targetY) {
+            continue
+        }
+        // only push tiles that share horizontal space with the inserted tile's column span
+        const overlapsColumn = smLayout.x < targetX + w && smLayout.x + smLayout.w > targetX
+        if (!overlapsColumn) {
             continue
         }
 

@@ -9,6 +9,7 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -659,8 +660,12 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
-    reportDashboardAddMenuOpened: (dashboardId: number) => {
+    reportDashboardAddMenuOpened: (
+        source: 'header' | 'inline',
         dashboardId: number
+    ) => {
+        dashboardId: number
+        source: 'header' | 'inline'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -878,6 +883,21 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         ignored: boolean
         insightId: number | null
+    }
+    reportDashboardTileInsertedInline: (
+        tileType: DashboardAddTileType,
+        dashboardId: number,
+        tileId: number,
+        column: number,
+        row: number,
+        fullWidth: boolean
+    ) => {
+        column: number
+        dashboardId: number
+        fullWidth: boolean
+        row: number
+        tileId: number
+        tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
@@ -2445,7 +2465,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (dashboardId: number) => ({ dashboardId }),
+        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
+        reportDashboardTileInsertedInline: (
+            tileType: DashboardAddTileType,
+            dashboardId: number,
+            tileId: number,
+            column: number,
+            row: number,
+            fullWidth: boolean
+        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3555,8 +3583,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardAddMenuOpened: async ({ dashboardId }) => {
-            posthog.capture('dashboard add menu opened', { source: 'header', dashboard_id: dashboardId })
+        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
+            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
+            posthog.capture('dashboard tile inserted inline', {
+                tile_type: tileType,
+                dashboard_id: dashboardId,
+                tile_id: tileId,
+                column,
+                row,
+                full_width: fullWidth,
+            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {

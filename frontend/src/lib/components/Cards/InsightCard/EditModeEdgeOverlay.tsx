@@ -19,8 +19,9 @@ const edgeOverlayBaseStyle: React.CSSProperties = {
     background: 'none',
 }
 
-// Top/bottom zones hug the border and reach mostly into the tile, leaving the row gap available for layout work.
-// They still win the shared border pixel via a higher z-index.
+// Top/bottom zones hug the border and reach mostly *into* the tile: the inline "insert tile" overlay owns the
+// row gap between tiles (see InsertTileOverlay), so keeping these off the gap avoids fighting it for the same
+// pixels. They still win the shared border pixel via a higher z-index. Left/right never touch the insert line.
 const TOP_BOTTOM_Z = 7
 // Corners sit above edges so a press in the corner resolves to the diagonal handle.
 const cornerZoneStyle: React.CSSProperties = { zIndex: TOP_BOTTOM_Z, width: 18, height: 18 }
