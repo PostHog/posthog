@@ -30,6 +30,9 @@ export const POSTHOG_NOTIFICATIONS = {
    * the tracked prompt lifecycle that TURN_COMPLETE drives on the agent side. */
   BACKGROUND_TURN_COMPLETE: "_posthog/background_turn_complete",
 
+  /** Background/task-notification-triggered reply started without a prompt RPC. */
+  BACKGROUND_TURN_STARTED: "_posthog/background_turn_started",
+
   /** Error occurred during task execution */
   ERROR: "_posthog/error",
 
