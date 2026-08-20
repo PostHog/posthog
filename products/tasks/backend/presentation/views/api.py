@@ -713,7 +713,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskHandoffRequestSerializer)
     def handoff(self, request, pk=None, **kwargs):
-        if _sandbox_bound_task_id(request) is not None or is_mcp_built_in_agent_oauth_request(request):
+        if is_sandbox_oauth_request(request) or is_mcp_built_in_agent_oauth_request(request):
             raise PermissionDenied("Only a user can hand off a task. Sign in to continue.")
         user_id = self._user_id()
         if user_id is None:
@@ -1161,15 +1161,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=["task-runs", "tasks"])
-def _sandbox_bound_task_id(request) -> UUID | None:
+def is_sandbox_oauth_request(request) -> bool:
     authenticator = request.successful_authenticator
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    application = authenticator.access_token.application
+    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+
+def _sandbox_bound_task_id(request) -> UUID | None:
+    if not is_sandbox_oauth_request(request):
         return None
-    access_token = authenticator.access_token
-    application = access_token.application
-    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
-        return None
-    return access_token.sandbox_task_id
+    return request.successful_authenticator.access_token.sandbox_task_id
 
 
 def is_sandbox_agent_request(request, task_id: str) -> bool:
