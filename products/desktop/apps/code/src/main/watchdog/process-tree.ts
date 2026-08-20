@@ -8,11 +8,23 @@ const PS_MAX_BUFFER = 32 * 1024 * 1024;
 const PS_ARGS = ["-axo", "pid=,ppid=,rss=,pcpu=,args="];
 
 // `ps` gives us the whole command line, which is where an agent's identity
-// lives. Anything that smells like a credential is stripped before it can reach
-// a report the user might attach to an issue.
+// lives. The shapes below are the ones credentials actually arrive in, but a
+// denylist can never be complete — a bare positional secret still gets through,
+// so a report is sensitive material regardless.
 const SECRET_TOKEN =
-  /\b(?:phx_|phc_|sk-ant-|sk-|ghp_|gho_|ghs_|github_pat_)[A-Za-z0-9_-]{8,}/g;
-const SECRET_FLAG = /(--(?:api-?key|token|secret|password)[=\s]+)\S+/gi;
+  /\b(?:phx_|phc_|sk-ant-|sk-|ghp_|gho_|ghs_|github_pat_|xox[abposr]-|AKIA)[A-Za-z0-9_-]{8,}/g;
+const SECRET_FLAG =
+  /(--?(?:api[-_]?key|access[-_]?token|auth[-_]?token|token|secret|password|passwd|credentials?|bearer|connection[-_]?string)[=\s]+)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
+// Header values survive `ps` either quoted (`sh -c` keeps the whole command in
+// one arg) or already split into argv, so the value has to be matched without
+// relying on the quotes being there.
+const SECRET_HEADER =
+  /((?:authorization|proxy-authorization|x-api-key|x-auth-token)\s*:\s*(?:bearer|basic|token|digest)?\s*)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
+// `FOO_TOKEN=…` from an inline env assignment, and its lowercase variants.
+const SECRET_ASSIGNMENT =
+  /\b([\w.]*(?:key|token|secret|password|passwd|credentials?)[\w.]*=)(?:"[^"]*"|'[^']*'|[^\s"']+)/gi;
+// The password half of `postgres://user:pass@host/db`.
+const URL_CREDENTIALS = /([a-z][\w+.-]*:\/\/[^\s:/@]+:)[^\s/@]+@/gi;
 
 const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/;
 
@@ -26,7 +38,10 @@ export interface OsProcess {
 
 export function redactCommand(command: string): string {
   return command
+    .replace(SECRET_HEADER, "$1[redacted]")
     .replace(SECRET_FLAG, "$1[redacted]")
+    .replace(SECRET_ASSIGNMENT, "$1[redacted]")
+    .replace(URL_CREDENTIALS, "$1[redacted]@")
     .replace(SECRET_TOKEN, "[redacted]");
 }
 

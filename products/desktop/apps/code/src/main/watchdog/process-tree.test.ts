@@ -42,20 +42,51 @@ describe("parsePsOutput", () => {
 });
 
 describe("redactCommand", () => {
-  it("strips credentials that appear in a command line", () => {
-    const redacted = redactCommand(
+  it.each([
+    [
+      "secret flags",
       "node cli.js --api-key sk-ant-abc123def456 --token phx_supersecrettoken",
-    );
+      ["sk-ant-abc123def456", "phx_supersecrettoken"],
+    ],
+    [
+      "an authorization header",
+      `curl -H 'Authorization: Bearer abc123def456' https://example.com`,
+      ["abc123def456"],
+    ],
+    [
+      "an api-key header split into argv",
+      "curl -H X-Api-Key: abc123def456 https://example.com",
+      ["abc123def456"],
+    ],
+    [
+      "credentials in a connection URL",
+      "psql postgres://appuser:hunter2hunter2@db.internal:5432/app",
+      ["hunter2hunter2"],
+    ],
+    [
+      "an inline environment assignment",
+      "sh -c ANTHROPIC_API_KEY=abc123def456 node agent.js",
+      ["abc123def456"],
+    ],
+  ])("strips %s", (_name, command, secrets) => {
+    const redacted = redactCommand(command);
 
-    expect(redacted).not.toContain("sk-ant-abc123def456");
-    expect(redacted).not.toContain("phx_supersecrettoken");
-    expect(redacted).toContain("cli.js");
+    for (const secret of secrets) {
+      expect(redacted).not.toContain(secret);
+    }
+    expect(redacted).toContain("[redacted]");
   });
 
   it("leaves ordinary arguments alone", () => {
     const command = "/usr/bin/git --no-pager status --porcelain";
 
     expect(redactCommand(command)).toBe(command);
+  });
+
+  it("keeps enough of the command to identify the process", () => {
+    expect(
+      redactCommand("node cli.js --api-key sk-ant-abc123def456 --task 42"),
+    ).toBe("node cli.js --api-key [redacted] --task 42");
   });
 });
 

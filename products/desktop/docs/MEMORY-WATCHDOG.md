@@ -60,7 +60,7 @@ All optional, all environment variables:
 
 | Variable                                | Default                                | Notes                                       |
 | --------------------------------------- | -------------------------------------- | -------------------------------------------- |
-| `POSTHOG_CODE_WATCHDOG_DISABLE`         | unset                                  | Turns the whole thing off                    |
+| `POSTHOG_CODE_WATCHDOG_DISABLE`         | unset                                  | Turns the whole thing off: no sampling, and no report from any trigger, including a crash or the Developer menu |
 | `POSTHOG_CODE_WATCHDOG_THRESHOLD_MB`    | 50% of system RAM, clamped to 2–24GB   | Absolute trip point                          |
 | `POSTHOG_CODE_WATCHDOG_INTERVAL_MS`     | `15000`                                | Sample interval                              |
 | `POSTHOG_CODE_WATCHDOG_SUSTAINED_SAMPLES` | `3`                                  | Consecutive breaches before capturing        |
@@ -82,8 +82,11 @@ and which process owns it, not as an exact figure.
 Agent CLI processes cannot be heap-snapshotted from the main process. If a
 report points at one, attach a Node inspector to its pid.
 
-Command lines from `ps` are redacted for anything that looks like a credential
-before they reach a report.
+Command lines from `ps` go through a redaction pass before they reach a report:
+known token prefixes, secret-looking flags and environment assignments,
+`Authorization`-style headers, and the password in a connection URL. It is a
+denylist, so a credential passed as a bare positional argument still survives.
+Treat a report as sensitive and read it before attaching it anywhere.
 
 ## Where it lives, and why
 

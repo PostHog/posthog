@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { MemorySample } from "@main/watchdog/types";
@@ -190,6 +190,22 @@ describe("MemoryWatchdog", () => {
     expect(watchdog.getStatus().running).toBe(false);
     expect(collectSample).not.toHaveBeenCalled();
   });
+
+  // The host registers its crash handlers whether or not the watchdog is on, so
+  // they are the path by which an opted-out install could still write to disk.
+  it.each(["render-process-gone", "uncaught-exception", "manual"] as const)(
+    "writes nothing on a %s capture when disabled",
+    async (trigger) => {
+      collectSample.mockResolvedValue(sampleWithRss(2 * GB));
+      const watchdog = createWatchdog({ POSTHOG_CODE_WATCHDOG_DISABLE: "1" });
+
+      expect(await watchdog.capture(trigger, "should not be recorded")).toBe(
+        null,
+      );
+      expect(await listReports(watchdog)).toHaveLength(0);
+      expect(readdirSync(directory)).toEqual([]);
+    },
+  );
 });
 
 async function listReports(watchdog: MemoryWatchdog) {

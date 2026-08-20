@@ -140,6 +140,13 @@ export class MemoryWatchdog {
     detail?: string,
     context?: Record<string, unknown>,
   ): Promise<WatchdogReport | null> {
+    // The crash handlers are registered unconditionally by the host, so this is
+    // where an opted-out install stops writing diagnostics — not just `start()`.
+    if (!this.config.enabled) {
+      this.log.debug("Watchdog disabled, not capturing", { trigger });
+      return null;
+    }
+
     // Crashes arrive in bursts — a renderer dies, then its children do — and a
     // heap snapshot is slow enough that reentrancy would pile up.
     if (this.capturing) {
