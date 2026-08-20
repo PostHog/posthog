@@ -3,6 +3,7 @@ import uuid
 import asyncio
 import datetime
 import tempfile
+import contextlib
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionUnpartitionableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    MAX_REPARTITION_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import repartition_table
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
@@ -767,6 +771,55 @@ class TestRepartitionActivity:
 
         assert samples and samples[0]["phase"] == "repartition"
         assert samples[0]["schema_id"] == str(schema.id)
+
+    def test_a_rewrite_whose_worker_dies_still_burns_an_attempt(self, team):
+        # The bug this guards: `_handle_failure` charges the attempt from inside the activity, so a
+        # worker OOM-killed mid-rewrite recorded nothing and left `attempts` untouched. Tables that
+        # killed their worker every time never reached the cap and retried forever — 94 attempts on
+        # one production table with zero completions.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        # Three attempts run and die, each charging one; the next evaluation finds the cap spent and
+        # gives up. Before this fix the count never moved and a fourth, fortieth and ninety-fourth
+        # attempt all ran.
+        for _ in range(MAX_REPARTITION_ATTEMPTS + 1):
+            with contextlib.suppress(BaseException):
+                self._run(self._inputs(team, schema), AsyncMock(side_effect=killed_mid_rewrite))
+            schema.refresh_from_db()
+
+        assert schema.repartition_pending is None
+
+    def test_a_superseded_attempt_costs_no_attempt(self, team):
+        # Charging up front must not make stand-downs expensive: a zombie displaced by a newer claim
+        # is not evidence the rewrite is doomed, so its charge is refunded.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        self._run(self._inputs(team, schema), AsyncMock(side_effect=RepartitionSupersededError("newer claim")))
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
 
     def test_unpartitionable_clears_pending(self, team):
         schema = _make_schema(team, {})

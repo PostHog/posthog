@@ -24,12 +24,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    DEFAULT_REPARTITION_BATCH_SIZE,
+    MIN_REPARTITION_BATCH_SIZE,
+    REWRITE_BATCH_READAHEAD,
+    REWRITE_FRAGMENT_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
     _rewrite_into_temp,
     measure_partition_bytes,
     repartition_table_in_place,
+    rewrite_batch_size,
     select_coarsen_target,
     select_repartition_target,
 )
@@ -559,6 +564,54 @@ class TestRewriteIntoTemp:
         sample = json.loads(redis.get(run_key("repartition:rw-test")))
         assert sample["peak_buffer_bytes"] > 0
 
+    @parameterized.expand(
+        [
+            # A narrow table keeps the row-count default: nothing to gain from smaller batches.
+            ("narrow", 10_000_000, 1_000_000, DEFAULT_REPARTITION_BATCH_SIZE),
+            # A wide nested record (30 KB/row at rest) is what OOM-killed rewrites in production:
+            # 50,000 of these decompress and flatten into far more than one pod can hold.
+            ("wide_nested", 30_000 * 100_000, 100_000, MIN_REPARTITION_BATCH_SIZE),
+            # No size stats in the Delta log, so no estimate is possible; keep prior behaviour.
+            ("no_stats", 0, 1_000_000, DEFAULT_REPARTITION_BATCH_SIZE),
+        ]
+    )
+    def test_batch_size_tracks_row_width(self, _name, total_bytes, rows, expected):
+        assert rewrite_batch_size(total_bytes, rows) == expected
+
+    def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
+        # Arrow prefetches 16 batches across 4 fragments by default, none of it visible to the
+        # coalescing buffer. That is the memory that reached the 29 GB pod limit while the reported
+        # buffer read 78 MB.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        captured: dict = {}
+        real_scanner = old_delta.to_pyarrow_dataset().scanner
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_scanner(**kwargs)
+
+        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset") as dataset:
+            dataset.return_value = SimpleNamespace(scanner=spy)
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=10,
+                    logger=logger,
+                )
+            )
+
+        assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
+        assert captured["fragment_readahead"] == REWRITE_FRAGMENT_READAHEAD
+
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -830,7 +883,7 @@ class TestRewriteIntoTemp:
 
         old_delta = SimpleNamespace(
             to_pyarrow_dataset=lambda: SimpleNamespace(
-                scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
+                scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
             schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
         )

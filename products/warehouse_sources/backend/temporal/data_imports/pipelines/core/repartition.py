@@ -81,6 +81,26 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
 REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
 
+# Arrow's scanner prefetches `batch_readahead` batches across `fragment_readahead` fragments, and its
+# defaults (16 and 4) put up to 64 batches in flight before the loop below sees one. That memory never
+# reaches the coalescing buffer, so no amount of buffer budgeting bounds it, and it is worst for the
+# tables this module targets: an over-fragmented table *is* many small files, so fragment parallelism
+# runs hottest exactly where a rewrite is needed. Prefetching one batch ahead keeps the scan pipelined
+# while capping resident scan memory at roughly two batches instead of sixty-four.
+REWRITE_BATCH_READAHEAD = 1
+REWRITE_FRAGMENT_READAHEAD = 1
+
+# Expansion from at-rest (compressed parquet) bytes to the Arrow representation the scan materialises.
+# Deliberately conservative: the batch is decompressed, and `evolve_pyarrow_schema` then flattens
+# struct and list columns into JSON strings, which is where wide nested sources (CRM contact records)
+# expand hardest. Used only to pick a row count, so over-estimating costs smaller batches, never
+# correctness.
+REWRITE_ARROW_EXPANSION_FACTOR = 20
+
+# Floor for the derived batch size. A table wide enough to drive the calculation below this is better
+# served by paying more round-trips than by materialising a batch it cannot hold.
+MIN_REPARTITION_BATCH_SIZE = 500
+
 TEMP_URI_SUFFIX = "__repartitioned"
 
 
@@ -661,6 +681,25 @@ def select_coarsen_target(
     return None, "unsupported_mode"
 
 
+def rewrite_batch_size(total_table_bytes: int, row_count: int) -> int:
+    """Rows per scanned batch, sized so one batch's Arrow payload fits the buffer budget.
+
+    `DEFAULT_REPARTITION_BATCH_SIZE` counts rows, which says nothing about how much memory a batch
+    holds: 50,000 rows of a narrow table is a few MB, and 50,000 rows of a nested CRM record is
+    several GB once decompressed and flattened. Deriving the count from the table's own average row
+    width makes the batch cost roughly constant across sources instead of varying by three orders of
+    magnitude with schema width.
+
+    Falls back to the row-count default when the inputs cannot produce an estimate (an empty table, or
+    a Delta log without size stats), which is the behaviour that predates this.
+    """
+    if total_table_bytes <= 0 or row_count <= 0:
+        return DEFAULT_REPARTITION_BATCH_SIZE
+    arrow_bytes_per_row = max((total_table_bytes / row_count) * REWRITE_ARROW_EXPANSION_FACTOR, 1.0)
+    rows_within_budget = int(REWRITE_BUFFER_MAX_BYTES / arrow_bytes_per_row)
+    return max(MIN_REPARTITION_BATCH_SIZE, min(DEFAULT_REPARTITION_BATCH_SIZE, rows_within_budget))
+
+
 def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
     try:
         return reader.read_next_batch()
@@ -721,7 +760,13 @@ async def _rewrite_into_temp(
     )
 
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
-    reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
+    reader = await asyncio.to_thread(
+        lambda: dataset.scanner(
+            batch_size=batch_size,
+            batch_readahead=REWRITE_BATCH_READAHEAD,
+            fragment_readahead=REWRITE_FRAGMENT_READAHEAD,
+        ).to_reader()
+    )
     live_schema = await asyncio.to_thread(old_delta.schema)
 
     resolved: RepartitionTarget | None = None
@@ -1051,7 +1096,10 @@ async def repartition_table_in_place(
                 temp_uri=temp_uri,
                 storage_options=storage_options,
                 target=rewrite_target,
-                batch_size=batch_size,
+                # Sized from this table's own row width, not the row-count default: the caller's
+                # `batch_size` is a ceiling, and a wide nested source needs far fewer rows to reach
+                # the same bytes.
+                batch_size=min(batch_size, rewrite_batch_size(total_table_bytes, old_row_count)),
                 logger=logger,
                 ensure_claim=ensure_claim,
                 deadline=deadline,
