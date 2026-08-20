@@ -1838,7 +1838,13 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        # The rejected login with the old password reports a failed login against the known account.
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={"failure_reason": "invalid_credentials", "account_exists": True},
+        )
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
