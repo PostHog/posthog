@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: vi.fn(),
@@ -22,6 +22,13 @@ describe("panelLayoutStore", () => {
   beforeEach(() => {
     usePanelLayoutStore.getState().clearAllLayouts();
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    // Persistence is debounced by 200ms. Left pending, that write lands after
+    // the test environment is gone and throws "window is not defined" from a
+    // timer no test owns. `pagehide` is the store's own flush hook.
+    window.dispatchEvent(new Event("pagehide"));
   });
 
   describe("initial state", () => {
