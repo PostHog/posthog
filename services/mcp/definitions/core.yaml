@@ -291,6 +291,7 @@ tools:
                 cast: string-int
         response:
             exclude:
+                - api_token
                 - secret_api_token
                 - secret_api_token_backup
                 - live_events_token

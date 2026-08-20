@@ -76,6 +76,18 @@ describe('switch-project', () => {
         expect(getCachedOrFetchOrg).not.toHaveBeenCalled()
     })
 
+    it('never exposes the project API token in the switch response', async () => {
+        const projectGet = vi.fn().mockResolvedValue({
+            success: true,
+            data: { id: 42, name: 'My project', organization: ACTIVE_ORG, api_token: 'phc_secret_token' },
+        })
+        const { context } = createMockContext({ projectGet })
+
+        const result = await tool.handler(context, { projectId: 42 })
+
+        expect(result.content[0]!.text).not.toContain('phc_secret_token')
+    })
+
     it('syncs the active organization via the shared resolver when the project is in another org', async () => {
         const projectGet = vi.fn().mockResolvedValue({
             success: true,
