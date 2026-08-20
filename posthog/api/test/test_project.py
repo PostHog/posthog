@@ -275,6 +275,21 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response.json()["detail"], "You need to be an organization admin or above to create new projects."
         )
 
+    def test_member_over_plan_limit_gets_permission_message_not_billing(self):
+        # A non-admin member in an org that is also at its plan limit must be told they lack
+        # permission, not pointed at billing - upgrading the plan cannot unblock them.
+        self.organization.available_product_features = []  # no projects feature: capped at the 1 existing project
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
     def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
         # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
         self._set_unlimited_projects(with_member_create_entitlement=False)

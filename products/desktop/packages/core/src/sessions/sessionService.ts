@@ -3676,6 +3676,13 @@ export class SessionService {
         this.d.store.updateSession(taskRunId, {
           isCompacting: !params.isComplete,
         });
+      } else if (params?.status === "compacting_failed") {
+        // A failed or interrupted compaction emits no compact boundary, so this
+        // is the only signal that clears the flag. Left set, `sendPrompt` queues
+        // every later message and nothing is left to drain the queue.
+        this.d.store.updateSession(taskRunId, {
+          isCompacting: false,
+        });
       }
     }
 
@@ -4498,6 +4505,10 @@ export class SessionService {
     this.d.store.updateSession(session.taskRunId, {
       isPromptPending: false,
       promptStartedAt: null,
+      // A compaction cannot outlive the turn it ran in, and the adapter's
+      // failure status may never arrive, so don't leave the session wedged
+      // waiting for one.
+      isCompacting: false,
     });
 
     if (session.isCloud) {

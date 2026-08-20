@@ -7244,6 +7244,9 @@ export type CyclotronJobInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label: string
     choices?: { value: string; label: string }[]
