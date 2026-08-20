@@ -206,6 +206,22 @@ export class EmailTrackingCodeSigner {
         return `${payload}.${this.signPayload(payload, this.signingKeys[0])}`
     }
 
+    // HMAC token authenticating provider webhook URLs (Postmark doesn't sign its webhooks). Derived
+    // from the integration id so each sender gets a stable URL. Django computes the identical value
+    // to display the URL at setup time — the two sides share ENCRYPTION_SALT_KEYS, so keep the
+    // payload format in sync with the Python implementation (email_webhook_token in the workflows
+    // postmark provider).
+    webhookToken(integrationId: string | number): string {
+        if (this.signingKeys.length === 0) {
+            throw new Error('Cannot mint webhook token: no signing key configured (ENCRYPTION_SALT_KEYS is empty)')
+        }
+        return this.signPayload(`webhook:${integrationId}`, this.signingKeys[0])
+    }
+
+    verifyWebhookToken(integrationId: string | number, token: string): boolean {
+        return this.verifySignature(`webhook:${integrationId}`, token)
+    }
+
     // Unsigned tracking code for the SES `EmailTags` carrier. Omitting the signature keeps the
     // value short enough to stay within the 256-char tag cap; the tag arrives via the SNS webhook,
     // which is already integrity-protected by SNS signing, so it does not need its own signature.

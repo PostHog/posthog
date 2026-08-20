@@ -33,7 +33,7 @@ export interface DnsRecord extends ApiDnsRecord {
 export interface EmailSenderFormType {
     email: string
     name: string
-    provider: 'ses' | 'smtp' | 'maildev'
+    provider: 'ses' | 'smtp' | 'postmark' | 'maildev'
     mail_from_subdomain?: string
     host?: string
     // Nullable rather than optional: kea-forms' DeepPartialMap only accepts a string validation
@@ -219,7 +219,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 if (!EMAIL_REGEX.test(email)) {
                     emailError = 'Invalid email format'
                 }
-                if (provider === 'smtp') {
+                if (provider === 'smtp' || provider === 'postmark') {
                     return {
                         email: emailError,
                         name: !name ? 'Name is required' : undefined,
@@ -256,7 +256,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 // password (the backend treats an omitted password as "keep the existing one")
                 const { host, port, encryption, username, password, mail_from_subdomain, ...base } = formValues
                 const config: Record<string, any> =
-                    formValues.provider === 'smtp'
+                    formValues.provider === 'smtp' || formValues.provider === 'postmark'
                         ? { ...base, host, port, encryption, username, ...(password ? { password } : {}) }
                         : { ...base, mail_from_subdomain }
                 try {

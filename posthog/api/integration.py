@@ -181,8 +181,8 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField(help_text="From-address workflow emails are sent as.")
     name = serializers.CharField(help_text="From-name shown to recipients.")
     provider = serializers.ChoiceField(
-        choices=["ses", "smtp", "maildev"] if settings.DEBUG else ["ses", "smtp"],
-        help_text="Email delivery provider: 'ses' for PostHog-managed sending, 'smtp' for a custom SMTP relay.",
+        choices=["ses", "smtp", "postmark", "maildev"] if settings.DEBUG else ["ses", "smtp", "postmark"],
+        help_text="Email delivery provider: 'ses' for PostHog-managed sending, 'smtp' for a custom SMTP relay, 'postmark' for a Postmark server (SMTP send plus delivery webhooks).",
     )
     mail_from_subdomain = serializers.CharField(
         required=False,
@@ -212,10 +212,10 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         return value.lower()
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("provider") == "smtp":
+        if attrs.get("provider") in ("smtp", "postmark"):
             for field in ("host", "port", "encryption"):
                 if not attrs.get(field):
-                    raise serializers.ValidationError({field: f"{field} is required for the SMTP provider"})
+                    raise serializers.ValidationError({field: f"{field} is required for this provider"})
         return attrs
 
 
@@ -438,7 +438,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # (it lives in sensitive_config); redact the username too so the secret can't be recovered
         # from it. Edit forms send it blank to keep the stored value (see _update_smtp_integration).
         config = data.get("config")
-        if isinstance(config, dict) and config.get("provider") == "smtp" and "username" in config:
+        if isinstance(config, dict) and config.get("provider") in ("smtp", "postmark") and "username" in config:
             data["config"] = {**config, "username": None}
         return data
 

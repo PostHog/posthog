@@ -59,7 +59,7 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
-from products.workflows.backend.providers import SESProvider, SMTPProvider, TwilioProvider
+from products.workflows.backend.providers import SESProvider, SMTPProvider, TwilioProvider, postmark_webhook_url
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -2408,7 +2408,8 @@ class EmailIntegration:
                 team_id=team_id,
                 org_team_ids=org_team_ids,
             )
-        elif provider == "smtp":
+        elif provider in ("smtp", "postmark"):
+            # Postmark is SMTP with a webhook feedback channel on top — the connection test is identical
             SMTPProvider().test_connection(
                 host=config.get("host", ""),
                 port=config.get("port", 0),
@@ -2419,7 +2420,7 @@ class EmailIntegration:
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError("Invalid provider: must be 'ses' or 'smtp'")
+            raise ValueError("Invalid provider: must be 'ses', 'smtp' or 'postmark'")
 
         integration_config: dict = {
             "email": email_address,
@@ -2428,7 +2429,7 @@ class EmailIntegration:
             "provider": provider,
         }
         defaults: dict = {"created_by": created_by}
-        if provider == "smtp":
+        if provider in ("smtp", "postmark"):
             # A successful connection test is what "verified" means for SMTP — there are no
             # DNS records to check; the relay's own domain setup covers DKIM/SPF.
             integration_config.update(
@@ -2457,6 +2458,13 @@ class EmailIntegration:
             defaults=defaults,
         )
 
+        if provider == "postmark" and not integration.config.get("webhook_url"):
+            # The customer pastes this into Postmark (server → Webhooks, with Delivery / Bounce /
+            # Spam complaint enabled) to light up delivery feedback. Needs the row id, so it can
+            # only be minted after creation.
+            integration.config["webhook_url"] = postmark_webhook_url(integration.id)
+            integration.save()
+
         if integration.errors:
             integration.errors = ""
             integration.save()
@@ -2468,7 +2476,7 @@ class EmailIntegration:
         domain = self.integration.config.get("domain")
         name: str = config.get("name", self.integration.config.get("name"))
 
-        if provider == "smtp":
+        if provider in ("smtp", "postmark"):
             return self._update_smtp_integration(config, name)
 
         # Only name and mail_from_subdomain can be updated
@@ -2483,7 +2491,7 @@ class EmailIntegration:
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError("Invalid provider: must be 'ses' or 'smtp'")
+            raise ValueError("Invalid provider: must be 'ses', 'smtp' or 'postmark'")
 
         self.integration.config.update(
             {
@@ -2537,7 +2545,7 @@ class EmailIntegration:
             verification_result = self.ses_provider.verify_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
-        elif provider == "smtp":
+        elif provider in ("smtp", "postmark"):
             verification_result = self._verify_smtp()
         elif provider == "maildev":
             verification_result = {
@@ -2550,7 +2558,7 @@ class EmailIntegration:
         # SMTP verification is per-integration (each sender can point at a different relay and
         # credentials), so _verify_smtp persists its own outcome — the domain-wide fan-out below
         # only makes sense for DNS-based verification.
-        if provider != "smtp" and verification_result.get("status") == "success":
+        if provider not in ("smtp", "postmark") and verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
             all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,

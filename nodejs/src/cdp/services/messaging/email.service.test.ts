@@ -22,6 +22,7 @@ import {
     sanitizeEmailSubject,
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { reassemblePostmarkMetadataCode } from './helpers/postmark'
 import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
@@ -770,6 +771,45 @@ describe('EmailService', () => {
         afterEach(() => {
             // Fresh pooled connection per test so a scripted error response can't leak into the next one
             smtpTransportPool.closeAll()
+        })
+
+        it('stamps chunked Postmark metadata headers that reassemble to the signed tracking code', async () => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: 6,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'postmark',
+                    host: '127.0.0.1',
+                    port: SMTP_TEST_PORT,
+                    encryption: 'none',
+                    username: 'postmark-token',
+                },
+                sensitive_config: { password: 'postmark-token' },
+            })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 6 } })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const email = smtpServer.received[0]
+            const headers = unfoldedHeaders(email.data)
+            const metadata: Record<string, string> = {}
+            for (const match of headers.matchAll(/^X-PM-Metadata-(posthog-\d+):\s*(.+)$/gim)) {
+                metadata[match[1]] = match[2]
+            }
+            // The reassembled code must be the exact signed code the Postmark webhook will verify —
+            // this covers chunking through real MIME encoding and header folding end to end
+            const code = reassemblePostmarkMetadataCode(metadata)
+            expect(code).toBeTruthy()
+            expect(signer.parse(code!)).toMatchObject({
+                format: 'signed',
+                functionId: 'function-1',
+                invocationId: 'invocation-1',
+            })
         })
 
         it('delivers through a real SMTP transaction with tracking rewritten for direct recording', async () => {

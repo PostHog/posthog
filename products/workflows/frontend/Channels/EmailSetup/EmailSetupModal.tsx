@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonLabel,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
@@ -14,6 +15,7 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -37,13 +39,17 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const { featureFlags } = useValues(featureFlagLogic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
-    const isSmtp = emailSender.provider === 'smtp'
+    // Postmark is SMTP with a webhook feedback channel on top — same connection fields
+    const usesSmtpTransport = emailSender.provider === 'smtp' || emailSender.provider === 'postmark'
     const busyReason = verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
 
     const providerOptions = [
         { value: 'ses' as const, label: 'PostHog (recommended)' },
         ...(featureFlags[FEATURE_FLAGS.MESSAGING_CUSTOM_SMTP]
-            ? [{ value: 'smtp' as const, label: 'Custom SMTP' }]
+            ? [
+                  { value: 'smtp' as const, label: 'Custom SMTP' },
+                  { value: 'postmark' as const, label: 'Postmark' },
+              ]
             : []),
         ...(featureFlags[FEATURE_FLAGS.MESSAGING_SES] ? [{ value: 'maildev' as const, label: 'Maildev (dev)' }] : []),
     ]
@@ -75,13 +81,17 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 }
                             />
                         </LemonField>
-                        {isSmtp ? (
+                        {usesSmtpTransport ? (
                             <>
                                 <div className="flex gap-2">
                                     <LemonField name="host" label="SMTP host" className="flex-1">
                                         <LemonInput
                                             type="text"
-                                            placeholder="smtp.example.com"
+                                            placeholder={
+                                                emailSender.provider === 'postmark'
+                                                    ? 'smtp.postmarkapp.com'
+                                                    : 'smtp.example.com'
+                                            }
                                             disabledReason={busyReason}
                                         />
                                     </LemonField>
@@ -128,6 +138,26 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 >
                                     <LemonInput type="password" disabledReason={busyReason} />
                                 </LemonField>
+                                {emailSender.provider === 'postmark' && savedIntegration?.config?.webhook_url ? (
+                                    <div className="space-y-1">
+                                        <LemonLabel info="Postmark posts Delivery, Bounce and Spam complaint events here, which powers the Delivered and Bounced metrics for this sender.">
+                                            Delivery webhook
+                                        </LemonLabel>
+                                        <CopyToClipboardInline
+                                            explicitValue={savedIntegration.config.webhook_url}
+                                            iconSize="small"
+                                        >
+                                            <span className="text-xs break-all font-mono">
+                                                {savedIntegration.config.webhook_url}
+                                            </span>
+                                        </CopyToClipboardInline>
+                                        <div className="text-muted text-xs">
+                                            Add this URL in Postmark under your server's Webhooks, with the Delivery,
+                                            Bounce and Spam complaint events enabled. Leave Postmark's open and click
+                                            tracking off — PostHog records opens and clicks itself.
+                                        </div>
+                                    </div>
+                                ) : null}
                             </>
                         ) : (
                             <LemonField
@@ -144,7 +174,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 />
                             </LemonField>
                         )}
-                        {(!savedIntegration || isSmtp) && (
+                        {(!savedIntegration || usesSmtpTransport) && (
                             <div className="flex justify-end">
                                 <LemonButton
                                     type="primary"
@@ -159,7 +189,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                     </div>
                 </Form>
 
-                {savedIntegration && isSmtp && (
+                {savedIntegration && usesSmtpTransport && (
                     <div className="mt-8 space-y-2 w-full">
                         <h2>Connection</h2>
                         {verificationLoading ? (
@@ -195,7 +225,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                     </div>
                 )}
 
-                {savedIntegration && !isSmtp && (
+                {savedIntegration && !usesSmtpTransport && (
                     <div className="mt-8 space-y-2 w-full">
                         <h2>DNS records</h2>
                         <p className="text-sm text-muted">

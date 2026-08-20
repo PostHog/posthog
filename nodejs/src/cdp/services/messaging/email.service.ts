@@ -18,6 +18,7 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { buildPostmarkMetadataHeaders } from './helpers/postmark'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
@@ -233,6 +234,8 @@ export class EmailService {
                     await this.sendEmailWithSES(result, params, from, isTest)
                     break
                 case 'smtp':
+                case 'postmark':
+                    // Postmark is SMTP with a webhook feedback channel on top; the send is identical
                     await this.sendEmailWithSMTP(result, params, from, integration, isTest)
                     break
 
@@ -434,6 +437,28 @@ export class EmailService {
         const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, trackingFlags)
 
         const headers: Record<string, string> = { [TRACKING_CODE_HEADER_NAME]: trackingCode }
+        if (integration.config.provider === 'postmark') {
+            // Postmark echoes X-PM-Metadata-* fields back in its webhooks — the delivery-feedback
+            // correlation carrier (values cap at 80 chars, hence chunking). Postmark strips these
+            // headers before delivery, so the code never reaches recipients. If even a
+            // distinctId-less code can't fit, the send still goes out; only webhook correlation is
+            // lost for this message.
+            const chunked =
+                buildPostmarkMetadataHeaders(trackingCode) ??
+                buildPostmarkMetadataHeaders(
+                    this.trackingCodeSigner.generate({ ...result.invocation, distinctId: undefined }, trackingFlags)
+                )
+            if (chunked) {
+                Object.assign(headers, chunked)
+            } else {
+                result.logs.push(
+                    logEntry(
+                        'warn',
+                        'Tracking code too long for Postmark metadata; delivery feedback will not be recorded for this send'
+                    )
+                )
+            }
+        }
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (!isTransactionalEmail) {
             headers['List-Unsubscribe'] =
