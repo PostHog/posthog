@@ -77,6 +77,23 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
+// jsdom does not implement IntersectionObserver; useInView constructs one as
+// soon as its element mounts, so anything that lazily loads or prefetches on
+// scroll needs a stub. Nothing intersects, which is the right default: a test
+// that cares about visibility installs its own observer.
+if (typeof globalThis.IntersectionObserver === "undefined") {
+  class IntersectionObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  }
+  globalThis.IntersectionObserver =
+    IntersectionObserverStub as unknown as typeof IntersectionObserver;
+}
+
 // jsdom does not implement animation frames. Components backed by browser
 // animation libraries can schedule a frame from a delayed callback, turning an
 // otherwise passing test into an unhandled ReferenceError later in the suite.

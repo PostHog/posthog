@@ -12,6 +12,12 @@ vi.mock("../../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+// Reference chips reach for the app shell's API client to warm their preview;
+// without a session there is nothing to warm, which these tests don't need.
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
+
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
   usePrDetails: () => ({
     meta: {

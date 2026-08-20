@@ -17,8 +17,11 @@ import {
 } from "../../../utils/evidenceLinks";
 import { getObjectKind } from "../../../utils/objectKinds";
 import { buildEvidenceComposerContent } from "../evidenceComposer";
+import { useEvidencePreviewPrefetch } from "../evidencePrefetch";
 import {
+  EVIDENCE_PREVIEW_STALE_TIME_MS,
   type EvidenceCardData,
+  evidencePreviewQueryKey,
   fetchEvidencePreview,
 } from "../evidencePreview";
 
@@ -312,9 +315,10 @@ export function EvidenceHoverCard({
 }
 
 /**
- * Fetching wrapper around the card. Mounted only while the tooltip is open,
- * so the lookup is lazy: a transcript full of references costs nothing until
- * one is hovered, and react-query caches the result across hovers.
+ * Fetching wrapper around the card, mounted only while the tooltip is open.
+ * The lookup usually resolves from cache: the chip warms it as it scrolls into
+ * view (see evidencePrefetch), and react-query holds the result across hovers.
+ * A reference the warm-up never reached still fetches here on first hover.
  */
 function EvidenceHoverCardLoader({
   target,
@@ -329,10 +333,10 @@ function EvidenceHoverCardLoader({
 }) {
   const client = useOptionalAuthenticatedClient();
   const query = useAuthenticatedQuery(
-    ["evidence-preview", target.kind, target.id],
+    evidencePreviewQueryKey(target),
     (apiClient) => fetchEvidencePreview(apiClient, target),
     {
-      staleTime: 5 * 60 * 1000,
+      staleTime: EVIDENCE_PREVIEW_STALE_TIME_MS,
       refetchOnWindowFocus: false,
       retry: 1,
       // The card unmounts when the tooltip closes, so without this a preview
@@ -385,6 +389,7 @@ export function EvidenceRefChip({
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const url = useEvidenceUrl(target.kind, target.id);
+  const setChipNode = useEvidencePreviewPrefetch(target);
   const taskId = useSessionTaskId();
   const objectKind = isPostHogObjectKind(target.kind) ? target.kind : null;
   const [open, setOpen] = useState(false);
@@ -441,6 +446,7 @@ export function EvidenceRefChip({
             // object in PostHog), it does not act as a popover button.
             // biome-ignore lint/a11y/useSemanticElements: the element already is an <a>; the explicit role restores link semantics the popover trigger's role="button" would override
             <a
+              ref={setChipNode}
               href={url}
               onClick={openInPostHog}
               // biome-ignore lint/a11y/noRedundantRoles: not redundant — the popover trigger injects role="button" without it
@@ -453,7 +459,9 @@ export function EvidenceRefChip({
             // No page to link to: the reference is a real popover trigger
             // (focusable, Enter/Space opens the card), since the card's
             // "Open in PostHog" action is the only route to the object.
-            <span className={`${refClass} cursor-pointer`}>{inner}</span>
+            <span ref={setChipNode} className={`${refClass} cursor-pointer`}>
+              {inner}
+            </span>
           )
         }
       />

@@ -29,6 +29,20 @@ export interface EvidenceCardData {
 
 const MAX_SPARK_POINTS = 60;
 
+/**
+ * How long a resolved preview stays fresh. The hover card and the warm-up
+ * (see evidencePrefetch) share it so a warmed entry satisfies the card
+ * outright instead of re-running the lookup behind the skeleton.
+ */
+export const EVIDENCE_PREVIEW_STALE_TIME_MS = 5 * 60 * 1000;
+
+/** Shared so the warm-up writes the entry the hover card reads. */
+export function evidencePreviewQueryKey(
+  target: EvidenceLinkTarget,
+): readonly ["evidence-preview", string, string] {
+  return ["evidence-preview", target.kind, target.id] as const;
+}
+
 /** Reduce a shaped chart result to the card's headline + sparkline. */
 function fromChartData(
   data: ReportChartData,
