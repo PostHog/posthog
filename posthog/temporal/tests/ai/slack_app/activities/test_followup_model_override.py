@@ -54,7 +54,12 @@ def _posted_text(slack) -> str:
 
 
 class TestApplyFollowupModelOverride:
-    def test_switches_the_running_agent_and_says_so(self, catalogue, apply_config):
+    @pytest.mark.parametrize("applied", [True, False], ids=["agent_server_accepts", "agent_server_refuses"])
+    def test_switches_the_running_agent_without_announcing_it(self, catalogue, apply_config, applied):
+        """The footer under the next reply reads the model back out of the run's state,
+        so a switch that lands needs no line of its own, and one that doesn't must not
+        claim otherwise."""
+        apply_config.return_value = applied
         slack = _slack()
         _apply_followup_model_override(
             slack,
@@ -70,7 +75,7 @@ class TestApplyFollowupModelOverride:
             "reasoning_effort": "xhigh",
             "actor_user_id": 42,
         }
-        assert _posted_text(slack) == "Continuing on *Claude Fable 5* · Reasoning: *Extra high*"
+        slack.client.chat_postMessage.assert_not_called()
 
     def test_refuses_a_model_from_the_other_runtime_without_touching_the_run(self, catalogue, apply_config):
         """The harness is the process the sandbox started with, so this one can only be
@@ -108,22 +113,6 @@ class TestApplyFollowupModelOverride:
             actor_user=SimpleNamespace(id=42),
         )
         apply_config.assert_not_called()
-        slack.client.chat_postMessage.assert_not_called()
-
-    def test_says_nothing_when_the_agent_server_refuses_the_change(self, catalogue, apply_config):
-        """The run carries on with the model it had; announcing a switch that never
-        happened would be worse than saying nothing."""
-        apply_config.return_value = False
-        slack = _slack()
-        _apply_followup_model_override(
-            slack,
-            "C1",
-            "111.1",
-            task_run=_run(),
-            task_id="task-1",
-            override=SlackAppModelOverride(model="claude-fable-5"),
-            actor_user=SimpleNamespace(id=42),
-        )
         slack.client.chat_postMessage.assert_not_called()
 
 

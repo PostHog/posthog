@@ -1036,9 +1036,10 @@ def _apply_followup_model_override(
     """Move a running agent onto the model and effort a follow-up asked for.
 
     The harness is fixed once a sandbox starts, so a model belonging to the other
-    runtime is answered rather than attempted — that one needs a new task. Everything
-    else is announced only when it lands, and a failure to apply leaves the run on what
-    it was already using rather than derailing the follow-up.
+    runtime is answered rather than attempted: that one needs a new task. A switch that
+    lands says nothing, because the footer under the next reply reads the model back out
+    of the run's state. A failure to apply leaves the run on what it was already using
+    rather than derailing the follow-up.
     """
     from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
     from products.tasks.backend.facade import api as tasks_facade
@@ -1095,12 +1096,6 @@ def _apply_followup_model_override(
         task_run_id=str(task_run.id),
         model=change.model,
         reasoning_effort=change.reasoning_effort,
-    )
-    _post_thread_context(
-        slack,
-        channel,
-        thread_ts,
-        f"Continuing on {describe_run_model(change.model or state.get('model'), change.reasoning_effort)}",
     )
 
 
