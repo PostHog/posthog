@@ -691,6 +691,17 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
+
+            // The run must terminate through the result pipeline, not a silent queue flip:
+            // a 'canceled' metric lands and the run is not counted as 'succeeded'.
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.app_source_id === hogFlowId)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('canceled')
+                expect(metricNames).not.toContain('succeeded')
+            }, 5000)
         })
     })
 

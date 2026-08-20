@@ -2,8 +2,9 @@
 //!
 //! The sibling of [`crate::collect`]. That module handles an image the page inlined into the
 //! recording; this one handles an image the page referred to by URL. With collection enabled, a
-//! media source attribute holding an `http(s)` URL is replaced by a content ref instead of the
-//! media placeholder. The message then carries the original URL back to the caller.
+//! media source attribute holding an `http(s)` URL keeps the media placeholder and a namespaced
+//! sibling attribute carries the content ref. The message also carries the original URL back to
+//! the caller.
 //!
 //! **Two URLs come out of this module. Do not confuse them.**
 //!

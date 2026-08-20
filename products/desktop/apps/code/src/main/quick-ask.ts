@@ -48,7 +48,6 @@ import {
   setupQuickAskCapture,
   teardownQuickAskCapture,
 } from "./quick-ask-capture";
-import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
 import { attachWindowToTrpc, focusMainWindow } from "./window";
@@ -507,10 +506,6 @@ function fromPanel(event: Electron.IpcMainEvent): boolean {
 }
 
 export function setupQuickAsk(): void {
-  // Prototype: dev builds only, or explicit opt-in.
-  if (!isDevBuild() && process.env.POSTHOG_QUICK_ASK !== "1") {
-    return;
-  }
   quickAskEnabled = true;
 
   ipcMain.on(QUICK_ASK_HIDE_CHANNEL, (event) => {
