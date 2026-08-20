@@ -13,7 +13,7 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler, exception_reporting
+from posthog.exceptions import ExceptionContext, exception_handler, exception_reporting
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -76,7 +76,7 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
 
 
 class TestExceptionReporting(SimpleTestCase):
-    def _context(self) -> dict:
+    def _context(self) -> ExceptionContext:
         return {"request": RequestFactory().get("/api/users/@me/")}
 
     def test_transient_db_error_is_not_reported(self) -> None:
