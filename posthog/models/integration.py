@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from django.utils.functional import Promise
+
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -555,6 +557,11 @@ class IntegrationManager(models.Manager["Integration"]):
         )
 
 
+def integration_kind_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(Integration.IntegrationKind.choices)
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
@@ -610,7 +617,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=integration_kind_choices), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend

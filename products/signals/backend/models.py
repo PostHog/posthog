@@ -8,6 +8,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models, transaction
 from django.utils import timezone
+from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
 from django_deprecate_fields import deprecate_field
@@ -32,9 +33,14 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_CHOICES, SignalSourceProduct
+from products.signals.backend.enums import SignalSourceProduct, signal_source_product_choices
 
 logger = logging.getLogger(__name__)
+
+
+def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(SignalSourceConfig.SourceType.choices)
 
 
 class SignalSourceConfig(UUIDModel):
@@ -66,8 +72,8 @@ class SignalSourceConfig(UUIDModel):
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
-    source_type = models.CharField(max_length=100, choices=SourceType)
+    source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
+    source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -834,6 +840,11 @@ class SignalEmissionRecord(UUIDModel):
         ]
 
 
+def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(SignalReportArtefact.ArtefactType.choices)
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -888,7 +899,7 @@ class SignalReportArtefact(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType)
+    type = models.CharField(max_length=100, choices=signal_report_artefact_type_choices)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     # Nullable so the migration is a fast, rolling-deploy-safe `ADD COLUMN ... NULL`; `auto_now`

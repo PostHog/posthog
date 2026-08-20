@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
+    external_data_source_type_choices,
 )
 
 logger = structlog.get_logger(__name__)
@@ -66,7 +67,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
     # Pinned vendor API version (opaque vendor label, e.g. a Stripe date version). NULL resolves
     # to the source's `default_version` at sync time. A dedicated column (not `job_inputs`) so the
     # pin is queryable via the `data_warehouse_sources` HogQL system table — `job_inputs` is

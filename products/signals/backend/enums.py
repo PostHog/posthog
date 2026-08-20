@@ -159,9 +159,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
 }
 
-# The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so
-# no migration is generated. Plain `str` values (not enum members) keep migration state stable; order
+
+# The Django model's `source_product` choices. Callable so adding a product never lands in migration
+# state as a no-op AlterField. Plain `str` values (not enum members) keep the state stable; order
 # follows SIGNAL_SOURCE_PRODUCT_LABELS, which matches the original declaration order.
-SIGNAL_SOURCE_PRODUCT_CHOICES: list[tuple[str, str]] = [
-    (product.value, label) for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()
-]
+def signal_source_product_choices() -> list[tuple[str, str]]:
+    return [(product.value, label) for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()]
