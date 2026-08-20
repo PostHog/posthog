@@ -26,6 +26,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.ph_client import feature_enabled_or_false
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -209,12 +210,30 @@ def trigger_external_data_source_workflow(external_data_source: ExternalDataSour
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
+def _clear_failure_backoff(external_data_schema: ExternalDataSchema) -> None:
+    """A manual trigger means the user wants a sync now, so drop any failure backoff that would
+    otherwise make the run skip itself. Best-effort: never block the trigger on this write."""
+    # Deferred so importing this module (which the Temporal client path does) stays free of model
+    # imports, matching the TYPE_CHECKING-only model references above.
+    from products.warehouse_sources.backend.facade.models import clear_sync_failure_backoff  # noqa: PLC0415
+
+    try:
+        clear_sync_failure_backoff(schema_id=external_data_schema.id, team_id=external_data_schema.team_id)
+    except Exception:
+        logger.exception(
+            "Could not clear the sync failure backoff before a manual trigger",
+            schema_id=str(external_data_schema.id),
+        )
+
+
 def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+    _clear_failure_backoff(external_data_schema)
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
 async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+    await database_sync_to_async(_clear_failure_backoff)(external_data_schema)
     temporal = await async_connect()
     await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 

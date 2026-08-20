@@ -383,6 +383,9 @@ def _take_over_stale_running_job(
             status=ExternalDataJob.Status.FAILED,
             logger=takeover_logger,
             latest_error=LOCK_TAKEOVER_LATEST_ERROR,
+            # Bookkeeping for a stuck job, not a sync the source failed — the run taking the lock
+            # reports its own outcome, so this must not push the schema into a retry backoff.
+            counts_towards_failure_streak=False,
         )
     except Exception as e:
         logger.warning(

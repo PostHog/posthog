@@ -56,6 +56,19 @@ def get_v3_lock_skipped_metric() -> MetricCounter:
     )
 
 
+def get_failure_backoff_skipped_metric(source_type: str | None) -> MetricCounter:
+    # A backed-off run leaves no job row and no schema-status change, so this counter is the only
+    # signal that a schema is deliberately syncing less often than its configured cadence.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "data_import_failure_backoff_skipped",
+            "Scheduled runs skipped because the schema is inside its retry-backoff window.",
+        )
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 

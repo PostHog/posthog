@@ -34,8 +34,19 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
+    job_id: str,
+    team_id: int,
+    status: ExternalDataJob.Status,
+    logger: FilteringBoundLogger,
+    latest_error: str | None,
+    counts_towards_failure_streak: bool = True,
 ) -> ExternalDataJob:
+    """Write a job's terminal status, and repaint its schema to match.
+
+    ``counts_towards_failure_streak`` is False for failures the schema isn't responsible for (a user
+    cancelling a sync, a lock takeover force-failing a stuck job) — those must not push the schema
+    into a retry backoff.
+    """
     is_first_terminal_transition = False
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
@@ -117,7 +128,14 @@ def update_external_job_status(
         else:
             schema.status = schema_status
             schema.latest_error = error_to_persist
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            schema_update_fields = ["status", "latest_error", "updated_at"]
+            schema_update_fields += _apply_failure_streak(
+                schema,
+                status=status,
+                is_first_terminal_transition=is_first_terminal_transition,
+                counts_towards_failure_streak=counts_towards_failure_streak,
+            )
+            schema.save(update_fields=schema_update_fields)
 
         # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery
         # Completed flip) can leave still-claimable batches in the v3 queue; a straggler loaded
@@ -157,6 +175,40 @@ def _is_cancellation(error: BaseException) -> bool:
     so it isn't mistaken for a genuine queue-DB failure.
     """
     return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
+
+
+def _apply_failure_streak(
+    schema: ExternalDataSchema,
+    *,
+    status: ExternalDataJob.Status,
+    is_first_terminal_transition: bool,
+    counts_towards_failure_streak: bool,
+) -> list[str]:
+    """Move the schema's consecutive-failure streak on this job's terminal outcome, in place.
+
+    Returns the extra fields to save. The streak gates the retry backoff that stops a permanently
+    broken schema from running at full cadence forever. Only the first terminal transition counts,
+    so a job finalized twice (workflow plus loader) is one failure, not two.
+
+    CDC schemas are excluded: their extraction has to keep running to drain the replication slot,
+    and they already have their own breaker in ``cdc_broken``. Billing-limit outcomes are left
+    alone — the schedule is paused separately for those, and they say nothing about the source.
+    """
+    if schema.is_cdc or not is_first_terminal_transition:
+        return []
+
+    if status == ExternalDataJob.Status.FAILED and counts_towards_failure_streak:
+        schema.consecutive_failures += 1
+        schema.last_failed_at = dt.datetime.now(dt.UTC)
+    elif status == ExternalDataJob.Status.COMPLETED:
+        if schema.consecutive_failures == 0 and schema.last_failed_at is None:
+            return []
+        schema.consecutive_failures = 0
+        schema.last_failed_at = None
+    else:
+        return []
+
+    return ["consecutive_failures", "last_failed_at"]
 
 
 def _sweep_v3_queue_batches_swallowing_errors(
