@@ -556,7 +556,9 @@ export interface dataNodeLogicActions {
         queryLog: HogQLQueryResponse<any[]>
         payload?: any
     }
-    loadTotalCount: () => any
+    loadTotalCount: () => {
+        value: true
+    }
     loadTotalCountFailure: (
         error: string,
         errorObject?: any
@@ -566,10 +568,14 @@ export interface dataNodeLogicActions {
     }
     loadTotalCountSuccess: (
         totalCount: number | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         totalCount: number | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     resetLoadingTimer: () => {
         value: true
@@ -952,6 +958,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        loadTotalCount: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
