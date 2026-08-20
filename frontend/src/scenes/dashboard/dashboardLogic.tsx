@@ -306,7 +306,6 @@ export interface dashboardLogicValues {
     hasVariables: boolean
     highlightedInsightId: any
     initialVariablesLoaded: boolean
-    inlineTileInsertionEnabled: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
     isPinned: boolean
@@ -1058,7 +1057,6 @@ export interface dashboardLogicMeta {
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             placement: DashboardPlacement
         ) => boolean
-        inlineTileInsertionEnabled: (featureFlags: FeatureFlagsSet) => boolean
         insightTiles: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
@@ -2728,12 +2726,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
-            },
-        ],
-        inlineTileInsertionEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION]
             },
         ],
         insightTiles: [
