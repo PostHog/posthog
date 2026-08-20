@@ -60,8 +60,13 @@ if TYPE_CHECKING:
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
 
-# Rows per streamed record-batch. Bounds the repartition's peak memory independent of partition size.
-DEFAULT_REPARTITION_BATCH_SIZE = 50_000
+# Rows per scanned record-batch. A row count cannot bound memory on its own — the same count is a few
+# MB of a narrow table and gigabytes of nested records — so this is deliberately low rather than
+# tuned, the way `MAX_FETCH_PAGE_ROWS` is in `sources/common/sql/batching.py`. It bounds the window
+# that is still unmeasured when the scan hands a batch over; `REWRITE_BUFFER_MAX_BYTES` bounds what
+# is materialised, from real measurements. Low is cheap here: the parquet row group is read either
+# way, and the coalescing buffer merges small batches back before any commit.
+DEFAULT_REPARTITION_BATCH_SIZE = 1_000
 
 # Minimum gap between claim re-reads during the rewrite loop. The loop yields at least one batch per
 # source *file*, so an over-fragmented table (the exact kind being repartitioned) produces one batch
@@ -80,6 +85,11 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # one `DEFAULT_MAX_TABLE_BYTES` instead of letting it reach twice the cap. Coalescing loses nothing
 # that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
 REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
+
+# Arrow's default 16-batch readahead keeps memory in flight that never reaches the coalescing buffer,
+# so no buffer budget bounds it. Fragment readahead is left at its default: serialising file reads
+# would cost the most on the many-small-files tables this module rewrites.
+REWRITE_BATCH_READAHEAD = 1
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
@@ -721,7 +731,12 @@ async def _rewrite_into_temp(
     )
 
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
-    reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
+    reader = await asyncio.to_thread(
+        lambda: dataset.scanner(
+            batch_size=batch_size,
+            batch_readahead=REWRITE_BATCH_READAHEAD,
+        ).to_reader()
+    )
     live_schema = await asyncio.to_thread(old_delta.schema)
 
     resolved: RepartitionTarget | None = None
