@@ -904,6 +904,12 @@ tools:
     feature-request-product-areas-update:
         operation: feature_request_product_areas_update
         enabled: false
+    feature-requests-add-account-create:
+        operation: feature_requests_add_account_create
+        enabled: false
+    feature-requests-add-evidence-create:
+        operation: feature_requests_add_evidence_create
+        enabled: false
     feature-requests-archive-create:
         operation: feature_requests_archive_create
         enabled: false
@@ -919,6 +925,9 @@ tools:
     feature-requests-partial-update:
         operation: feature_requests_partial_update
         enabled: false
+    feature-requests-remove-evidence-create:
+        operation: feature_requests_remove_evidence_create
+        enabled: false
     feature-requests-restore-create:
         operation: feature_requests_restore_create
         enabled: false
@@ -930,6 +939,9 @@ tools:
         enabled: false
     feature-requests-update:
         operation: feature_requests_update
+        enabled: false
+    feature-requests-update-evidence-create:
+        operation: feature_requests_update_evidence_create
         enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create
