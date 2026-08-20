@@ -96,6 +96,12 @@ export interface AgentSession {
    * record a conversation-cleared boundary they would ignore on resume.
    */
   conversationClear?: boolean;
+  /**
+   * Adapter's negotiated side-question capability (`_meta.posthog.sideQuestion`
+   * from initialize). True means the adapter can answer a one-shot "/btw"
+   * question forked off the live transcript without touching the conversation.
+   */
+  sideQuestion?: boolean;
   pendingPermissions: Map<string, PermissionRequest>;
   pausedDurationMs: number;
   messageQueue: QueuedMessage[];
@@ -277,4 +283,21 @@ export function sessionSupportsNativeSteer(
   if (session.steering === "native") return true;
   if (session.isCloud) return false;
   return session.steering == null && session.adapter === "claude";
+}
+
+/**
+ * Whether the session can answer a one-shot "/btw" side question (a
+ * single-turn, tool-less query forked off the live transcript). Decided by the
+ * adapter's negotiated `sideQuestion` capability; cloud sessions can't — the
+ * fork runs against the local transcript.
+ *
+ * Fallback: if `sideQuestion` is unset (a session started before capability
+ * plumbing), local Claude is assumed capable, matching the steer fallback.
+ */
+export function sessionSupportsSideQuestion(
+  session: Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">,
+): boolean {
+  if (session.isCloud) return false;
+  if (session.sideQuestion === true) return true;
+  return session.sideQuestion == null && session.adapter === "claude";
 }

@@ -13,6 +13,7 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import { sessionSupportsSideQuestion } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   resolveLocalSkillPrompt,
@@ -25,6 +26,7 @@ import {
   type AgentSession,
   sessionStoreSetters,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import {
   SHELL_CLIENT,
@@ -76,6 +78,28 @@ export function useSessionCallbacks({
             }
           : null,
         taskRun: task.latest_run ?? null,
+        // Fire-and-forget so the composer clears immediately; the side
+        // question runs beside the conversation, mid-turn or idle.
+        askSideQuestion:
+          currentSession && sessionSupportsSideQuestion(currentSession)
+            ? (question) => {
+                const { ask, resolve, fail } = useSideQuestionStore.getState();
+                const id = ask(taskId, question);
+                sessionService
+                  .askSideQuestion(taskId, question)
+                  .then((answer) => resolve(taskId, id, answer))
+                  .catch((error) => {
+                    fail(
+                      taskId,
+                      id,
+                      error instanceof Error
+                        ? error.message
+                        : "Side question failed",
+                    );
+                    log.error("Side question failed", error);
+                  });
+              }
+            : undefined,
       });
       if (handled) return true;
 

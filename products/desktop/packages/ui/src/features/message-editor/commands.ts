@@ -26,6 +26,8 @@ interface CommandContext {
     events: unknown[];
   } | null;
   taskRun: { id?: string; log_url?: string } | null;
+  /** Fires a "/btw" side question. Absent when the session doesn't support them. */
+  askSideQuestion?: (question: string) => void;
 }
 
 export interface CodeCommandInsertContext {
@@ -104,8 +106,28 @@ const addDirCommand: CodeCommand = {
   },
 };
 
+const btwCommand: CodeCommand = {
+  name: "btw",
+  description:
+    "Ask a quick side question without interrupting the conversation",
+  input: { hint: "your question" },
+  execute(args, ctx) {
+    const question = args?.trim();
+    if (!question) {
+      toast.error("Add a question after /btw");
+      return;
+    }
+    if (!ctx.askSideQuestion) {
+      toast.error("Side questions aren't supported for this session yet.");
+      return;
+    }
+    ctx.askSideQuestion(question);
+  },
+};
+
 const commands: CodeCommand[] = [
   addDirCommand,
+  btwCommand,
   makeFeedbackCommand("good", "good", "Positive"),
   makeFeedbackCommand("bad", "bad", "Negative"),
   makeFeedbackCommand("feedback", "general", "General"),

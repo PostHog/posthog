@@ -147,6 +147,10 @@ import {
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
 import {
+  buildSideQuestionPrompt,
+  SIDE_QUESTION_TIMEOUT_MS,
+} from "./side-question";
+import {
   CODE_EXECUTION_MODES,
   type CodeExecutionMode,
   getAvailableModes,
@@ -351,6 +355,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private options?: ClaudeAcpAgentOptions;
   private enrichment?: Enrichment;
   private enrichedReadCache: EnrichedReadCache = new Map();
+  /** One side question at a time; bounds concurrent forks off the transcript. */
+  private sideQuestionInFlight = false;
 
   constructor(client: AgentSideConnection, options?: ClaudeAcpAgentOptions) {
     super(client);
@@ -409,6 +415,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // retire, so the clear has to look unavailable rather than silently
             // not take.
             conversationClear: true,
+            sideQuestion: true,
           },
           claudeCode: {
             promptQueueing: true,
@@ -1626,6 +1633,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    if (isMethod(method, POSTHOG_METHODS.SIDE_QUESTION)) {
+      if (typeof params.question !== "string" || !params.question.trim()) {
+        throw new RequestError(
+          -32602,
+          "side_question requires a non-empty question",
+        );
+      }
+      return await this.answerSideQuestion(params.question);
+    }
+
     if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
       throw RequestError.methodNotFound(method);
     }
@@ -1946,6 +1963,109 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     this.refreshMcpMetadata(newQuery);
     return { stopReason: "end_turn" };
+  }
+
+  /**
+   * Answers a "/btw" side question by forking the live session's transcript
+   * into a one-shot, tool-less, single-turn query. Strictly non-mutating:
+   * the fork gets its own SDK session id and AbortController, and nothing on
+   * `this.session` is touched, so the main conversation (including an
+   * in-flight turn) never sees the exchange.
+   */
+  private async answerSideQuestion(
+    question: string,
+  ): Promise<{ answer: string }> {
+    if (this.sideQuestionInFlight) {
+      throw new RequestError(-32002, "A side question is already in progress");
+    }
+    this.sideQuestionInFlight = true;
+
+    const abortController = new AbortController();
+    try {
+      // Drop `sessionId` (identity comes from `resume`) and `hooks` (they
+      // close over live-session caches and task state).
+      const {
+        sessionId: _drop,
+        hooks: _hooks,
+        ...rest
+      } = this.session.queryOptions;
+      const options: Options = {
+        ...rest,
+        resume: this.sessionId,
+        forkSession: true,
+        maxTurns: 1,
+        // Belt and braces: remove the toolset entirely and deny anything
+        // that slips through; the prompt wrapper also says "no tools".
+        tools: [],
+        allowedTools: [],
+        canUseTool: async () => ({
+          behavior: "deny",
+          message: "Tools are unavailable while answering a side question.",
+          interrupt: false,
+        }),
+        // Never reuse in-process MCP instances ("Already connected to a
+        // transport"); the fork has no tools, so it needs no servers.
+        mcpServers: {},
+        abortController,
+        // `rest.model` is the creation-time value; the user may have
+        // switched models since, so answer on the live session model.
+        ...(this.session.modelId && {
+          model: toSdkModelId(this.session.modelId),
+        }),
+      };
+
+      const oneShot = query({
+        prompt: buildSideQuestionPrompt(question),
+        options,
+      });
+
+      const answer = await withTimeout(
+        (async () => {
+          const chunks: string[] = [];
+          for await (const message of oneShot) {
+            if (message.type === "assistant") {
+              for (const block of message.message.content) {
+                if (block.type === "text") {
+                  chunks.push(block.text);
+                }
+              }
+            } else if (message.type === "result") {
+              if (message.subtype !== "success") {
+                throw new RequestError(
+                  -32603,
+                  `Side question failed: ${message.subtype}`,
+                );
+              }
+              break;
+            }
+          }
+          return chunks.join("").trim();
+        })(),
+        SIDE_QUESTION_TIMEOUT_MS,
+      );
+
+      if (answer.result === "timeout") {
+        throw new RequestError(
+          -32603,
+          `Side question timed out after ${SIDE_QUESTION_TIMEOUT_MS}ms`,
+        );
+      }
+      if (!answer.value) {
+        throw new RequestError(-32603, "Side question produced no answer");
+      }
+      return { answer: answer.value };
+    } catch (error) {
+      if (error instanceof RequestError) throw error;
+      // A brand-new session has no transcript on disk yet, so `resume` has
+      // nothing to fork; surface that case clearly.
+      throw new RequestError(
+        -32603,
+        `Side question failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      abortController.abort();
+      this.sideQuestionInFlight = false;
+    }
   }
 
   private async refreshSession(

@@ -326,6 +326,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
   TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
