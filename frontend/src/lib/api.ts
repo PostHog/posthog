@@ -688,6 +688,10 @@ export class ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
     }
 
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
+    }
+
     public hog(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog')
     }
@@ -3891,6 +3895,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
@@ -7450,6 +7463,31 @@ function requestPathname(url: string): string {
     }
 }
 
+/**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ */
+const BROWSER_FETCH_FAILURE_MESSAGES = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
 function classifyNetworkFailure(): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
@@ -7504,7 +7542,7 @@ async function handleFetch(
         // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
         // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
         // relabelled as a connectivity problem and filtered out of error tracking.
-        if (error instanceof TypeError) {
+        if (isBrowserFetchFailure(error)) {
             const reason = classifyNetworkFailure()
             captureClientRequestFailure({
                 pathname: requestPathname(url),

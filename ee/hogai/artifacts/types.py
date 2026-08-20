@@ -15,7 +15,7 @@ from posthog.schema import (
     VisualizationBlock,
 )
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class VisualizationRefBlock(BaseModel):

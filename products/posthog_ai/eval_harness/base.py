@@ -15,7 +15,7 @@ from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
-from .runner import EvalCaseResult, run_eval_case
+from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
@@ -453,6 +453,12 @@ class _SandboxedEvalRun(_BaseEvalRun):
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
+
+        # After the logs are on disk, so a failed run is still there to read.
+        if agent_never_ran(result.artifacts):
+            raise AgentNeverRanError(
+                f"Eval case '{eval_case.name}' failed before doing any work: {result.artifacts.stderr}"
+            )
 
         return result.artifacts.model_dump() | {
             "last_message": last_message,

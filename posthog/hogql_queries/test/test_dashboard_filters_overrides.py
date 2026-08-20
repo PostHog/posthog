@@ -30,8 +30,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 
-from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
-from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.facade.queries import PathsQueryRunner, StickinessQueryRunner
 
 _TIME_SERIES = [EventsNode(event="$pageview")]
 

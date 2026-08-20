@@ -336,7 +336,9 @@ export function ActivityTimeline({
             gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
             timestamp={task.created_at}
           >
-            {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
+            {!task.created_by && task.origin_product === "signal_report"
+              ? "PostHog started this task from a Signals report"
+              : `${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
           </TimelineRow>
         );
       case "user_message":
@@ -399,6 +401,7 @@ export function ActivityTimeline({
                 <ArtifactEventDetail
                   payload={row.event.payload}
                   onOpen={openArtifact(row.event.payload)}
+                  taskId={canOpenInPlace ? task.id : undefined}
                 />
               ) : undefined
             }

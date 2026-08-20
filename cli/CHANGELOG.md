@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.13.1 — 2026-08-20
+
+### Patch changes
+
+- [fd234e17b30](https://github.com/PostHog/posthog/commit/fd234e17b301dcf20ffac31d839a773d400af933) Improve CLI error diagnostics with native stack symbolication metadata, release debug symbols, and structured categories for local file and parsing failures. — Thanks @hpouillot!
+
+## 0.13.0 — 2026-08-18
+
+### Minor changes
+
+- [f0be634b15f](https://github.com/PostHog/posthog/commit/f0be634b15fbf374bf90db01dfbd9023f9db6536) Add `--release-mode` to `proguard upload`, matching `sourcemap upload`. `symbol-set` (the default) keeps stamping the release onto the uploaded mapping. EXPERIMENTAL `event` creates the release but leaves the mapping unbound, so each event resolves its own release from the app version and namespace the SDK already sends. A map id is derived from the mapping's own content, so this keeps one symbol set for a mapping that several releases share. Also settable via `POSTHOG_RELEASE_MODE`. — Thanks @ablaszkiewicz!
+
 ## 0.12.0 — 2026-08-18
 
 ### Minor changes

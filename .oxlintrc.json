@@ -14,6 +14,7 @@
         "nodejs",
         ".semgrep",
         ".github/actions/paths-filter",
+        ".depot/actions/paths-filter",
         ".github/scripts",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiError } from 'lib/api'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,18 +15,24 @@ import {
     featureRequestProductAreasCreate,
     featureRequestProductAreasList,
     featureRequestProductAreasPartialUpdate,
+    featureRequestsAddAccountCreate,
+    featureRequestsAddEvidenceCreate,
     featureRequestsArchiveCreate,
     featureRequestsCreate,
     featureRequestsHistoryList,
     featureRequestsList,
+    featureRequestsRemoveEvidenceCreate,
     featureRequestsRestoreCreate,
     featureRequestsRetrieve,
     featureRequestsUpdate,
+    featureRequestsUpdateEvidenceCreate,
 } from '../../generated/api'
 import type {
     AccountApi,
     FeatureRequestAccountApi,
+    FeatureRequestAccountLinkApi,
     FeatureRequestApi,
+    FeatureRequestEvidenceApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestStatusEnumApi,
@@ -42,6 +49,21 @@ import {
 } from './featureRequestOptions'
 
 export const FEATURE_REQUESTS_PAGE_SIZE = 20
+export const FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE = 5
+
+export interface FeatureRequestImage {
+    imageId: string
+    account: FeatureRequestAccountApi
+    evidence: FeatureRequestEvidenceApi
+}
+
+export function featureRequestAccountElementId(accountId: string): string {
+    return `feature-request-account-${accountId}`
+}
+
+export function featureRequestEvidenceElementId(evidenceId: string): string {
+    return `feature-request-evidence-${evidenceId}`
+}
 
 const FILTER_URL_KEYS = ['search', 'status', 'priority', 'product_area', 'account', 'archive', 'sort', 'page'] as const
 const VALID_STATUSES = new Set(FEATURE_REQUEST_STATUS_OPTIONS.map((option) => option.value))
@@ -151,17 +173,27 @@ export interface featureRequestsLogicValues {
     accountSearch: string
     accounts: AccountApi[]
     accountsError: string | null
+    accountsEvidenceCollapsed: boolean
     accountsLoading: boolean
     activeProductAreas: FeatureRequestProductAreaApi[]
     activeRequest: FeatureRequestApi | null
+    activeRequestAccountLinks: FeatureRequestAccountLinkApi[]
     activeRequestError: string | null
+    activeRequestEvidenceCount: number
     activeRequestId: string | null
+    activeRequestImages: FeatureRequestImage[]
     activeRequestLoading: boolean
+    addAccountId: string | null
+    addAccountOptions: {
+        key: string
+        label: string
+    }[]
+    addingAccount: boolean
     archiveState: FeatureRequestArchiveState
     createRequestOpen: boolean
     currentTeamId: string
     description: string
-    editAccountId: string | null
+    editAccountIds: string[]
     editDescription: string
     editDisabledReason: string | undefined
     editError: string | null
@@ -177,11 +209,25 @@ export interface featureRequestsLogicValues {
     editRequestOpen: boolean
     editStatus: FeatureRequestStatusEnumApi
     editTitle: string
+    editingEvidenceId: string | null
     editingProductAreaId: string | null
+    evidenceAccountLinkId: string | null
+    evidenceDraftVersion: number
+    evidenceError: string | null
+    evidenceFilesToUpload: File[]
+    evidenceImageIds: string[]
+    evidenceModalOpen: boolean
+    evidenceQuote: string
+    evidenceRequestedOn: string | null
+    evidenceSaveDisabledReason: string | undefined
+    evidenceSource: string
+    evidenceSummary: string
+    evidenceUrl: string
     featureRequestsError: string | null
     featureRequestsPage: number
     featureRequestsResponse: PaginatedFeatureRequestListApi
     featureRequestsResponseLoading: boolean
+    filteredProductAreas: FeatureRequestProductAreaApi[]
     hasActiveFilters: boolean
     idempotencyKey: string
     listSearchParams: Record<string, string>
@@ -190,6 +236,8 @@ export interface featureRequestsLogicValues {
     productAreaActive: boolean
     productAreaDisplayOrder: number
     productAreaFilter: string[]
+    productAreaFormOpen: boolean
+    productAreaFormVersion: number
     productAreaIds: string[]
     productAreaName: string
     productAreaOptions: {
@@ -197,15 +245,18 @@ export interface featureRequestsLogicValues {
         label: string
     }[]
     productAreaSaveDisabledReason: string | undefined
+    productAreaSearch: string
     productAreas: FeatureRequestProductAreaApi[]
     productAreasError: string | null
     productAreasLoading: boolean
     productAreasOpen: boolean
+    requestAccountsShowingAll: boolean
     requestHistory: FeatureRequestHistoryApi[]
     requestHistoryError: string | null
     requestHistoryLoading: boolean
     requestHistoryShowingAll: boolean
     requestOrdering: FeatureRequestOrdering
+    savingEvidence: boolean
     savingProductArea: boolean
     savingRequestChanges: boolean
     searchQuery: string
@@ -214,11 +265,16 @@ export interface featureRequestsLogicValues {
     submitDisabledReason: string | undefined
     submittingRequest: boolean
     title: string
+    uploadingEvidenceImages: boolean
+    visibleActiveRequestAccountLinks: FeatureRequestAccountLinkApi[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface featureRequestsLogicActions {
     archiveActiveRequest: () => {
+        value: true
+    }
+    clearEvidenceFilesToUpload: () => {
         value: true
     }
     clearFilters: () => {
@@ -230,8 +286,17 @@ export interface featureRequestsLogicActions {
     closeEditRequest: () => {
         value: true
     }
+    closeEvidence: () => {
+        value: true
+    }
+    closeProductAreaForm: () => {
+        value: true
+    }
     closeProductAreas: () => {
         value: true
+    }
+    evidenceImageUploaded: (imageId: string) => {
+        imageId: string
     }
     loadAccounts: (search?: string) => string
     loadAccountsFailure: (
@@ -308,11 +373,24 @@ export interface featureRequestsLogicActions {
         requestHistory: FeatureRequestHistoryApi[]
         payload?: string
     }
+    openAddAccount: () => {
+        value: true
+    }
     openCreateRequest: () => {
         value: true
     }
+    openEditEvidence: (
+        accountLink: FeatureRequestAccountLinkApi,
+        evidence: FeatureRequestEvidenceApi
+    ) => {
+        accountLink: FeatureRequestAccountLinkApi
+        evidence: FeatureRequestEvidenceApi
+    }
     openEditRequest: (featureRequest: FeatureRequestApi) => {
         featureRequest: FeatureRequestApi
+    }
+    openNewEvidence: (accountLink: FeatureRequestAccountLinkApi) => {
+        accountLink: FeatureRequestAccountLinkApi
     }
     openProductAreas: () => {
         value: true
@@ -320,7 +398,16 @@ export interface featureRequestsLogicActions {
     reloadLatestForEdit: () => {
         value: true
     }
+    removeEvidence: () => {
+        value: true
+    }
+    removeEvidenceImage: (imageId: string) => {
+        imageId: string
+    }
     restoreActiveRequest: () => {
+        value: true
+    }
+    saveEvidence: () => {
         value: true
     }
     saveProductArea: () => {
@@ -335,8 +422,14 @@ export interface featureRequestsLogicActions {
     setAccountSearch: (accountSearch: string) => {
         accountSearch: string
     }
+    setAccountsEvidenceCollapsed: (collapsed: boolean) => {
+        collapsed: boolean
+    }
     setActiveRequestId: (requestId: string | null) => {
         requestId: string | null
+    }
+    setAddAccountId: (accountId: string | null) => {
+        accountId: string | null
     }
     setArchiveState: (archiveState: FeatureRequestArchiveState) => {
         archiveState: FeatureRequestArchiveState
@@ -344,8 +437,8 @@ export interface featureRequestsLogicActions {
     setDescription: (description: string) => {
         description: string
     }
-    setEditAccountId: (editAccountId: string | null) => {
-        editAccountId: string | null
+    setEditAccountIds: (editAccountIds: string[]) => {
+        editAccountIds: string[]
     }
     setEditDescription: (editDescription: string) => {
         editDescription: string
@@ -371,6 +464,24 @@ export interface featureRequestsLogicActions {
     setEditTitle: (editTitle: string) => {
         editTitle: string
     }
+    setEvidenceError: (evidenceError: string | null) => {
+        evidenceError: string | null
+    }
+    setEvidenceQuote: (evidenceQuote: string) => {
+        evidenceQuote: string
+    }
+    setEvidenceRequestedOn: (evidenceRequestedOn: string | null) => {
+        evidenceRequestedOn: string | null
+    }
+    setEvidenceSource: (evidenceSource: string) => {
+        evidenceSource: string
+    }
+    setEvidenceSummary: (evidenceSummary: string) => {
+        evidenceSummary: string
+    }
+    setEvidenceUrl: (evidenceUrl: string) => {
+        evidenceUrl: string
+    }
     setFeatureRequestsPage: (page: number) => {
         page: number
     }
@@ -395,11 +506,20 @@ export interface featureRequestsLogicActions {
     setProductAreaName: (productAreaName: string) => {
         productAreaName: string
     }
+    setProductAreaSearch: (productAreaSearch: string) => {
+        productAreaSearch: string
+    }
+    setRequestAccountsShowingAll: (showingAll: boolean) => {
+        showingAll: boolean
+    }
     setRequestHistoryShowingAll: (showingAll: boolean) => {
         showingAll: boolean
     }
     setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => {
         requestOrdering: FeatureRequestOrdering
+    }
+    setSavingEvidence: (savingEvidence: boolean) => {
+        savingEvidence: boolean
     }
     setSavingProductArea: (savingProductArea: boolean) => {
         savingProductArea: boolean
@@ -418,6 +538,16 @@ export interface featureRequestsLogicActions {
     }
     setTitle: (title: string) => {
         title: string
+    }
+    setUploadingEvidenceImages: (uploadingEvidenceImages: boolean) => {
+        uploadingEvidenceImages: boolean
+    }
+    showHistoryTarget: (
+        accountId: string,
+        evidenceId?: string
+    ) => {
+        accountId: string
+        evidenceId: string | undefined
     }
     startEditingProductArea: (productArea: FeatureRequestProductAreaApi) => {
         productArea: FeatureRequestProductAreaApi
@@ -440,6 +570,9 @@ export interface featureRequestsLogicActions {
     toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => {
         requestStatus: FeatureRequestStatusEnumApi
     }
+    uploadEvidenceImages: (files: File[]) => {
+        files: File[]
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -447,13 +580,35 @@ export interface featureRequestsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentTeamId: (currentTeam: TeamPublicType | TeamType | null) => string
         activeProductAreas: (productAreas: FeatureRequestProductAreaApi[]) => FeatureRequestProductAreaApi[]
+        filteredProductAreas: (
+            productAreas: FeatureRequestProductAreaApi[],
+            productAreaSearch: string
+        ) => FeatureRequestProductAreaApi[]
         accountOptions: (
             accounts: AccountApi[],
-            selectedAccount: FeatureRequestAccountApi | null
+            selectedAccount: FeatureRequestAccountApi | null,
+            activeRequest: FeatureRequestApi | null
         ) => {
             key: string
             label: string
         }[]
+        addAccountOptions: (
+            accountOptions: {
+                key: string
+                label: string
+            }[],
+            activeRequest: FeatureRequestApi | null
+        ) => {
+            key: string
+            label: string
+        }[]
+        activeRequestAccountLinks: (activeRequest: FeatureRequestApi | null) => FeatureRequestAccountLinkApi[]
+        visibleActiveRequestAccountLinks: (
+            activeRequestAccountLinks: FeatureRequestAccountLinkApi[],
+            requestAccountsShowingAll: boolean
+        ) => FeatureRequestAccountLinkApi[]
+        activeRequestEvidenceCount: (activeRequestAccountLinks: FeatureRequestAccountLinkApi[]) => number
+        activeRequestImages: (activeRequestAccountLinks: FeatureRequestAccountLinkApi[]) => FeatureRequestImage[]
         productAreaOptions: (activeProductAreas: FeatureRequestProductAreaApi[]) => {
             key: string
             label: string
@@ -474,9 +629,19 @@ export interface featureRequestsLogicMeta {
         ) => string | undefined
         editDisabledReason: (
             editTitle: string,
-            editAccountId: string | null,
+            editAccountIds: string[],
             editProductAreaIds: string[],
             savingRequestChanges: boolean
+        ) => string | undefined
+        evidenceSaveDisabledReason: (
+            addingAccount: boolean,
+            addAccountId: string | null,
+            evidenceSummary: string,
+            evidenceQuote: string,
+            evidenceUrl: string,
+            evidenceImageIds: string[],
+            uploadingEvidenceImages: boolean,
+            savingEvidence: boolean
         ) => string | undefined
         productAreaSaveDisabledReason: (productAreaName: string, savingProductArea: boolean) => string | undefined
         hasActiveFilters: (
@@ -535,9 +700,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSubmittingRequest: (submittingRequest: boolean) => ({ submittingRequest }),
         openProductAreas: true,
         closeProductAreas: true,
+        closeProductAreaForm: true,
         startNewProductArea: true,
         startEditingProductArea: (productArea: FeatureRequestProductAreaApi) => ({ productArea }),
         setProductAreaName: (productAreaName: string) => ({ productAreaName }),
+        setProductAreaSearch: (productAreaSearch: string) => ({ productAreaSearch }),
         setProductAreaDisplayOrder: (productAreaDisplayOrder: number) => ({ productAreaDisplayOrder }),
         setProductAreaActive: (productAreaActive: boolean) => ({ productAreaActive }),
         saveProductArea: true,
@@ -546,7 +713,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         closeEditRequest: true,
         setEditTitle: (editTitle: string) => ({ editTitle }),
         setEditDescription: (editDescription: string) => ({ editDescription }),
-        setEditAccountId: (editAccountId: string | null) => ({ editAccountId }),
+        setEditAccountIds: (editAccountIds: string[]) => ({ editAccountIds }),
         setEditProductAreaIds: (editProductAreaIds: string[]) => ({ editProductAreaIds }),
         setEditStatus: (editStatus: FeatureRequestStatusEnumApi) => ({ editStatus }),
         setEditPriority: (editPriority: RequestPriorityEnumApi | null) => ({ editPriority }),
@@ -560,6 +727,31 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         restoreActiveRequest: true,
         setMutatingArchive: (mutatingArchive: boolean) => ({ mutatingArchive }),
         setRequestHistoryShowingAll: (showingAll: boolean) => ({ showingAll }),
+        setRequestAccountsShowingAll: (showingAll: boolean) => ({ showingAll }),
+        setAccountsEvidenceCollapsed: (collapsed: boolean) => ({ collapsed }),
+        showHistoryTarget: (accountId: string, evidenceId?: string) => ({ accountId, evidenceId }),
+        openAddAccount: true,
+        setAddAccountId: (accountId: string | null) => ({ accountId }),
+        openNewEvidence: (accountLink: FeatureRequestAccountLinkApi) => ({ accountLink }),
+        openEditEvidence: (accountLink: FeatureRequestAccountLinkApi, evidence: FeatureRequestEvidenceApi) => ({
+            accountLink,
+            evidence,
+        }),
+        closeEvidence: true,
+        setEvidenceSummary: (evidenceSummary: string) => ({ evidenceSummary }),
+        setEvidenceQuote: (evidenceQuote: string) => ({ evidenceQuote }),
+        setEvidenceSource: (evidenceSource: string) => ({ evidenceSource }),
+        setEvidenceUrl: (evidenceUrl: string) => ({ evidenceUrl }),
+        setEvidenceRequestedOn: (evidenceRequestedOn: string | null) => ({ evidenceRequestedOn }),
+        setEvidenceError: (evidenceError: string | null) => ({ evidenceError }),
+        uploadEvidenceImages: (files: File[]) => ({ files }),
+        clearEvidenceFilesToUpload: true,
+        evidenceImageUploaded: (imageId: string) => ({ imageId }),
+        removeEvidenceImage: (imageId: string) => ({ imageId }),
+        setUploadingEvidenceImages: (uploadingEvidenceImages: boolean) => ({ uploadingEvidenceImages }),
+        saveEvidence: true,
+        removeEvidence: true,
+        setSavingEvidence: (savingEvidence: boolean) => ({ savingEvidence }),
     }),
     loaders(({ values }) => ({
         featureRequestsResponse: [
@@ -692,9 +884,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             null as FeatureRequestAccountApi | null,
             {
                 setSelectedAccount: (_, { selectedAccount }) => selectedAccount,
+                openAddAccount: () => null,
                 openEditRequest: (_, { featureRequest }) => featureRequest.account,
                 closeCreateRequest: () => null,
                 closeEditRequest: () => null,
+                closeEvidence: () => null,
             },
         ],
         accountsError: [
@@ -739,6 +933,23 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setActiveRequestId: () => false,
             },
         ],
+        requestAccountsShowingAll: [
+            false,
+            {
+                setRequestAccountsShowingAll: (_, { showingAll }) => showingAll,
+                showHistoryTarget: () => true,
+                loadActiveRequest: () => false,
+                setActiveRequestId: () => false,
+            },
+        ],
+        accountsEvidenceCollapsed: [
+            false,
+            {
+                setAccountsEvidenceCollapsed: (_, { collapsed }) => collapsed,
+                showHistoryTarget: () => false,
+                setActiveRequestId: () => false,
+            },
+        ],
         productAreasError: [
             null as string | null,
             {
@@ -761,11 +972,37 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         idempotencyKey: [newIdempotencyKey(), { setIdempotencyKey: (_, { idempotencyKey }) => idempotencyKey }],
         submittingRequest: [false, { setSubmittingRequest: (_, { submittingRequest }) => submittingRequest }],
         productAreasOpen: [false, { openProductAreas: () => true, closeProductAreas: () => false }],
+        productAreaSearch: [
+            '',
+            {
+                setProductAreaSearch: (_, { productAreaSearch }) => productAreaSearch,
+                closeProductAreas: () => '',
+            },
+        ],
+        productAreaFormOpen: [
+            false,
+            {
+                startNewProductArea: () => true,
+                startEditingProductArea: () => true,
+                closeProductAreaForm: () => false,
+                closeProductAreas: () => false,
+            },
+        ],
+        productAreaFormVersion: [
+            0,
+            {
+                startNewProductArea: (state) => state + 1,
+                startEditingProductArea: (state) => state + 1,
+                closeProductAreaForm: (state) => state + 1,
+                closeProductAreas: (state) => state + 1,
+            },
+        ],
         editingProductAreaId: [
             null as string | null,
             {
                 startNewProductArea: () => null,
                 startEditingProductArea: (_, { productArea }) => productArea.id,
+                closeProductAreaForm: () => null,
                 closeProductAreas: () => null,
             },
         ],
@@ -775,6 +1012,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => '',
                 startEditingProductArea: (_, { productArea }) => productArea.name,
                 setProductAreaName: (_, { productAreaName }) => productAreaName,
+                closeProductAreaForm: () => '',
+                closeProductAreas: () => '',
             },
         ],
         productAreaDisplayOrder: [
@@ -783,6 +1022,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => 0,
                 startEditingProductArea: (_, { productArea }) => productArea.display_order ?? 0,
                 setProductAreaDisplayOrder: (_, { productAreaDisplayOrder }) => productAreaDisplayOrder,
+                closeProductAreaForm: () => 0,
+                closeProductAreas: () => 0,
             },
         ],
         productAreaActive: [
@@ -791,6 +1032,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => true,
                 startEditingProductArea: (_, { productArea }) => productArea.is_active ?? true,
                 setProductAreaActive: (_, { productAreaActive }) => productAreaActive,
+                closeProductAreaForm: () => true,
+                closeProductAreas: () => true,
             },
         ],
         savingProductArea: [false, { setSavingProductArea: (_, { savingProductArea }) => savingProductArea }],
@@ -809,11 +1052,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setEditDescription: (_, { editDescription }) => editDescription,
             },
         ],
-        editAccountId: [
-            null as string | null,
+        editAccountIds: [
+            [] as string[],
             {
-                openEditRequest: (_, { featureRequest }) => featureRequest.account.id,
-                setEditAccountId: (_, { editAccountId }) => editAccountId,
+                openEditRequest: (_, { featureRequest }) => featureRequest.account_links.map((link) => link.account.id),
+                setEditAccountIds: (_, { editAccountIds }) => editAccountIds,
             },
         ],
         editProductAreaIds: [
@@ -865,6 +1108,142 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             { setSavingRequestChanges: (_, { savingRequestChanges }) => savingRequestChanges },
         ],
         mutatingArchive: [false, { setMutatingArchive: (_, { mutatingArchive }) => mutatingArchive }],
+        evidenceModalOpen: [
+            false,
+            {
+                openAddAccount: () => true,
+                openNewEvidence: () => true,
+                openEditEvidence: () => true,
+                closeEvidence: () => false,
+            },
+        ],
+        addingAccount: [
+            false,
+            {
+                openAddAccount: () => true,
+                openNewEvidence: () => false,
+                openEditEvidence: () => false,
+                closeEvidence: () => false,
+            },
+        ],
+        addAccountId: [
+            null as string | null,
+            {
+                openAddAccount: () => null,
+                setAddAccountId: (_, { accountId }) => accountId,
+                closeEvidence: () => null,
+            },
+        ],
+        evidenceAccountLinkId: [
+            null as string | null,
+            {
+                openAddAccount: () => null,
+                openNewEvidence: (_, { accountLink }) => accountLink.id,
+                openEditEvidence: (_, { accountLink }) => accountLink.id,
+                closeEvidence: () => null,
+            },
+        ],
+        editingEvidenceId: [
+            null as string | null,
+            {
+                openAddAccount: () => null,
+                openNewEvidence: () => null,
+                openEditEvidence: (_, { evidence }) => evidence.id,
+                closeEvidence: () => null,
+            },
+        ],
+        evidenceSummary: [
+            '',
+            {
+                openAddAccount: () => '',
+                openNewEvidence: () => '',
+                openEditEvidence: (_, { evidence }) => evidence.summary,
+                setEvidenceSummary: (_, { evidenceSummary }) => evidenceSummary,
+            },
+        ],
+        evidenceQuote: [
+            '',
+            {
+                openAddAccount: () => '',
+                openNewEvidence: () => '',
+                openEditEvidence: (_, { evidence }) => evidence.customer_quote,
+                setEvidenceQuote: (_, { evidenceQuote }) => evidenceQuote,
+            },
+        ],
+        evidenceSource: [
+            'conversation',
+            {
+                openAddAccount: () => 'conversation',
+                openNewEvidence: () => 'conversation',
+                openEditEvidence: (_, { evidence }) => evidence.evidence_source,
+                setEvidenceSource: (_, { evidenceSource }) => evidenceSource,
+            },
+        ],
+        evidenceUrl: [
+            '',
+            {
+                openAddAccount: () => '',
+                openNewEvidence: () => '',
+                openEditEvidence: (_, { evidence }) => evidence.source_url,
+                setEvidenceUrl: (_, { evidenceUrl }) => evidenceUrl,
+            },
+        ],
+        evidenceRequestedOn: [
+            null as string | null,
+            {
+                openAddAccount: () => null,
+                openNewEvidence: () => null,
+                openEditEvidence: (_, { evidence }) => evidence.requested_on,
+                setEvidenceRequestedOn: (_, { evidenceRequestedOn }) => evidenceRequestedOn,
+            },
+        ],
+        evidenceDraftVersion: [
+            0,
+            {
+                openAddAccount: (state) => state + 1,
+                openNewEvidence: (state) => state + 1,
+                openEditEvidence: (state) => state + 1,
+                closeEvidence: (state) => state + 1,
+                setActiveRequestId: (state) => state + 1,
+            },
+        ],
+        evidenceFilesToUpload: [
+            [] as File[],
+            {
+                openAddAccount: () => [],
+                openNewEvidence: () => [],
+                openEditEvidence: () => [],
+                uploadEvidenceImages: (_, { files }) => files,
+                clearEvidenceFilesToUpload: () => [],
+                closeEvidence: () => [],
+            },
+        ],
+        evidenceImageIds: [
+            [] as string[],
+            {
+                openAddAccount: () => [],
+                openNewEvidence: () => [],
+                openEditEvidence: (_, { evidence }) => [...evidence.image_ids],
+                evidenceImageUploaded: (state, { imageId }) => (state.includes(imageId) ? state : [...state, imageId]),
+                removeEvidenceImage: (state, { imageId }) => state.filter((id) => id !== imageId),
+                closeEvidence: () => [],
+            },
+        ],
+        uploadingEvidenceImages: [
+            false,
+            { setUploadingEvidenceImages: (_, { uploadingEvidenceImages }) => uploadingEvidenceImages },
+        ],
+        evidenceError: [
+            null as string | null,
+            {
+                openAddAccount: () => null,
+                openNewEvidence: () => null,
+                openEditEvidence: () => null,
+                closeEvidence: () => null,
+                setEvidenceError: (_, { evidenceError }) => evidenceError,
+            },
+        ],
+        savingEvidence: [false, { setSavingEvidence: (_, { savingEvidence }) => savingEvidence }],
     }),
     selectors({
         currentTeamId: [
@@ -876,18 +1255,78 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             (productAreas: FeatureRequestProductAreaApi[]): FeatureRequestProductAreaApi[] =>
                 productAreas.filter((area) => area.is_active),
         ],
+        filteredProductAreas: [
+            (selectors) => [selectors.productAreas, selectors.productAreaSearch],
+            (
+                productAreas: FeatureRequestProductAreaApi[],
+                productAreaSearch: string
+            ): FeatureRequestProductAreaApi[] => {
+                const normalizedSearch = productAreaSearch.trim().toLocaleLowerCase()
+                return normalizedSearch
+                    ? productAreas.filter((area) => area.name.toLocaleLowerCase().includes(normalizedSearch))
+                    : productAreas
+            },
+        ],
         accountOptions: [
-            (selectors) => [selectors.accounts, selectors.selectedAccount],
+            (selectors) => [selectors.accounts, selectors.selectedAccount, selectors.activeRequest],
             (
                 accounts: AccountApi[],
-                selectedAccount: FeatureRequestAccountApi | null
+                selectedAccount: FeatureRequestAccountApi | null,
+                activeRequest: FeatureRequestApi | null
             ): { key: string; label: string }[] => {
-                const displayAccounts =
-                    selectedAccount && !accounts.some((account) => account.id === selectedAccount.id)
-                        ? [selectedAccount, ...accounts]
-                        : accounts
-                return displayAccounts.map((account) => ({ key: account.id, label: account.name }))
+                const accountById = new Map<string, FeatureRequestAccountApi>(
+                    accounts.map((account) => [account.id, account])
+                )
+                if (selectedAccount) {
+                    accountById.set(selectedAccount.id, selectedAccount)
+                }
+                for (const link of activeRequest?.account_links ?? []) {
+                    accountById.set(link.account.id, link.account)
+                }
+                return [...accountById.values()].map((account) => ({ key: account.id, label: account.name }))
             },
+        ],
+        addAccountOptions: [
+            (selectors) => [selectors.accountOptions, selectors.activeRequest],
+            (
+                accountOptions: { key: string; label: string }[],
+                activeRequest: FeatureRequestApi | null
+            ): { key: string; label: string }[] => {
+                const linkedAccountIds = new Set(activeRequest?.account_links.map((link) => link.account.id) ?? [])
+                return accountOptions.filter((option) => !linkedAccountIds.has(option.key))
+            },
+        ],
+        activeRequestAccountLinks: [
+            (selectors) => [selectors.activeRequest],
+            (activeRequest: FeatureRequestApi | null): FeatureRequestAccountLinkApi[] =>
+                [...(activeRequest?.account_links ?? [])].sort(
+                    (first, second) =>
+                        second.evidence.length - first.evidence.length ||
+                        first.account.name.localeCompare(second.account.name)
+                ),
+        ],
+        visibleActiveRequestAccountLinks: [
+            (selectors) => [selectors.activeRequestAccountLinks, selectors.requestAccountsShowingAll],
+            (accountLinks: FeatureRequestAccountLinkApi[], showingAll: boolean): FeatureRequestAccountLinkApi[] =>
+                showingAll ? accountLinks : accountLinks.slice(0, FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE),
+        ],
+        activeRequestEvidenceCount: [
+            (selectors) => [selectors.activeRequestAccountLinks],
+            (accountLinks: FeatureRequestAccountLinkApi[]): number =>
+                accountLinks.reduce((total, accountLink) => total + accountLink.evidence.length, 0),
+        ],
+        activeRequestImages: [
+            (selectors) => [selectors.activeRequestAccountLinks],
+            (accountLinks: FeatureRequestAccountLinkApi[]): FeatureRequestImage[] =>
+                accountLinks.flatMap((accountLink) =>
+                    accountLink.evidence.flatMap((evidence) =>
+                        evidence.image_ids.map((imageId) => ({
+                            imageId,
+                            account: accountLink.account,
+                            evidence,
+                        }))
+                    )
+                ),
         ],
         productAreaOptions: [
             (selectors) => [selectors.activeProductAreas],
@@ -941,13 +1380,13 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         editDisabledReason: [
             (selectors) => [
                 selectors.editTitle,
-                selectors.editAccountId,
+                selectors.editAccountIds,
                 selectors.editProductAreaIds,
                 selectors.savingRequestChanges,
             ],
             (
                 editTitle: string,
-                editAccountId: string | null,
+                editAccountIds: string[],
                 editProductAreaIds: string[],
                 savingRequestChanges: boolean
             ): string | undefined => {
@@ -957,11 +1396,47 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 if (!editTitle.trim()) {
                     return 'Enter a title'
                 }
-                if (!editAccountId) {
-                    return 'Select an account'
+                if (editAccountIds.length === 0) {
+                    return 'Select at least one account'
                 }
                 if (editProductAreaIds.length === 0) {
                     return 'Select at least one product area'
+                }
+                return undefined
+            },
+        ],
+        evidenceSaveDisabledReason: [
+            (selectors) => [
+                selectors.addingAccount,
+                selectors.addAccountId,
+                selectors.evidenceSummary,
+                selectors.evidenceQuote,
+                selectors.evidenceUrl,
+                selectors.evidenceImageIds,
+                selectors.uploadingEvidenceImages,
+                selectors.savingEvidence,
+            ],
+            (
+                addingAccount: boolean,
+                addAccountId: string | null,
+                summary: string,
+                quote: string,
+                sourceUrl: string,
+                imageIds: string[],
+                uploadingImages: boolean,
+                saving: boolean
+            ): string | undefined => {
+                if (uploadingImages) {
+                    return 'Uploading images'
+                }
+                if (saving) {
+                    return addingAccount ? 'Adding account' : 'Saving evidence'
+                }
+                if (addingAccount && !addAccountId) {
+                    return 'Select an account'
+                }
+                if (!addingAccount && !summary.trim() && !quote.trim() && !sourceUrl.trim() && imageIds.length === 0) {
+                    return 'Enter a summary, customer quote, source URL, or image'
                 }
                 return undefined
             },
@@ -1056,6 +1531,22 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             actions.loadAccounts('')
             actions.loadProductAreas()
         },
+        openAddAccount: () => actions.loadAccounts(''),
+        showHistoryTarget: ({ accountId, evidenceId }) => {
+            window.setTimeout(() => {
+                const evidenceElement = evidenceId
+                    ? document.getElementById(featureRequestEvidenceElementId(evidenceId))
+                    : null
+                const accountElement = document.getElementById(featureRequestAccountElementId(accountId))
+                const targetElement = evidenceElement ?? accountElement
+                targetElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            }, 0)
+        },
+        setAddAccountId: ({ accountId }) => {
+            actions.setSelectedAccount(
+                accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
+            )
+        },
         setAccountId: ({ accountId }) => {
             actions.setSelectedAccount(
                 accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
@@ -1075,6 +1566,24 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 actions.loadActiveRequest(requestId)
                 actions.loadRequestHistory(requestId)
             }
+        },
+        loadActiveRequestSuccess: ({ activeRequest }) => {
+            const accountId = router.values.searchParams.evidence_account
+            if (typeof accountId !== 'string' || activeRequest.is_archived) {
+                return
+            }
+            const accountLink = activeRequest.account_links.find((link) => link.account.id === accountId)
+            if (accountLink) {
+                actions.openNewEvidence(accountLink)
+            }
+        },
+        closeEvidence: () => {
+            if (!router.values.searchParams.evidence_account) {
+                return
+            }
+            const searchParams = { ...router.values.searchParams }
+            delete searchParams.evidence_account
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
         },
         submitRequest: async () => {
             if (values.submitDisabledReason || !values.accountId) {
@@ -1098,13 +1607,14 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             }
         },
         openProductAreas: () => {
-            actions.startNewProductArea()
+            actions.closeProductAreaForm()
             actions.loadProductAreas()
         },
         saveProductArea: async () => {
             if (values.productAreaSaveDisabledReason) {
                 return
             }
+            const productAreaFormVersion = values.productAreaFormVersion
             actions.setSavingProductArea(true)
             try {
                 if (values.editingProductAreaId) {
@@ -1120,7 +1630,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                         is_active: values.productAreaActive,
                     })
                 }
-                actions.startNewProductArea()
+                if (values.productAreaFormVersion === productAreaFormVersion) {
+                    actions.closeProductAreaForm()
+                }
                 actions.loadProductAreas()
                 actions.loadFeatureRequests()
             } catch {
@@ -1134,7 +1646,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             actions.loadProductAreas()
         },
         saveRequestChanges: async () => {
-            if (values.editDisabledReason || !values.activeRequestId || !values.editAccountId) {
+            if (values.editDisabledReason || !values.activeRequestId) {
                 return
             }
             actions.setSavingRequestChanges(true)
@@ -1145,7 +1657,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     expected_version: values.editExpectedVersion,
                     title: values.editTitle.trim(),
                     description: values.editDescription.trim(),
-                    account_id: values.editAccountId,
+                    account_ids: values.editAccountIds,
                     product_area_ids: values.editProductAreaIds,
                     request_status: values.editStatus,
                     request_priority: values.editPriority,
@@ -1182,6 +1694,131 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 lemonToast.info('Latest version loaded. Review your changes and save again.')
             } catch {
                 actions.setEditError("Couldn't load the latest version. Try again.")
+            }
+        },
+        uploadEvidenceImages: async ({ files }) => {
+            if (files.length === 0 || values.uploadingEvidenceImages) {
+                return
+            }
+            const evidenceDraftVersion = values.evidenceDraftVersion
+            actions.setUploadingEvidenceImages(true)
+            try {
+                for (const file of files) {
+                    const uploadedImage = await uploadFile(file)
+                    if (values.evidenceDraftVersion !== evidenceDraftVersion) {
+                        return
+                    }
+                    actions.evidenceImageUploaded(uploadedImage.id)
+                }
+            } catch {
+                lemonToast.error("Couldn't upload one of the images. Try again.")
+            } finally {
+                actions.setUploadingEvidenceImages(false)
+                actions.clearEvidenceFilesToUpload()
+            }
+        },
+        saveEvidence: async () => {
+            if (values.evidenceSaveDisabledReason || !values.activeRequest) {
+                return
+            }
+            const addingAccount = values.addingAccount
+            const editingEvidenceId = values.editingEvidenceId
+            const evidenceAccountLinkId = values.evidenceAccountLinkId
+            if (!addingAccount && !evidenceAccountLinkId) {
+                return
+            }
+            actions.setSavingEvidence(true)
+            actions.setEvidenceError(null)
+            try {
+                const evidenceFields = {
+                    summary: values.evidenceSummary.trim(),
+                    customer_quote: values.evidenceQuote.trim(),
+                    evidence_source: values.evidenceSource,
+                    source_url: values.evidenceUrl.trim(),
+                    requested_on: values.evidenceRequestedOn,
+                    image_ids: values.evidenceImageIds,
+                }
+                const hasEvidence = Boolean(
+                    evidenceFields.summary ||
+                    evidenceFields.customer_quote ||
+                    evidenceFields.source_url ||
+                    evidenceFields.image_ids.length
+                )
+                let updated: FeatureRequestApi
+                if (addingAccount && values.addAccountId) {
+                    updated = await featureRequestsAddAccountCreate(values.currentTeamId, values.activeRequest.id, {
+                        expected_version: values.activeRequest.version,
+                        account_id: values.addAccountId,
+                        evidence: hasEvidence ? evidenceFields : undefined,
+                    })
+                } else if (editingEvidenceId) {
+                    updated = await featureRequestsUpdateEvidenceCreate(values.currentTeamId, values.activeRequest.id, {
+                        expected_version: values.activeRequest.version,
+                        ...evidenceFields,
+                        evidence_id: editingEvidenceId,
+                    })
+                } else if (evidenceAccountLinkId) {
+                    updated = await featureRequestsAddEvidenceCreate(values.currentTeamId, values.activeRequest.id, {
+                        expected_version: values.activeRequest.version,
+                        ...evidenceFields,
+                        account_link_id: evidenceAccountLinkId,
+                    })
+                } else {
+                    return
+                }
+                actions.loadActiveRequestSuccess(updated)
+                actions.loadRequestHistory(updated.id)
+                actions.loadFeatureRequests()
+                actions.closeEvidence()
+                lemonToast.success(
+                    addingAccount
+                        ? hasEvidence
+                            ? 'Account and evidence added'
+                            : 'Account added'
+                        : editingEvidenceId
+                          ? 'Evidence updated'
+                          : 'Evidence added'
+                )
+            } catch (error) {
+                actions.setEvidenceError(
+                    error instanceof ApiError && error.status === 409
+                        ? 'This request changed. Close this form, reload the request, and try again.'
+                        : addingAccount
+                          ? "Couldn't add the account. Check the fields and try again."
+                          : "Couldn't save the evidence. Check the fields and try again."
+                )
+            } finally {
+                actions.setSavingEvidence(false)
+            }
+        },
+        removeEvidence: async () => {
+            if (!values.activeRequest || !values.editingEvidenceId || values.savingEvidence) {
+                return
+            }
+            actions.setSavingEvidence(true)
+            actions.setEvidenceError(null)
+            try {
+                const updated = await featureRequestsRemoveEvidenceCreate(
+                    values.currentTeamId,
+                    values.activeRequest.id,
+                    {
+                        expected_version: values.activeRequest.version,
+                        evidence_id: values.editingEvidenceId,
+                    }
+                )
+                actions.loadActiveRequestSuccess(updated)
+                actions.loadRequestHistory(updated.id)
+                actions.loadFeatureRequests()
+                actions.closeEvidence()
+                lemonToast.success('Evidence removed')
+            } catch (error) {
+                actions.setEvidenceError(
+                    error instanceof ApiError && error.status === 409
+                        ? 'This request changed. Close this form, reload the request, and try again.'
+                        : "Couldn't remove the evidence. Try again."
+                )
+            } finally {
+                actions.setSavingEvidence(false)
             }
         },
         archiveActiveRequest: async () => {

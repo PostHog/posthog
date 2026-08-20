@@ -1120,6 +1120,17 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    def test_query_timeout_raw_message_is_non_retryable(self):
+        # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
+        # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
+        # name — only the `QueryTimeoutException` key (workflow layer only) would miss this,
+        # letting the activity retry a query that times out identically every attempt because the
+        # table's incremental field isn't a SORTKEY.
+        error_msg = "10 min timeout statement reached. Please ensure your incremental field (updated_at) is set as a SORTKEY on the table"
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
 
 class TestRedshiftValidateCredentials:
     def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):

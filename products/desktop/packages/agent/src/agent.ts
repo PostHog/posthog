@@ -1,5 +1,8 @@
 import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
-import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  buildPosthogPropertyHeaderLines,
+  buildPosthogPropertyHeaderRecord,
+} from "@posthog/shared/posthog-property-headers";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
@@ -80,6 +83,29 @@ export class Agent {
     const gatewayConfig = await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
+    const task =
+      this.posthogAPI && taskId !== "__preview__"
+        ? await this.posthogAPI.getTask(taskId).catch((error) => {
+            this.logger.debug("Failed to fetch task attribution", error);
+            return null;
+          })
+        : null;
+    const attribution =
+      taskId === "__preview__"
+        ? {}
+        : {
+            task_id: taskId,
+            task_run_id: taskRunId,
+            task_origin_product: task?.origin_product ?? null,
+            task_repositories: task?.repositories?.length
+              ? JSON.stringify(task.repositories)
+              : task?.repository
+                ? JSON.stringify([task.repository])
+                : null,
+            task_runtime_adapter: options.adapter ?? "claude",
+            task_execution_environment: "local" as const,
+          };
+
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
       options.model && !isBlockedModelId(options.model)
@@ -123,6 +149,15 @@ export class Agent {
             anthropicAuthToken: gatewayConfig.apiKey,
             openaiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
             openaiApiKey: gatewayConfig.apiKey,
+            // Thread the selected project explicitly so the session scopes to it
+            // rather than the shared POSTHOG_PROJECT_ID global, which a
+            // concurrent session start can clobber.
+            posthogProjectId:
+              this.posthogApiConfig?.projectId != null
+                ? String(this.posthogApiConfig.projectId)
+                : undefined,
+            anthropicCustomHeaders:
+              buildPosthogPropertyHeaderLines(attribution),
           }
         : undefined;
 
@@ -151,7 +186,10 @@ export class Agent {
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
               httpHeaders: taskId
-                ? buildPosthogPropertyHeaderRecord({ $ai_session_id: taskId })
+                ? buildPosthogPropertyHeaderRecord({
+                    ...attribution,
+                    $ai_session_id: taskId,
+                  })
                 : undefined,
               additionalDirectories: options.additionalDirectories,
             }

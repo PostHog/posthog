@@ -4034,6 +4034,7 @@ export const IntegrationKindApi = {
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4062,6 +4063,16 @@ export interface LastEventApi {
     uuid: string
 }
 
+export type ErrorTrackingQueryIssueSeverityApi =
+    (typeof ErrorTrackingQueryIssueSeverityApi)[keyof typeof ErrorTrackingQueryIssueSeverityApi]
+
+export const ErrorTrackingQueryIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export type ErrorTrackingIssueStatusApi = (typeof ErrorTrackingIssueStatusApi)[keyof typeof ErrorTrackingIssueStatusApi]
 
 export const ErrorTrackingIssueStatusApi = {
@@ -4086,6 +4097,7 @@ export interface ErrorTrackingIssueApi {
     last_seen: string
     library?: string | null
     name?: string | null
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
 }
@@ -4136,6 +4148,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     name?: string | null
     odds_ratio: number
     population: PopulationApi
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
 }
 
@@ -6755,6 +6768,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
     issue_description?: string | null
     issue_id: string
     issue_name?: string | null
+    issue_severity?: ErrorTrackingQueryIssueSeverityApi | null
     issue_status: string
     /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
     version: number
@@ -7243,6 +7257,8 @@ export interface AccountsQueryApi {
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsQuery'
     limit?: number | null
     /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -7269,6 +7285,7 @@ export const AccountsTableAccountFieldApi = {
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
     ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -7487,6 +7504,8 @@ export interface AccountsTableQueryApi {
         | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -8402,6 +8421,24 @@ export interface InsightBulkRestoreResponseApi {
     skipped: InsightBulkOperationSkippedApi[]
 }
 
+export interface InsightBulkSetTestAccountFilterRequestApi {
+    /** Whether every existing insight should filter out internal and test users. */
+    enabled: boolean
+}
+
+export interface InsightBulkSetTestAccountFilterResponseApi {
+    /** Number of insights whose test account filter was changed. */
+    updated: number
+    /** Number of insights that already had the requested value. */
+    unchanged: number
+    /** Number of insights with no test account filter to set, such as SQL insights. */
+    unsupported: number
+    /** Number of insights the requester cannot edit. */
+    skipped: number
+    /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+    legacy: number
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
@@ -8936,6 +8973,18 @@ export type InsightsBulkRestoreCreateFormat =
     (typeof InsightsBulkRestoreCreateFormat)[keyof typeof InsightsBulkRestoreCreateFormat]
 
 export const InsightsBulkRestoreCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkSetTestAccountFilterCreateParams = {
+    format?: InsightsBulkSetTestAccountFilterCreateFormat
+}
+
+export type InsightsBulkSetTestAccountFilterCreateFormat =
+    (typeof InsightsBulkSetTestAccountFilterCreateFormat)[keyof typeof InsightsBulkSetTestAccountFilterCreateFormat]
+
+export const InsightsBulkSetTestAccountFilterCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

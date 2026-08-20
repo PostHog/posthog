@@ -36,6 +36,12 @@ tools:
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
+    data-warehouse-data-quality-gate-partial-update:
+        operation: data_warehouse_data_quality_gate_partial_update
+        enabled: false
+    data-warehouse-data-quality-gate-retrieve:
+        operation: data_warehouse_data_quality_gate_retrieve
+        enabled: false
     data-warehouse-delete-org-destroy:
         operation: data_warehouse_delete_org_destroy
         enabled: false

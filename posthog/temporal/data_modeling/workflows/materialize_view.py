@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -64,6 +65,10 @@ from products.data_quality.backend.facade.contracts import (
     is_quality_audit_mode,
 )
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
+from products.warehouse_sources.backend.facade.hooks import (
+    MATERIALIZED_VIEW_SOURCE_TYPE,
+    PersonPropertySyncActivityInputs,
+)
 
 # Covers every command the data quality feature adds here: the stage/audit/publish trio and the
 # warn-mode suite child.
@@ -357,6 +362,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 if quality_audit == QUALITY_AUDIT_WARN:
                     quality_audited = await self._start_suite_on_published_data(inputs, job_id, materialize_result)
 
+                # Upsert this view's columns onto person/group properties for any warehouse property
+                # that reads it. Fire-and-forget on the metadata queue, like enrichment above.
+                await self._maybe_sync_person_properties(inputs, materialize_result, job_id)
+
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
                     await self._collect_shadow_comparison(
@@ -545,6 +554,56 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             extra=inputs.properties_to_log,
         )
         return QUALITY_AUDIT_SKIP
+
+    async def _maybe_sync_person_properties(
+        self,
+        inputs: MaterializeViewWorkflowInputs,
+        materialize_result: MaterializeViewResult,
+        job_id: str,
+    ) -> None:
+        """Fire the person-property sync child when this run staged rows for a warehouse property.
+
+        Same isolation as enrichment above: ABANDON so it never blocks or fails this workflow, and
+        every error swallowed. Keyed per job rather than per view, because each run stages its rows
+        under a job-scoped S3 prefix that only its own child consumes — a per-view id would coalesce
+        a concurrent run's child and silently drop that run's staged rows.
+
+        Gated on ``person_property_sync_enabled``, a defaulted field on the materialize activity's
+        result, so an in-flight run recorded before this existed decodes it as False and never runs
+        this command during replay.
+        """
+        if not materialize_result.person_property_sync_enabled:
+            return
+        try:
+            await temporalio.workflow.start_child_workflow(
+                "sync-warehouse-person-properties",
+                PersonPropertySyncActivityInputs(
+                    team_id=inputs.team_id,
+                    schema_id=None,
+                    source_id=None,
+                    job_id=job_id,
+                    source_type=MATERIALIZED_VIEW_SOURCE_TYPE,
+                    schema_name=materialize_result.node_name,
+                    last_synced_at=None,
+                    saved_query_id=uuid.UUID(materialize_result.saved_query_id),
+                ),
+                id=f"sync-warehouse-person-properties-{job_id}",
+                id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=dt.timedelta(hours=6),
+            )
+        except WorkflowAlreadyStartedError:
+            temporalio.workflow.logger.info(
+                "Person-property sync already running for this job, skipping",
+                extra={"job_id": job_id},
+            )
+        except Exception as e:
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Failed to start person-property sync",
+                extra={"job_id": job_id, "error": str(e)},
+            )
 
     async def _maybe_enrich_view_semantics(
         self,

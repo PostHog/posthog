@@ -495,6 +495,18 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_length=255,
         help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together, matched against each emission's series. Pass the same filters used for the chart so the emissions listed are the ones behind it.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=100,
@@ -721,6 +733,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
+        filters = tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in query_data.get("filters") or []
+        )
         try:
             samples = list_metric_event_samples(
                 team=self.team,
@@ -728,6 +744,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,
+                filters=filters,
+                metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
                 limit=query_data.get("limit") or 100,
             )
         except ValueError as exc:
@@ -736,7 +754,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         report_user_action(
             request.user,
             "metrics samples listed",
-            {"sample_count": len(samples), "has_trace_filter": bool(query_data.get("traceId"))},
+            {
+                "sample_count": len(samples),
+                "has_trace_filter": bool(query_data.get("traceId")),
+                "filter_count": len(filters),
+            },
             team=self.team,
             request=request,
         )

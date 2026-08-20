@@ -106,6 +106,8 @@ class TestGetDirectConnectionSource(APIBaseTest):
         [
             ("reader_flag_off", "project_reader", False, True),
             ("reader_flag_on", "project_reader", True, True),
+            ("dynamic_flag_off", "duckgres_service", False, True),
+            ("dynamic_flag_on", "duckgres_service", True, True),
             ("legacy_flag_off", "org_root", False, False),
             ("legacy_flag_on", "org_root", True, False),
         ]
@@ -122,14 +124,17 @@ class TestGetDirectConnectionSource(APIBaseTest):
         membership.save()
 
         external_source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
-        managed_source = self._create_managed_source(
-            connection_metadata={
-                "engine": "duckdb",
-                "system_managed": True,
-                "credential_kind": credential_kind,
-                "reader_configured": credential_kind == "project_reader",
-            }
-        )
+        connection_metadata: dict[str, object] = {
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": credential_kind,
+            "reader_configured": credential_kind == "project_reader",
+        }
+        source_overrides: dict[str, object] = {"connection_metadata": connection_metadata}
+        if credential_kind == "duckgres_service":
+            source_overrides["job_inputs"] = {}
+            connection_metadata["lifecycle_generation"] = 1
+        managed_source = self._create_managed_source(**source_overrides)
         AccessControl.objects.create(
             team=self.team,
             resource="external_data_source",
@@ -153,6 +158,23 @@ class TestGetDirectConnectionSource(APIBaseTest):
             get_direct_connection_source(self.team, str(source.id), require_pure_direct=True),
             source,
         )
+
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    def test_saved_dynamic_connection_id_resolves_independently_of_picker_flag(
+        self, _name: str, flag_enabled: bool
+    ) -> None:
+        source = self._create_managed_source(
+            job_inputs={},
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            },
+        )
+        self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+
+        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), source)
         self.assertEqual(
             get_direct_external_data_source_for_connection(self.team.id, str(source.id)),
             source,

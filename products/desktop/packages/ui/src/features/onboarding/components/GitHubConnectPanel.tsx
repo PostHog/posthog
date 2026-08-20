@@ -6,12 +6,15 @@ import {
   GithubLogo,
   Plus,
 } from "@phosphor-icons/react";
+import { isGithubConnectPendingApproval } from "@posthog/core/integrations/connectErrors";
 import {
+  buildConnectAbandonedProps,
   buildConnectFailedProps,
   buildConnectFailureFingerprint,
   buildInstallationSettingsUrl,
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
+  deriveGithubApprovalState,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -19,15 +22,18 @@ import {
 import type { GithubConnectService } from "@posthog/core/onboarding/githubConnectService";
 import { GITHUB_CONNECT_SERVICE } from "@posthog/core/onboarding/identifiers";
 import { useService } from "@posthog/di/react";
+import { Button as QuillButton } from "@posthog/quill";
 import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { GithubApprovalNotice } from "@posthog/ui/features/integrations/GithubApprovalNotice";
 import { useGithubDisconnect } from "@posthog/ui/features/integrations/useGithubDisconnect";
 import {
   describeGithubConnectError,
   useGithubConnect,
 } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import {
+  useGithubInstallRequests,
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
@@ -48,7 +54,7 @@ import {
   Text,
 } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export function GitHubConnectPanel() {
   const queryClient = useQueryClient();
@@ -75,6 +81,13 @@ export function GitHubConnectPanel() {
     [projects, selectedProjectId],
   );
 
+  // Armed on connect start, cleared on any terminal outcome, so an unmount in
+  // between is reported as an abandoned connect.
+  const inFlightConnectRef = useRef<{
+    flowType: OnboardingGithubConnectFlow;
+    startedAtMs: number;
+  } | null>(null);
+
   const {
     error: connectError,
     isConnecting,
@@ -85,11 +98,17 @@ export function GitHubConnectPanel() {
   } = useGithubConnect({
     projectId: selectedProjectId,
     projectHasTeamIntegration: selectedProject?.hasGithubIntegration ?? null,
-    onConnected: () => track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED),
+    onConnected: () => {
+      inFlightConnectRef.current = null;
+      track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED);
+    },
   });
   const canTakeAction = !isConnecting && !timedOut && !hasConnectError;
+  const isPendingApproval = isGithubConnectPendingApproval(connectError?.code);
 
-  const initiateConnect = (
+  // Every path that begins a connect, including reconnect, must go through
+  // this, or its "started" event has no abandoned counterpart.
+  const markConnectStarted = (
     flowType: OnboardingGithubConnectFlow,
     isRetry = false,
   ) => {
@@ -97,8 +116,31 @@ export function GitHubConnectPanel() {
       flow_type: flowType,
       is_retry: isRetry,
     });
+    inFlightConnectRef.current = { flowType, startedAtMs: Date.now() };
+  };
+
+  const initiateConnect = (
+    flowType: OnboardingGithubConnectFlow,
+    isRetry = false,
+  ) => {
+    markConnectStarted(flowType, isRetry);
     void handleConnectGitHub();
   };
+
+  useEffect(() => {
+    return () => {
+      const inFlight = inFlightConnectRef.current;
+      if (!inFlight) return;
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED,
+        buildConnectAbandonedProps({
+          flowType: inFlight.flowType,
+          startedAtMs: inFlight.startedAtMs,
+          nowMs: Date.now(),
+        }),
+      );
+    };
+  }, []);
 
   const connectService = useService<GithubConnectService>(
     GITHUB_CONNECT_SERVICE,
@@ -110,12 +152,31 @@ export function GitHubConnectPanel() {
       errorCode: connectError?.code,
     };
     const fingerprint = buildConnectFailureFingerprint(failureInputs);
+    const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
+    // Clear the marker only on a terminal outcome — even a deduped one. A
+    // non-terminal re-run (a retry moving error/timeout back to connecting)
+    // must leave it intact so a later unmount still records the abandonment.
+    if (fingerprint !== null) {
+      inFlightConnectRef.current = null;
+    }
     if (!connectService.shouldReportFailure(fingerprint)) return;
+    if (isPendingApproval) {
+      track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN, {
+        flow_type: flowType,
+      });
+      return;
+    }
     track(
       ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED,
       buildConnectFailedProps(failureInputs),
     );
-  }, [hasConnectError, timedOut, connectError, connectService]);
+  }, [
+    hasConnectError,
+    timedOut,
+    connectError,
+    connectService,
+    isPendingApproval,
+  ]);
 
   const defaultPanelMessage = getGithubPanelMessage({
     hasConnectError,
@@ -129,6 +190,14 @@ export function GitHubConnectPanel() {
     isLoading: githubUserIntegrationsLoading,
   } = useUserGithubIntegrations();
   const hasGitIntegration = githubUserIntegrations.length > 0;
+  const { data: githubInstallRequests = [] } = useGithubInstallRequests();
+  const approvalState = deriveGithubApprovalState({
+    errorCode: connectError?.code,
+    requests: githubInstallRequests,
+    hasIntegration: hasGitIntegration,
+  });
+  const isAwaitingApproval = approvalState === "awaiting";
+  const isApprovedNotLinked = approvalState === "approved";
   const { failedInstallationIds, reposByInstallationId } =
     useUserRepositoryIntegration();
   const anyIntegrationStale = isAnyIntegrationStale(
@@ -256,6 +325,10 @@ export function GitHubConnectPanel() {
                   )}
                   .
                 </Text>
+              ) : isAwaitingApproval ? (
+                <GithubApprovalNotice state="awaiting" className="pt-3" />
+              ) : isApprovedNotLinked ? (
+                <GithubApprovalNotice state="approved" className="pt-3" />
               ) : (
                 <Text
                   className={
@@ -322,16 +395,18 @@ export function GitHubConnectPanel() {
                             !isReconnecting
                           }
                           onClick={async () => {
-                            track(
-                              ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED,
-                              { flow_type: "user_new", is_retry: true },
-                            );
+                            markConnectStarted("user_new", true);
                             setReconnectingInstallationId(installationId);
                             try {
                               await reconnect(
                                 installationId,
                                 handleConnectGitHub,
                               );
+                            } catch {
+                              // The pre-connect disconnect failed, so no
+                              // connect flow ever started; a later unmount
+                              // must not report this as user abandonment.
+                              inFlightConnectRef.current = null;
                             } finally {
                               setReconnectingInstallationId(null);
                             }
@@ -400,6 +475,17 @@ export function GitHubConnectPanel() {
                 </Button>
               </Flex>
             </Flex>
+          ) : isAwaitingApproval ? null : isApprovedNotLinked ? (
+            <QuillButton
+              variant="primary"
+              size="sm"
+              className="self-start"
+              loading={isConnecting}
+              onClick={() => initiateConnect("user_new")}
+            >
+              Connect GitHub
+              <ArrowSquareOut size={12} />
+            </QuillButton>
           ) : !isLoading && !githubUserIntegrationsLoading ? (
             selectedProject?.hasGithubIntegration && canTakeAction ? (
               <Button

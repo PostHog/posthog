@@ -66,8 +66,11 @@ class DeletionTarget:
     # exists. A compiled fragment names physical columns (mat_*, the property-group maps, or JSON
     # subcolumns), so it only runs against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
-    # properties/person_properties can be rewritten in place. True only where the property columns
-    # are DEFAULT-kind, as materialize() mints them, and so can be reset by ALTER UPDATE.
+    # properties/person_properties can be rewritten in place. True needs both halves: the property
+    # columns are DEFAULT-kind (assignable by ALTER UPDATE, as materialize() mints them), and the
+    # property-rewrite machinery in posthog/dags/data_deletion_requests.py actually sweeps the
+    # table, which today is hardcoded to the events tables. flag_evaluations satisfies only the
+    # schema half, so flipping this without extending the sweep silently under-deletes.
     accepts_property_rewrite: bool = False
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
