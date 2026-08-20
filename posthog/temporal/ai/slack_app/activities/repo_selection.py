@@ -50,6 +50,15 @@ def cascade_posthog_code_repository_activity(
 
     from products.slack_app.backend.api import _get_full_repo_names
 
+    # A fork inherits the repo the thread it came from was already working on. Its
+    # prompt is generic ("catch me up on this thread"), so every signal the cascade
+    # below scans for is absent and the ask would land on the discovery agent and
+    # then the picker — in a DM, for someone who asked for an explanation.
+    if inputs.fork_repository:
+        return PostHogCodeRepoCascadeOutcome(
+            mode="auto", repository=inputs.fork_repository, reason="inherited_from_fork_source"
+        )
+
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",

@@ -155,6 +155,43 @@ def test_build_description_indents_multi_line_bodies_under_author():
     ) in out
 
 
+def test_build_description_for_a_fork_keeps_every_message_and_claims_none_as_the_request():
+    # A fork's context is a thread the requester never spoke in: no message in it is
+    # the ask, so none may be replaced by the placeholder, and the "tagged the PostHog
+    # app" annotation must not appear and misattribute the request to a participant.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "the retry logic looks wrong", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "agreed, it double-counts", "ts": "2.000"},
+        ],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+    )
+    assert _INITIATOR_PLACEHOLDER not in out
+    assert "the retry logic looks wrong" in out
+    assert "agreed, it double-counts" in out
+    assert "tagged the PostHog app" not in out
+    assert "https://slack.test/archives/C1/p2" in out
+    assert out.endswith("catch me up")
+
+
+def test_build_description_for_a_fork_forbids_pinging_the_forked_participants():
+    # The reply lands in a DM with the requester. Echoing a mention token would ping
+    # someone who never asked for this and cannot see the conversation.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "something", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "else", "ts": "2.000"},
+        ],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+    )
+    assert "never ping anyone quoted here" in out
+    assert "reuse those mention tokens verbatim" not in out
+
+
 def test_build_description_collapses_role_annotations_when_same_person():
     # If the thread starter is also the one who tagged the bot, repeating both lines
     # would just say the same name twice. One combined annotation is clearer.

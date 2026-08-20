@@ -45,10 +45,12 @@ from posthog.temporal.ai.slack_app import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+from posthog.temporal.ai.slack_app.slack_app_fork import FORK_THREAD_CALLBACK_ID, SlackAppForkThreadWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
+from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -3270,9 +3272,12 @@ def _start_mention_workflow(
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
+    fork_source_channel: str | None = None,
+    fork_source_thread_ts: str | None = None,
+    fork_repository: str | None = None,
 ) -> str:
-    """Start the mention workflow for either an explicit ``app_mention`` or an
-    untagged thread reply.
+    """Start the mention workflow for an explicit ``app_mention``, an untagged
+    thread reply, or a forked thread.
 
     ``untagged_followup`` toggles two mention-only side effects: the
     ``slack_mention_received`` analytics fire (which would otherwise pollute
@@ -3281,8 +3286,14 @@ def _start_mention_workflow(
     is also threaded into the workflow inputs so the workflow runs the
     classifier activity at the top of its body and short-circuits if the
     mapping is gone by the time the followup activity runs.
+
+    The ``fork_source_*`` pair marks a run started from the "Fork to DM" shortcut,
+    where the thread being answered (a DM) and the thread supplying the context
+    (the forked channel thread) differ. They suppress the same two side effects:
+    nobody mentioned us, and the DM seed message can't be resolving a picker.
     """
-    if not untagged_followup:
+    is_fork = bool(fork_source_channel and fork_source_thread_ts)
+    if not untagged_followup and not is_fork:
         _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
@@ -3295,6 +3306,9 @@ def _start_mention_workflow(
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,
         is_ext_shared_channel=is_ext_shared_channel,
+        fork_source_channel=fork_source_channel,
+        fork_source_thread_ts=fork_source_thread_ts,
+        fork_repository=fork_repository,
     )
     # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
@@ -4537,6 +4551,42 @@ def _post_insight_alert_snooze_modal_confirmation(
         logger.warning("insight_alert_snooze_modal_confirm_failed")
 
 
+def _is_fork_thread_interactivity(payload: dict, payload_type: str) -> bool:
+    """True for a "Fork to DM" message shortcut click."""
+    return payload_type == "message_action" and payload.get("callback_id") == FORK_THREAD_CALLBACK_ID
+
+
+def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
+    """Hand the fork to Temporal and ack immediately.
+
+    Everything the fork needs to do — resolving the user, reading the thread,
+    opening the DM — is too slow for Slack's 3-second interactivity budget, so
+    this does nothing but dispatch. The workflow id is derived from the message
+    that was forked, so double-clicking the shortcut reuses the running fork
+    instead of opening a second DM thread about the same conversation.
+    """
+    team_id = payload.get("team", {}).get("id", "")
+    user_id = payload.get("user", {}).get("id", "")
+    message = payload.get("message", {}) or {}
+    source_ts = message.get("thread_ts") or message.get("ts", "")
+    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                SlackAppForkThreadWorkflow.run,
+                SlackAppForkThreadInputs(payload=payload),
+                id=workflow_id,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except Exception as e:
+        logger.warning("slack_app_fork_submit_start_failed", workflow_id=workflow_id, error=str(e))
+    return HttpResponse(status=200)
+
+
 @csrf_exempt
 def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -4625,6 +4675,15 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
+    elif slack_team_id and _is_fork_thread_interactivity(payload, payload_type):
+        # Message shortcuts carry no block_id and no action value, so there is no
+        # per-row hint to route on — same shape as the AI-settings clicks above.
+        # Authorization (org membership, project access, channel approval) is
+        # enforced in the fork activity, not here.
+        local = Integration.objects.filter(
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
@@ -4699,6 +4758,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         if payload.get("view", {}).get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
             return _handle_insight_alert_snooze_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
+
+    if _is_fork_thread_interactivity(payload, payload_type):
+        return _handle_fork_thread_submit(payload)
 
     if payload_type == "block_actions":
         actions = payload.get("actions", [])

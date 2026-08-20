@@ -18,6 +18,18 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
+@dataclass
+class SlackAppForkThreadInputs:
+    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+
+    Passed through rather than parsed at the boundary: the webhook's only job is to ack
+    inside Slack's three-second budget, so everything it could read from the payload is
+    read in the activity instead.
+    """
+
+    payload: dict[str, Any]
+
+
 @frozen
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
@@ -43,6 +55,18 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
     is_ext_shared_channel: bool = False
+    # Set only on a forked run (the "Fork to DM" message shortcut). The workflow
+    # runs against a DM thread — that pair owns the task, the mapping, the answer
+    # and every follow-up — but reads its `<slack_thread_context>` from the channel
+    # thread the user forked, which these two point at. Unset everywhere else, so
+    # the two pairs coincide and the fork branch is invisible.
+    fork_source_channel: str | None = None
+    fork_source_thread_ts: str | None = None
+    # Repository carried over from the forked thread's own task, when it had one.
+    # A fork's prompt is generic, so the repo cascade has nothing to match on and
+    # would fall through to the discovery agent and then the picker — in a DM, for
+    # someone who asked for an explanation. `None` means "run the normal cascade".
+    fork_repository: str | None = None
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
