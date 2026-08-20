@@ -3388,7 +3388,8 @@ class SignalReportArtefactViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             content = {**content, "task_id": str(task_id)}
-            if content.get("product") == SIGNALS_PRODUCT:
+            asserted_product = content.get("product")
+            if isinstance(asserted_product, str) and asserted_product.strip() == SIGNALS_PRODUCT:
                 # `signals` is the built-in pipeline's own namespace, and it is what the
                 # per-report task cap counts. A client that could assert it would be able to fill
                 # another report's discussion allowance with associations to arbitrary tasks of
@@ -3396,6 +3397,11 @@ class SignalReportArtefactViewSet(
                 # `append_task_run_artefact` in-process and never come through here; custom agents
                 # carry their own identifier pair. Mirrors the tasks write serializer, which
                 # rejects the pipeline's reserved relationship labels for the same reason.
+                #
+                # Compared on the stripped value because `identifier_part_must_be_routing_safe`
+                # strips before storing, so an unstripped comparison would let `" signals "` land
+                # in the reserved namespace. The regex it then applies rejects every other
+                # variation, so whitespace is the only normalization the two sides must agree on.
                 return Response(
                     {"error": f"content.product '{SIGNALS_PRODUCT}' is reserved for server-created runs."},
                     status=status.HTTP_400_BAD_REQUEST,

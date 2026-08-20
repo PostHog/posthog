@@ -1193,10 +1193,12 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalReportArtefact.objects.filter(id=artefact.id).exists()
 
-    def test_create_task_run_cannot_assert_the_signals_product(self):
+    @parameterized.expand([("exact", "signals"), ("padded", " signals ")])
+    def test_create_task_run_cannot_assert_the_signals_product(self, _name: str, asserted_product: str):
         # `signals` is what the per-report task cap counts, so a client that could assert it
         # would fill another report's discussion allowance with its own tasks — permanently,
-        # since the log is append-only.
+        # since the log is append-only. The padded case is the one a raw comparison misses:
+        # content validation strips the value before it is stored, so it lands as `signals`.
         report = self._create_report()
         task = Task.objects.create(
             team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
@@ -1207,7 +1209,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             data=json.dumps(
                 {
                     "artefact_type": "task_run",
-                    "content": {"task_id": str(task.id), "product": "signals", "type": "discussion"},
+                    "content": {"task_id": str(task.id), "product": asserted_product, "type": "discussion"},
                 }
             ),
             content_type="application/json",
