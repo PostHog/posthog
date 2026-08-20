@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 
 
@@ -264,6 +265,26 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalTeamConfig.objects.filter(team=self.team).exists()
         assert self._activity() == []
+
+    def test_create_carrying_a_nondefault_value_is_recorded_in_the_activity_log(self):
+        # Slack onboarding sets a channel via update_or_create for teams whose row was never
+        # materialized, so the row is created with the channel already set. That first choice
+        # must still be audited even though it arrives as a create rather than an update.
+        self.config.delete()
+        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals")
+
+        entries = self._activity()
+        assert len(entries) == 1
+        assert entries[0].detail is not None
+        assert entries[0].detail["changes"] == [
+            {
+                "type": "SignalTeamConfig",
+                "action": "created",
+                "field": "team Slack channel",
+                "before": None,
+                "after": "C123|#posthog-signals",
+            }
+        ]
 
     def test_resending_the_same_values_does_not_record_activity(self):
         self.client.post(self._url(), data={"default_autostart_priority": "P1"}, format="json")

@@ -81,10 +81,14 @@ def handle_signal_team_config_change(
     if instance is None:
         return
 
-    changes = changes_between(scope, previous=before_update, current=after_update)
-    # The row itself is bookkeeping: it's materialized when the team is created, or lazily on
-    # whoever reads the settings first, so a create carries no diff and no real actor. Only
-    # persist saves that moved a field, which also keeps idempotent re-saves out of the log.
+    # On create, diff against a fresh default row rather than None. `changes_between` yields
+    # nothing when `previous` is None, which would drop the create branch of update_or_create() —
+    # the path Slack onboarding takes to set a channel on a team whose row was never materialized.
+    # Diffing against defaults keeps an all-default create (team creation, lazy read) silent while
+    # still auditing a create that carries a non-default value.
+    previous = before_update if before_update is not None else SignalTeamConfig()
+    changes = changes_between(scope, previous=previous, current=after_update)
+    # Only persist saves that moved a field, which also keeps idempotent re-saves out of the log.
     if not changes:
         return
 
