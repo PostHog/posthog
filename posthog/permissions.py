@@ -756,35 +756,28 @@ class APIScopePermission(ScopeBasePermission):
         return True
 
     def _check_channel_ceiling(self, request, view, required_scopes: list[str]) -> bool:
-        """Deny write-scoped actions when the organization caps this request's channel below
-        editor. Runs before the wildcard-scope early return on purpose: a `*` token must not
-        bypass an organization-level restriction. Reads the same policy the access-control
-        facade composes into object decisions, so the two enforcement points cannot drift."""
+        """Edge adapter for the access-control channel-ceiling policy: translate DRF vocabulary
+        (view, required scopes) into the facade's terms and apply its verdict. Runs before the
+        wildcard-scope early return on purpose: a `*` token must not bypass an organization-level
+        restriction. All policy lives in the facade so later enforcement points cannot drift."""
         from products.access_control.backend.facade.ceilings import (  # noqa: PLC0415 — imported lazily to keep the products app out of this module's import cycle at django.setup()
-            WRITE_CAPPED_LEVELS,
-            channel_ceiling,
-            classify_channel,
+            ceiling_denial_for_request,
         )
 
-        channel = classify_channel(request)
-        if channel is None:
-            return True
-        if not any(scope.endswith(":write") for scope in required_scopes):
-            return True
         try:
             org = get_organization_from_view(view)
         except ValueError:
             return True
-        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-            return True
 
         scope_object = self._get_scope_object(request, view)
-        cap = channel_ceiling(org, channel, scope_object if scope_object != "INTERNAL" else None)
-        if cap in WRITE_CAPPED_LEVELS:
-            self.message = (
-                "Your organization restricts MCP access to read-only. "
-                "An organization admin can change this in your organization settings."
-            )
+        denial = ceiling_denial_for_request(
+            request,
+            org,
+            resource=scope_object if scope_object != "INTERNAL" else None,
+            writes=any(scope.endswith(":write") for scope in required_scopes),
+        )
+        if denial is not None:
+            self.message = denial
             return False
         return True
 

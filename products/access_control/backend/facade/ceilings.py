@@ -9,6 +9,7 @@ disagree about what the organization configured.
 from typing import TYPE_CHECKING, Any
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_ceiling import AccessCeiling
 
@@ -30,6 +31,30 @@ def classify_channel(request: Any) -> str | None:
         user_agent = request.headers.get("User-Agent") or ""
         if MCP_USER_AGENT_MARKER in user_agent:
             return AccessCeiling.Channel.MCP
+    return None
+
+
+def ceiling_denial_for_request(
+    request: Any, organization: "Organization", resource: str | None, writes: bool
+) -> str | None:
+    """The complete channel-ceiling decision: a user-facing denial message when this request's
+    pathway is capped below what the action needs, or None to allow.
+
+    Owns classification, the entitlement gate, row lookup and the copy, so enforcement points
+    (today `APIScopePermission`, later the facade's `decide()`) contain no policy of their own."""
+    if not writes:
+        return None
+    channel = classify_channel(request)
+    if channel is None:
+        return None
+    if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+        return None
+    cap = channel_ceiling(organization, channel, resource)
+    if cap in WRITE_CAPPED_LEVELS:
+        return (
+            "Your organization restricts MCP access to read-only. "
+            "An organization admin can change this in your organization settings."
+        )
     return None
 
 
