@@ -926,6 +926,37 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_destinations_listed_via_generic_hog_functions_api(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+
+        list_response = self.client.get(
+            f"/api/projects/{self.team.pk}/hog_functions/",
+            {
+                "type": "internal_destination",
+                "full": "true",
+                "filter_groups": json.dumps(
+                    [
+                        {
+                            "properties": [
+                                {"key": "alert_id", "value": created["id"], "operator": "exact", "type": "event"}
+                            ]
+                        }
+                    ]
+                ),
+            },
+        )
+
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        assert listed_ids == set(create_response.json()["hog_function_ids"])
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),

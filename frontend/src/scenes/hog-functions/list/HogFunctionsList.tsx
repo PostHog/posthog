@@ -53,6 +53,10 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
+    'logs-alerting': {
+        label: 'Log alerts',
+        url: `${urls.logs()}?activeTab=alerts`,
+    },
     'health-alerts': {
         label: 'Health alerts',
         url: urls.healthAlerts(),

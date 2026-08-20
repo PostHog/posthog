@@ -2,7 +2,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Final, Optional
 
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -13,12 +13,18 @@ from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
 logger = structlog.get_logger(__name__)
 
-# Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
-# filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
-# POSIX-compatible (no (?:...) groups).
+# Single source of truth for the managed-alert event boundary, mirrored as a verbatim JS regex
+# literal in the Node CDP consumer (cdp-internal-event.consumer.ts); keep the two byte-identical.
 MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
+
+GENERIC_API_HIDDEN_ALERT_EVENTS: Final[tuple[str, ...]] = (
+    "$billing_alert_firing",
+    "$billing_alert_resolved",
+    "$billing_alert_errored",
+    "$billing_alert_auto_disabled",
+)
 
 
 def is_managed_alert_internal_event(event_name: object) -> bool:
