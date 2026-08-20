@@ -43,9 +43,11 @@ to pin a specific failure to a boundary and author.
 
 `blocking_merge_queue` is the one shape the manual table below does not cover, because it looks like
 a single-branch failure and is not. The merge queue runs the full suite on a gate branch
-(`trunk-merge/pr-<n>/…`) carrying the PR rebased onto trunk, so a failure there is on a commit that
-already passed the PR's own CI: a conflict with what landed in between, not that PR's own bug. Read
-it as "this stopped a merge", and diff the PR against trunk rather than reading the PR alone.
+(`trunk-merge/pr-<n>/…`) carrying master, the PR, and every PR queued ahead of it with overlapping
+impacted targets (in practice most of the queue), so a failure there is on a commit that already
+passed the PR's own CI: a conflict with what landed or queued in between, or a queue-mate's own
+break, not that PR's bug by default. Read it as "this stopped a merge", list what the gate branch
+ran (query 8), and diff it against trunk rather than reading the PR alone.
 
 ## The four failure shapes
 
@@ -55,7 +57,7 @@ falls out of three columns:
 | Shape                                   | Reading                         | Next step                                            |
 | --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
 | 1 branch, any window                    | That PR's own problem           | Read its failure lines; done                         |
-| 1 `trunk-merge/pr-<n>/…` gate branch    | Conflict with what landed since | Diff the PR against trunk, not the PR alone          |
+| 1 `trunk-merge/pr-<n>/…` gate branch    | Queue-mate, or landed since     | Query 8, then diff the gate branch against trunk     |
 | Many branches, dense burst, hits master | Trunk break (master is/was red) | Boundary query → culprit (below)                     |
 | Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-flaky-tests` |
 

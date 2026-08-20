@@ -180,3 +180,21 @@ than a code change. Recent hours entirely red = an outage; stop advising retries
 = a standing defect that looks like noise one run at a time.
 
 Both queries keep the `created_at_raw` string floor for the same pruning reason as query 6.
+
+## 8. What the merge queue ran for a PR
+
+The `trunk-merge/pr-<n>/<uuid>` branch is ephemeral, but the jobs it ran stay in `ci_job_history`
+under that `head_branch`. One row per job attempt, failures first:
+
+```sql
+SELECT head_branch, run_id, workflow_name, job_name, conclusion, created_at
+FROM engineering_analytics_ci_job_history
+WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
+  AND created_at >= now() - INTERVAL 7 DAY
+  AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
+ORDER BY conclusion IN ('failure', 'timed_out') DESC, created_at DESC
+```
+
+Each `<uuid>` is one queue attempt; a PR kicked twice has two. The failing `job_name` feeds query 7.
+The PRs the branch carried are readable off its head: `gh api repos/<owner>/<repo>/compare/master...<head_sha>`
+lists merge commits titled `Merging <sha> into trunk-temp/pr-<m>/…`, one `<m>` per queue-mate.

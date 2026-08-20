@@ -5,7 +5,7 @@ description: >
   and answers broad CI-health questions ("is CI red?", "is master green today?",
   "what's broken right now?"). Use when the user asks why CI is red, asks for the
   current CI or master status, or mentions a failing check, GitHub Actions run,
-  Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
+  Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
   build failure. Start with the `hogli ci:insights` digest (cross-run CI history
   from engineering analytics), then guides read-only inspection, failure
@@ -97,8 +97,9 @@ Caveats to carry into whatever you report:
 
 - Failure grouping is pytest-only. Jest, Playwright, and cargo failures appear
   only in the digest's grouped master-failures section, never as a row with a ref.
-- Every count is absolute, never a rate. Passing runs are not in this data, so
-  there is no denominator and no failure rate to quote.
+- Every count is absolute, never a rate. Passing runs are not in the test-level
+  data, so there is no denominator to quote. Job conclusions do record greens;
+  the base-rate section below is how to get a real rate from them.
 - A run's conclusion can lag until GitHub's `workflow_run` webhook settles it, so
   during a live incident confirm a specific run against `gh`.
 
@@ -120,15 +121,24 @@ Determine the target in this order:
 
 **A PR kicked from the merge queue is the exception: its own checks are the
 wrong target.** Trunk tests each queued PR on a `trunk-merge/pr-<n>/<uuid>`
-branch holding master plus every PR ahead of it in the queue. So:
+branch holding master plus every PR queued ahead of it whose impacted targets
+overlap its own. The lane script over-reports targets on purpose, so in
+practice that is most of the queue. So:
 
 - The failing run is on that branch, never on the PR's head SHA. Take it from
   the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
-- The PR's own checks can be green with the failing job **skipped**. Path
-  filters see only that PR's diff; the queue branch's diff is much wider. A
-  docs-only PR can be kicked by a job its own CI never ran.
+  The branch is ephemeral; the run and its logs stay on GitHub, and the
+  warehouse keeps its jobs under that `head_branch` (query 8 in the
+  `investigating-ci-failures` references).
+- The PR's own checks can be green with the failing job **skipped** or
+  narrowed. On the PR, path filters see only that diff and the Django suite runs
+  a selected subset; on the queue branch the diff is every carried PR's and the
+  full matrices always run. A docs-only PR can be kicked by a job its own CI
+  never ran.
 - The branch names one PR but carries many. A failure on it is not evidence
-  against that PR until you find the change that caused it.
+  against that PR until you find the change that caused it; the branch's other
+  merge commits are the first suspects.
+- In the digest this is the `blocking_merge_queue` state.
 
 Inspect read-only:
 
@@ -169,7 +179,8 @@ is a shortcut past log scanning: give it the run URL
 structured failing-test details — names, error messages, stdout/stderr — from
 the results CI uploaded to Trunk Flaky Tests, with quarantined known-flaky
 tests already filtered out. It only covers what ran and uploaded: for jobs
-that died before tests (build, setup, lint), stay with `gh run view --log`.
+that died before tests (build, setup, lint), use
+`engineering-analytics-run-failure-logs` or `gh run view --log`.
 Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments
 instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
 token to the server entry in `.mcp.json`. To dig into one test's flakiness
@@ -202,8 +213,9 @@ generic Playwright test failure.
 one run. A job that dies before its tests run leaves no test-level evidence: no
 `FAILED` line, so no fingerprint and no span, so it never appears as a row in
 `broken_tests` or in the flaky-tests tool. It is still visible as a job
-conclusion, which is what the digest's master-failures section and
-`engineering-analytics-run-failure-logs` read. Start there, not from a test.
+conclusion, which is what the digest's master-failures section groups by, and
+`engineering-analytics-run-failure-logs` still returns its failing lines because
+it reads by run, not by test. Start there, not from a test.
 
 Unlike the span-derived test reads, this one can give you a real rate: the
 warehouse records every job attempt, greens included, so the denominator is
@@ -236,7 +248,7 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 | snapshot / visual   | Run the specific Playwright or Storybook workflow; read `playwright-test` if needed. |
 | migration / schema  | `hogli migrations:check`; run migrations only if the user agrees.                    |
 | codegen drift       | `hogli build:openapi`.                                                               |
-| infra / runner      | No local repro. Report and stop.                                                     |
+| infra / runner      | No local repro. Get the base rate (above), report, and stop.                         |
 | environment / setup | Reproduce the setup step only if cheap and relevant to changed files.                |
 | skills build        | `hogli lint:skills`; if that passes, `hogli build:skills`.                           |
 
@@ -277,4 +289,5 @@ Next action (needs your approval):
 ```
 
 If the classification is `infra / runner` or a shadow run, say so and stop;
-do not propose a code change.
+do not propose a code change. For `infra / runner`, include the base rate and
+whether a retry is warranted.
