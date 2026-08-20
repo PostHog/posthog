@@ -1,4 +1,3 @@
-import { Check } from "@phosphor-icons/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -80,13 +79,17 @@ export function HandoffTaskDialog({
 
   const items = useMemo<PersonItem[]>(
     () =>
-      members
-        .filter((member) => member.id !== currentUser.data?.id)
-        .map((member) => ({
-          id: String(member.id),
-          label: userDisplayName(member),
-          member,
-        })),
+      members.flatMap((member) =>
+        member.id === currentUser.data?.id
+          ? []
+          : [
+              {
+                id: String(member.id),
+                label: userDisplayName(member),
+                member,
+              },
+            ],
+      ),
     [members, currentUser.data?.id],
   );
   const selected = items.find((item) => item.id === selectedId);
@@ -168,15 +171,14 @@ export function HandoffTaskDialog({
                       <AutocompleteItem
                         key={item.id}
                         value={item.id}
-                        aria-selected={selectedId === item.id}
+                        data-selected={selectedId === item.id || undefined}
                         onClick={() => setSelectedId(item.id)}
-                        className="flex items-center gap-2 ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0"
+                        // Same fill-on-select and softened focus ring as the
+                        // channels sidebar rows; the span override lets the
+                        // email reach the row's right edge under quill's own
+                        // child wrapper.
+                        className="w-full min-w-0 data-selected:bg-fill-selected data-selected:text-foreground ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:gap-2"
                       >
-                        <span className="flex w-4 shrink-0 items-center justify-center">
-                          {selectedId === item.id && (
-                            <Check size={14} className="text-accent-11" />
-                          )}
-                        </span>
                         <UserAvatar
                           user={item.member}
                           size="xs"
