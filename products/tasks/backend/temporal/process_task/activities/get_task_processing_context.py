@@ -834,6 +834,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if not task_run.matches_task_ownership(task):
+        raise TaskInvalidStateError(
+            f"TaskRun {run_id} belongs to a previous task owner",
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(f"TaskRun {run_id} ownership version is stale"),
+        )
     if task.runtime == Task.Runtime.PI:
         ensure_task_run_session(task_run.id)
 
