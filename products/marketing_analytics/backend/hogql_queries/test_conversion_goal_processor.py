@@ -3558,8 +3558,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         - May 01: Ad with missing campaign but valid source
         - Jun 01: Purchase
 
-        Expected: Should handle gracefully with appropriate fallbacks
-        Tests data quality handling for incomplete UTM parameters
+        Expected: utm_source alone marks a paid touchpoint (campaign optional). The May 01
+        source-only pageview is the last touch before the purchase, so the conversion is
+        credited to paid (facebook → meta). The Apr 01 pageview has a campaign but no source
+        and no click id, so it is not a touchpoint.
         """
         with freeze_time("2023-03-01"):
             _create_person(distinct_ids=["malformed_utm_user"], team=self.team)
@@ -3622,10 +3624,61 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         campaign_name, source_name, conversion_count = first_result[1], first_result[3], first_result[4]
-        # Should handle gracefully - could attribute to last valid campaign or show Unknown
-        assert campaign_name is not None, "Should handle malformed UTM without crashing"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert source_name == "organic", f"Expected organic source, got {source_name}"
+        # Source-only touchpoint attributes to paid; the empty campaign falls back to organic.
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic campaign, got {campaign_name}"
+
+    @parameterized.expand(
+        [
+            ("gclid", {"gclid": "abc123"}, "google", "Paid Search"),
+            ("gad_source", {"gad_source": "1"}, "google", "Paid Search"),
+            ("fbclid", {"fbclid": "xyz789"}, "meta", "Organic Social"),
+        ]
+    )
+    def test_click_id_only_touchpoint_names_the_ad_network(
+        self, _name, pageview_properties, expected_source, expected_channel
+    ):
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE
+        with freeze_time("2023-05-01"):
+            _create_person(distinct_ids=["click_id_user"], team=self.team)
+            _create_event(
+                distinct_id="click_id_user",
+                event="$pageview",
+                team=self.team,
+                properties=pageview_properties,
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-06-01"):
+            _create_event(distinct_id="click_id_user", event="purchase", team=self.team, properties={"revenue": 100})
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="click_id_only",
+            conversion_goal_name="Click id only",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Schema: [0]=match_key, [1]=campaign (channel_type at this level), [2]=id, [3]=source
+        channel_type, source_name = response.results[0][1], response.results[0][3]
+        assert source_name == expected_source, f"Expected {expected_source} source, got {source_name}"
+        assert channel_type == expected_channel, f"Expected {expected_channel} channel, got {channel_type}"
 
     def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
