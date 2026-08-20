@@ -1284,6 +1284,29 @@ async fn it_limits_every_analytics_endpoint_to_the_same_wire_cap() -> Result<()>
     let res = server.capture_to_batch(over_cap.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
 
+    // The accept side, on both routes, proven by the event reaching the topic.
+    // It has to stay under the producer's 1MB message ceiling, so it cannot also
+    // show that the cap is now 20MB rather than 2MB; that case needs an
+    // in-process sink and lives in integration_wire_body_limits.rs.
+    let accepted = json!({
+        "token": token,
+        "event": "event3",
+        "distinct_id": distinct_id,
+        "properties": {
+            "big": "a".repeat(256 * 1024)
+        }
+    });
+
+    let res = server.capture_events(accepted.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let got = main_topic.next_event()?;
+    assert_eq!(got["event"], "event3");
+
+    let res = server.capture_to_batch(accepted.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let got = main_topic.next_event()?;
+    assert_eq!(got["event"], "event3");
+
     Ok(())
 }
 

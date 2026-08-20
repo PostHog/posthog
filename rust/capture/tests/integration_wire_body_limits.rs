@@ -31,15 +31,31 @@ impl TimeSource for FixedTime {
 }
 
 #[derive(Clone)]
-struct DiscardingSink;
+struct CapturingSink {
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+}
+
+impl CapturingSink {
+    fn new() -> Self {
+        Self {
+            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    async fn count(&self) -> usize {
+        self.events.lock().await.len()
+    }
+}
 
 #[async_trait]
-impl Event for DiscardingSink {
-    async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
+impl Event for CapturingSink {
+    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.events.lock().await.push(event);
         Ok(())
     }
 
-    async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.events.lock().await.extend(events);
         Ok(())
     }
 }
@@ -47,7 +63,7 @@ impl Event for DiscardingSink {
 /// A client whose decompressed budget is far above the wire cap, so only the
 /// wire cap can produce a 413. This mirrors production, where the decompressed
 /// budget is five times the wire cap.
-fn make_test_client(mode: CaptureMode) -> TestClient {
+fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
@@ -55,6 +71,7 @@ fn make_test_client(mode: CaptureMode) -> TestClient {
             .with_timezone(&Utc),
     };
     let redis = Arc::new(MockRedisClient::new());
+    let sink = CapturingSink::new();
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = mode;
 
@@ -62,7 +79,7 @@ fn make_test_client(mode: CaptureMode) -> TestClient {
         timesource,
         readiness,
         liveness,
-        Arc::new(DiscardingSink),
+        Arc::new(sink.clone()),
         redis.clone(),
         None,
         CaptureQuotaLimiter::new(&cfg, redis, Duration::from_secs(60)),
@@ -91,7 +108,7 @@ fn make_test_client(mode: CaptureMode) -> TestClient {
         None,
     );
 
-    TestClient::new(app)
+    (TestClient::new(app), sink)
 }
 
 /// A body of `len` bytes that is valid JSON, so nothing before the size check
@@ -111,10 +128,18 @@ fn body_of_len(len: usize) -> String {
 /// so each of these paths silently accepted the much larger decompressed budget.
 #[tokio::test]
 async fn every_v0_analytics_route_rejects_a_body_over_the_wire_cap() {
-    let client = make_test_client(CaptureMode::Events);
+    let (client, _sink) = make_test_client(CaptureMode::Events);
     let over = body_of_len(BATCH_BODY_SIZE + 1024);
 
-    for path in ["/e", "/i/v0/e", "/batch", "/capture", "/track", "/engage"] {
+    for path in [
+        "/e",
+        "/i/v0/e",
+        "/batch",
+        "/i/v0/ai/batch",
+        "/capture",
+        "/track",
+        "/engage",
+    ] {
         let res = client
             .post(path)
             .header("Content-Type", "application/json")
@@ -135,12 +160,21 @@ async fn every_v0_analytics_route_rejects_a_body_over_the_wire_cap() {
 /// went unnoticed.
 #[tokio::test]
 async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
-    let client = make_test_client(CaptureMode::Events);
+    let (client, sink) = make_test_client(CaptureMode::Events);
     // Comfortably over the 2MB cap the event routes used to carry, and well
     // under the shared 20MB one.
     let under = body_of_len(4 * 1024 * 1024);
+    let mut ingested = 0usize;
 
-    for path in ["/e", "/i/v0/e", "/batch", "/capture", "/track", "/engage"] {
+    for path in [
+        "/e",
+        "/i/v0/e",
+        "/batch",
+        "/i/v0/ai/batch",
+        "/capture",
+        "/track",
+        "/engage",
+    ] {
         let res = client
             .post(path)
             .header("Content-Type", "application/json")
@@ -148,10 +182,16 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
             .body(under.clone())
             .send()
             .await;
-        assert_ne!(
-            StatusCode::PAYLOAD_TOO_LARGE,
+        assert_eq!(
+            StatusCode::OK,
             res.status(),
             "{path} rejected a body inside the wire cap"
+        );
+        ingested += 1;
+        assert_eq!(
+            ingested,
+            sink.count().await,
+            "{path} returned 200 without producing the event"
         );
     }
 }
@@ -167,7 +207,7 @@ async fn every_v0_analytics_route_accepts_a_body_under_the_wire_cap() {
 /// production comes close: the largest bodies observed are well under the cap.
 #[tokio::test]
 async fn a_large_overshoot_still_delivers_the_status_instead_of_a_reset() {
-    let client = make_test_client(CaptureMode::Events);
+    let (client, sink) = make_test_client(CaptureMode::Events);
     let res = client
         .post("/batch")
         .header("Content-Type", "application/json")
@@ -187,13 +227,18 @@ async fn a_large_overshoot_still_delivers_the_status_instead_of_a_reset() {
         .send()
         .await;
     assert_eq!(StatusCode::OK, res.status());
+    assert_eq!(
+        1,
+        sink.count().await,
+        "the retry after a rejection was lost"
+    );
 }
 
 /// Replay keeps its own, larger cap. It runs a different handler, so the wiring
 /// is separate and worth pinning apart from the analytics routes.
 #[tokio::test]
 async fn the_replay_route_rejects_a_body_over_its_own_wire_cap() {
-    let client = make_test_client(CaptureMode::Recordings);
+    let (client, _sink) = make_test_client(CaptureMode::Recordings);
     let res = client
         .post("/s")
         .header("Content-Type", "application/json")
