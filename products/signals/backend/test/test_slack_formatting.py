@@ -146,9 +146,45 @@ class TestChunkSlackMrkdwn(SimpleTestCase):
         recovered = "\n".join(chunks)
         assert all(line in recovered for line in lines)
 
-    def test_single_over_long_line_is_hard_sliced(self) -> None:
-        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)
+    @parameterized.expand(
+        [
+            ("plain_run", "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)),
+            ("link_longer_than_a_section", "<https://example.com/" + "z" * (SLACK_SECTION_TEXT_MAX_LEN * 2) + "|l>"),
+        ]
+    )
+    def test_unbreakable_run_is_hard_sliced(self, _name: str, line: str) -> None:
+        # A run with no sentence, word, or token boundary has nowhere safe to break, so it is sliced
+        # at the limit. Guards both halves of that fallback: it has to terminate, and it has to keep
+        # every character rather than dropping the remainder.
         chunks = chunk_slack_mrkdwn(line)
 
         assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
         assert "".join(chunks) == line
+
+    @parameterized.expand(
+        [
+            ("sentence_ends", "The mount call times out and the retry never fires. "),
+            ("no_sentence_ends", "mount timeout retry never fires again "),
+        ]
+    )
+    def test_text_only_report_never_breaks_mid_word(self, _name: str, sentence: str) -> None:
+        # The bug this guards: a report with no Markdown headings is one long line, which used to be
+        # sliced at exactly the section cap, so a reply opened mid-word ("...since Tue" / "sday and
+        # the retry..."). Comparing word sequences catches that, because a mid-word cut turns one
+        # word into two and no longer round-trips.
+        line = (sentence * 400).strip()
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert " ".join(chunks).split() == line.split()
+
+    def test_link_spanning_the_section_boundary_is_kept_whole(self) -> None:
+        # The bug this guards: a cut inside a converter-emitted `<url|label>` token leaves half a
+        # link in each message, and Slack renders both halves as visible junk.
+        link = "<https://example.com/a/very/long/path|the failing request>"
+        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN - 20) + link + " and the prose that follows it."
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert any(link in chunk for chunk in chunks)
