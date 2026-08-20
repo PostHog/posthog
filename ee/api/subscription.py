@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Manager, Q, QuerySet
 from django.http import HttpRequest, JsonResponse
+from django.shortcuts import get_object_or_404
 
 import jwt
 import posthoganalytics
@@ -1289,10 +1290,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
         return queryset
 
-    def get_object(self) -> Subscription:
-        subscription = super().get_object()
+    def safely_get_object(self, queryset: QuerySet) -> Subscription:
+        subscription = get_object_or_404(queryset, pk=self.kwargs[self.lookup_field])
         can_view_subscription = (
-            Subscription.objects.filter(pk=subscription.pk)
+            Subscription.objects.filter(pk=subscription.pk, team_id=self.team_id)
             .filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
             .exists()
         )
