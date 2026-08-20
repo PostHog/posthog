@@ -105,6 +105,7 @@ class Subscription(ModelActivityMixin, models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        TEAMS = "teams", "Microsoft Teams"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
