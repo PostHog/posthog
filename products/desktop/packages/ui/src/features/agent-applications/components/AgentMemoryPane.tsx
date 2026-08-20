@@ -2,6 +2,10 @@ import { formatRelativeTimeShort } from "@posthog/shared";
 import type { AgentMemoryTreeNode } from "@posthog/shared/agent-platform-types";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { Badge } from "@posthog/ui/primitives/Badge";
+import {
+  FileExplorer,
+  type FileTreeNode,
+} from "@posthog/ui/primitives/FileExplorer";
 import { Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import {
@@ -12,7 +16,6 @@ import {
   useAgentMemoryTree,
 } from "../hooks/useAgentMemory";
 import { AgentDetailLayout } from "./AgentDetailLayout";
-import { FileExplorer, type FileTreeNode } from "./FileExplorer";
 
 type View = "files" | "tables";
 

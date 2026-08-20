@@ -46,3 +46,5 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/** Gates the organization context wiki: the Context explorer in the nav rails. */
+export const CONTEXT_LAYER_FLAG = "context-layer";

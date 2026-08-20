@@ -1,5 +1,6 @@
 import {
   BellIcon,
+  BookOpenTextIcon,
   EnvelopeSimple,
   GearSix,
   Lightning,
@@ -26,6 +27,7 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -36,6 +38,7 @@ import {
   navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
+  navigateToWebsiteContext,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
@@ -183,6 +186,7 @@ function ActivityNavItem({
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const contextEnabled = useContextLayerFlag();
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
@@ -258,6 +262,19 @@ export function ChannelNav() {
             label="Loops"
             isActive={view.type === "loops"}
             onClick={withTrack("loops", navigateToLoops)}
+          />
+        ) : null}
+        {contextEnabled ? (
+          <NavIcon
+            icon={
+              <BookOpenTextIcon
+                size={16}
+                weight={view.type === "context" ? "fill" : "regular"}
+              />
+            }
+            label="Context"
+            isActive={view.type === "context"}
+            onClick={withTrack("contexts", navigateToWebsiteContext)}
           />
         ) : null}
         <NavIcon

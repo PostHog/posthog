@@ -196,6 +196,10 @@ export function navigateToCommandCenter(): void {
   track(ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED);
 }
 
+export function navigateToContext(): void {
+  void getRouterOrNull()?.navigate({ to: "/context" });
+}
+
 export function navigateToSkills(): void {
   void getRouterOrNull()?.navigate({ to: "/skills" });
 }
@@ -216,6 +220,10 @@ export function navigateToWebsiteNew(): void {
 // The Canvas workspace landing (the channels index, where canvases live).
 export function navigateToCanvas(): void {
   void getRouterOrNull()?.navigate({ to: "/website" });
+}
+
+export function navigateToWebsiteContext(): void {
+  void getRouterOrNull()?.navigate({ to: "/website/context" });
 }
 
 export function navigateToWebsiteSkills(): void {

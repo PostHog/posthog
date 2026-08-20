@@ -38,6 +38,10 @@ import { useMcpInstallationTools } from "@posthog/ui/features/mcp-servers/hooks/
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { Button } from "@posthog/ui/primitives/Button";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
+import {
+  FileExplorer,
+  type FileTreeNode,
+} from "@posthog/ui/primitives/FileExplorer";
 import { toast } from "@posthog/ui/primitives/toast";
 import { Flex, Select, Switch, Text, TextField } from "@radix-ui/themes";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
@@ -55,7 +59,6 @@ import { AgentModelConfig } from "./AgentModelConfig";
 import { AgentRevisionBar } from "./AgentRevisionBar";
 import { CopyButton } from "./CopyButton";
 import { CronFireButton } from "./CronFireButton";
-import { FileExplorer, type FileTreeNode } from "./FileExplorer";
 import { SecretEditor } from "./SecretEditor";
 import { SlackSetupCard } from "./SlackSetupCard";
 import { ToolSourcePanel } from "./ToolSourcePanel";

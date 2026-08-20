@@ -13,6 +13,7 @@ import { Route as WebsiteRouteImport } from './routes/website'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as McpServersRouteImport } from './routes/mcp-servers'
+import { Route as ContextRouteImport } from './routes/context'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WebsiteIndexRouteImport } from './routes/website/index'
@@ -21,6 +22,7 @@ import { Route as CodeIndexRouteImport } from './routes/code/index'
 import { Route as WebsiteSkillsRouteImport } from './routes/website/skills'
 import { Route as WebsiteNewRouteImport } from './routes/website/new'
 import { Route as WebsiteMcpServersRouteImport } from './routes/website/mcp-servers'
+import { Route as WebsiteContextRouteImport } from './routes/website/context'
 import { Route as WebsiteCommandCenterRouteImport } from './routes/website/command-center'
 import { Route as WebsiteActivityRouteImport } from './routes/website/activity'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
@@ -100,6 +102,11 @@ const McpServersRoute = McpServersRouteImport.update({
   path: '/mcp-servers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContextRoute = ContextRouteImport.update({
+  id: '/context',
+  path: '/context',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CommandCenterRoute = CommandCenterRouteImport.update({
   id: '/command-center',
   path: '/command-center',
@@ -138,6 +145,11 @@ const WebsiteNewRoute = WebsiteNewRouteImport.update({
 const WebsiteMcpServersRoute = WebsiteMcpServersRouteImport.update({
   id: '/mcp-servers',
   path: '/mcp-servers',
+  getParentRoute: () => WebsiteRoute,
+} as any)
+const WebsiteContextRoute = WebsiteContextRouteImport.update({
+  id: '/context',
+  path: '/context',
   getParentRoute: () => WebsiteRoute,
 } as any)
 const WebsiteCommandCenterRoute = WebsiteCommandCenterRouteImport.update({
@@ -456,6 +468,7 @@ const CodeAgentsApplicationsIdOrSlugSessionsSessionIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/command-center': typeof CommandCenterRoute
+  '/context': typeof ContextRoute
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -468,6 +481,7 @@ export interface FileRoutesByFullPath {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/context': typeof WebsiteContextRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -528,6 +542,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/command-center': typeof CommandCenterRoute
+  '/context': typeof ContextRoute
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -537,6 +552,7 @@ export interface FileRoutesByTo {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/context': typeof WebsiteContextRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -589,6 +605,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/command-center': typeof CommandCenterRoute
+  '/context': typeof ContextRoute
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -601,6 +618,7 @@ export interface FileRoutesById {
   '/settings/$category': typeof SettingsCategoryRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
+  '/website/context': typeof WebsiteContextRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
   '/website/new': typeof WebsiteNewRoute
   '/website/skills': typeof WebsiteSkillsRoute
@@ -663,6 +681,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/command-center'
+    | '/context'
     | '/mcp-servers'
     | '/skills'
     | '/usage'
@@ -675,6 +694,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/context'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -735,6 +755,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/command-center'
+    | '/context'
     | '/mcp-servers'
     | '/skills'
     | '/usage'
@@ -744,6 +765,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/context'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -795,6 +817,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/command-center'
+    | '/context'
     | '/mcp-servers'
     | '/skills'
     | '/usage'
@@ -807,6 +830,7 @@ export interface FileRouteTypes {
     | '/settings/$category'
     | '/website/activity'
     | '/website/command-center'
+    | '/website/context'
     | '/website/mcp-servers'
     | '/website/new'
     | '/website/skills'
@@ -868,6 +892,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CommandCenterRoute: typeof CommandCenterRoute
+  ContextRoute: typeof ContextRoute
   McpServersRoute: typeof McpServersRoute
   SkillsRoute: typeof SkillsRoute
   UsageRoute: typeof UsageRoute
@@ -915,6 +940,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp-servers'
       fullPath: '/mcp-servers'
       preLoaderRoute: typeof McpServersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/context': {
+      id: '/context'
+      path: '/context'
+      fullPath: '/context'
+      preLoaderRoute: typeof ContextRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/command-center': {
@@ -971,6 +1003,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp-servers'
       fullPath: '/website/mcp-servers'
       preLoaderRoute: typeof WebsiteMcpServersRouteImport
+      parentRoute: typeof WebsiteRoute
+    }
+    '/website/context': {
+      id: '/website/context'
+      path: '/context'
+      fullPath: '/website/context'
+      preLoaderRoute: typeof WebsiteContextRouteImport
       parentRoute: typeof WebsiteRoute
     }
     '/website/command-center': {
@@ -1385,6 +1424,7 @@ declare module '@tanstack/react-router' {
 interface WebsiteRouteChildren {
   WebsiteActivityRoute: typeof WebsiteActivityRoute
   WebsiteCommandCenterRoute: typeof WebsiteCommandCenterRoute
+  WebsiteContextRoute: typeof WebsiteContextRoute
   WebsiteMcpServersRoute: typeof WebsiteMcpServersRoute
   WebsiteNewRoute: typeof WebsiteNewRoute
   WebsiteSkillsRoute: typeof WebsiteSkillsRoute
@@ -1403,6 +1443,7 @@ interface WebsiteRouteChildren {
 const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteActivityRoute: WebsiteActivityRoute,
   WebsiteCommandCenterRoute: WebsiteCommandCenterRoute,
+  WebsiteContextRoute: WebsiteContextRoute,
   WebsiteMcpServersRoute: WebsiteMcpServersRoute,
   WebsiteNewRoute: WebsiteNewRoute,
   WebsiteSkillsRoute: WebsiteSkillsRoute,
@@ -1620,6 +1661,7 @@ const CodeLoopsLoopIdRouteWithChildren = CodeLoopsLoopIdRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CommandCenterRoute: CommandCenterRoute,
+  ContextRoute: ContextRoute,
   McpServersRoute: McpServersRoute,
   SkillsRoute: SkillsRoute,
   UsageRoute: UsageRoute,

@@ -26,6 +26,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
   navigateToInbox: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToWebsiteContext: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("./ActivityHoverCard", () => ({

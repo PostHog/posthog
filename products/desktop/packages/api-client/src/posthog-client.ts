@@ -714,6 +714,58 @@ export class FolderInstructionsConflictError extends Error {
   }
 }
 
+export interface ContextWikiTree {
+  head_sha: string;
+  paths: string[];
+}
+
+export interface ContextWikiPage {
+  path: string;
+  content: string;
+  head_sha: string;
+}
+
+// Thrown when PUT /context_layer/pages/ rejects a write because the caller's
+// `base_head` is older than the wiki's current head. `currentHead` is the head
+// to re-read against before retrying.
+export class ContextWikiConflictError extends Error {
+  status = 409;
+  currentHead: string | null;
+  constructor(currentHead: string | null) {
+    super("The wiki changed since you started editing");
+    this.name = "ContextWikiConflictError";
+    this.currentHead = currentHead;
+  }
+}
+
+// Thrown when a page write fails the wiki's structure lint; `errors` lists the
+// violations for inline display.
+export class ContextWikiLintError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(detail: string, errors: string[]) {
+    super(detail);
+    this.name = "ContextWikiLintError";
+    this.errors = errors;
+  }
+}
+
+// Thrown on 403: the organization has private projects, so its wiki is
+// deliberately unavailable. Distinct from 404 (wiki never enabled).
+export class ContextWikiUnavailableError extends Error {
+  status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWikiUnavailableError";
+  }
+}
+
+/** DRF error bodies carry the human-readable message in `detail`. */
+function readDetail(error: ApiRequestError): string {
+  const body = error.body as { detail?: string } | null;
+  return body?.detail ?? error.message;
+}
+
 export interface TaskArtifactUploadRequest {
   name: string;
   type: "output" | "user_attachment" | "skill_bundle";
@@ -2800,6 +2852,115 @@ export class PostHogAPIClient {
       returned: all.length,
     });
     return all;
+  }
+
+  // ---- Organization context wiki (context_layer) ------------------------
+  // Org-scoped: the wiki is one repo per organization, shared across projects.
+  // 404 means the wiki was never enabled; 403 means it exists but is dark
+  // because the organization has private projects.
+
+  // GET with the wiki's shared read semantics: 404 (never enabled or missing
+  // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
+  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 404) return null;
+        if (error.status === 403) {
+          throw new ContextWikiUnavailableError(readDetail(error));
+        }
+      }
+      throw error;
+    }
+  }
+
+  async getContextWikiTree(): Promise<ContextWikiTree | null> {
+    return this.getContextWikiResource<ContextWikiTree>(
+      `/api/organizations/@current/context_layer/tree/`,
+    );
+  }
+
+  async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
+    return this.getContextWikiResource<ContextWikiPage>(
+      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  /**
+   * Full-content page write guarded by `baseHead` optimistic concurrency.
+   * The server holds a per-org writer lock shared with agent commit landings;
+   * a lock-busy 429 surfaces as ApiRequestError and is safe to retry with the
+   * same base head — callers configure that retry (see
+   * `useContextWikiPageMutation`). 409 (stale base head) and 400 (lint) are
+   * the actionable failures.
+   */
+  async putContextWikiPage(input: {
+    path: string;
+    content: string;
+    baseHead: string;
+  }): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            path: input.path,
+            content: input.content,
+            base_head: input.baseHead,
+          }),
+        },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 409) {
+        const body = error.body as { current_head?: string } | null;
+        throw new ContextWikiConflictError(body?.current_head ?? null);
+      }
+      if (error.status === 400) {
+        const body = error.body as {
+          detail?: string;
+          errors?: string[];
+        } | null;
+        throw new ContextWikiLintError(
+          body?.detail ?? "The change violates the wiki structure.",
+          body?.errors ?? [],
+        );
+      }
+      if (error.status === 403) {
+        throw new ContextWikiUnavailableError(readDetail(error));
+      }
+      throw error;
+    }
+  }
+
+  async enableContextWiki(): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({}) },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        throw new Error(
+          `Failed to enable the context wiki: ${readDetail(error)}`,
+        );
+      }
+      throw error;
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
