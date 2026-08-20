@@ -1741,6 +1741,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             references=request.validated_data["references"],
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
+            acting_user_id=self._user_id(),
         )
         if manifest is None:
             raise NotFound()

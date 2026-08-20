@@ -8230,6 +8230,35 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         self.assertEqual(events.count(), 1)
         self.assertEqual(events.get().payload["reference_type"], "posthog_object")
 
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_non_creator_cannot_register_references(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        other = self.create_organization_user()
+        self.client.force_authenticate(other)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        run.refresh_from_db()
+        self.assertEqual(run.artifacts or [], [])
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
     def test_reference_artifacts_are_capped_per_run(self) -> None:
         from products.tasks.backend.facade.api import MAX_RUN_REFERENCE_ARTIFACTS
 

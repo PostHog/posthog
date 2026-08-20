@@ -3085,10 +3085,22 @@ def register_task_run_posthog_references(
     team_id: int,
     *,
     references: list[dict[str, Any]],
+    caller_is_agent: bool = False,
+    acting_user_id: int | None = None,
 ) -> list[dict[str, Any]] | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+
+    # Desktop registers the agent's citations with the creator's credentials, so
+    # creator-or-sandbox-agent callers keep agent attribution; any other caller
+    # is recorded as themselves and never plants agent-authored thread messages
+    # in a task they don't own (same binding as post_canvas_created_thread_update).
+    is_creator = (
+        acting_user_id is not None
+        and Task.objects.filter(id=run.task_id, team_id=team_id, created_by_id=acting_user_id).exists()
+    )
+    attribute_as_agent = caller_is_agent or is_creator
 
     created: list[dict[str, Any]] = []
     with transaction.atomic():
@@ -3126,7 +3138,8 @@ def register_task_run_posthog_references(
                 "type": "reference",
                 "source": "posthog_object",
                 "uploaded_at": now,
-                "uploaded_by": "agent",
+                "uploaded_by": "agent" if attribute_as_agent else "user",
+                **({} if attribute_as_agent or acting_user_id is None else {"uploaded_by_user_id": acting_user_id}),
                 "metadata": {
                     "reference_type": "posthog_object",
                     "object_kind": object_kind,
@@ -3141,7 +3154,7 @@ def register_task_run_posthog_references(
 
         _save_artifact_manifest(run, manifest)
 
-    for entry in created:
+    for entry in created if attribute_as_agent else []:
         reference_metadata = entry.get("metadata")
         if not isinstance(reference_metadata, dict):
             continue
