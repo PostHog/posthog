@@ -16494,6 +16494,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `general` - General
+     */
+    export type SystemRoleEnum = typeof SystemRoleEnum[keyof typeof SystemRoleEnum];
+
+
+    export const SystemRoleEnum = {
+      Personal: 'personal',
+      General: 'general',
+    } as const;
+
+    /**
      * Response shape for a task channel, read from a frozen ``ChannelDTO``.
      */
     export interface ChannelDTO {
@@ -16506,6 +16518,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+      /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+       *
+       * * `personal` - Personal
+       * * `general` - General */
+      readonly system_role: SystemRoleEnum | null;
     }
 
     export interface ChannelDeleteConflict {
@@ -66738,6 +66755,18 @@ export namespace Schemas {
       username: string;
       /** Root database password — returned only here at provision time and on reset-password */
       password: string;
+    }
+
+    /**
+     * The requester's default channels, plus whether this call is what created them.
+     */
+    export interface ProvisionedChannels {
+      /** The full channel list after provisioning, same shape as the list endpoint. */
+      channels: ChannelDTO[];
+      /** Whether this call created the requester's personal #me channel. */
+      personal_created: boolean;
+      /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+      general_created: boolean;
     }
 
     /**
