@@ -163,7 +163,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                 <p className="text-sm text-muted m-0">
                     {kindToFn.size > 0
                         ? 'These hog functions only run for this alert. Open one to edit the message body, headers, filters, or destination details for the matching lifecycle event.'
-                        : 'This destination sends a notification for every alert event: firing, resolved, auto-disabled and errored. Its individual hog functions are not editable here.'}
+                        : 'This destination sends a notification for every alert event: firing, resolved, auto-disabled and errored.'}
                 </p>
 
                 {loading ? (
