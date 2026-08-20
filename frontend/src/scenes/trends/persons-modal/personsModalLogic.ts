@@ -670,11 +670,20 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!actorsQuery) {
                     return null
                 }
-                // Keep `select` so the new insight opens with the same columns as the modal,
-                // instead of falling back to the generic default person columns.
+                // Open the new insight with the modal's visible columns, but drop the internal
+                // `matched_recordings` helper (the modal uses it only for the recording button, never
+                // as a column) and turn off its lookup — the same way the CSV export does. Otherwise
+                // the new insight shows a raw JSON recordings column and re-runs the lookup on refresh.
+                const source: ActorsQuery = {
+                    ...actorsQuery,
+                    select: actorsQuery.select?.filter((c) => c !== 'matched_recordings'),
+                    source: actorsQuery.source
+                        ? ({ ...actorsQuery.source, includeRecordings: false } as typeof actorsQuery.source)
+                        : actorsQuery.source,
+                }
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
-                    source: actorsQuery,
+                    source,
                     full: true,
                 }
                 return urls.insightNew({ query })

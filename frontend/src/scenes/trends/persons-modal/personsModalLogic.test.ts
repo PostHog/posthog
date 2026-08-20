@@ -645,14 +645,14 @@ describe('personsModalLogic', () => {
     })
 
     describe('exploreUrl', () => {
-        it('carries the modal select columns into the new insight query', () => {
+        it('carries the modal visible columns but drops the recordings helper', () => {
             logic = personsModalLogic({
                 query: {
                     kind: NodeKind.FunnelsActorsQuery,
                     source: { kind: NodeKind.FunnelsQuery, series: [] },
                     funnelStep: 1,
                 } as FunnelsActorsQuery,
-                additionalSelect: { matched_recordings: 'matched_recordings' },
+                additionalSelect: { value_at_data_point: 'event_count', matched_recordings: 'matched_recordings' },
                 url: null,
             })
             logic.mount()
@@ -660,11 +660,14 @@ describe('personsModalLogic', () => {
             const url = logic.values.exploreUrl
             expect(url).not.toBeNull()
 
-            // Without `select` the new insight falls back to the generic default person columns.
             const { hashParams } = combineUrl(url as string)
             const query = JSON.parse(hashParams.q)
             expect(query.kind).toEqual(NodeKind.DataTableNode)
-            expect(query.source?.select).toEqual(['actor', 'matched_recordings'])
+            // The modal's visible columns carry over, but `matched_recordings` is an internal helper
+            // (rendered as a raw JSON column, re-runs a recordings lookup), so it's stripped along with
+            // the source's recordings flag — matching the CSV export.
+            expect(query.source?.select).toEqual(['actor', 'event_count'])
+            expect(query.source?.source?.includeRecordings).toEqual(false)
         })
     })
 
