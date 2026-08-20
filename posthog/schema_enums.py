@@ -2945,6 +2945,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CALENDAR = "google-calendar"
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
+    DISPLAY_VIDEO_360 = "display-video-360"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
     STRIPE = "stripe"

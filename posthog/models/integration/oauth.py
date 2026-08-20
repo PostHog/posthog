@@ -239,6 +239,7 @@ class OauthIntegration:
         "google-calendar",
         "google-search-console",
         "google-sheets",
+        "display-video-360",
         "snapchat",
         "linkedin-ads",
         "reddit-ads",
@@ -480,6 +481,30 @@ class OauthIntegration:
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "display-video-360":
+            if not settings.DISPLAY_VIDEO_360_APP_CLIENT_ID or not settings.DISPLAY_VIDEO_360_APP_CLIENT_SECRET:
+                raise NotImplementedError("Display & Video 360 app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.DISPLAY_VIDEO_360_APP_CLIENT_ID,
+                client_secret=settings.DISPLAY_VIDEO_360_APP_CLIENT_SECRET,
+                # Entity reads go through the Display & Video 360 API and the performance tables are
+                # generated as Bid Manager reports, so both scopes are needed. Neither API offers a
+                # read-only variant.
+                scope=(
+                    "https://www.googleapis.com/auth/display-video "
+                    "https://www.googleapis.com/auth/doubleclickbidmanager "
+                    "https://www.googleapis.com/auth/userinfo.email"
+                ),
                 id_path="sub",
                 name_path="email",
             )
