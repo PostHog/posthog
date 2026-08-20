@@ -25,19 +25,35 @@ class TestWarehouseScopeGatedAccessControl(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # (token scopes, required level, allowed?)
-            ("no_warehouse_scope_editor", ["account:write"], "editor", False),
-            ("no_warehouse_scope_viewer", ["account:read"], "viewer", False),
-            ("read_scope_covers_viewer", ["external_data_source:read"], "viewer", True),
-            ("read_scope_not_editor", ["external_data_source:read"], "editor", False),
-            ("write_scope_covers_editor", ["external_data_source:write"], "editor", True),
-            ("write_scope_covers_viewer", ["external_data_source:write"], "viewer", True),
-            ("wildcard_allows", ["*"], "editor", True),
+            # (model name, token scopes, required level, allowed?)
+            ("table_no_warehouse_scope_editor", "externaldatasource", ["account:write"], "editor", False),
+            ("table_no_warehouse_scope_viewer", "externaldatasource", ["account:read"], "viewer", False),
+            ("table_read_covers_viewer", "externaldatasource", ["external_data_source:read"], "viewer", True),
+            ("table_read_not_editor", "externaldatasource", ["external_data_source:read"], "editor", False),
+            ("table_write_covers_editor", "externaldatasource", ["external_data_source:write"], "editor", True),
+            ("table_write_covers_viewer", "externaldatasource", ["external_data_source:write"], "viewer", True),
+            ("table_wildcard_allows", "externaldatasource", ["*"], "editor", True),
+            # A view binding gates on warehouse_view — the table's scope doesn't cover it, or vice versa.
+            ("view_no_warehouse_scope_editor", "datawarehousesavedquery", ["account:write"], "editor", False),
+            ("view_no_warehouse_scope_viewer", "datawarehousesavedquery", ["account:read"], "viewer", False),
+            ("view_read_covers_viewer", "datawarehousesavedquery", ["warehouse_view:read"], "viewer", True),
+            ("view_read_not_editor", "datawarehousesavedquery", ["warehouse_view:read"], "editor", False),
+            ("view_write_covers_editor", "datawarehousesavedquery", ["warehouse_view:write"], "editor", True),
+            ("view_write_covers_viewer", "datawarehousesavedquery", ["warehouse_view:write"], "viewer", True),
+            ("view_wildcard_allows", "datawarehousesavedquery", ["*"], "editor", True),
+            (
+                "view_not_covered_by_table_scope",
+                "datawarehousesavedquery",
+                ["external_data_source:write"],
+                "editor",
+                False,
+            ),
+            ("table_not_covered_by_view_scope", "externaldatasource", ["warehouse_view:write"], "editor", False),
         ]
     )
-    def test_external_data_source_object_gated_on_token_scope(self, _name, scopes, level, allowed):
+    def test_warehouse_object_gated_on_token_scope(self, _name, model_name, scopes, level, allowed):
         gate, inner = self._gate(scopes)
-        result = gate.check_access_level_for_object(_FakeModel("externaldatasource"), required_level=level)
+        result = gate.check_access_level_for_object(_FakeModel(model_name), required_level=level)
         assert result is allowed
         # When the token scope denies, the wrapped RBAC check is never consulted (fail closed on scope).
         if not allowed:

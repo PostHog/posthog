@@ -161,7 +161,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.facade.models import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 

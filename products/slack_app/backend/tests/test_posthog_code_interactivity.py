@@ -25,7 +25,7 @@ from posthog.schema_enums import AlertState
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import (
     _extract_alert_snooze_hints,
     _handle_insight_alert_snooze,
@@ -187,7 +187,7 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert response.json()["options"] == []
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -221,7 +221,7 @@ class TestRepoPickerOptions(TestCase):
         mock_asyncio_run.assert_called_once()
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -257,7 +257,7 @@ class TestRepoPickerOptions(TestCase):
         update_call = mock_webclient_class.return_value.chat_update.call_args.kwargs
         assert "without a repository" in update_call["text"].lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -285,7 +285,7 @@ class TestRepoPickerOptions(TestCase):
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
         assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")

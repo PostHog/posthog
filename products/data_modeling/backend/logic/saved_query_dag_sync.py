@@ -164,6 +164,7 @@ def sync_saved_query_to_dag(
     dag: DAG | None = None,
     allow_managed: bool = False,
     reconcile: bool = True,
+    database: Database | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -181,6 +182,7 @@ def sync_saved_query_to_dag(
         allow_managed: Whether placement into a system-managed DAG is permitted. Only the
             internal managed-viewset sync passes this; user-initiated callers must not, so a
             same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
+        database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
@@ -210,14 +212,15 @@ def sync_saved_query_to_dag(
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
-    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+    if database is None:
+        database = Database.create_for(team=team, bypass_warehouse_access_control=True)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
     # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
-        dependencies = get_parents_from_model_query(team, model_name, model_query)
+        dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
         for dependency_name in dependencies:
             source = resolve_dependency_to_node(dependency_name, team, database, dag)
             Edge.objects.create(

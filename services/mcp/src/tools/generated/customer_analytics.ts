@@ -307,6 +307,9 @@ const AccountsListSchema = AccountsListQueryParams.extend({
     include_churned: AccountsListQueryParams.shape['include_churned'].describe(
         'Include churned accounts. Churned accounts are hidden by default.'
     ),
+    include_ignored: AccountsListQueryParams.shape['include_ignored'].describe(
+        'Include ignored accounts. Ignored accounts are hidden by default.'
+    ),
     tags: AccountsListQueryParams.shape['tags'].describe(
         'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
     ),
@@ -323,6 +326,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
                 include_churned: params.include_churned,
+                include_ignored: params.include_ignored,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
