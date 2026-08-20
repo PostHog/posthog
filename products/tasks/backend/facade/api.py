@@ -3096,12 +3096,107 @@ def upload_task_run_artifacts(
     # after the save so it stays off the persisted manifest.
     response_manifest = [
         {**entry, "url": absolute_uri(_build_artifact_download_path(run, entry["id"]))}
-        if entry.get("id")
+        if entry.get("id") and entry.get("storage_path")
         else dict(entry)
         for entry in manifest
     ]
 
     return uploaded, response_manifest
+
+
+# Each request is capped by the serializer, but entries accumulate across requests on
+# one TaskRun.artifacts JSON value; without a total budget a caller could grow that row
+# (and every later read of it) without bound.
+MAX_RUN_REFERENCE_ARTIFACTS = 100
+
+
+def register_task_run_posthog_references(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    references: list[dict[str, Any]],
+    caller_is_agent: bool = False,
+    acting_user_id: int | None = None,
+) -> list[dict[str, Any]] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+
+    # Only the task-bound sandbox identity is a verified agent; every other
+    # caller is recorded as themselves and posts no agent-authored thread event.
+    attribute_as_agent = caller_is_agent
+
+    created: list[dict[str, Any]] = []
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        manifest = [dict(entry) for entry in (run.artifacts or []) if isinstance(entry, dict)]
+        by_id = {str(entry.get("id")): entry for entry in manifest if entry.get("id")}
+        reference_count = sum(1 for entry in manifest if entry.get("type") == "reference")
+        now = django_timezone.now().isoformat()
+
+        for reference in references:
+            object_kind = str(reference["object_kind"])
+            object_id = str(reference["object_id"])
+            source_message_id = str(reference["source_message_id"])
+            digest = hashlib.sha256(f"{object_kind}\0{object_id}".encode()).hexdigest()[:24]
+            artifact_id = f"phref_{digest}"
+            existing = by_id.get(artifact_id)
+            if existing is not None:
+                metadata = dict(existing.get("metadata") or {})
+                source_message_ids = list(metadata.get("source_message_ids") or [])
+                if source_message_id in source_message_ids or len(source_message_ids) >= 100:
+                    continue
+                source_message_ids.append(source_message_id)
+                metadata["source_message_ids"] = source_message_ids
+                metadata["occurrence_count"] = len(source_message_ids)
+                existing["metadata"] = metadata
+                continue
+
+            if reference_count >= MAX_RUN_REFERENCE_ARTIFACTS:
+                continue
+            reference_count += 1
+            name = re.sub(r"[\[\]\n]", " ", str(reference["name"])).strip()[:255] or object_id[:255]
+            entry = {
+                "id": artifact_id,
+                "name": name,
+                "type": "reference",
+                "source": "posthog_object",
+                "uploaded_at": now,
+                "uploaded_by": "agent" if attribute_as_agent else "user",
+                **({} if attribute_as_agent or acting_user_id is None else {"uploaded_by_user_id": acting_user_id}),
+                "metadata": {
+                    "reference_type": "posthog_object",
+                    "object_kind": object_kind,
+                    "object_id": object_id,
+                    "source_message_ids": [source_message_id],
+                    "occurrence_count": 1,
+                },
+            }
+            manifest.append(entry)
+            by_id[artifact_id] = entry
+            created.append(entry)
+
+        _save_artifact_manifest(run, manifest)
+
+    for entry in created if attribute_as_agent else []:
+        reference_metadata = entry.get("metadata")
+        if not isinstance(reference_metadata, dict):
+            continue
+        post_artifact_thread_update(
+            run,
+            {
+                "id": entry["id"],
+                "name": entry["name"],
+                "artifact_type": entry["type"],
+                "reference_type": reference_metadata["reference_type"],
+                "object_kind": reference_metadata["object_kind"],
+                "current_version": 1,
+            },
+            revised=False,
+        )
+
+    return manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -3459,7 +3554,8 @@ def presign_task_run_artifact_download(
         return None, None
 
     entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
-    if entry is None:
+    # Reference entries carry no file, so there is nothing to download for them.
+    if entry is None or not entry.get("storage_path"):
         return None, "not_found"
 
     filename = str(entry.get("name") or "artifact")
@@ -7999,6 +8095,8 @@ def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) 
         task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
         if task is None or not _agent_thread_updates_enabled(task.created_by):
             return
+        reference_type = str(artifact.get("reference_type") or "")[:64]
+        object_kind = str(artifact.get("object_kind") or "")[:64]
         event = "artifact_revised" if revised else "artifact_created"
         with transaction.atomic():
             Task.objects.select_for_update().filter(id=task.id).first()
@@ -8008,18 +8106,19 @@ def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) 
                 .exists()
             ):
                 return
-            _create_agent_thread_message(
-                task,
-                f"{'Revised' if revised else 'Created'} {name}",
-                event=event,
-                payload={
-                    "run_id": str(run.id),
-                    "artifact_id": artifact_id,
-                    "name": name,
-                    "artifact_type": str(artifact.get("artifact_type") or "")[:64],
-                    "version": version,
-                },
-            )
+            verb = "Revised" if revised else "Added" if reference_type == "posthog_object" else "Created"
+            payload = {
+                "run_id": str(run.id),
+                "artifact_id": artifact_id,
+                "name": name,
+                "artifact_type": str(artifact.get("artifact_type") or "")[:64],
+                "version": version,
+            }
+            if reference_type:
+                payload["reference_type"] = reference_type
+            if object_kind:
+                payload["object_kind"] = object_kind
+            _create_agent_thread_message(task, f"{verb} {name}", event=event, payload=payload)
     except Exception:
         logger.exception("Failed to post artifact thread update", extra={"task_id": str(run.task_id)})
 
