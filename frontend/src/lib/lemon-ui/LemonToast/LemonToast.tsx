@@ -285,6 +285,12 @@ export const lemonToast = {
                 />,
                 {
                     icon: <IconErrorOutline />,
+                    // Error toasts auto-close even while the tab is in the background, so an error
+                    // raised just before the window loses focus does not stay up indefinitely. Only
+                    // errors opt out here: other toast types keep pausing on focus loss so an
+                    // actionable toast (for example a delete's Undo button) waits for the user to
+                    // come back rather than expiring in a background tab.
+                    pauseOnFocusLoss: false,
                     ...options,
                 }
             )

@@ -56,9 +56,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
             </div>
             <ToastContainer
                 autoClose={6000}
-                // Keep the auto-close timer running while the tab is in the background, otherwise a
-                // toast raised right before the window loses focus stays on screen indefinitely.
-                pauseOnFocusLoss={false}
                 transition={Slide}
                 closeButton={<ToastCloseButton />}
                 position="bottom-right"
