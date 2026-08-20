@@ -222,23 +222,39 @@ describe('CDP Internal Events Consumer', () => {
             expect(invocations[0].functionId).toBe(internalFn.id)
         })
 
-        it('routes managed alert events only to the destination matching the event and alert id', async () => {
-            const filters = (alertId: string) => ({
+        it.each([
+            '$billing_alert_firing',
+            '$billing_alert_resolved',
+            '$billing_alert_errored',
+            '$billing_alert_auto_disabled',
+            '$logs_alert_firing',
+            '$logs_alert_resolved',
+            '$logs_alert_errored',
+            '$logs_alert_auto_disabled',
+        ])('routes %s only to the destination matching the event and alert id', async (managedAlertEvent) => {
+            const filters = (eventId: string, alertId: string) => ({
                 filters: {
                     ...HOG_FILTERS_EXAMPLES.no_filters.filters,
-                    events: [{ id: '$billing_alert_firing', type: 'events' as const }],
+                    events: [{ id: eventId, type: 'events' as const }],
                     properties: [{ key: 'alert_id', value: alertId, operator: 'exact', type: 'event' }],
                 },
             })
             const matching = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...filters('alert-1'),
+                ...filters(managedAlertEvent, 'alert-1'),
             })
             await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...filters('alert-2'),
+                ...filters(managedAlertEvent, 'alert-2'),
+            })
+            const otherManagedAlertEvent =
+                managedAlertEvent === '$billing_alert_firing' ? '$logs_alert_firing' : '$billing_alert_firing'
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...filters(otherManagedAlertEvent, 'alert-1'),
             })
             await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -246,13 +262,31 @@ describe('CDP Internal Events Consumer', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
             const event = createInternalEvent(team.id, {})
-            event.event.event = '$billing_alert_firing'
+            event.event.event = managedAlertEvent
             event.event.properties = { alert_id: 'alert-1', current_value: '100' }
 
             const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
             const { invocations } = await processor.processBatch(globals)
 
             expect(invocations.map((invocation) => invocation.functionId)).toEqual([matching.id])
+        })
+
+        it('invokes a legacy $insight_alert_firing destination that has no alert_id filter', async () => {
+            const fn = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                filters: {
+                    ...HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    events: [{ id: '$insight_alert_firing', type: 'events' as const }],
+                },
+            })
+            const event = createInternalEvent(team.id, {})
+            event.event.event = '$insight_alert_firing'
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.map((invocation) => invocation.functionId)).toEqual([fn.id])
         })
     })
 })
