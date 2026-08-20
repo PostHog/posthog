@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import type { ApiPropertyDefinition } from '@/schema/api'
 import { PropertyDefinitionUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -25,7 +26,7 @@ export const updatePropertyDefinitionHandler: ToolBase<typeof schema, Result>['h
     })
 
     if (!result.success) {
-        throw new Error(`Failed to update property definition: ${result.error.message}`)
+        throw wrapError(`Failed to update property definition: ${result.error.message}`, result.error)
     }
 
     return {

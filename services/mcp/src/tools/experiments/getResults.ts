@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
@@ -29,7 +30,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     })
 
     if (!result.success) {
-        throw new Error(`Failed to get experiment results: ${result.error.message}`)
+        throw wrapError(`Failed to get experiment results: ${result.error.message}`, result.error)
     }
 
     const {
