@@ -14,6 +14,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+from oauth2_provider.generators import generate_client_id
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -78,6 +79,13 @@ def is_loopback_host(hostname: str | None) -> bool:
 
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    # Overrides the abstract base's max_length=100 so the column can hold a CIMD
+    # metadata-document URL as the client's identifier (sized to match cimd_metadata_url).
+    # Non-CIMD clients keep the generated opaque value.
+    client_id: models.CharField = models.CharField(
+        max_length=2048, unique=True, default=generate_client_id, db_index=True
+    )
 
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
