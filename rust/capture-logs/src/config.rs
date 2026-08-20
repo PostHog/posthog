@@ -2,6 +2,7 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 use capture::config::KafkaConfig;
+use capture::emergency_kafka_fallback::EmergencyKafkaFallback;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -31,8 +32,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        let res = Self::init_from_env()?;
+    pub fn init_with_defaults() -> anyhow::Result<Self> {
+        let mut res = Self::init_from_env()?;
+        if let Some(fallback) = EmergencyKafkaFallback::from_env(&std::env::vars().collect())? {
+            fallback.apply_to_kafka(&mut res.kafka);
+            fallback.log_active();
+        }
         Ok(res)
     }
 }
