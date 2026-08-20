@@ -531,8 +531,8 @@ class EmailConnectView(APIView):
                         )
                         return Response(
                             {
-                                "error": "This domain cannot be registered for sending. "
-                                "It may already be claimed by another account."
+                                "error": "This domain cannot be registered for sending. It may still be "
+                                "registered from a previous PostHog project. Contact support to release it."
                             },
                             status=400,
                         )

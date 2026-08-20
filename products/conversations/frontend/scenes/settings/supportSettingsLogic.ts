@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +19,16 @@ const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
 /** Kept in sync with SUPPORT_SLACK_FILE_SCOPES in products/conversations/backend/support_slack.py. */
 const SLACK_FILE_SCOPES = ['files:read', 'files:write']
+
+/**
+ * The email endpoints answer with `{"error": "..."}`, which ApiError leaves on `data`.
+ * Never fall back to `error.message` — with no recognized key it holds the raw
+ * "Non-OK response [POST /api/...]" string, which means nothing to a user.
+ */
+function emailApiErrorMessage(error: any, fallback: string): string {
+    const detail = error?.data?.error ?? error?.detail
+    return typeof detail === 'string' && detail ? detail : fallback
+}
 
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
@@ -1396,8 +1407,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     },
                 })
                 lemonToast.success('Email address connected')
-            } catch {
-                lemonToast.error('Failed to connect email')
+            } catch (error: any) {
+                lemonToast.error(
+                    emailApiErrorMessage(error, 'Could not connect this email. Check the address and try again.')
+                )
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error as Error, { scope: 'supportSettingsLogic.connectEmail' })
+                }
                 actions.connectEmailDone(null)
             }
         },
@@ -1405,8 +1421,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             try {
                 // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/email/disconnect', { config_id: configId })
-            } catch {
-                lemonToast.error('Failed to disconnect email')
+            } catch (error: any) {
+                lemonToast.error(
+                    emailApiErrorMessage(error, 'Could not disconnect this email. Refresh the page and try again.')
+                )
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error as Error, { scope: 'supportSettingsLogic.disconnectEmail' })
+                }
                 return
             }
             const wasLast = values.emailConfigs.length === 1

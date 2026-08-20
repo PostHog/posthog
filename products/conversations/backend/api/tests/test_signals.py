@@ -8,9 +8,12 @@ from django.db import transaction
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.models.team import Team
 
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
+from products.conversations.backend.mailgun import MailgunNotConfigured
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.tasks import release_mailgun_domain_if_unused
 
 
 # Patch on_commit to execute immediately in tests
@@ -512,3 +515,80 @@ class TestIsOutboundReply:
         from products.conversations.backend.signals import _is_outbound_reply
 
         assert _is_outbound_reply(item_context, created_by_id) is expected
+
+
+class TestReleaseMailgunDomainOnChannelDelete(BaseTest):
+    def _create_channel(self, kind: str, domain: str = "acme.example.com") -> tuple:
+        team = Team.objects.create(organization=self.organization, name="Migrating team")
+        channel = EmailChannel.objects.create(
+            team=team,
+            kind=kind,
+            owner=self.user if kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
+            inbound_token=uuid.uuid4().hex,
+            from_email=f"support@{domain}",
+            from_name="Acme Support",
+            domain=domain,
+            is_default=kind == EmailChannelKind.SUPPORT,
+        )
+        return team, channel
+
+    @parameterized.expand(
+        [
+            (EmailChannelKind.SUPPORT, True),
+            (EmailChannelKind.CUSTOMER_COMMUNICATION, False),
+        ]
+    )
+    def test_deleting_the_team_releases_only_support_domains(self, kind, expect_release):
+        team, _channel = self._create_channel(kind)
+
+        with (
+            patch("products.conversations.backend.signals.release_mailgun_domain_if_unused") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            team.delete()
+
+        if expect_release:
+            mock_task.delay.assert_called_once_with(domain="acme.example.com")
+        else:
+            mock_task.delay.assert_not_called()
+
+    def test_broker_failure_does_not_escape_the_deleting_transaction(self):
+        team, _channel = self._create_channel(EmailChannelKind.SUPPORT)
+
+        with patch("products.conversations.backend.signals.release_mailgun_domain_if_unused") as mock_task:
+            mock_task.delay.side_effect = RuntimeError("broker down")
+            with self.captureOnCommitCallbacks(execute=True):
+                team.delete()
+
+        assert not EmailChannel.objects.filter(domain="acme.example.com").exists()
+
+
+class TestReleaseMailgunDomainTask(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_channel_left", False, True),
+            ("support_channel_reconnected", True, False),
+        ]
+    )
+    def test_release_respects_current_channel_state(self, _name, recreate_channel, expect_delete):
+        if recreate_channel:
+            EmailChannel.objects.create(
+                team=self.team,
+                kind=EmailChannelKind.SUPPORT,
+                inbound_token=uuid.uuid4().hex,
+                from_email="support@acme.example.com",
+                from_name="Acme Support",
+                domain="acme.example.com",
+            )
+
+        with patch("products.conversations.backend.tasks.delete_domain") as mock_delete:
+            release_mailgun_domain_if_unused("acme.example.com")
+
+        assert mock_delete.called is expect_delete
+
+    def test_missing_api_key_does_not_raise_into_celery_retries(self):
+        with patch(
+            "products.conversations.backend.tasks.delete_domain",
+            side_effect=MailgunNotConfigured("no key"),
+        ):
+            release_mailgun_domain_if_unused("acme.example.com")

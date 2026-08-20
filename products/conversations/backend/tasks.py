@@ -44,9 +44,12 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     MailgunPermanentError,
     MailgunTransientError,
+    delete_domain,
     send_mime,
 )
 from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
     EmailMessageMapping,
     EmailOutboxMessage,
     GithubCommentMapping,
@@ -903,6 +906,33 @@ def flush_pending_email_replies() -> None:
         _process_outbox_row(outbox)
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@skip_team_scope_audit
+def release_mailgun_domain_if_unused(domain: str) -> None:
+    """Drop a Mailgun sending-domain registration once no support channel uses it.
+
+    Mailgun refuses to register a domain another account already holds, so a
+    registration left behind by a deleted project blocks that domain from ever
+    being connected again — including on another region.
+
+    The re-check runs here rather than at enqueue time because the domain may have
+    been reconnected since: a disconnect immediately followed by a reconnect must
+    leave the new registration alone. It also re-runs on every retry.
+    """
+    if not domain:
+        return
+
+    if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
+        return
+
+    try:
+        delete_domain(domain)
+    except MailgunNotConfigured:
+        # Not an error worth retrying: an instance with no Mailgun key never registered
+        # the domain in the first place.
+        logger.info("release_mailgun_domain_no_api_key", domain=domain)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)

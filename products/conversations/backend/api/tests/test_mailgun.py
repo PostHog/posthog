@@ -10,6 +10,7 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
     add_domain,
+    delete_domain,
     get_domain,
     send_mime,
 )
@@ -186,3 +187,22 @@ class TestSendMime:
 
         with pytest.raises(MailgunTransientError):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
+
+
+@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@patch("products.conversations.backend.mailgun.requests.delete")
+class TestDeleteDomain:
+    def test_missing_domain_is_treated_as_released(self, mock_delete: MagicMock, _mock_key: MagicMock):
+        resp = _mailgun_response(404)
+        resp.raise_for_status.side_effect = RuntimeError("should not be called on 404")
+        mock_delete.return_value = resp
+
+        delete_domain("example.com")
+
+    def test_server_error_raises(self, mock_delete: MagicMock, _mock_key: MagicMock):
+        resp = _mailgun_response(500)
+        resp.raise_for_status.side_effect = RuntimeError("http 500")
+        mock_delete.return_value = resp
+
+        with pytest.raises(RuntimeError, match="http 500"):
+            delete_domain("example.com")
