@@ -60,6 +60,10 @@ describe('checkSelectorBreadth', () => {
         ['a scoped class-only selector', '.P2PDisplayModal_content .chakra-button'],
         ['a tag-only selector', 'button'],
         ['a tag and class selector', 'button.chakra-button'],
+        ['a Tailwind arbitrary-value class', '.max-w-[1045px]'],
+        ['a Tailwind arbitrary-value class from devtools copy', '.max-w-\\[1045px\\]'],
+        ['a Tailwind arbitrary-value class with a function', '.shadow-[0_4px_6px_rgba(0,0,0,0.1)]'],
+        ['a Tailwind arbitrary color class', '.text-[#fff]'],
     ])('flags %s as broad', (_label, selector) => {
         const result = checkSelectorBreadth(selector)
         expect(result.isBroad).toBe(true)
@@ -71,6 +75,8 @@ describe('checkSelectorBreadth', () => {
         ['a data attribute qualifier', 'button[data-attr="signup"]'],
         ['a nested id qualifier', '.modal #close'],
         ['a bare attribute qualifier', '[type="submit"]'],
+        ['a class with a real attribute qualifier', '.chakra-button[data-attr="signup"]'],
+        ['a bare attribute with no value', 'button[disabled]'],
     ])('does not flag %s as broad', (_label, selector) => {
         const result = checkSelectorBreadth(selector)
         expect(result.isBroad).toBe(false)

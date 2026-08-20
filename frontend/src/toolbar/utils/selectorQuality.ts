@@ -46,8 +46,18 @@ export function checkSelectorBreadth(selector: string | null | undefined): Broad
         return { isBroad: false, reason: null }
     }
 
-    // An attribute selector (including data-*) or an id is a qualifier
-    if (selector.includes('[') || selector.includes('#')) {
+    // An attribute selector (including data-*) is a qualifier. Its content begins with an
+    // attribute name, so we require an identifier after the `[`. A Tailwind arbitrary-value
+    // class such as `.max-w-[1045px]` or `.shadow-[0_4px_6px_rgba(0,0,0,0.1)]` also uses
+    // brackets, but its content is a value (a digit, symbol, or function), which the action
+    // selector parser treats as part of the class. Those still match by class only.
+    if (/\[\s*[a-zA-Z_][\w:-]*\s*([~|^$*]?=|\])/.test(selector)) {
+        return { isBroad: false, reason: null }
+    }
+
+    // An id is a qualifier. Ignore any `#` inside a bracketed value (e.g. `[href="#x"]` or a
+    // Tailwind color like `.text-[#fff]`) by stripping bracket groups before the check.
+    if (selector.replace(/\[[^\]]*\]/g, '').includes('#')) {
         return { isBroad: false, reason: null }
     }
 
