@@ -130,9 +130,12 @@ Returned by `enrich()` or `enrichFromApi()`. Detection combined with PostHog con
 interface EnricherApiConfig {
   apiKey: string;
   host: string;       // e.g. "https://us.posthog.com"
+  publicHost?: string;
   projectId: number;
 }
 ```
+
+Set `publicHost` when API requests use a private proxy but annotation links should use the public PostHog URL.
 
 ### `EnrichedFlag`
 

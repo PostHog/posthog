@@ -744,7 +744,8 @@ class TestTaskRun(TestCase):
 
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
-        run = self.task.create_run(branch="main")
+        with self.captureOnCommitCallbacks(execute=True):
+            run = self.task.create_run(branch="main")
 
         mock_publish_stream_event.assert_called_once()
         call_args = mock_publish_stream_event.call_args
@@ -1023,7 +1024,8 @@ class TestTaskRun(TestCase):
     )
     def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            self.task.create_run(extra_state=extra_state or None)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.task.create_run(extra_state=extra_state or None)
         created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
         self.assertEqual(len(created), 1)
         props = created[0].kwargs["properties"]

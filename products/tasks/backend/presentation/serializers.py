@@ -401,6 +401,9 @@ class WizardCloudRunSerializer(DataclassSerializer):
 # Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
 # kept inline so presentation never imports the other product's internals.
 _SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# String literals rather than an import: presentation must not import signals internals, and the
+# vocabulary (products/signals/backend/artefact_schemas.py TASK_RUN_TYPE_*) is stable.
+_SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS = frozenset({"research", "repo_selection", "scout"})
 
 
 class TaskSerializer(DataclassSerializer):
@@ -526,10 +529,11 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         max_length=200,
         help_text=(
-            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
-            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
-            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
-            "'_', '-') is accepted."
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). "
+            "Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start "
+            "spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted "
+            "except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). "
+            "Non-implementation labels count toward the report's discussion task limit."
         ),
     )
     json_schema = serializers.JSONField(
@@ -537,10 +541,10 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="JSON schema used to validate the output of the task.",
     )
-    internal = serializers.BooleanField(
-        required=False,
-        help_text="If true, this task is for internal use and should not be exposed to end users.",
-    )
+    # `internal` is deliberately not writable here: only server-side creators (auto-start,
+    # research, loops) set it via the facade. A client-set `internal=True` on a signals-origin
+    # task would drop the token's interactive-run marker and with it the `signals_interactive`
+    # budget and per-task spend ceiling (see is_interactive_signals_task in temporal/oauth.py).
     archived = serializers.BooleanField(
         required=False,
         help_text="If true, the task is hidden from default list responses.",
@@ -687,6 +691,9 @@ class TaskWriteSerializer(serializers.Serializer):
             # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
             # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
             tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
+            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
+            # via its service JWT. A forged origin would fake that provenance.
+            tasks_facade.TaskOriginProduct.WORKFLOW,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -721,6 +728,11 @@ class TaskWriteSerializer(serializers.Serializer):
                 "Must contain only lowercase letters, numbers, underscores, or hyphens, "
                 "and start with a lowercase letter or number."
             )
+        # Labels the signals pipeline writes itself. Client-asserted, they would misrepresent a
+        # user-started task as pipeline work — and dodge the per-report cap, which counts every
+        # non-implementation label as a discussion except these server-only ones.
+        if normalized in _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS:
+            raise serializers.ValidationError(f"Relationship '{normalized}' is reserved for server-created tasks.")
         return normalized
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -802,6 +814,18 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        # Mirror image of the signal_report_task_relationship check: a report-less signal_report
+        # task still mints under the Signals OAuth app with the interactive run scope, but skips
+        # the per-report cap entirely. Require the report so the cap and interactive budget always
+        # see the run. Create-only, since origin_product is not writable on update.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and not attrs.get(
+            "signal_report"
+        ):
+            raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
@@ -1460,6 +1484,73 @@ class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
+class TaskRunPeerSerializer(serializers.Serializer):
+    """One peer agent run visible to the requesting run (agent peer messaging)."""
+
+    run_id = serializers.CharField(help_text="The peer run's id — the address send_agent_message targets.")
+    task_id = serializers.CharField(help_text="Id of the peer run's parent task.")
+    task_title = serializers.CharField(help_text="Title of the peer run's parent task.")
+    created_by_email = serializers.CharField(
+        allow_null=True, help_text="Email of the user whose task the peer run belongs to."
+    )
+    runtime = serializers.CharField(help_text="Agent runtime of the peer run's task (e.g. 'pi').")
+    model = serializers.CharField(allow_null=True, help_text="Model the peer run was started with, when recorded.")
+    repository = serializers.CharField(
+        allow_null=True, help_text="Repository the peer run works on, or null for repo-less (channel-mode) runs."
+    )
+    stage = serializers.CharField(allow_null=True, help_text="Current stage of the peer run (e.g. 'build').")
+    status = serializers.CharField(help_text="Run status: 'in_progress' or 'queued' (only these are listed).")
+    sendable = serializers.BooleanField(
+        help_text=(
+            "Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is "
+            "listed but its workflow may not exist yet. Never infer sendability from status labels."
+        )
+    )
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
+
+
+class TaskRunPeersResponseSerializer(serializers.Serializer):
+    peers = TaskRunPeerSerializer(
+        many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
+    )
+
+
+class TaskRunPeerMessageRequestSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        max_length=16_000,
+        help_text=(
+            "Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed "
+            "provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files."
+        ),
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        required=False,
+        default=list,
+        max_length=10,
+        help_text=(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the "
+            "target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+    )
+
+
+class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(
+        choices=["accepted", "target_finished", "rejected"],
+        help_text=(
+            "Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), "
+            "'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid)."
+        ),
+    )
+    detail = serializers.CharField(help_text="Human-readable explanation of the result.")
+    message_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the recorded peer message, when one was created for this send.",
+    )
+
+
 TASK_SUMMARIES_MAX_IDS = 5000
 
 
@@ -1599,6 +1690,16 @@ class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    system_role = serializers.ChoiceField(
+        choices=tasks_facade.Channel.SystemRole.choices,
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Identifies this channel as one of the two system-provisioned spaces "
+            "('personal' for the user's own #me space, 'general' for the team's "
+            "shared #general space). Null for an ordinary channel."
+        ),
+    )
 
     class Meta:
         dataclass = ChannelDTO
@@ -1611,7 +1712,26 @@ class ChannelSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "starred",
+            "system_role",
         ]
+
+
+class ProvisionedChannelsSerializer(serializers.Serializer):
+    """The requester's default channels, plus whether this call is what created them."""
+
+    channels = ChannelSerializer(
+        many=True,
+        help_text="The full channel list after provisioning, same shape as the list endpoint.",
+    )
+    personal_created = serializers.BooleanField(
+        help_text="Whether this call created the requester's personal #me channel."
+    )
+    general_created = serializers.BooleanField(
+        help_text=(
+            "Whether this call created the team's shared #general channel. True only for "
+            "the first user to provision it, so clients can branch first-user setup on it."
+        )
+    )
 
 
 class ChannelDeleteConflictSerializer(serializers.Serializer):
@@ -1633,6 +1753,13 @@ class ChannelWriteSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_name(self, value: str) -> str:
+        # "general" resolves the team's general space here, so only the personal names are
+        # refused.
+        if tasks_facade.is_personal_space_name(value):
+            raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
+        return value
+
 
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
@@ -1652,6 +1779,11 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_reserved_channel_name(value):
+            raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
 
     def validate_github_integration(self, value):
         if value is not None and value.team_id != self.context["team_id"]:
@@ -2007,6 +2139,7 @@ class TaskUsageResponseSerializer(serializers.Serializer):
 
 
 class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team identifier used to scope attributed model generations.")
     task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
     task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
 

@@ -138,7 +138,7 @@ class DuckgresQueryServerConfig:
     flight_port: int
     database: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -149,7 +149,7 @@ class DuckLakeCatalogConnectionConfig:
     port: int
     database: str
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)

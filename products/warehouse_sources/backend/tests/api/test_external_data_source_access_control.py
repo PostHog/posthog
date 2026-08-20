@@ -154,7 +154,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Viewer Access Level Tests ---
 
     def test_viewer_can_list_sources(self):
-        """Test that a user with viewer access can list sources"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -163,7 +162,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_viewer_can_retrieve_source(self):
-        """Test that a user with viewer access can retrieve a source"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -173,7 +171,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.json()["id"], str(self.source.id))
 
     def test_viewer_cannot_delete_source(self):
-        """Test that a user with viewer access cannot delete a source"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -183,7 +180,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertIn("editor", response.json()["detail"].lower())
 
     def test_viewer_cannot_update_source(self):
-        """Test that a user with viewer access cannot update a source"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -195,7 +191,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_viewer_cannot_reload_source(self):
-        """Test that a user with viewer access cannot reload a source"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -206,7 +201,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Editor Access Level Tests ---
 
     def test_editor_can_list_sources(self):
-        """Test that a user with editor access can list sources"""
         self._create_access_control(self.editor_user, access_level="editor")
 
         self.client.force_login(self.editor_user)
@@ -215,7 +209,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_editor_can_retrieve_source(self):
-        """Test that a user with editor access can retrieve a source"""
         self._create_access_control(self.editor_user, access_level="editor")
 
         self.client.force_login(self.editor_user)
@@ -224,7 +217,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_editor_can_update_source(self):
-        """Test that a user with editor access can update a source"""
         self._create_access_control(self.editor_user, access_level="editor")
 
         self.client.force_login(self.editor_user)
@@ -238,7 +230,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(self.source.description, "Updated description")
 
     def test_editor_can_delete_source(self):
-        """Test that a user with editor access can delete a source"""
         self._create_access_control(self.editor_user, access_level="editor")
 
         self.client.force_login(self.editor_user)
@@ -261,7 +252,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_none_access_cannot_retrieve_source(self):
-        """Test that a user with no access cannot retrieve a source"""
         self._create_access_control(self.no_access_user, access_level="none")
 
         self.client.force_login(self.no_access_user)
@@ -272,7 +262,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Project Default Access Control Tests ---
 
     def test_project_default_none_blocks_list_without_specific_access(self):
-        """Test that project-default 'none' access blocks list for users without specific object access"""
         self._create_project_default_access_control(access_level="none")
 
         self.client.force_login(self.viewer_user)
@@ -282,7 +271,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_explicit_access_overrides_project_default_none(self):
-        """Test that explicit user access overrides project-default 'none'"""
         self._create_project_default_access_control(access_level="none")
         self._create_access_control(self.viewer_user, access_level="viewer")
 
@@ -295,7 +283,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Object-Level Access Control Tests ---
 
     def test_specific_source_access_with_none_resource_access(self):
-        """Test that a user can have access to specific sources only"""
         # Create another source
         source2 = self._create_external_data_source()
 
@@ -321,7 +308,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_filtered_list_with_mixed_access(self):
-        """Test that list only returns sources the user has access to"""
         # Create another source that viewer won't have access to
         self._create_external_data_source()
 
@@ -746,8 +732,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Organization Admin Tests ---
 
     def test_org_admin_has_full_access(self):
-        """Test that organization admins have full access to sources"""
-        # Set project-default to none
         self._create_project_default_access_control(access_level="none")
 
         # Make user an org admin
@@ -769,15 +753,12 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Role-Based Access Tests ---
 
     def test_role_grants_editor_access(self):
-        """Test that roles can be used to grant source access"""
-        # Set project-default to none
         self._create_project_default_access_control(access_level="none")
 
         # Create a role with editor access to sources
         role = Role.objects.create(name="Source Editors", organization=self.organization)
         RoleMembership.objects.create(user=self.editor_user, role=role)
 
-        # Grant the role editor access
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="editor", role=role)
 
         self.client.force_login(self.editor_user)
@@ -792,15 +773,12 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_role_grants_viewer_access(self):
-        """Test that roles can grant viewer access"""
-        # Set project-default to none
         self._create_project_default_access_control(access_level="none")
 
         # Create a role with viewer access
         role = Role.objects.create(name="Source Viewers", organization=self.organization)
         RoleMembership.objects.create(user=self.viewer_user, role=role)
 
-        # Grant the role viewer access
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="viewer", role=role)
 
         self.client.force_login(self.viewer_user)
@@ -817,8 +795,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Creator Access Tests ---
 
     def test_creator_can_delete_other_users_blocked_source(self):
-        """Test that a creator can delete their source even when others can't access it"""
-        # Create a source by editor_user
         source = self._create_external_data_source(created_by=self.editor_user)
 
         # Set project-default to none (blocks access for everyone)
@@ -842,8 +818,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_viewer_cannot_delete_regardless_of_creator(self):
-        """Test that viewer resource access cannot delete, regardless of being creator or not"""
-        # Create a source by viewer_user
         source = self._create_external_data_source(created_by=self.viewer_user)
 
         # Give viewer_user only viewer resource access
@@ -857,8 +831,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_creator_can_modify_access_controls(self):
-        """Test that the creator can modify access controls for their sources"""
-        # Create a source by editor_user
         source = self._create_external_data_source(created_by=self.editor_user)
 
         uac = UserAccessControl(self.editor_user, self.team)
@@ -869,7 +841,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- user_access_level Response Field Tests ---
 
     def test_user_access_level_in_list_response(self):
-        """Test that user_access_level is included in list response"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -881,7 +852,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertIn("user_access_level", results[0])
 
     def test_user_access_level_in_detail_response(self):
-        """Test that user_access_level is included in detail response"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
         self.client.force_login(self.viewer_user)
@@ -893,7 +863,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     # --- Manager Access Tests ---
 
     def test_manager_can_access_access_controls_endpoint(self):
-        """Test that a user with manager access can access the access_controls endpoint"""
         self._create_access_control(self.editor_user, access_level="manager")
 
         self.client.force_login(self.editor_user)

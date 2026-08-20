@@ -53,6 +53,7 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
 // logs) and shared across logic instances. Parsing is pure per object, so cached entries are
@@ -84,9 +85,13 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
+// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
+// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
+// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
+// `logs query failed` capture for a request that was cancelled on purpose.
 function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -1284,11 +1289,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         beforeUnmount: () => {
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
+            // Abort with an `AbortError`, never a bare string: `fetch` rejects with the reason
+            // exactly as given, and `handleFetch` only re-throws it untouched when it is a real
+            // `AbortError`. A string reason falls through and gets relabelled as an `ApiError`, so
+            // tearing the viewer down looks like a failed request in the console.
             if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
+                values.logsAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
         },
     })),

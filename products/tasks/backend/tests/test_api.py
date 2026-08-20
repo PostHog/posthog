@@ -13,6 +13,7 @@ from urllib.parse import quote
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -65,6 +66,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
+    AgentPeerMessage,
     Channel,
     CodeInvite,
     CodeInviteRedemption,
@@ -182,6 +184,10 @@ class BaseTaskAPITest(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+
+        # DRF throttle history lives in the default cache keyed by user pk; without this it
+        # accumulates across tests (APIBaseTest clears it in setUp for the same reason).
+        cache.clear()
 
         # Enable tasks feature flag by default
         self.set_tasks_feature_flag(True)
@@ -1631,6 +1637,22 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_signal_report_origin_requires_report(self):
+        # A report-less signal_report origin would mint an interactive Signals run that skips the
+        # per-report cap; the serializer must reject it (mirror of the internal/reserved bypasses).
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "signal_report",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "signal_report")
+
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
@@ -1802,12 +1824,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
-    @parameterized.expand([("discussion", True), ("implementation", False), ("research", False)])
+    @parameterized.expand([("discussion", True), ("implementation", False), ("triage", False)])
     def test_signal_report_task_forwards_discussion_question_as_scout_note(self, relationship, should_forward):
         # Wiring guard: a "Discuss" kickoff (and only a discussion relationship) forwards the user's
         # question to the report's scout as a REPORT_DISCUSSION note. Guards the facade hook firing for
-        # discussion but not for implementation/research (which would spam a note on every PR kickoff),
-        # and the URL-prefix strip end to end.
+        # discussion but not for implementation or free-form labels (which would spam a note on every
+        # PR kickoff), and the URL-prefix strip end to end.
         from products.signals.backend.models import SignalReport, SignalScoutNote
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
@@ -1966,24 +1988,260 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import signals_task_ids
 
-        # The relationship is a free-form task_run label — no value is reserved. A non-implementation
-        # relationship records only the work-log artefact (no SignalReportTask gate row).
+        # The relationship is a free-form task_run label (bar the reserved pipeline labels). A
+        # non-implementation relationship records only the work-log artefact (no SignalReportTask
+        # gate row).
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
-                "title": "Research",
+                "title": "Triage",
                 "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
-                "signal_report_task_relationship": "research",
+                "signal_report_task_relationship": "triage",
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(signals_task_ids(report_id=str(report.id), type="research"), [data["id"]])
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type="triage"), [data["id"]])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
+
+    def _post_signal_report_task(self, report_id, relationship, title="Report task"):
+        return self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": title,
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report_id),
+                "signal_report_task_relationship": relationship,
+            },
+            format="json",
+        )
+
+    def _create_implementation_task_with_runs(self, report, run_specs, deleted=False):
+        from products.signals.backend.models import SignalReportTask
+
+        task = Task.objects.create(
+            team=self.team,
+            title="Prior implementation",
+            description="Prior",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            deleted=deleted,
+        )
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        for run_status, pr_url in run_specs:
+            TaskRun.objects.create(
+                task=task, team=self.team, status=run_status, output={"pr_url": pr_url} if pr_url else None
+            )
+        return task
+
+    @parameterized.expand([("research",), ("repo_selection",), ("scout",)])
+    def test_reserved_signal_report_task_relationships_rejected(self, relationship):
+        # These labels mark server-side pipeline work; a client asserting one would misrepresent a
+        # user-started task and dodge the per-report discussion cap (which exempts pipeline labels).
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "signal_report_task_relationship")
+
+    def test_reserved_relationships_match_signals_pipeline_vocabulary(self):
+        # The serializer's reserved set is a string-literal copy (presentation must not import
+        # signals internals). If signals grows a pipeline label the serializer doesn't reserve,
+        # clients can assert it and the label is also exempt from the per-report discussion
+        # count — uncapped report-started runs.
+        from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+        from products.signals.backend.task_run_artefacts import _PIPELINE_TASK_RUN_TYPES
+        from products.tasks.backend.presentation.serializers import _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS
+
+        # `implementation` is the one pipeline label clients may assert (it opens the auto-start
+        # spend gate and is capped by the one-live-implementation rule instead).
+        self.assertEqual(
+            _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS, _PIPELINE_TASK_RUN_TYPES - {TASK_RUN_TYPE_IMPLEMENTATION}
+        )
+
+    @parameterized.expand(
+        [
+            # a live implementation claims the report's one slot
+            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("run_in_progress", [("in_progress", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("run_completed", [("completed", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            (
+                "failed_but_pr_shipped",
+                [("failed", "https://github.com/acme/web/pull/1")],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+            # only a fully dead prior implementation (or a deleted task) releases the slot
+            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED),
+            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED),
+            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_second_implementation_task_per_report_gated_on_prior_state(
+        self, _name, run_specs, prior_deleted, expected_status
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        self._create_implementation_task_with_runs(report, run_specs, deleted=prior_deleted)
+
+        response = self._post_signal_report_task(report.id, "implementation")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            self.assertFalse(Task.objects.filter(title="Report task").exists())
+
+    @parameterized.expand(
+        [
+            # Another task took the slot this one released, so rerunning would make two live
+            # implementations for the report.
+            ("another_task_holds_the_slot", True, True),
+            # Nothing else claimed it, so the ordinary "my run failed, try again" path stands.
+            ("reclaims_its_own_released_slot", False, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerunning_a_released_implementation_rechecks_the_report_slot(
+        self, _name, create_second_task, expect_refused, mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        # Every run failed without a PR, which releases the slot for a second implementation.
+        task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
+        if create_second_task:
+            self.assertEqual(
+                self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
+            )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        if expect_refused:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            mock_workflow.assert_not_called()
+        else:
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self._create_implementation_task_with_runs(report, [("failed", None)])
+        original_create_run = Task.create_run
+
+        def claim_the_slot_then_create_the_run(task_being_run, *args, **kwargs):
+            # Stands in for a create that lands in the window between the pre-flight check and
+            # the run insert that claims the slot. Only a check holding the report lock across
+            # the insert catches it, so removing that check turns this back into two live
+            # implementations for one report.
+            self._post_signal_report_task(report.id, "implementation")
+            return original_create_run(task_being_run, *args, **kwargs)
+
+        with patch.object(Task, "create_run", autospec=True, side_effect=claim_the_slot_then_create_the_run):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "signal_report_task_cap")
+        mock_workflow.assert_not_called()
+        self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
+
+    def test_discussion_task_cap_per_report_counts_free_form_labels(self):
+        from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
+
+        report = SignalReport.objects.create(team=self.team)
+        # Free-form labels share the discussion bucket — otherwise a made-up label resets the cap.
+        labels = ["discussion", "brainstorm", "discussion"]
+        self.assertEqual(len(labels), MAX_DISCUSSION_TASKS_PER_REPORT)
+        for label in labels:
+            self.assertEqual(self._post_signal_report_task(report.id, label).status_code, status.HTTP_201_CREATED)
+
+        response = self._post_signal_report_task(report.id, "discussion")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "signal_report_task_cap")
+        # An exhausted discussion cap must not consume the implementation slot, and vice versa.
+        self.assertEqual(
+            self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
+        )
+
+    def test_report_task_cap_counts_tasks_across_team_members(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        self.assertEqual(
+            self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
+        )
+
+        other_user = self.create_organization_user()
+        self.client.force_login(other_user)
+        response = self._post_signal_report_task(report.id, "implementation")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "signal_report_task_cap")
+
+    def test_create_task_ignores_client_internal_flag(self):
+        # A client-set internal=True on a signals-origin task would drop the interactive-run budget
+        # marker at the gateway; the field is server-only, so the key is silently ignored.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Report task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+                "internal": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(Task.objects.get(id=response.json()["id"]).internal)
+
+    def test_update_task_ignores_client_internal_flag(self):
+        task = self.create_task("Mine")
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"internal": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertFalse(task.internal)
+
+    def test_signal_report_create_throttle_skips_other_origins(self):
+        from products.signals.backend.models import SignalReport
+        from products.tasks.backend.presentation.views.api import SignalReportTaskCreateBurstThrottle
+
+        report = SignalReport.objects.create(team=self.team)
+        other_report = SignalReport.objects.create(team=self.team)
+        with patch.object(SignalReportTaskCreateBurstThrottle, "rate", "1/day"):
+            self.assertEqual(
+                self._post_signal_report_task(report.id, "discussion").status_code, status.HTTP_201_CREATED
+            )
+            self.assertEqual(
+                self._post_signal_report_task(other_report.id, "discussion").status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            # The throttle is scoped to signal-report creates; the shared endpoint stays open.
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"title": "Plain task", "description": "Unrelated", "origin_product": "user_created"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -4570,15 +4828,6 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
     def test_retrieve_internal_task_by_id(self):
         response = self.client.get(f"/api/projects/@current/tasks/{self.internal_task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["internal"])
-
-    def test_internal_field_is_settable_on_create(self):
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {"title": "Internal Task via API", "description": "Created as internal", "internal": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(response.json()["internal"])
 
     def test_internal_field_defaults_to_false_on_create(self):
@@ -7796,7 +8045,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_called_once_with(str(run.id), False)
         run.refresh_from_db()
@@ -7829,7 +8083,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_not_called()
         run.refresh_from_db()
@@ -7861,7 +8120,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         self.assertEqual(publish_complete.call_count, 2)
         run.refresh_from_db()
@@ -12212,3 +12476,166 @@ class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
         reread = TaskSerializer(data=response.json())
         self.assertTrue(reread.is_valid(), reread.errors)
         self.assertEqual(reread.validated_data.runtime, task.runtime)
+
+
+class TestTaskRunPeersAPI(BaseTaskAPITest):
+    def _enable_peer_messaging_flag(self) -> None:
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "pi-harness", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+
+    def _make_pi_task_and_run(self, title: str = "peer task") -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title=title,
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        return task, run
+
+    def _sandbox_client_for(self, task_id: uuid.UUID) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Peer test sandbox app",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_peer_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_sandbox_token_bound_to_other_task_cannot_use_peer_endpoints(self):
+        # The token's user (the run owner) controls BOTH tasks, so the ordinary
+        # task-access gate passes — only the sandbox_task_id binding check stands
+        # between a compromised sandbox for task A and sending as task B's run.
+        self._enable_peer_messaging_flag()
+        task_a, _run_a = self._make_pi_task_and_run("task a")
+        task_b, run_b = self._make_pi_task_and_run("task b")
+        client = self._sandbox_client_for(task_a.id)
+
+        list_response = client.get(f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        send_response = client.post(
+            f"/api/projects/@current/tasks/{task_b.id}/runs/{run_b.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_flag_and_runtime_are_enforced_server_side(self):
+        _task, run = self._make_pi_task_and_run()
+        # Flag off (default mock): 403 despite full task access.
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Flag on but ACP runtime: still 403 — v1 is Pi-only.
+        self._enable_peer_messaging_flag()
+        acp_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="acp task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=Task.Runtime.ACP,
+        )
+        acp_run = TaskRun.objects.create(
+            task=acp_task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        response = self.client.get(f"/api/projects/@current/tasks/{acp_task.id}/runs/{acp_run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_pi_harness_rollback_fails_peer_messaging_closed(self):
+        # Pulling the Pi kill switch must close peer messaging even though the
+        # task row still says runtime=PI and the peer flag itself stays on.
+        def check_flag(flag_name, *_args, **_kwargs):
+            return flag_name in {"tasks", "tasks-agent-peer-messaging"}
+
+        self.mock_feature_flag.side_effect = check_flag
+        _task, run = self._make_pi_task_and_run()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/peers/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_teammate_cannot_use_peer_endpoints_on_team_visible_task(self):
+        # Team-visible origins (signal reports etc.) are team-drivable, but peer
+        # visibility and message attribution derive entirely from the task creator —
+        # a teammate must not enumerate the creator's other runs or send messages
+        # attributed to them.
+        self._enable_peer_messaging_flag()
+        creator = self.create_organization_user("peer-report-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="signal report task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            runtime=Task.Runtime.PI,
+        )
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+
+        list_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/")
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        send_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/peers/{uuid.uuid4()}/message/",
+            {"content": "hi"},
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(AgentPeerMessage.objects.unscoped().count(), 0)
+
+    def test_list_and_send_round_trip(self):
+        # Wiring guard through viewset → facade → service: discovery shows the
+        # peer with its sendable flag, and a send returns the accepted contract
+        # with a signaled audit row.
+        self._enable_peer_messaging_flag()
+        _sender_task, sender_run = self._make_pi_task_and_run("sender")
+        _target_task, target_run = self._make_pi_task_and_run("target")
+
+        list_response = self.client.get(
+            f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/"
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        peers = list_response.json()["peers"]
+        self.assertEqual([p["run_id"] for p in peers], [str(target_run.id)])
+        self.assertTrue(peers[0]["sendable"])
+
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message") as mock_signal:
+            send_response = self.client.post(
+                f"/api/projects/@current/tasks/{sender_run.task_id}/runs/{sender_run.id}/peers/{target_run.id}/message/",
+                {"content": "heads up: schema changed"},
+                format="json",
+            )
+        self.assertEqual(send_response.status_code, status.HTTP_200_OK)
+        body = send_response.json()
+        self.assertEqual(body["result"], "accepted")
+        row = AgentPeerMessage.objects.unscoped().get()
+        self.assertEqual(body["message_id"], str(row.id))
+        self.assertEqual(row.outcome, AgentPeerMessage.Outcome.SIGNALED)
+        mock_signal.assert_called_once()

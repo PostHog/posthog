@@ -210,6 +210,7 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
@@ -323,6 +324,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -344,6 +346,7 @@ export {
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
 export type {
   TaskCreationInput,

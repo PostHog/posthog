@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   items: [] as ChannelItemModel[],
   isLoading: false,
   channelMissing: false,
+  pathname: "/website/channel-1",
   open: vi.fn(),
 }));
 
@@ -25,7 +26,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
-  useRouterState: () => "/website/channel-1",
+  useRouterState: () => mocks.pathname,
 }));
 
 // Both mount their own query stacks; this suite is about the list's own
@@ -107,6 +108,7 @@ describe("ChannelSidebar", () => {
     mocks.items = [];
     mocks.isLoading = false;
     mocks.channelMissing = false;
+    mocks.pathname = "/website/channel-1";
   });
 
   it.each([
@@ -370,6 +372,7 @@ describe("ChannelSidebar multi-select", () => {
   beforeEach(() => {
     mocks.isLoading = false;
     mocks.channelMissing = false;
+    mocks.pathname = "/website/channel-1";
     mocks.open.mockClear();
     useTaskSelectionStore.setState({
       selectedTaskIds: [],
@@ -419,6 +422,19 @@ describe("ChannelSidebar multi-select", () => {
       "a",
       "b",
     ]);
+  });
+
+  it("does not style the open session as selected when another session is selected", () => {
+    mocks.pathname = "/website/channel-1/tasks/a";
+    useTaskSelectionStore.setState({ selectedTaskIds: ["b"] });
+
+    renderSidebar();
+
+    const openRow = screen.getByText("First session").closest("button");
+    const selectedRow = screen.getByText("Second session").closest("button");
+    expect(openRow).toHaveAttribute("data-active", "true");
+    expect(openRow).not.toHaveAttribute("data-in-selection");
+    expect(selectedRow).toHaveAttribute("data-in-selection", "true");
   });
 
   // A canvas can't be archived, filed, or tiled like a session, so it stays out

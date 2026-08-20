@@ -75,7 +75,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -504,7 +504,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # Deferred: the insight API serializer drags the product-analytics query-runner chain;
         # keeping it out of module scope lets this module connect its delete receivers at
         # AppConfig.ready() without pulling that chain onto startup.
-        from products.product_analytics.backend.api.insight import InsightBasicSerializer  # noqa: PLC0415
+        from products.product_analytics.backend.presentation.insight import InsightBasicSerializer  # noqa: PLC0415
 
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data

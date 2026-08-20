@@ -1,4 +1,5 @@
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
+import { applyLayoutOperations } from "@posthog/core/canvas/gridLayoutOperations";
 import type {
   CanvasLayoutResult,
   LayoutOperation,
@@ -42,10 +43,13 @@ export function useGridLayout(canvasId: string | undefined): {
 }
 
 /**
- * Guarded surgical writes to a grid canvas's layout. On success the layout
- * cache adopts the server's document; on any failure (including a 409 from a
- * concurrent edit) the layout is refetched so the surface rebases on the real
- * head instead of retrying blind.
+ * Guarded surgical writes to a grid canvas's layout. The edit shows the moment
+ * it is made: the operations are applied to the layout cache on the way out,
+ * because rendering the server's document for the length of the round trip
+ * snaps a dragged tile back to where it started. On success the cache adopts
+ * the server's document; on any failure (including a 409 from a concurrent
+ * edit) the layout is refetched so the surface rebases on the real head
+ * instead of retrying blind.
  *
  * Patches run one at a time, each reading the head from the layout cache when
  * it is actually sent. Two gestures can finish before the first patch answers,
@@ -61,32 +65,58 @@ export function usePatchLayout(canvasId: string): {
 } {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
-  const layoutKey = trpc.dashboards.layout.queryKey({ id: canvasId });
   const { mutateAsync, isPending } = useMutation(
-    trpc.dashboards.patchLayout.mutationOptions({
-      onSuccess: (result) => {
-        queryClient.setQueryData(layoutKey, result);
-      },
-    }),
+    trpc.dashboards.patchLayout.mutationOptions(),
   );
   // The tail of the patch queue. It never rejects, so one failed patch cannot
   // wedge the gestures behind it.
   const queue = useRef<Promise<CanvasLayoutResult | null>>(
     Promise.resolve(null),
   );
+  // Edits the canvas already shows and the server has not acknowledged, oldest
+  // first.
+  const unacknowledged = useRef<LayoutOperation[][]>([]);
   const patch = useCallback(
     (operations: LayoutOperation[], prompt?: string) => {
       const key = trpc.dashboards.layout.queryKey({ id: canvasId });
+      queryClient.setQueryData<CanvasLayoutResult>(key, (current) =>
+        current
+          ? {
+              ...current,
+              layout: applyLayoutOperations(current.layout, operations),
+            }
+          : current,
+      );
+      unacknowledged.current = [...unacknowledged.current, operations];
+      const settled = () => {
+        unacknowledged.current = unacknowledged.current.filter(
+          (entry) => entry !== operations,
+        );
+      };
       const queued = queue.current.then(async () => {
         const head = queryClient.getQueryData<CanvasLayoutResult>(key);
         try {
-          return await mutateAsync({
+          const result = await mutateAsync({
             id: canvasId,
             operations,
             prompt,
+            // The optimistic write above leaves this field alone, so the guard
+            // still names the head the server itself last minted.
             expectedCurrentVersionId: head?.currentVersionId ?? null,
           });
+          settled();
+          // The server's document, with any gesture made since still on top of
+          // it: adopting it bare would snap those back for their own round trip.
+          queryClient.setQueryData(key, {
+            ...result,
+            layout: unacknowledged.current.reduce(
+              (layout, entry) => applyLayoutOperations(layout, entry),
+              result.layout,
+            ),
+          });
+          return result;
         } catch (error) {
+          settled();
           toastError("Couldn't update the canvas layout", error);
           // Rebase before the next queued gesture is sent, and let callers
           // treat null as "this edit didn't land".

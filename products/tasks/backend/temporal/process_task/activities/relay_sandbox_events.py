@@ -448,6 +448,8 @@ async def _relay_loop(
 
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
@@ -467,6 +469,8 @@ async def _relay_loop(
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
