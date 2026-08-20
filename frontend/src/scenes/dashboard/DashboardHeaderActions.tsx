@@ -83,8 +83,7 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
-        useActions(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, openAddInsightModal } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
@@ -124,12 +123,10 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
-                        // Adding from the header appends at the bottom; drop any stale inline-insertion target.
-                        onBeforeSelect: () => setPendingInsertion(null),
                     })}
                     onVisibilityChange={(visible) => {
                         if (visible) {
-                            reportDashboardAddMenuOpened('header', dashboard.id)
+                            reportDashboardAddMenuOpened(dashboard.id)
                         }
                     }}
                 >
