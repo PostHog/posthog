@@ -1076,26 +1076,24 @@ class IntegrationViewSet(
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
         # authorize is a full-page browser redirect, so a JSON denial dead-ends the user with raw
-        # text and no way back. Render an HTML page that names the project instead.
+        # text and no way back. Render an HTML page instead.
         if self.action == "authorize" and isinstance(exc, PermissionDenied | NotAuthenticated):
             # render_template returns a plain HttpResponse; DRF's finalize_response passes it through.
-            return cast(Response, self._render_authorize_denied())
+            return cast(Response, self._render_authorize_denied(exc))
         return super().handle_exception(exc)
 
-    def _render_authorize_denied(self) -> HttpResponse:
-        # The denial path never confirms project membership, so it must not name the project.
-        # self.team is an unscoped lookup and this page is reachable unauthenticated, so naming it
-        # would disclose project names across tenants. Keep the copy project-agnostic.
+    def _render_authorize_denied(self, exc: PermissionDenied | NotAuthenticated) -> HttpResponse:
+        # Show the exception's own message: no-access, verified-domain, and not-authenticated each
+        # need different remediation. None of these messages names a project, so keep the page free
+        # of project details — this path never confirms membership and is reachable unauthenticated,
+        # so naming the project would disclose project names across tenants.
+        message = str(exc.detail) if isinstance(exc.detail, str) else "You don't have access to this project."
         return render_template(
             "toolbar_oauth_error.html",
             self.request,
             context={
-                "error_title": "You don't have access to this project",
-                "error_message": "Your account can't connect integrations for this project.",
-                "error_detail": (
-                    "Ask a project admin to add you, then go back and start the setup again. "
-                    "If you manage more than one project, check that you picked the right one."
-                ),
+                "error_title": "You can't connect this integration",
+                "error_message": message,
                 "error_code": "403",
             },
             status_code=403,

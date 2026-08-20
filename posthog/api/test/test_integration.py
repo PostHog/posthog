@@ -2259,11 +2259,11 @@ class TestGitHubIntegrationStateValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
 
-    def test_authorize_denied_renders_generic_html_page(self, client: HttpClient):
+    def test_authorize_denied_renders_html_without_project_details(self, client: HttpClient):
         # authorize is a full-page browser redirect, so a denial must render an HTML page with a way
         # back, not a raw JSON body the setup wizard can't recover from. The denial path never
-        # confirms membership and is reachable unauthenticated, so the page must not name the
-        # project: naming it would disclose project names across tenants.
+        # confirms membership, so the page must carry no project details: naming a project would
+        # disclose project names across tenants.
         other_org = Organization.objects.create(name="Other Org")
         outsider = User.objects.create_and_join(other_org, "outsider@posthog.com", "pw")
         client.force_login(outsider)
@@ -2276,16 +2276,33 @@ class TestGitHubIntegrationStateValidation:
         assert denied["Content-Type"].startswith("text/html")
         assert self.team.name not in denied.content.decode()
 
-        # An anonymous caller reaches the same handler. Its page must be byte-identical, so no
-        # project-specific difference leaks whether a project id exists.
-        client.logout()
-        anonymous = client.get(
+        # A second, differently named project the user is also denied must render a byte-identical
+        # page, so no project-specific detail (its name, or a difference that reveals it exists) can
+        # leak across tenants.
+        other_team = Team.objects.create(organization=self.organization, name="Second Project")
+        other = client.get(
+            f"/api/environments/{other_team.pk}/integrations/authorize/",
+            {"kind": "github"},
+        )
+
+        assert other.content == denied.content
+
+    def test_authorize_verified_domain_denial_keeps_its_message(self, client: HttpClient):
+        # A project member blocked by their org's verified-domain enforcement must see the
+        # verified-domain remediation, not the generic project-access copy.
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        client.force_login(self.user)
+
+        response = client.get(
             f"/api/environments/{self.team.pk}/integrations/authorize/",
             {"kind": "github"},
         )
 
-        assert anonymous.status_code == status.HTTP_403_FORBIDDEN
-        assert anonymous.content == denied.content
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response["Content-Type"].startswith("text/html")
+        # The template autoescapes the apostrophe in the message, so match a distinctive fragment.
+        assert "only allows members with a verified email domain" in response.content.decode()
 
     @override_settings(TIKTOK_ADS_CLIENT_ID="tiktok-app-id", TIKTOK_ADS_CLIENT_SECRET="tiktok-secret")
     @patch("posthog.api.integration.report_user_action")
