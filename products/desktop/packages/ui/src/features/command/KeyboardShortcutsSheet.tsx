@@ -1,5 +1,4 @@
 import { PencilSimple } from "@phosphor-icons/react";
-import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   CATEGORY_LABELS,
@@ -7,7 +6,7 @@ import {
   getShortcutsByCategory,
   type ShortcutCategory,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
 import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
@@ -133,7 +132,7 @@ export function KeyboardShortcutsList({
   // Several keys change owner with the layout, so the sheet has to know which
   // one is on rather than listing keys nothing handles.
   const channelsLayout = useChannelsLayout();
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   const shortcutsByCategory = useMemo(
     () =>
       getShortcutsByCategory({

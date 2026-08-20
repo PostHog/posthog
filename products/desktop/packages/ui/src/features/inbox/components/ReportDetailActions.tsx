@@ -8,9 +8,8 @@ import {
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { Button } from "@posthog/quill";
-import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
@@ -71,7 +70,7 @@ export function ReportDetailActions({ report }: ReportDetailActionsProps) {
     cloudRepository,
   });
 
-  const canvasActionEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const canvasActionEnabled = useChannelReportsEnabled();
   const { createCanvasReport, isCreatingCanvas } = useCreateCanvasReport({
     reportId: report.id,
     reportTitle: report.title ?? null,

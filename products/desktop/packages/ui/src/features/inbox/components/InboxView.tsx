@@ -1,7 +1,6 @@
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { isInboxDetailPath } from "@posthog/core/inbox/reportMembership";
-import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { InboxPageHeader } from "@posthog/ui/features/inbox/components/InboxPageHeader";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { resetReportOpenTrackerHistory } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
@@ -50,7 +49,7 @@ export function InboxView() {
   // List tabs reached through stale history or bookmarks land on the spaces
   // index; detail URLs keep working (deep links and old history still carry
   // them, and the in-space route can't be derived from a bare report URL here).
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   if (channelReportsEnabled && !isDetailView) {
     return <Navigate replace to="/website" />;
   }

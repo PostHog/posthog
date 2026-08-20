@@ -1,9 +1,8 @@
 import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
-import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -34,7 +33,7 @@ export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   const { generalChannel } = useTaskChannels();
   const generalChannelId = generalChannel?.id;
 

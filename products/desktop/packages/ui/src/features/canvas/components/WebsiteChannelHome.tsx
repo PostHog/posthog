@@ -7,7 +7,6 @@ import {
   generalReportView,
 } from "@posthog/core/inbox/reportChannelScope";
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
-import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
@@ -46,7 +45,7 @@ import {
   type ThreadPanelTab,
   useThreadPanelStore,
 } from "@posthog/ui/features/canvas/stores/threadPanelStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
@@ -96,7 +95,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   // Reports interleave into the feed as compact cards: the general space shows
   // every report, any other space only its own. Their load doesn't gate the
   // feed — report cards land when their (slower) poll resolves.
-  const reportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const reportsEnabled = useChannelReportsEnabled();
   const reportView = useMemo(
     () =>
       channel && !isGeneralChannel(channel)

@@ -6,13 +6,14 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { CHANNEL_REPORTS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -92,7 +93,7 @@ export function GlobalEventHandlers({
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   // With channel reports on, the inbox is gone as a destination, so its
   // shortcut goes with it.
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   const channelsLayout = useChannelsLayout();
 
   const taskById = useMemo(() => {

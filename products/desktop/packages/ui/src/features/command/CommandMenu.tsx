@@ -28,11 +28,7 @@ import {
   Kbd,
   KbdGroup,
 } from "@posthog/quill";
-import {
-  CHANNEL_REPORTS_FLAG,
-  LOOPS_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-} from "@posthog/shared";
+import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
@@ -73,6 +69,7 @@ import {
   useSearchSections,
 } from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
@@ -222,7 +219,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   // With channel reports on, spaces own reports and the inbox entry goes away.
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);

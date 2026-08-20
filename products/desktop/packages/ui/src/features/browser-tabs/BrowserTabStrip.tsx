@@ -9,7 +9,6 @@ import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
-  CHANNEL_REPORTS_FLAG,
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
   decideTabNavigation,
@@ -32,6 +31,7 @@ import {
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
@@ -182,7 +182,7 @@ export function BrowserTabStrip() {
   );
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
 

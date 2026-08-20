@@ -40,7 +40,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@posthog/quill";
-import { CHANNEL_REPORTS_FLAG, LOOPS_FLAG } from "@posthog/shared";
+import { LOOPS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
@@ -60,6 +60,7 @@ import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayS
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
@@ -302,7 +303,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  const reportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const reportsEnabled = useChannelReportsEnabled();
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);

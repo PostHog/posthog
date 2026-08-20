@@ -1,13 +1,10 @@
-import {
-  CHANNEL_REPORTS_FLAG,
-  LOOPS_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-} from "@posthog/shared";
+import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -74,7 +71,7 @@ export function SidebarNavSection({
   );
   // With channel reports on, spaces own reports (sidebar tab + feed) and the
   // inbox disappears as a destination.
-  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const channelReportsEnabled = useChannelReportsEnabled();
   // When this section renders inside the Channels space, the destinations that
   // have a /website mirror stay in that space; everything else (and the whole
   // section in the Code space) uses the canonical routes. Inbox and New task
