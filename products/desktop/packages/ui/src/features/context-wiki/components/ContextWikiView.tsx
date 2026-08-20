@@ -33,7 +33,7 @@ import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
  * writes go through the same head-guarded pages API agents use, so concurrent
  * edits surface as conflicts instead of overwrites.
  */
-export function ContextWikiView() {
+export function ContextWikiView({ initialPath }: { initialPath?: string }) {
   // Root-level page: its own header names the view, so the breadcrumb row
   // collapses (same treatment as Command Center).
   useSetHeaderContent(null);
@@ -52,7 +52,7 @@ export function ContextWikiView() {
         </PageHeaderHeading>
       </PageHeader>
       <div className="min-h-0 flex-1">
-        <ContextWikiBody />
+        <ContextWikiBody initialPath={initialPath} />
       </div>
     </div>
   );
@@ -61,10 +61,12 @@ export function ContextWikiView() {
 // The state-dependent body under the constant page header: loading, the two
 // distinct empty states (403 dark vs 404 never enabled), errors, or the
 // explorer.
-function ContextWikiBody() {
+function ContextWikiBody({ initialPath }: { initialPath?: string }) {
   const { data: tree, isLoading, error, refetch } = useContextWikiTree();
   const enable = useEnableContextWiki();
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(
+    initialPath ?? null,
+  );
   // Drafts are keyed by path and held here rather than in the pane, which the
   // explorer remounts on every selection — so switching pages mid-edit, or
   // being moved off a page an agent deleted, no longer destroys the text.

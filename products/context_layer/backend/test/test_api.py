@@ -99,6 +99,33 @@ class TestContextLayerAPI(APIBaseTest):
         assert f"channel_id: {channel.id}" in page["content"]
         assert "Focus on activation." in page["content"]
 
+        resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
+        assert resolved.status_code == 200
+        assert resolved.json() == {"path": "channels/growth.md"}
+
+    def test_channel_page_resolution_uses_frontmatter_identity(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="First import.", base_version=0
+            )
+        head = self._enable()
+
+        def rename_page(root: Path) -> None:
+            (root / "channels/growth.md").rename(root / "channels/renamed.md")
+
+        store.apply_changes(self.organization.id, message="Rename channel page", mutate=rename_page, required_head=head)
+
+        resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
+        assert resolved.status_code == 200
+        assert resolved.json() == {"path": "channels/renamed.md"}
+
+    def test_channel_page_resolution_404s_when_channel_has_no_page(self, _flag) -> None:
+        self._enable()
+        response = self.client.get(f"{self.base_url}/channel-pages/{self.other_team.id}/")
+        assert response.status_code == 404
+
     def test_enable_is_blocked_for_orgs_with_private_projects(self, _flag) -> None:
         self.team.access_control = True
         self.team.save()

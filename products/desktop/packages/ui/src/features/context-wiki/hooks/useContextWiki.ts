@@ -1,5 +1,6 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
+  ChannelContextWikiPage,
   ContextWikiPage,
   ContextWikiTree,
 } from "@posthog/api-client/posthog-client";
@@ -10,6 +11,16 @@ import { useQueryClient } from "@tanstack/react-query";
 export const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
 export const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
   ["context-wiki", "page", path] as const;
+export const CHANNEL_CONTEXT_WIKI_PAGE_KEY = (channelId: string) =>
+  ["context-wiki", "channel-page", channelId] as const;
+
+export function useChannelContextWikiPage(channelId: string, enabled = true) {
+  return useAuthenticatedQuery<ChannelContextWikiPage | null>(
+    CHANNEL_CONTEXT_WIKI_PAGE_KEY(channelId),
+    (client) => client.getChannelContextWikiPage(channelId),
+    { enabled, staleTime: 30_000, refetchOnMount: "always" },
+  );
+}
 
 /** `null` data means the wiki was never enabled for this organization (404). */
 export function useContextWikiTree() {

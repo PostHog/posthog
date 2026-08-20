@@ -5,5 +5,13 @@ import { createFileRoute } from "@tanstack/react-router";
 // so the page stays single-source; only the route entry is duplicated so
 // navigating here keeps the channels chrome (rail + channel sidebar).
 export const Route = createFileRoute("/website/context")({
-  component: ContextWikiView,
+  validateSearch: (search: Record<string, unknown>) => ({
+    path: typeof search.path === "string" ? search.path : undefined,
+  }),
+  component: WebsiteContextRoute,
 });
+
+function WebsiteContextRoute() {
+  const { path } = Route.useSearch();
+  return <ContextWikiView initialPath={path} />;
+}

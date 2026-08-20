@@ -8,6 +8,8 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -33,6 +35,11 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const { channels } = useTaskChannels();
   const channel = channels.find((c) => c.id === channelId);
   const channelName = channel?.name;
+  const contextLayerEnabled = useContextLayerFlag();
+  const { data: wikiPage } = useChannelContextWikiPage(
+    channelId,
+    contextLayerEnabled,
+  );
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -143,6 +150,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
+          channelContextPath={wikiPage?.path}
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}
