@@ -133,9 +133,12 @@ class CDPProducer:
                 ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
                 files = [f["Key"] for f in ls_values if f["type"] != "directory"]
                 return files
-            except (FileNotFoundError, PermissionError):
-                # A missing prefix or a cleanup permission gap both mean there is nothing to
-                # produce. Never let it shadow the real error in the caller.
+            except FileNotFoundError:
+                # A missing prefix means nothing was staged, so there is nothing to produce.
+                # A permission failure is left to propagate: the delivery path relies on it so
+                # the run is marked failed and Temporal retries rather than silently producing
+                # zero rows. The cleanup path is safe because its callers wrap clear() in a broad
+                # except.
                 return []
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
