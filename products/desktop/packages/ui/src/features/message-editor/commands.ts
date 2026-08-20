@@ -107,8 +107,10 @@ const addDirCommand: CodeCommand = {
   },
 };
 
+export const BTW_COMMAND_NAME = "btw";
+
 const btwCommand: CodeCommand = {
-  name: "btw",
+  name: BTW_COMMAND_NAME,
   description:
     "Ask a quick side question without interrupting the conversation",
   input: { hint: "your question" },
