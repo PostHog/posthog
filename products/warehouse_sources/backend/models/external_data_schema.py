@@ -150,6 +150,29 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         return updated
 
 
+# A schema keeps its normal cadence until it has failed this many times in a row, so an occasional
+# flake never delays a sync. Only a sustained streak starts stretching the retry interval.
+FAILURE_BACKOFF_THRESHOLD = 3
+# Never stretch past a day. A schema whose problem was fixed outside PostHog (credentials rotated
+# back, a deleted table recreated) still recovers on its own within 24 hours.
+FAILURE_BACKOFF_CAP = timedelta(hours=24)
+# Ceiling on the doublings so the multiplication below can't overflow timedelta.
+_MAX_BACKOFF_DOUBLINGS = 20
+
+
+def failure_backoff_interval(sync_frequency_interval: timedelta | None, consecutive_failures: int) -> timedelta | None:
+    """How long after a failed sync the next scheduled one has to wait. None means no backoff.
+
+    The wait is a multiple of the schema's own cadence, so a 5-minute table and a daily table both
+    stay proportionate: doubling per failure past the threshold, capped at a day.
+    """
+    if sync_frequency_interval is None or consecutive_failures < FAILURE_BACKOFF_THRESHOLD:
+        return None
+
+    doublings = min(consecutive_failures - FAILURE_BACKOFF_THRESHOLD + 1, _MAX_BACKOFF_DOUBLINGS)
+    return min(sync_frequency_interval * 2**doublings, FAILURE_BACKOFF_CAP)
+
+
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -220,6 +243,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
+    # Failed syncs in a row since the last success. Drives the retry backoff below — reset by a
+    # successful sync, and by any user action that asks for a sync right now.
+    consecutive_failures = models.IntegerField(default=0, db_default=0)
+    last_failed_at = models.DateTimeField(null=True, blank=True)
 
     objects = ExternalDataSchemaQuerySet.as_manager()
 
@@ -372,6 +399,22 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if self.sync_type_config:
             return self.sync_type_config.get("cdc_table_mode", "consolidated")
         return "consolidated"
+
+    def failure_backoff_until(self) -> datetime | None:
+        """When the next scheduled sync is allowed to run, or None when the normal cadence applies.
+
+        CDC schemas never back off: their extraction has to keep draining the replication slot even
+        while syncs fail, or the slot goes invalid and the source needs a full re-snapshot. CDC has
+        its own breaker (``cdc_broken``) for the cases where stopping is the right call.
+        """
+        if self.is_cdc or self.last_failed_at is None:
+            return None
+
+        backoff = failure_backoff_interval(self.sync_frequency_interval, self.consecutive_failures)
+        if backoff is None:
+            return None
+
+        return self.last_failed_at + backoff
 
     @property
     def should_use_incremental_field(self):
@@ -1139,6 +1182,11 @@ def update_should_sync(
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
+    if should_sync:
+        # Re-enabling is the user saying the problem is fixed, so the next run must not sit out a
+        # backoff window earned before they touched it.
+        clear_sync_failure_backoff(schema_id=schema.id, team_id=team_id)
+
     if not schema.source.supports_scheduled_sync:
         return schema
 
@@ -1154,6 +1202,15 @@ def update_should_sync(
             sync_external_data_job_workflow(schema, create=True)
 
     return schema
+
+
+def clear_sync_failure_backoff(schema_id: str | uuid.UUID, team_id: int) -> None:
+    """Drop a schema's failure streak so its next run isn't skipped by the retry backoff.
+
+    Called whenever the user asks for a sync right now (reload, resync, re-enable). A plain
+    queryset update: this is bookkeeping, not an audited config change.
+    """
+    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(consecutive_failures=0, last_failed_at=None)
 
 
 def update_sync_type_config_keys(

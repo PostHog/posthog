@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_failure_backoff_skipped_metric,
     get_v3_lock_skipped_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
@@ -491,6 +492,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         workflow_starts_post_import = False
         is_v3 = False
         lock_token = None
+        skipped_for_backoff = False
 
         # Check pipeline version (FF evaluated once here, propagated everywhere)
         try:
@@ -575,7 +577,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
+                skipped_for_backoff = create_job_result.skipped_for_backoff
             update_inputs.job_id = str(job_id) if job_id is not None else None
+
+            # The schema is inside its retry-backoff window after repeated failures, so no job was
+            # created and there is nothing to finalize. Gated on an activity output field that
+            # defaults to False, so in-flight pre-backoff executions replay unchanged.
+            if skipped_for_backoff:
+                get_failure_backoff_skipped_metric(source_type).add(1)
+                workflow.logger.info(
+                    "Skipping run, schema is in its failure backoff window",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                return
 
             # Check billing limits
             hit_billing_limit = await workflow.execute_activity(
@@ -928,11 +942,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # When the consumer manages job status (pipeline v3), skip the COMPLETED
             # update here — the consumer marks the job completed after loading finishes.
             # Still run for FAILED/billing statuses so extraction-phase errors are recorded.
-            skip_status_update = (
+            # A backed-off run created no job, so there is no status to write and no import to
+            # report as finished.
+            skip_status_update = skipped_for_backoff or (
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            if not skipped_for_backoff:
+                get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
 
             if not skip_status_update:
                 await workflow.execute_activity(

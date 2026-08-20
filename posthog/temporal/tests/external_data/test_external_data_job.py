@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -8,6 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 import boto3
 import psycopg
@@ -202,6 +204,51 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
 
     runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
+
+
+@pytest.mark.parametrize(
+    "failures,last_failed_minutes_ago,expect_skipped",
+    [
+        # 6h cadence, so 3 failures means a 12h wait: still inside it, the run must leave no job
+        # row behind. That row is the whole point — a permanently broken schema was writing one
+        # failed job per scheduled tick, forever.
+        (3, 60, True),
+        (3, 60 * 13, False),
+        # Below the threshold the schema keeps its normal cadence.
+        (2, 1, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_honours_failure_backoff(
+    activity_environment, team, failures, last_failed_minutes_ago, expect_skipped, **kwargs
+):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+    schema = _create_schema("test-backoff", new_source, team)
+    schema.status = ExternalDataSchema.Status.FAILED
+    schema.consecutive_failures = failures
+    schema.last_failed_at = timezone.now() - dt.timedelta(minutes=last_failed_minutes_ago)
+    schema.save()
+
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+
+    assert result.skipped_for_backoff is expect_skipped
+    assert ExternalDataJob.objects.filter(schema_id=schema.id).exists() is not expect_skipped
+
+    schema.refresh_from_db()
+    if expect_skipped:
+        # Repainting the schema RUNNING for a run that never happens would hide the failure.
+        assert schema.status == ExternalDataSchema.Status.FAILED
 
 
 @pytest.mark.django_db(transaction=True)
