@@ -764,7 +764,8 @@ describe('EmailService', () => {
             expect(email.rcptTo).toEqual(['test@example.com'])
 
             const headers = unfoldedHeaders(email.data)
-            expect(headers).toMatch(/^From: "Test User" <test@posthog\.com>$/m)
+            // nodemailer drops the quotes around a display name that does not need them
+            expect(headers).toMatch(/^From: "?Test User"? <test@posthog\.com>$/m)
             expect(headers).toMatch(/^Subject: Test Subject$/m)
             // Marketing (non-transactional) sends must keep unsubscribe headers on SMTP too
             expect(headers).toMatch(/^List-Unsubscribe:\s*</im)

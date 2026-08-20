@@ -231,7 +231,9 @@ export class EmailService {
             // because the local token bucket is the primary throttle there and disagreements
             // are short-lived. The attempt counter rides on queueMetadata, which survives the
             // queue round-trip (originQueue routing depends on the same property).
-            const priorAttempts = Number(result.invocation.queueMetadata?.smtpSendAttempts) || 0
+            // Read the counter off the incoming invocation: `createInvocationResult` clones with
+            // the queue fields reset, so `result.invocation` never carries the previous attempt.
+            const priorAttempts = Number(invocation.queueMetadata?.smtpSendAttempts) || 0
             if (error instanceof SMTPTransientError && priorAttempts + 1 >= SMTP_MAX_SEND_ATTEMPTS) {
                 const message = `${error.message} (gave up after ${SMTP_MAX_SEND_ATTEMPTS} attempts)`
                 addLog('error', message)
@@ -244,6 +246,11 @@ export class EmailService {
                 // it covers 4xx responses from the customer's relay.
                 throttled = true
                 result.finished = false
+                // The clone also resets queue routing and parameters, so without this the retry
+                // comes back with no email parameters: the VM resumes the send call with no
+                // response and fails with an empty error instead of re-attempting the send.
+                result.invocation.queue = invocation.queue
+                result.invocation.queueParameters = invocation.queueParameters
                 let retryAfterMs = error.retryAfterMs
                 if (error instanceof SMTPTransientError) {
                     result.invocation.queueMetadata = {
