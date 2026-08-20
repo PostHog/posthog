@@ -7,9 +7,9 @@ from django.conf import settings
 import requests
 import structlog
 from rest_framework.exceptions import ValidationError
-from slack_sdk import WebClient
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.exceptions_capture import capture_exception
 
 from . import common, model

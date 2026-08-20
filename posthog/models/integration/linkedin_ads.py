@@ -3,7 +3,8 @@
 import requests
 import structlog
 from rest_framework.exceptions import ValidationError
-from slack_sdk import WebClient
+
+from posthog.egress.slack.client import SlackWebClient as WebClient
 
 from . import common, model
 
@@ -49,7 +50,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -64,7 +65,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )

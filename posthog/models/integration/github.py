@@ -384,6 +384,58 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         return {"number": issue["number"], "repository": repository}
 
+    def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitHub issues in a repository for the link-existing flow."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            raise GitHubIntegrationError(f"GitHubIntegration: invalid repository path {repo_path!r}")
+
+        # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
+        # the org, matching what create_issue persists.
+        repository_name = repo_path.split("/", 1)[1]
+
+        # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
+        # is matched literally instead of rewriting the query, which would fill the result page
+        # with foreign matches and hide valid ones.
+        search_term = query.replace("\\", " ").replace('"', " ").strip()
+        q = f'repo:{repo_path} "{search_term}" in:title type:issue' if search_term else f"repo:{repo_path} type:issue"
+
+        response = self.api_request(
+            "GET",
+            "/search/issues",
+            endpoint="/search/issues",
+            params={"q": q, "per_page": limit},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to search issues in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+
+        results: list[dict[str, Any]] = []
+        for issue in response.json().get("items", []) or []:
+            number = issue.get("number")
+            if number is None:
+                continue
+            # The issues search API returns pull requests too; those aren't linkable issues.
+            if issue.get("pull_request"):
+                continue
+            # Search-syntax operators in the user's query (e.g. "foo OR bar") can escape the
+            # repo: qualifier, so drop anything that isn't actually from the chosen repository.
+            repository_url = issue.get("repository_url") or ""
+            if not repository_url.lower().endswith(f"/repos/{repo_path.lower()}"):
+                continue
+            results.append(
+                {
+                    "id": str(number),
+                    "title": issue.get("title") or f"#{number}",
+                    "url": issue.get("html_url") or "",
+                    # Matches the shape GitHubIntegration.create_issue stores.
+                    "external_context": {"repository": repository_name, "number": number},
+                }
+            )
+        return results
+
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
         org = self.organization()

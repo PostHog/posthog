@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.dataclasses import frozen
+from posthog.egress.slack.observability import record_slack_api_response
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -901,6 +902,16 @@ class OauthIntegration:
                 # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
                 # into resending client_secret + authorization code to another origin.
                 allow_redirects=False,
+            )
+
+        if kind == "slack":
+            record_slack_api_response(
+                res,
+                source="oauth",
+                workspace_id=None,
+                app_id="posthog",
+                method="POST",
+                endpoint="oauth.v2.access",
             )
 
         try:

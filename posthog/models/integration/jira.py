@@ -159,3 +159,52 @@ class JiraIntegration:
             self._raise_create_issue_error(response, issue)
 
         return {"key": issue["key"], "id": issue.get("id", "")}
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Jira issues for the link-existing flow.
+
+        Uses Jira's purpose-built issue picker endpoint, which matches on summary and
+        issue key without us having to build (and escape) a JQL string from user input.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/picker",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            # Without currentJQL the picker only returns history suggestions (issues the
+            # user recently viewed); this constant JQL makes it search all accessible issues.
+            params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to search Jira issues (status {response.status_code})")
+        body = response.json()
+
+        site_url = self.site_url()
+        results: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for section in body.get("sections", []) or []:
+            for issue in section.get("issues", []) or []:
+                key = issue.get("key")
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                results.append(
+                    {
+                        "id": str(issue.get("id", "")),
+                        "title": issue.get("summaryText") or issue.get("summary") or key,
+                        "url": f"{site_url}/browse/{key}" if site_url else "",
+                        # Matches the shape JiraIntegration.create_issue stores.
+                        "external_context": {"key": key, "id": str(issue.get("id", ""))},
+                    }
+                )
+                if len(results) >= limit:
+                    return results
+        return results

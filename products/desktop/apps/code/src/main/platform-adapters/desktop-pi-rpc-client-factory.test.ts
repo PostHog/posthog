@@ -35,9 +35,17 @@ describe("DesktopPiRpcClientFactory", () => {
         region: "eu" as const,
       })),
       getState: vi.fn(() => ({ currentProjectId: 1 })),
+      getValidAccessToken: vi.fn(async () => ({
+        accessToken: "access-token",
+        apiHost: "https://eu.posthog.com",
+      })),
     } as unknown as AgentAuth;
     const authProxy = {
-      start: vi.fn(async () => "http://127.0.0.1:1234"),
+      start: vi.fn(async (url: string) =>
+        url === "https://eu.posthog.com"
+          ? "http://127.0.0.1:5678"
+          : "http://127.0.0.1:1234",
+      ),
     } as unknown as AuthProxyService;
     const policies = [
       {
@@ -79,8 +87,16 @@ describe("DesktopPiRpcClientFactory", () => {
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
       { "X-PostHog-Project-Id": "1" },
     );
+    expect(authProxy.start).toHaveBeenCalledWith("https://eu.posthog.com");
     expect(createPiRpcClient).toHaveBeenCalledWith({
       cwd: "/workspace",
+      enrichment: {
+        apiUrl: "http://127.0.0.1:5678",
+        publicApiUrl: "https://eu.posthog.com",
+        enableObjectReferences: true,
+        projectId: 1,
+        apiKey: "posthog-code-auth-proxy",
+      },
       mcpToolPolicies: policies,
       runtimeMcpServers: {
         posthog: {

@@ -17,10 +17,10 @@ from django.http import HttpRequest
 
 from opentelemetry import trace
 from rest_framework.request import Request
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 
 from . import model
@@ -53,14 +53,25 @@ class SlackIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        return WebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+        )
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,
         # so a top-level import would put aiohttp on the django.setup() path
-        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+        from posthog.egress.slack.async_client import SlackAsyncWebClient  # noqa: PLC0415
 
-        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+        return SlackAsyncWebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+            session=session,
+        )
 
     def granted_scopes(self) -> frozenset[str]:
         """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""

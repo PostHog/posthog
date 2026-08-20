@@ -23,6 +23,7 @@
 1 posthog/errors.py
 1 posthog/helpers/two_factor_session.py
 1 posthog/hogql/compiler/javascript.py
+1 posthog/hogql/database/database.py
 1 posthog/hogql/database/schema/channel_type.py
 1 posthog/hogql/filters.py
 1 posthog/hogql/functions/core.py
@@ -72,7 +73,9 @@
 1 posthog/temporal/data_modeling/activities/create_data_modeling_job.py
 1 posthog/temporal/data_modeling/activities/enrich_view_semantics.py
 1 posthog/temporal/data_modeling/activities/fail_materialization.py
+1 posthog/temporal/data_modeling/activities/materialize_view.py
 1 posthog/temporal/data_modeling/activities/preempt_dag_run.py
+1 posthog/temporal/data_modeling/workflows/materialize_view.py
 1 posthog/temporal/exports/workflows.py
 1 posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py
 1 posthog/temporal/mcp_analytics/intent_clustering/coordinator.py
@@ -166,6 +169,7 @@
 1 products/product_tours/backend/generate_tour_content/generate.py
 1 products/pulse/backend/temporal/activities.py
 1 products/replay_vision/backend/tests/test_gemini_cleanup_activities.py
+1 products/revenue_analytics/backend/views/core.py
 1 products/revenue_analytics/backend/views/schemas/_definitions.py
 1 products/review_hog/backend/reviewer/persistence.py
 1 products/review_hog/backend/reviewer/tests/test_select_perspectives.py
@@ -199,6 +203,7 @@
 1 products/tasks/backend/temporal/create_snapshot/activities/clone_repository.py
 1 products/tasks/backend/temporal/create_snapshot/activities/create_snapshot.py
 1 products/tasks/backend/temporal/create_snapshot/activities/setup_repository.py
+1 products/tasks/backend/temporal/process_task/activities/create_resume_snapshot.py
 1 products/tasks/backend/temporal/process_task/activities/emit_progress_activity.py
 1 products/tasks/backend/temporal/process_task/activities/enforce_self_driving_quota.py
 1 products/tasks/backend/temporal/process_task/activities/feature_flags.py
@@ -1362,11 +1367,11 @@
 10 posthog/temporal/ai_observability/trace_summarization/models.py
 10 posthog/temporal/data_modeling/run_workflow.py
 10 posthog/temporal/sync_person_distinct_ids/activities.py
+10 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 104 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
-10 products/signals/backend/temporal/grouping.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 16 posthog/temporal/ai_observability/eval_reports/types.py
 17 products/exports/backend/temporal/subscriptions/types.py
@@ -1383,9 +1388,7 @@
 2 posthog/dags/scripts/extract_reconciliation_results.py
 2 posthog/helpers/email_utils.py
 2 posthog/hogql/context.py
-2 posthog/hogql/database/database.py
 2 posthog/hogql/database/models.py
-2 posthog/hogql/direct_sql/adapter.py
 2 posthog/hogql_queries/insights/funnels/funnel_correlation_query_runner.py
 2 posthog/management/commands/generate_test_events.py
 2 posthog/management/migration_analysis/models.py
@@ -1402,11 +1405,10 @@
 2 posthog/temporal/backfill_group_type_created_at/types.py
 2 posthog/temporal/common/heartbeat.py
 2 posthog/temporal/data_modeling/activities/get_dag_structure.py
-2 posthog/temporal/data_modeling/activities/materialize_view.py
 2 posthog/temporal/data_modeling/activities/materialize_view_duckgres.py
 2 posthog/temporal/data_modeling/activities/prepare_queryable_table.py
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
-2 posthog/temporal/data_modeling/workflows/materialize_view.py
+2 posthog/temporal/data_modeling/workflows/execute_dag.py
 2 posthog/temporal/dlq_replay/workflow.py
 2 posthog/temporal/ingestion_acceptance_test/client.py
 2 posthog/temporal/ingestion_acceptance_test/results.py
@@ -1444,7 +1446,6 @@
 2 products/marketing_analytics/backend/services/event_suggestions.py
 2 products/notebooks/backend/collab.py
 2 products/product_analytics/backend/hogql_queries/stickiness/test/test_stickiness_query_runner.py
-2 products/revenue_analytics/backend/views/core.py
 2 products/review_hog/backend/reviewer/progress.py
 2 products/review_hog/backend/reviewer/tools/select_perspectives.py
 2 products/review_hog/backend/temporal/outcomes_types.py
@@ -1461,8 +1462,6 @@
 2 products/signals/eval/mock.py
 2 products/slack_app/backend/api.py
 2 products/slack_app/backend/services/integration_resolver.py
-2 products/stamphog/backend/logic/digest.py
-2 products/stamphog/backend/logic/reviewer.py
 2 products/stamphog/backend/temporal/activities.py
 2 products/tasks/backend/logic/services/loop_runs.py
 2 products/tasks/backend/temporal/build_image/workflow.py
@@ -1472,7 +1471,6 @@
 2 products/tasks/backend/temporal/execute_sandbox/activities/reap_orphaned_sandbox.py
 2 products/tasks/backend/temporal/execute_sandbox/activities/sandbox_state.py
 2 products/tasks/backend/temporal/process_task/activities/cleanup_sandbox.py
-2 products/tasks/backend/temporal/process_task/activities/create_resume_snapshot.py
 2 products/tasks/backend/temporal/process_task/activities/create_sandbox_from_snapshot.py
 2 products/tasks/backend/temporal/process_task/activities/execute_task_in_sandbox.py
 2 products/tasks/backend/temporal/process_task/activities/get_pr_context.py
@@ -1529,7 +1527,6 @@
 3 posthog/temporal/ai_observability/run_tagger.py
 3 posthog/temporal/ai_observability/shared_activities.py
 3 posthog/temporal/cleanup_property_definitions/types.py
-3 posthog/temporal/data_modeling/workflows/execute_dag.py
 3 posthog/temporal/delete_persons/delete_persons_workflow.py
 3 posthog/temporal/dlq_replay/activities.py
 3 posthog/temporal/exports/types.py
@@ -1578,6 +1575,7 @@
 4 products/marketing_analytics/backend/services/conversion_goals_inspector.py
 4 products/tasks/backend/temporal/process_task/activities/slack_agent_design.py
 4 products/tasks/backend/temporal/process_task/activities/start_agent_server.py
+4 products/tasks/backend/temporal/process_task/workflow.py
 4 products/tasks/backend/temporal/task_management/activities/pending_followups.py
 4 products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py
 5 posthog/api/proxy_record_diagnostics.py
@@ -1595,9 +1593,8 @@
 5 products/customer_analytics/backend/temporal/calendar_sync.py
 5 products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py
 5 products/notebooks/backend/kernel_runtime.py
-5 products/signals/backend/temporal/buffer.py
+4 products/signals/backend/temporal/buffer.py
 5 products/tasks/backend/temporal/execute_sandbox/workflow.py
-5 products/tasks/backend/temporal/process_task/workflow.py
 6 posthog/dags/deletes.py
 6 posthog/hogql/base.py
 6 posthog/hogql/scripts/build_grammar_strategies.py

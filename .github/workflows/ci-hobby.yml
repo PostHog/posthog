@@ -60,6 +60,7 @@ jobs:
                         - docker-compose.hobby.yml
                         # Hobby-specific scripts
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
