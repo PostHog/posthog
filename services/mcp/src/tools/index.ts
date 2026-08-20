@@ -51,7 +51,13 @@ import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
-import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
+import {
+    tasksArtifactsList,
+    tasksCommentsList,
+    tasksCommentsRetrieve,
+    tasksCurrentRetrieve,
+    tasksMineList,
+} from './tasksContext'
 // Misc
 import {
     type ToolFilterOptions,
@@ -121,6 +127,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-artifacts-list': tasksArtifactsList,
     'tasks-comments-list': tasksCommentsList,
     'tasks-comments-retrieve': tasksCommentsRetrieve,
+    'tasks-current-retrieve': tasksCurrentRetrieve,
+    'tasks-mine-list': tasksMineList,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

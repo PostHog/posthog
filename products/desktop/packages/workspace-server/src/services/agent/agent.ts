@@ -950,7 +950,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         servers: mcpServers,
         toolApprovals,
         toolInstallations,
-      } = await this.agentAuthAdapter.buildMcpServers(credentials);
+      } = await this.agentAuthAdapter.buildMcpServers(credentials, {
+        taskId: isPreview ? undefined : taskId,
+      });
 
       // Store server configs for lazy MCP connections — actual connections
       // are created on-demand when UI resources are first requested.

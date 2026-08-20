@@ -1,12 +1,15 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
+import { TasksListQueryParams } from '@/generated/tasks/api'
+import { omitResponseFields, pickResponseFields, withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 export const TASKS_CONTEXT_TOOL_NAMES = [
     'tasks-artifacts-list',
     'tasks-comments-list',
     'tasks-comments-retrieve',
+    'tasks-current-retrieve',
 ] as const
 
 async function requestTaskResource<TResult>(
@@ -61,6 +64,111 @@ export const tasksCommentsList = (): ToolBase<typeof commentsListSchema, Schemas
             limit: params.limit,
             cursor: params.cursor,
         }),
+})
+
+const currentRetrieveSchema = z.object({})
+const mineListSchema = TasksListQueryParams.pick({
+    status: true,
+    channel: true,
+    search: true,
+    repository: true,
+    archived: true,
+    ordering: true,
+    limit: true,
+    offset: true,
+})
+
+const MINE_LIST_RESULT_FIELDS = [
+    'id',
+    'task_number',
+    'title',
+    'description',
+    'origin_product',
+    'repository',
+    'internal',
+    'channel',
+    'created_by.first_name',
+    'created_by.last_name',
+    'latest_run.id',
+    'latest_run.status',
+    'latest_run.environment',
+    'created_at',
+    'updated_at',
+]
+
+export const tasksCurrentRetrieve = (): ToolBase<
+    typeof currentRetrieveSchema,
+    WithPostHogUrl<Schemas.TaskDetailDTO>
+> => ({
+    name: 'tasks-current-retrieve',
+    schema: currentRetrieveSchema,
+    handler: async (context) => {
+        const taskId = context.api.config.taskId
+        if (!taskId) {
+            throw new Error('This tool is available only inside a running task session.')
+        }
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(taskId)}/`,
+        })
+        const filtered = omitResponseFields(result, [
+            'latest_run.log_url',
+            'latest_run.state.sandbox_connect_token',
+            'latest_run.state.sandbox_url',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
+
+export const tasksMineList = (): ToolBase<
+    typeof mineListSchema,
+    WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>
+> => ({
+    name: 'tasks-mine-list',
+    schema: mineListSchema,
+    handler: async (context, params) => {
+        const [projectId, user] = await Promise.all([
+            context.stateManager.getProjectId(),
+            context.stateManager.getUser(),
+        ])
+        if (user.id === undefined) {
+            throw new Error('Could not resolve the calling user id from the access token.')
+        }
+        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
+            query: {
+                created_by: user.id,
+                archived: params.archived,
+                channel: params.channel,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                repository: params.repository,
+                search: params.search,
+                status: params.status,
+            },
+        })
+        const currentTaskId = context.api.config.taskId
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item) => ({
+                ...pickResponseFields(item, MINE_LIST_RESULT_FIELDS),
+                ...(currentTaskId && item.id === currentTaskId ? { is_current_task: true } : {}),
+            })),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
+                ),
+            },
+            '/tasks'
+        )
+    },
 })
 
 export const tasksCommentsRetrieve = (): ToolBase<typeof commentsRetrieveSchema, Schemas.TaskCommentDetail> => ({

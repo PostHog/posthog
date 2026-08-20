@@ -88,6 +88,35 @@
             "readOnlyHint": true
         }
     },
+    "tasks-current-retrieve": {
+        "description": "Retrieve the task this agent session is running in: title, description, repository, channel, and latest run (status, environment, stage, branch, output). The current task is fixed by the host and cannot be selected by the caller. Use tasks-retrieve to look up any other task by id.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Retrieve the task this session is running in.",
+        "title": "Retrieve current task",
+        "required_scopes": ["task:read"],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "tasks-mine-list": {
+        "description": "List tasks created by the calling user, resolved from the access token. Answers questions like 'what tasks am I currently working on?' (filter with status=in_progress) without needing a user id. Each result includes the latest run's status and environment (local runs execute in PostHog Desktop, cloud runs in a sandbox); the task for the current agent session, if present, is marked is_current_task. Use tasks-list to search across all visible tasks or filter by other creators.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List the calling user's own tasks.",
+        "title": "List my tasks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "experiment-results-get": {
         "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
         "category": "Experiments",

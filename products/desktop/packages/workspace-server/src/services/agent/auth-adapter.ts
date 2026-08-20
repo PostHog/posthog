@@ -110,7 +110,7 @@ export class AgentAuthAdapter {
 
   async buildMcpServers(
     credentials: Credentials,
-    options: { refreshTools?: boolean } = {},
+    options: { refreshTools?: boolean; taskId?: string } = {},
   ): Promise<{
     servers: McpServerConnection[];
     toolApprovals: McpToolApprovals;
@@ -140,6 +140,9 @@ export class AgentAuthAdapter {
         },
         { name: "x-posthog-mcp-version", value: "2" },
         { name: "x-posthog-mcp-consumer", value: "posthog-code" },
+        ...(options.taskId
+          ? [{ name: "x-posthog-task-id", value: options.taskId }]
+          : []),
       ],
     });
 

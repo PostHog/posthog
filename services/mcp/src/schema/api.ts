@@ -4,6 +4,7 @@ export type ApiPropertyDefinition = Schemas.EnterprisePropertyDefinition
 export type ApiEventDefinition = Schemas.EnterpriseEventDefinition
 
 export interface ApiUser {
+    id?: number
     distinct_id: string
     first_name?: string
     last_name?: string
