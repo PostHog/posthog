@@ -398,6 +398,60 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """
 
 
+def LOGS34_TO_VOLUME_BUCKETS_MV():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # Groups rows exactly like _rollup_sql in
+    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
+    # the reasoning for the environment fallback and severity lowercasing. The
+    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
+    # there must stay equal to it or the detector reads buckets this MV never
+    # writes.
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+        team_id,
+        toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+        service_name,
+        if(
+            resource_attributes['k8s.namespace.name'] != '',
+            resource_attributes['k8s.namespace.name'],
+            resource_attributes['service.namespace']
+        ) AS namespace,
+        if(
+            resource_attributes['deployment.environment.name'] != '',
+            resource_attributes['deployment.environment.name'],
+            if(
+                resource_attributes['deployment.environment'] != '',
+                resource_attributes['deployment.environment'],
+                resource_attributes['env']
+            )
+        ) AS environment,
+        lower(severity_text) AS severity_text
+    FROM {db}.{TABLE_NAME}
+)
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+"""
+
+
 def KAFKA_LOGS_AVRO_KAFKA_METRICS_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
