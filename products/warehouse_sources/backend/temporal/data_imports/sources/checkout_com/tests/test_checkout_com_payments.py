@@ -390,7 +390,7 @@ class TestCustomersFanout:
     def test_email_only_references_resolve_once_per_customer(self, mock_make_session):
         # `/payments/search` returns customers as an email with no `cus_` id; requiring an
         # id from the search payload made the fan-out land zero rows for such accounts.
-        payments = [
+        payments: list[dict[str, Any]] = [
             {"id": "pay_1", "requested_on": "2024-02-29T06:00:00Z", "customer": {"email": "jo@example.com"}},
             {"id": "pay_2", "requested_on": "2024-02-29T07:00:00Z", "customer": {"email": "JO@Example.com"}},
             {"id": "pay_3", "requested_on": "2024-02-29T08:00:00Z", "amount": 100},
@@ -564,7 +564,7 @@ class TestPaymentsCustomerIdColumn:
     def test_rows_carry_customer_id_resolved_once_per_email(self, mock_make_session):
         # Search rows reference their customer by email alone, so without resolution the
         # payments table has no key that joins to customers.id.
-        payments = [
+        payments: list[dict[str, Any]] = [
             {"id": "pay_1", "requested_on": "2024-02-29T06:00:00Z", "customer": {"email": "jo@example.com"}},
             {"id": "pay_2", "requested_on": "2024-02-29T07:00:00Z", "customer": {"email": "jo@example.com"}},
             {
