@@ -140,6 +140,7 @@ class Integration(models.Model):
         GOOGLE_CALENDAR = "google-calendar"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+        GOOGLE_DRIVE = "google-drive"
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"

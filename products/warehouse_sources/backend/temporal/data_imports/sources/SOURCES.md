@@ -325,6 +325,7 @@ the row lists both.
 | gong                             | HTTP                        | requests                                                        | ✅                          |
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
+| google_drive                     | HTTP                        | requests                                                        | ✅                          |
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
 | google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -1076,7 +1077,6 @@ doesn't conflict with concurrent PRs.
 - google_classroom
 - google_cloud_storage
 - google_directory
-- google_drive
 - google_forms
 - google_merchant_center
 - google_tasks

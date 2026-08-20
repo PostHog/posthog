@@ -5496,6 +5496,7 @@ export const INTEGRATION_KINDS = [
     'google-ads',
     'google-analytics',
     'google-calendar',
+    'google-drive',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
