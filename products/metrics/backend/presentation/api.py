@@ -937,7 +937,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return Response({"decomposition": asdict(decomposition)}, status=status.HTTP_200_OK)
+        return Response(
+            _MetricExplainResponseSerializer({"decomposition": decomposition}).data, status=status.HTTP_200_OK
+        )
 
     @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
     @action(

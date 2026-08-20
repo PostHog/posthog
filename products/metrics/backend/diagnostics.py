@@ -56,11 +56,11 @@ DEFAULT_MAX_SAMPLES_PER_SERIES = 12
 _MAX_ROWS_READ = 50000
 
 
-def _bucket_end(bucket_start: dt.datetime, interval: str) -> dt.datetime:
-    """The bucket's exclusive upper edge, from the same ladder the chart uses."""
+def _interval_step(interval: str) -> dt.timedelta:
+    """The bucket's width, from the same ladder the chart uses."""
     for name, step, _ in _INTERVAL_LADDER:
         if name == interval:
-            return bucket_start + step
+            return step
     raise ValueError(f"Unknown interval: {interval!r}")
 
 
@@ -147,7 +147,8 @@ def decompose_bucket(
     max_samples_per_series: int = DEFAULT_MAX_SAMPLES_PER_SERIES,
 ) -> MetricBucketDecomposition:
     """Take one chart point apart into the series and samples behind it."""
-    bucket_end = _bucket_end(bucket_start, interval)
+    step = _interval_step(interval)
+    bucket_end = bucket_start + step
 
     response = execute_hogql_query(
         query_type="MetricBucketDecomposition",
@@ -186,7 +187,12 @@ def decompose_bucket(
         resolved_type = resolved_type or row_metric_type
         temporality = temporality or row_temporality
 
-    plan = plan_reduction(aggregation=aggregation, metric_type=resolved_type, temporality=temporality)
+    plan = plan_reduction(
+        aggregation=aggregation,
+        metric_type=resolved_type,
+        temporality=temporality,
+        interval_seconds=step.total_seconds(),
+    )
     if quantile is not None:
         plan = replace(plan, quantile=quantile)
 
@@ -210,9 +216,11 @@ def decompose_bucket(
                 ),
                 sample_count=len(samples),
                 samples_truncated=len(samples) > max_samples_per_series,
+                # Normalized the same way as the bucket's total, so the series
+                # a reader adds up still reach the number they are explaining.
                 value=None
                 if plan.temporal is TemporalReducer.POOLED_SAMPLES
-                else reduce_temporal(samples, plan.temporal),
+                else reduce_temporal(samples, plan.temporal) / plan.divisor,
             )
         )
 

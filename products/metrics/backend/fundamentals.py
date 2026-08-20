@@ -82,6 +82,9 @@ class ReductionPlan:
     temporal: TemporalReducer
     spatial: SpatialReducer
     quantile: float | None = None
+    # `rate` is an increase per second, so its bucket total is divided by the
+    # time that total accumulated over. Every other aggregation plots the total.
+    divisor: float = 1.0
 
 
 _SPATIAL_BY_AGGREGATION: dict[str, SpatialReducer] = {
@@ -103,12 +106,35 @@ def _is_delta(temporality: str) -> bool:
     return temporality == "delta"
 
 
-def plan_reduction(*, aggregation: str, metric_type: str, temporality: str = "") -> ReductionPlan:
+def _rate_divisor(aggregation: str, interval_seconds: float | None) -> float:
+    """How long the bucket's total accumulated over, for the aggregations that
+    plot a per-second figure rather than the total itself.
+
+    Refusing to default the interval keeps a plan built without one from
+    quietly reporting an increase where a rate was asked for — off by the
+    bucket length, which is the whole difference between the two.
+    """
+    if aggregation != "rate":
+        return 1.0
+    if interval_seconds is None or interval_seconds <= 0:
+        raise ValueError("rate is a per-second figure, so it needs a positive interval_seconds")
+    return float(interval_seconds)
+
+
+def plan_reduction(
+    *,
+    aggregation: str,
+    metric_type: str,
+    temporality: str = "",
+    interval_seconds: float | None = None,
+) -> ReductionPlan:
     """Pick the two reduction steps for one aggregation on one kind of metric.
 
     `temporality` is the OTel `aggregation_temporality` column; gauges leave it
     empty. It matters even for the instant aggregations, because a delta sample
     is an increment rather than a reading.
+
+    `interval_seconds` is the bucket's width, which only `rate` needs.
     """
     try:
         spatial = _SPATIAL_BY_AGGREGATION[aggregation]
@@ -116,18 +142,25 @@ def plan_reduction(*, aggregation: str, metric_type: str, temporality: str = "")
         raise ValueError(f"Unsupported aggregation: {aggregation!r}")
 
     quantile = _DEFAULT_QUANTILE if spatial == SpatialReducer.QUANTILE else None
+    divisor = _rate_divisor(aggregation, interval_seconds)
 
     if _is_delta(temporality):
         # Delta samples are increments whatever the caller asked for, so summing
         # them over the bucket is the only reduction that keeps the total whole.
-        return ReductionPlan(temporal=TemporalReducer.SUM_OVER_TIME, spatial=spatial, quantile=quantile)
+        return ReductionPlan(
+            temporal=TemporalReducer.SUM_OVER_TIME, spatial=spatial, quantile=quantile, divisor=divisor
+        )
     if aggregation in _COUNTER_FUNCTIONS:
-        return ReductionPlan(temporal=TemporalReducer.INCREASE, spatial=spatial, quantile=quantile)
+        return ReductionPlan(temporal=TemporalReducer.INCREASE, spatial=spatial, quantile=quantile, divisor=divisor)
     if spatial == SpatialReducer.QUANTILE:
-        return ReductionPlan(temporal=TemporalReducer.POOLED_SAMPLES, spatial=spatial, quantile=quantile)
+        return ReductionPlan(
+            temporal=TemporalReducer.POOLED_SAMPLES, spatial=spatial, quantile=quantile, divisor=divisor
+        )
     if spatial == SpatialReducer.AVG:
-        return ReductionPlan(temporal=TemporalReducer.AVG_OVER_TIME, spatial=spatial, quantile=quantile)
-    return ReductionPlan(temporal=TemporalReducer.LAST, spatial=spatial, quantile=quantile)
+        return ReductionPlan(
+            temporal=TemporalReducer.AVG_OVER_TIME, spatial=spatial, quantile=quantile, divisor=divisor
+        )
+    return ReductionPlan(temporal=TemporalReducer.LAST, spatial=spatial, quantile=quantile, divisor=divisor)
 
 
 def _deduped_in_time_order(samples: Sequence[Sample]) -> list[Sample]:
@@ -215,7 +248,9 @@ def apply_plan(series_samples: Mapping[K, Sequence[Sample]], plan: ReductionPlan
         ]
     else:
         per_series_values = [reduce_temporal(samples, plan.temporal) for samples in series_samples.values() if samples]
-    return reduce_spatial(per_series_values, plan.spatial, quantile=plan.quantile)
+    value = reduce_spatial(per_series_values, plan.spatial, quantile=plan.quantile)
+    # An empty bucket has no number, and normalizing None would invent one.
+    return value if value is None else value / plan.divisor
 
 
 def is_duplicate_invariant(series_samples: Mapping[K, Sequence[Sample]], plan: ReductionPlan) -> bool:

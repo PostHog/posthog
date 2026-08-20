@@ -27,22 +27,32 @@ class TestPlanReduction:
     @parameterized.expand(
         [
             # A gauge sample is a re-reading, so the bucket's current value is the last one.
-            ("gauge_sum", "sum", "gauge", "", TemporalReducer.LAST, SpatialReducer.SUM),
+            ("gauge_sum", "sum", "gauge", "", TemporalReducer.LAST, SpatialReducer.SUM, 1.0),
             # A gauge that moves inside the bucket has a meaningful mean, so the
             # per-series step averages over time rather than keeping one reading.
-            ("gauge_avg", "avg", "gauge", "", TemporalReducer.AVG_OVER_TIME, SpatialReducer.AVG),
-            ("gauge_count", "count", "gauge", "", TemporalReducer.LAST, SpatialReducer.COUNT_SERIES),
+            ("gauge_avg", "avg", "gauge", "", TemporalReducer.AVG_OVER_TIME, SpatialReducer.AVG, 1.0),
+            ("gauge_count", "count", "gauge", "", TemporalReducer.LAST, SpatialReducer.COUNT_SERIES, 1.0),
             # A percentile describes a distribution, so it needs the readings
             # themselves rather than one summary number per series.
-            ("gauge_p95", "p95", "gauge", "", TemporalReducer.POOLED_SAMPLES, SpatialReducer.QUANTILE),
+            ("gauge_p95", "p95", "gauge", "", TemporalReducer.POOLED_SAMPLES, SpatialReducer.QUANTILE, 1.0),
             # A cumulative counter carries an absolute odometer reading.
-            ("cumulative_sum", "sum", "sum", "cumulative", TemporalReducer.LAST, SpatialReducer.SUM),
-            ("cumulative_increase", "increase", "sum", "cumulative", TemporalReducer.INCREASE, SpatialReducer.SUM),
-            ("cumulative_rate", "rate", "sum", "cumulative", TemporalReducer.INCREASE, SpatialReducer.SUM),
+            ("cumulative_sum", "sum", "sum", "cumulative", TemporalReducer.LAST, SpatialReducer.SUM, 1.0),
+            (
+                "cumulative_increase",
+                "increase",
+                "sum",
+                "cumulative",
+                TemporalReducer.INCREASE,
+                SpatialReducer.SUM,
+                1.0,
+            ),
+            # Same two reduction steps as `increase`; only the divisor separates them.
+            ("cumulative_rate", "rate", "sum", "cumulative", TemporalReducer.INCREASE, SpatialReducer.SUM, 300.0),
             # A delta sample IS an increment, so the bucket total is their sum. Taking the
             # last sample here keeps one increment and discards the rest.
-            ("delta_sum", "sum", "sum", "delta", TemporalReducer.SUM_OVER_TIME, SpatialReducer.SUM),
-            ("delta_increase", "increase", "sum", "delta", TemporalReducer.SUM_OVER_TIME, SpatialReducer.SUM),
+            ("delta_sum", "sum", "sum", "delta", TemporalReducer.SUM_OVER_TIME, SpatialReducer.SUM, 1.0),
+            ("delta_increase", "increase", "sum", "delta", TemporalReducer.SUM_OVER_TIME, SpatialReducer.SUM, 1.0),
+            ("delta_rate", "rate", "sum", "delta", TemporalReducer.SUM_OVER_TIME, SpatialReducer.SUM, 300.0),
         ]
     )
     def test_plan_maps_type_and_temporality(
@@ -53,10 +63,14 @@ class TestPlanReduction:
         temporality: str,
         expected_temporal: TemporalReducer,
         expected_spatial: SpatialReducer,
+        expected_divisor: float,
     ) -> None:
-        plan = plan_reduction(aggregation=aggregation, metric_type=metric_type, temporality=temporality)
+        plan = plan_reduction(
+            aggregation=aggregation, metric_type=metric_type, temporality=temporality, interval_seconds=300
+        )
         assert plan.temporal == expected_temporal
         assert plan.spatial == expected_spatial
+        assert plan.divisor == expected_divisor
 
 
 class TestTemporalReduction:
@@ -117,6 +131,28 @@ class TestPooledQuantile:
         plan = plan_reduction(aggregation="p95", metric_type="gauge")
         pooled = apply_plan({"a": _samples(1, 2), "b": _samples(3, 4)}, plan)
         assert pooled == pytest.approx(_quantile_of([1.0, 2.0, 3.0, 4.0]))
+
+
+class TestRateNormalization:
+    @parameterized.expand(
+        [
+            # A counter climbing 60 over a five-minute bucket is 0.2/s.
+            ("rate_is_per_second", "rate", 0.2),
+            ("increase_is_the_total", "increase", 60.0),
+        ]
+    )
+    def test_only_rate_divides_by_the_bucket_length(self, _name: str, aggregation: str, expected: float) -> None:
+        # The runner divides a rate by the bucket length, so a reference that
+        # skips it disagrees with every correct rate chart by that length.
+        plan = plan_reduction(
+            aggregation=aggregation, metric_type="sum", temporality="cumulative", interval_seconds=300
+        )
+        assert apply_plan({"a": _samples(10, 70)}, plan) == pytest.approx(expected)
+
+    def test_rate_refuses_to_plan_without_a_bucket_length(self) -> None:
+        # Defaulting the interval would silently plot an increase as a rate.
+        with pytest.raises(ValueError):
+            plan_reduction(aggregation="rate", metric_type="sum", temporality="cumulative")
 
 
 def _quantile_of(values: list[float]) -> float:
