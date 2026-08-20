@@ -1,11 +1,11 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use chrono::Utc;
-use common_redis::CustomRedisError;
+use common_redis::{CustomRedisError, RedisClient};
 use uuid::Uuid;
 
 use crate::modes::processing::rules::rate_limit::BucketParams;
-use crate::modes::shared::token_bucket::{ScriptRunner, TAKE_FN};
 
 /// Outcome of one fused rate-limit call for a single issue group of `n` events.
 /// `issue_admitted <= n` passed the per-issue limit; `team_admitted <= issue_admitted`
@@ -21,20 +21,80 @@ pub struct RateLimitDecision {
 /// first; the team bucket is debited only by what survives the per-issue limit,
 /// so a per-issue drop never costs project budget. A limit whose `max` is
 /// negative is disabled (admits everything offered to it).
-pub static RATE_LIMIT_LUA: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        r#"{}
+pub const RATE_LIMIT_LUA: &str = r#"
+local function take(key, want, max, rate, ttl, now)
+  if want <= 0 then return 0 end
+  if max < 0 then return want end
+
+  local cur = redis.call('hmget', key, 'ts', 'pool')
+  local tokens
+  if cur[1] == false then
+    tokens = max
+  else
+    local elapsed = now - tonumber(cur[1])
+    if elapsed < 0 then elapsed = 0 end
+    tokens = tonumber(cur[2]) + elapsed * rate
+    if tokens > max then tokens = max end
+  end
+
+  local admit = math.floor(tokens)
+  if admit > want then admit = want end
+
+  -- Never regress `ts`. `now` is each pod's wall clock, so a pod with a lagging
+  -- clock (now < stored ts) must not drag the timestamp backward, or the next
+  -- forward call would compute an inflated `elapsed` and over-refill the bucket.
+  -- Matches the non-regression guard in the Node.js token-bucket scripts.
+  local ts_to_write = now
+  if cur[1] ~= false and now < tonumber(cur[1]) then
+    ts_to_write = tonumber(cur[1])
+  end
+
+  redis.call('hset', key, 'ts', ts_to_write, 'pool', tokens - admit)
+
+  -- EXPIRE dispatch dominated this primitive's Redis CPU in prod, so refresh the TTL
+  -- only on creation or once the remaining TTL drops below ttl/2, and write a 2x
+  -- ceiling for headroom (mirrors the Node.js v3 token-bucket script). PTTL's -1 (no
+  -- TTL) and -2 (missing key) are both below the threshold, so a lost TTL re-arms.
+  if cur[1] == false or redis.call('pttl', key) < (ttl * 500) then
+    redis.call('expire', key, ttl * 2)
+  end
+  return admit
+end
+
 local now = tonumber(ARGV[1])
 local n   = tonumber(ARGV[2])
 
 local issue_admitted = take(KEYS[1], n,              tonumber(ARGV[3]), tonumber(ARGV[4]), tonumber(ARGV[5]), now)
 local team_admitted  = take(KEYS[2], issue_admitted, tonumber(ARGV[6]), tonumber(ARGV[7]), tonumber(ARGV[8]), now)
 
-return {{ issue_admitted, team_admitted }}
-"#,
-        TAKE_FN
-    )
-});
+return { issue_admitted, team_admitted }
+"#;
+
+/// The single Redis operation the limiter needs: run the Lua script and decode
+/// its integer-array reply. Behind a trait so the rate-limiting stage can be
+/// unit-tested with an in-memory fake — including a failing one, to prove the
+/// stage fails open. Production uses the real `RedisClient`.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+}
 
 pub struct RedisRateLimiter {
     redis: Arc<dyn ScriptRunner>,
@@ -91,10 +151,7 @@ impl RedisRateLimiter {
             self.bucket_ttl_seconds.to_string(),
         ];
 
-        let res = self
-            .redis
-            .eval_int_vec(RATE_LIMIT_LUA.as_str(), keys, args)
-            .await?;
+        let res = self.redis.eval_int_vec(RATE_LIMIT_LUA, keys, args).await?;
 
         // Defensive clamps: team_admitted <= issue_admitted <= n.
         let issue_admitted = (res.first().copied().unwrap_or(0).max(0) as u32).min(n);
@@ -122,7 +179,7 @@ impl RedisRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_redis::{CompressionConfig, RedisClient, RedisValueFormat};
+    use common_redis::{CompressionConfig, RedisValueFormat};
     use std::time::Duration;
     use testcontainers::core::{IntoContainerPort, WaitFor};
     use testcontainers::runners::AsyncRunner;
@@ -227,7 +284,7 @@ mod tests {
                 "3600".to_string(),
             ];
             let res = client
-                .eval_int_vec(RATE_LIMIT_LUA.as_str(), keys, args)
+                .eval_int_vec(RATE_LIMIT_LUA, keys, args)
                 .await
                 .unwrap();
             (res[0], res[1])

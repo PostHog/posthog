@@ -14,9 +14,7 @@ use crate::core::error::UnhandledError;
 use crate::core::metric_consts::{LIFECYCLE_RATE_LIMIT_FAIL_OPEN, LIFECYCLE_RATE_LIMIT_OUTCOMES};
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::temporal::WorkflowStart;
-use crate::modes::shared::token_bucket::{Bucket, TokenBucket};
-
-const SECONDS_PER_HOUR: f64 = 3600.0;
+use crate::modes::notifications::token_bucket::TokenBucket;
 
 /// What the handler should do with one notification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,8 +38,6 @@ impl LifecycleDecision {
 pub struct LifecycleRateLimiter {
     /// `None` disables the limit: every notification comes back `Uncharged`.
     bucket: Option<TokenBucket>,
-    key_prefix: String,
-    params: Bucket,
     /// `None` covers every team.
     enabled_team_ids: Option<HashSet<i32>>,
 }
@@ -52,8 +48,6 @@ impl LifecycleRateLimiter {
             info!("Error-tracking lifecycle rate limiter disabled: {reason}");
             Self {
                 bucket: None,
-                key_prefix: config.lifecycle_rate_limit_key_prefix.clone(),
-                params: Bucket::per_window(0.0, SECONDS_PER_HOUR),
                 enabled_team_ids: None,
             }
         };
@@ -83,15 +77,12 @@ impl LifecycleRateLimiter {
         );
 
         Ok(Self {
-            bucket: Some(TokenBucket::new(
+            bucket: Some(TokenBucket::per_hour(
                 Arc::new(client),
+                config.lifecycle_rate_limit_key_prefix.clone(),
+                config.lifecycle_rate_limit_per_hour as f64,
                 config.lifecycle_rate_limit_bucket_ttl_seconds,
             )),
-            key_prefix: config.lifecycle_rate_limit_key_prefix.clone(),
-            params: Bucket::per_window(
-                config.lifecycle_rate_limit_per_hour as f64,
-                SECONDS_PER_HOUR,
-            ),
             enabled_team_ids,
         })
     }
@@ -110,12 +101,12 @@ impl LifecycleRateLimiter {
             return LifecycleDecision::Uncharged;
         }
 
-        match bucket.take(self.key(team_id), self.params, 1).await {
-            Ok(1..) => {
+        match bucket.charge(team_id).await {
+            Ok(true) => {
                 record("admitted", notification_type);
                 LifecycleDecision::Admitted
             }
-            Ok(_) => {
+            Ok(false) => {
                 record("limited", notification_type);
                 LifecycleDecision::Limited
             }
@@ -145,16 +136,11 @@ impl LifecycleRateLimiter {
             return;
         };
 
-        match bucket.give(self.key(team_id), self.params, 1).await {
+        match bucket.refund(team_id).await {
             Ok(()) => record("refunded", notification_type),
             // A lost refund costs the team one token out of its hourly budget.
             Err(e) => warn!("lifecycle rate limiter refund failed for team {team_id}: {e}"),
         }
-    }
-
-    fn key(&self, team_id: i32) -> String {
-        // The braces are a Redis Cluster hash tag, so a team's keys share one slot.
-        format!("{}/{{{team_id}}}/lifecycle", self.key_prefix)
     }
 }
 
@@ -192,7 +178,7 @@ mod tests {
     use common_redis::CustomRedisError;
     use std::sync::Mutex;
 
-    use crate::modes::shared::token_bucket::ScriptRunner;
+    use crate::modes::notifications::token_bucket::LuaRunner;
 
     /// A `ScriptRunner` that never touches Redis: it returns a canned reply, or
     /// an error, and records the scripts it was asked to run.
@@ -225,13 +211,13 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|script| script.contains("local function give"))
+                .filter(|script| script.contains("math.min(tokens + 1, max)"))
                 .count()
         }
     }
 
     #[async_trait]
-    impl ScriptRunner for FakeRunner {
+    impl LuaRunner for FakeRunner {
         async fn eval_int_vec(
             &self,
             script: &str,
@@ -245,9 +231,12 @@ mod tests {
 
     fn limiter_with(runner: Arc<FakeRunner>) -> LifecycleRateLimiter {
         LifecycleRateLimiter {
-            bucket: Some(TokenBucket::new(runner, 3600)),
-            key_prefix: "test".to_string(),
-            params: Bucket::per_window(1000.0, SECONDS_PER_HOUR),
+            bucket: Some(TokenBucket::per_hour(
+                runner,
+                "test".to_string(),
+                1000.0,
+                3600,
+            )),
             enabled_team_ids: None,
         }
     }
@@ -255,8 +244,6 @@ mod tests {
     fn disabled_limiter() -> LifecycleRateLimiter {
         LifecycleRateLimiter {
             bucket: None,
-            key_prefix: "test".to_string(),
-            params: Bucket::per_window(0.0, SECONDS_PER_HOUR),
             enabled_team_ids: None,
         }
     }

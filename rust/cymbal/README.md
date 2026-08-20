@@ -42,9 +42,11 @@ Roll out through the allowlist. Set the Redis URL with
 `cymbal_lifecycle_rate_limit_outcomes`, then clear the allowlist to cover
 everyone. Clearing the Redis URL switches the limit off again.
 
-The token bucket itself lives in
-[`src/modes/shared/token_bucket.rs`](src/modes/shared/token_bucket.rs), shared
-with the per-event limiter in processing mode.
+The bucket lives in
+[`src/modes/notifications/token_bucket.rs`](src/modes/notifications/token_bucket.rs).
+It is deliberately separate from the per-event limiter in processing mode, which
+runs at event volume and charges a variable number of tokens against two fused
+keys.
 
 Symbol resolution runs in resolution-mode pods via the
 `cymbal.resolution.v1` contract. Processing has no inline fallback.

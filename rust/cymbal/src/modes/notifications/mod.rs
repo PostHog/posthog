@@ -24,6 +24,7 @@ mod handler;
 mod issue_handler;
 pub mod rate_limit;
 pub mod temporal;
+mod token_bucket;
 
 pub use config::NotificationsConfig;
 

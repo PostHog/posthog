@@ -9,7 +9,6 @@ use std::str::FromStr;
 pub mod notifications;
 pub mod processing;
 pub mod resolution;
-pub mod shared;
 
 /// Which server stack the cymbal binary runs. Parsed from `CYMBAL_MODE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
