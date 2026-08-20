@@ -3880,11 +3880,11 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
 
         schema.soft_delete()
 
-        schema.refresh_from_db()
-        table.refresh_from_db()
+        reloaded_schema = ExternalDataSchema.objects.get(pk=schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
 
-        assert schema.deleted
-        assert table.deleted
+        assert reloaded_schema.deleted is True
+        assert reloaded_table.deleted is True
 
     def test_schema_soft_delete_does_not_delete_table_if_shared_with_another_active_schema(self):
         # Regression: legacy ghost-table bugs can leave two ExternalDataSchema rows pointing
@@ -3921,15 +3921,13 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
         # Deleting the ghost must leave the table (and the active schema) untouched.
         ghost_schema.soft_delete()
 
-        ghost_schema.refresh_from_db()
-        active_schema.refresh_from_db()
-        table.refresh_from_db()
+        reloaded_ghost = ExternalDataSchema.objects.get(pk=ghost_schema.pk)
+        reloaded_active = ExternalDataSchema.objects.get(pk=active_schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
 
-        assert ghost_schema.deleted
-        assert not active_schema.deleted
-        assert not table.deleted, (
-            "DataWarehouseTable must NOT be soft-deleted while another active schema still references it"
-        )
+        assert reloaded_ghost.deleted is True
+        assert reloaded_active.deleted is False
+        assert reloaded_table.deleted is False
 
 
 
