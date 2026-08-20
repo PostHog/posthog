@@ -16,3 +16,13 @@ const OAUTH_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
 export function describeOAuthCallbackError(error: string): string {
     return OAUTH_CALLBACK_ERROR_MESSAGES[error] ?? `Failed due to "${error}"`
 }
+
+// Query param the callback attaches to its redirect target so the connect page can show a banner
+// that survives the redirect, rather than a toast the user misses while coming back from the provider.
+export const OAUTH_CALLBACK_ERROR_PARAM = 'integration_error'
+
+export function appendOAuthCallbackError(url: string, error: string): string {
+    const resolved = new URL(url, window.location.origin)
+    resolved.searchParams.set(OAUTH_CALLBACK_ERROR_PARAM, error)
+    return resolved.pathname + resolved.search + resolved.hash
+}

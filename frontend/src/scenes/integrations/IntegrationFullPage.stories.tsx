@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -41,6 +44,21 @@ export const NotConnected: Story = {
 
 export const Connected: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
+}
+
+// The callback lands here with the reason in the URL after the provider denies or drops the
+// connection, so the returning user sees a banner that stays instead of a toast they already missed.
+export const CallbackError: Story = {
+    decorators: [
+        mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } }),
+        // The page reads the error reason from the URL; push it once the router is mounted.
+        function CallbackErrorUrl(Story): JSX.Element {
+            useEffect(() => {
+                router.actions.push(`${urls.integration('slack')}?integration_error=access_denied`)
+            }, [])
+            return <Story />
+        },
+    ],
 }
 
 const memberTeam = { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member }

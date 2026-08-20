@@ -85,6 +85,38 @@ describe('integrationsLogic — handleOauthCallback', () => {
         document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     })
 
+    it('carries the provider error to the destination so the connect page can show it', async () => {
+        // A denied or dropped authorization must not create anything, and the reason has to reach the
+        // destination in the URL — a toast would vanish before the returning user reads it.
+        const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+        await expectLogic(logic, () => {
+            logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, error: 'access_denied' })
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
+        expect(router.values.searchParams.integration_error).toBe('access_denied')
+    })
+
+    it('stops the spinner and reports a stall when the callback never redirects', async () => {
+        jest.useFakeTimers()
+        document.cookie = 'ph_oauth_state=csrf-tok'
+        // A create request that never settles is the observed hang: the listener awaits forever, so
+        // only the timeout can free the user.
+        createSpy.mockReturnValue(new Promise(() => {}))
+        const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+        logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+        expect(logic.values.oauthCallbackTimedOut).toBe(false)
+
+        jest.advanceTimersByTime(20000)
+        expect(logic.values.oauthCallbackTimedOut).toBe(true)
+
+        jest.useRealTimers()
+        document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    })
+
     describe('integration create team scoping', () => {
         let requestedTeamIds: string[]
 
