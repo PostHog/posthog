@@ -1,8 +1,18 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import v8 from "node:v8";
 import type { MemorySample } from "@main/watchdog/types";
-import { MemoryWatchdog } from "@main/watchdog/watchdog";
+import {
+  MemoryWatchdog,
+  type MemoryWatchdogDeps,
+} from "@main/watchdog/watchdog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { collectSample } = vi.hoisted(() => ({ collectSample: vi.fn() }));
@@ -34,7 +44,10 @@ function sampleWithRss(totalRssBytes: number): MemorySample {
 let directory: string;
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
-function createWatchdog(env: NodeJS.ProcessEnv = {}) {
+function createWatchdog(
+  env: NodeJS.ProcessEnv = {},
+  deps: Partial<MemoryWatchdogDeps> = {},
+) {
   return new MemoryWatchdog({
     diagnosticsDirectory: directory,
     getAppMetrics: () => [],
@@ -46,6 +59,7 @@ function createWatchdog(env: NodeJS.ProcessEnv = {}) {
       ...env,
     },
     totalMemoryBytes: 16 * GB,
+    ...deps,
   });
 }
 
@@ -63,6 +77,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -168,6 +183,31 @@ describe("MemoryWatchdog", () => {
     }
 
     expect(await listReports(watchdog)).toHaveLength(2);
+  });
+
+  // Snapshots are heap-sized and can hang on a renderer too far gone to answer,
+  // so the report has to be on disk before one starts.
+  it("writes the report before it takes a heap snapshot", async () => {
+    vi.spyOn(v8, "writeHeapSnapshot").mockReturnValue("main.heapsnapshot");
+    collectSample.mockResolvedValue(sampleWithRss(2 * GB));
+
+    let reportWasOnDisk = false;
+    const watchdog = createWatchdog(
+      { POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS: "1" },
+      {
+        takeRendererHeapSnapshot: async (reportDirectory: string) => {
+          reportWasOnDisk = ["report.json", "summary.json"].every((file) =>
+            existsSync(path.join(reportDirectory, file)),
+          );
+          return "renderer.heapsnapshot";
+        },
+      },
+    );
+
+    const report = await watchdog.capture("manual", "with snapshots");
+
+    expect(reportWasOnDisk).toBe(true);
+    expect(report?.files).toContain("renderer.heapsnapshot");
   });
 
   it("turns a leftover session sentinel into an unclean-shutdown report", async () => {

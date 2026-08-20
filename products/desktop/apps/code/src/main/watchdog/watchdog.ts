@@ -195,9 +195,15 @@ export class MemoryWatchdog {
         totalRss: sample ? formatBytes(sample.totalRssBytes) : "unknown",
       });
 
-      const pruned = await this.store.pruneReports(this.config.maxReports);
-      if (pruned.length > 0) {
-        this.log.info("Pruned old memory reports", { count: pruned.length });
+      try {
+        const pruned = await this.store.pruneReports(this.config.maxReports);
+        if (pruned.length > 0) {
+          this.log.info("Pruned old memory reports", { count: pruned.length });
+        }
+      } catch (error) {
+        // The report is already on disk, so a failed cleanup must not report
+        // the capture itself as failed.
+        this.log.warn("Failed to prune old memory reports", error);
       }
 
       this.deps.onReport?.(report, sample);

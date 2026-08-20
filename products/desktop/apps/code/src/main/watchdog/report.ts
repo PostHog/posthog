@@ -14,6 +14,7 @@ const fsPromises = fs.promises;
 const REPORT_FILE = "report.json";
 const BREADCRUMB_COPY = "breadcrumbs.jsonl";
 const BREADCRUMB_TAIL_LINES = 500;
+const RENDERER_SNAPSHOT_TIMEOUT_MS = 30_000;
 
 const NOTES = [
   "totalRssBytes sums per-process RSS. Shared pages are counted once per process, so the real footprint is lower than the sum.",
@@ -43,7 +44,7 @@ export interface WriteReportOptions {
 export async function writeReport(
   options: WriteReportOptions,
 ): Promise<WatchdogReport> {
-  const { store, config, trigger, detail, sample, history, onError } = options;
+  const { store, config, trigger, detail, sample, history } = options;
   const at = new Date();
   const id = buildReportId(at, trigger);
   const directory = await store.createReportDirectory(id);
@@ -57,26 +58,6 @@ export async function writeReport(
       "utf-8",
     );
     files.push(BREADCRUMB_COPY);
-  }
-
-  if (config.heapSnapshots) {
-    const mainSnapshot = `main-${process.pid}.heapsnapshot`;
-    try {
-      // Synchronous and roughly as large as the heap, which is exactly why this
-      // is opt-in via POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS.
-      v8.writeHeapSnapshot(path.join(directory, mainSnapshot));
-      files.push(mainSnapshot);
-    } catch (error) {
-      onError("Failed to write main heap snapshot", error);
-    }
-
-    if (options.takeRendererHeapSnapshot) {
-      try {
-        files.push(await options.takeRendererHeapSnapshot(directory));
-      } catch (error) {
-        onError("Failed to write renderer heap snapshot", error);
-      }
-    }
   }
 
   const report = {
@@ -115,5 +96,62 @@ export async function writeReport(
 
   await store.writeReportSummary(directory, summary);
 
+  // Snapshots are slow, heap-sized, and optional, so they run only once the
+  // evidence a reader actually needs is already on disk. A kill during a
+  // snapshot then costs the snapshot, not the report.
+  const snapshots = await writeHeapSnapshots(options, directory);
+  if (snapshots.length > 0) {
+    summary.files = [...files, ...snapshots];
+    await store.writeReportSummary(directory, summary);
+  }
+
   return summary;
+}
+
+async function writeHeapSnapshots(
+  options: WriteReportOptions,
+  directory: string,
+): Promise<string[]> {
+  if (!options.config.heapSnapshots) return [];
+
+  const written: string[] = [];
+  const mainSnapshot = `main-${process.pid}.heapsnapshot`;
+  try {
+    // Synchronous and roughly as large as the heap, which is exactly why this
+    // is opt-in via POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS.
+    v8.writeHeapSnapshot(path.join(directory, mainSnapshot));
+    written.push(mainSnapshot);
+  } catch (error) {
+    options.onError("Failed to write main heap snapshot", error);
+  }
+
+  if (options.takeRendererHeapSnapshot) {
+    try {
+      written.push(
+        await withTimeout(
+          options.takeRendererHeapSnapshot(directory),
+          RENDERER_SNAPSHOT_TIMEOUT_MS,
+        ),
+      );
+    } catch (error) {
+      options.onError("Failed to write renderer heap snapshot", error);
+    }
+  }
+
+  return written;
+}
+
+/**
+ * A renderer that is out of memory can stop answering altogether, leaving its
+ * snapshot promise unsettled — which would hold the watchdog's capture guard
+ * for the rest of the session.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }

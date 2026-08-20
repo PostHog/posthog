@@ -78,6 +78,10 @@ Heap snapshots are off by default because writing one is synchronous and
 produces a file roughly the size of the heap — capturing a 4GB renderer freezes
 the app and writes 4GB. Turn them on when actively hunting a leak.
 
+Snapshots are taken after the rest of the report is on disk, and a renderer that
+stops answering is given 30 seconds before its snapshot is abandoned. Either way
+a report loses at most its snapshots, never its samples.
+
 ## Reading a report
 
 `totalRssBytes` sums per-process RSS, so shared pages are counted more than once
