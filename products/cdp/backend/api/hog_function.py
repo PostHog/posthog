@@ -1107,7 +1107,8 @@ class HogFunctionViewSet(
         transformations during ingestion, `site_*` transpiled to client-side
         JS). A re-enqueued invocation of one of those would never drain and
         wedges the partition, so a rerun of a non-rerunnable type is rejected
-        with a 400 here.
+        with a 400 here. A disabled function is rejected the same way: the
+        worker skips its invocations, so the rerun could never execute.
 
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_function:write`.
@@ -1123,6 +1124,10 @@ class HogFunctionViewSet(
                 },
                 status=400,
             )
+
+        # The worker skips invocations of disabled functions, so an enqueued re-run could never execute.
+        if not hog_function.enabled:
+            raise serializers.ValidationError("This function is disabled. Enable it to re-run invocations.")
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
