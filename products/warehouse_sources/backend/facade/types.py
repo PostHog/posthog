@@ -1365,6 +1365,7 @@ class ExternalDataSourceType(models.TextChoices):
     MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
     PROFOUND = "Profound", "Profound"
     AIRWALLEX = "Airwallex", "Airwallex"
+    POLYMARKET = "Polymarket", "Polymarket"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

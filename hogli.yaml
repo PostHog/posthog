@@ -17,6 +17,7 @@ config:
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
+        - start-local-ngrok
     env:
         files:
             - .env.development

@@ -13,7 +13,7 @@ from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, Hog
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Each insight kind that supports threshold alerts maps to one extractor. The comparator is shared.
 EXTRACTORS: dict[NodeKind, Extractor] = {
