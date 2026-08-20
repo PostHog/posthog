@@ -1306,6 +1306,20 @@ class TestSignalsInteractiveCostKey:
         assert await recorded_cost(throttle, pipeline) == 5.0
         assert await recorded_cost(throttle, interactive) == 0.0
 
+    @pytest.mark.asyncio
+    async def test_marked_run_declaring_posthog_code_keeps_its_user_budget(self) -> None:
+        # posthog_code is exempt from per-user cost limits because billable credits meter it
+        # instead. Reading that exemption off the declared product would hand it to a marked run
+        # on an Array-app token, which spends against `signals_interactive`.
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", user=make_signals_user(interactive=True))
+        limit, _ = throttle._get_limit_and_window(context)
+
+        await throttle.record_cost(context, limit)
+
+        assert await recorded_cost(throttle, context) == limit
+        assert (await throttle.allow_request(context)).allowed is False
+
 
 class TestSandboxTaskCostThrottle:
     @pytest.mark.asyncio
