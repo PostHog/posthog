@@ -309,9 +309,23 @@ const REDACTED_VALUE = '[redacted]'
 // `certificate` covers Temporal Cloud's `client_certificate`: the source config
 // itself marks it `secret: true` even though the name reads as public key
 // material, and a client cert is namespace-identifying enough to keep out of
-// telemetry too.
+// telemetry too. `server_client_root_ca` stays unmatched on purpose — it is
+// the CA the client uses to verify the *server*, public key material with no
+// private half, marked `secret: true` only because the UI groups it with the
+// real credentials.
+//
+// `app_id`/`api_id` and the trailing `username` case cover sources whose
+// credential is an identifier rather than a token: Open Exchange Rates'
+// `app_id` and Veracode's `api_id` are the whole usable credential, and
+// Pipeliner generates its `username` alongside `password` as one half of a
+// one-time API key pair (`secret: true` on the source config), unlike every
+// other source's plain login `username`. Aircall's `api_id` and
+// AppsFlyer/AppSignal/Churnkey's `app_id` are not credentials — they select
+// which account or app an already-redacted token applies to — but the
+// pattern can't tell those apart by name, and over-redacting a non-secret
+// identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|(^|[_-])(token|key|keys)$/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
