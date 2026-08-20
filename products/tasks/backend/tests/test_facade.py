@@ -1401,3 +1401,80 @@ class TestSelfDrivingQuotaRefreshDispatch(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             facade._refresh_self_driving_quota_for_pr(run, None)
         task_mock.delay.assert_not_called()
+
+
+class TestApplyTaskRunModelConfig(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Config Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Config Team")
+        cls.user = User.objects.create(email="config@test.com", distinct_id="config-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "sandbox_url": "https://sandbox"},
+        )
+
+    def _apply(self, run: TaskRun, **kwargs) -> bool:
+        return facade.apply_task_run_model_config(run.id, run.task_id, self.team.id, **kwargs)
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_sends_the_model_before_the_effort_and_records_both(self, send_mock):
+        # Which efforts exist depends on the model, so the agent-server has to see the
+        # model change first or it validates the effort against the outgoing one.
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+
+        applied = self._apply(run, model="claude-fable-5", reasoning_effort="xhigh")
+
+        self.assertTrue(applied)
+        self.assertEqual(
+            [(c.args[1], c.args[2]) for c in send_mock.call_args_list],
+            [("model", "claude-fable-5"), ("effort", "xhigh")],
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-fable-5")
+        self.assertEqual(run.state["reasoning_effort"], "xhigh")
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_rejected_model_leaves_the_effort_alone(self, send_mock):
+        # The agent-server rejects a model its harness can't drive. Sending the effort
+        # anyway would half-apply a single request onto the model the author didn't ask for.
+        send_mock.return_value = MagicMock(success=False, error="Invalid value for config option model")
+        run = self._run()
+
+        applied = self._apply(run, model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        self.assertFalse(applied)
+        self.assertEqual(send_mock.call_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-sonnet-4-6")
+        self.assertNotIn("reasoning_effort", run.state)
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value="'x' is not available.")
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_gated_model_never_reaches_the_sandbox(self, send_mock, _access_mock):
+        run = self._run()
+
+        self.assertFalse(self._apply(run, model="claude-fable-5", actor_user_id=self.user.id))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
+        self.assertFalse(self._apply(self._run()))
+        send_mock.assert_not_called()
