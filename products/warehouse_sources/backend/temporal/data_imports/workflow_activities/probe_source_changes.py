@@ -1,13 +1,13 @@
 import uuid
 import typing
 import datetime as dt
-import dataclasses
 
 from django.db import close_old_connections
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class ProbeSourceChangesActivityInputs:
     team_id: int
     schema_id: uuid.UUID
