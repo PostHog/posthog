@@ -431,8 +431,9 @@ class TestGroupTarget:
 
     @pytest.mark.asyncio
     async def test_unresolved_group_type_skips_producing(self):
-        # If the group type can't be resolved (deleted/misconfigured), the consumer would DLQ every
-        # $groupidentify missing a group_type — so the source must be skipped, not produced.
+        # A group type that no longer resolves (other types exist, but not this one) means the consumer
+        # would DLQ every $groupidentify missing a group_type, so the source must be skipped, not
+        # produced, and must carry the reason.
         team = MagicMock(api_token="tok", uuid="team-uuid")
         rows = [{"group_key": "acme", "plan": "pro"}]
         with (
@@ -441,7 +442,9 @@ class TestGroupTarget:
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
-            patch(f"{_MODULE}._group_type_name", return_value=None),
+            patch(
+                f"{_MODULE}.get_group_types_for_team", return_value=[{"group_type_index": 1, "group_type": "company"}]
+            ),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
             patch(f"{_MODULE}._stamp_provenance") as stamp,
@@ -469,7 +472,9 @@ class TestGroupTarget:
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=[])),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
-            patch(f"{_MODULE}._group_type_name", return_value=None),
+            patch(
+                f"{_MODULE}.get_group_types_for_team", return_value=[{"group_type_index": 1, "group_type": "company"}]
+            ),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
         ):
@@ -478,6 +483,29 @@ class TestGroupTarget:
 
         produce.assert_not_called()
         assert result.per_source[0].error is not None
+
+    @pytest.mark.asyncio
+    async def test_unavailable_group_types_skips_without_recording_a_failure(self):
+        # get_group_types_for_team degrades to [] when personhog is unavailable, which is
+        # indistinguishable from a deleted group type. Recording a failure on that transient outage
+        # would flag a valid source and, after enough scheduled runs, auto-disable it, so an empty
+        # lookup must skip the source with no error, leaving the run clean for the next healthy run.
+        team = MagicMock(api_token="tok", uuid="team-uuid")
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=[{"group_key": "acme", "plan": "pro"}])),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
+            patch(f"{_MODULE}.get_group_types_for_team", return_value=[]),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        produce.assert_not_called()
+        assert result.per_source[0].error is None
 
     @pytest.mark.asyncio
     async def test_group_source_without_a_type_index_records_the_reason(self):

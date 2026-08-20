@@ -355,14 +355,6 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
     return existing
 
 
-def _group_type_name(team_id: int, group_type_index: int) -> str | None:
-    # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
-    for group_type in get_group_types_for_team(team_id):
-        if group_type.get("group_type_index") == group_type_index:
-            return group_type.get("group_type")
-    return None
-
-
 def _produce_intents(
     team_id: int,
     token: str,
@@ -475,10 +467,27 @@ async def _process_source_bundles(
         # — resolving it only when there are rows to send lets the next idle run clear the error and
         # read as "Synced" while the source stays broken. Without the name the consumer can't build a
         # valid $groupidentify and would DLQ every message, so skip rather than produce doomed intents.
-        group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
-            team_id, source.group_type_index
+        group_types = await database_sync_to_async(get_group_types_for_team, thread_sensitive=False)(team_id)
+        group_type_name = next(
+            (gt.get("group_type") for gt in group_types if gt.get("group_type_index") == source.group_type_index),
+            None,
         )
         if group_type_name is None:
+            if not group_types:
+                # An empty result is ambiguous: get_group_types_for_team degrades to [] when personhog
+                # is unavailable, so it cannot tell "group type deleted" from "lookup failed this run".
+                # Recording a failure here would flag a valid source during a transient outage and,
+                # after MAX_CONSECUTIVE_SYNC_FAILURES runs, auto-disable it. Skip without an error; the
+                # next healthy run resolves the name.
+                logger.warning(
+                    "person-property sync: group types unavailable, skipping source this run",
+                    team_id=team_id,
+                    **_log_fields(binding),
+                    source_id=str(source.source_id),
+                    group_type_index=source.group_type_index,
+                )
+                return ps
+            # The lookup returned other group types but not this one, which confirms it is gone.
             logger.warning(
                 "person-property sync: group type not found, skipping source",
                 team_id=team_id,
