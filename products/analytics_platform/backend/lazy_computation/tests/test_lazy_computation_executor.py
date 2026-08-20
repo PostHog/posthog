@@ -2900,6 +2900,50 @@ class TestJobLifecycleCounters(BaseTest):
         assert outcomes[0] == "abandoned"
         assert "ready" in outcomes[1:]
 
+    def test_an_abandoned_job_is_not_announced_as_ready(self):
+        """The notification means "this job reached a terminal status". A row deleted
+        mid-insert reached none, so nothing should be broadcast for it."""
+        deleted: list = []
+
+        def delete_the_first_job_mid_insert(team, job):
+            if not deleted:
+                deleted.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
+        ) as publish:
+            LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 4, 1, tzinfo=UTC),
+                end=datetime(2024, 4, 2, tzinfo=UTC),
+                run_insert=delete_the_first_job_mid_insert,
+            )
+
+        announced = [call.args[0] for call in publish.call_args_list]
+        assert deleted[0] not in announced
+        assert announced, "the surviving job should still be announced"
+
+    def test_finalize_job_advances_updated_at(self):
+        """`QuerySet.update()` skips `pre_save`, so the model's `auto_now` never fires —
+        without an explicit stamp the column freezes at creation time."""
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="c" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        created_updated_at = job.updated_at
+        job.status = PreaggregationJob.Status.READY
+
+        assert LazyComputationExecutor()._finalize_job(job, ["status"]) is True
+
+        job.refresh_from_db()
+        assert job.updated_at > created_updated_at
+
     def test_partial_hit_increments_created_partial_hit(self):
         """When the requested range partially overlaps a pre-existing READY job,
         the executor only creates the missing-window job — and that job belongs
