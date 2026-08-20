@@ -134,7 +134,7 @@ impl ChunkConfig {
             && (self.max_bytes == 0 || open.bytes + group.bytes <= self.max_bytes)
     }
 
-    /// Whether a sub-batch of `size` can still take another group.
+    /// Whether a sub-batch of `size` has reached a cap and must take no more.
     fn is_full(&self, size: ChunkSize) -> bool {
         self.enabled()
             && (size.events >= self.max_events
@@ -228,7 +228,7 @@ impl WorkerSubBatchBuilder {
 /// Every group — pinned or freshly routed — is added under its target worker,
 /// and each worker has one sub-batch still taking groups. With chunking off
 /// that sub-batch never closes, so the worker gets everything routed to it in
-/// one request. With it on, the sub-batch closes at the cap and the next group
+/// one request. With it on, the sub-batch closes at a cap and the next group
 /// starts another, so one worker may appear several times. Because a worker
 /// keeps only one open sub-batch, its pinned groups and the fresh keys routed
 /// to it in the same batch share a request rather than each getting their own.
@@ -1163,7 +1163,7 @@ impl Dispatcher {
             }
             self.key_sentinel
                 .note_sent(key, &messages, SendKind::Resend);
-            // One group, so this is a single sub-batch whatever the bands are.
+            // One group, so this is a single sub-batch whatever the caps are.
             let mut assignments = WorkerAssignments::new(self.chunking);
             assignments.add_group(
                 worker.clone(),
