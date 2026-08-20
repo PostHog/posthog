@@ -110,12 +110,28 @@ def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
 
 
 def resolve_channel_page(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str | None:
+    return _channel_index(organization_id).get(str(channel_id))
+
+
+def resolve_page_channel(organization_id: uuid.UUID | str, path: str) -> str | None:
+    """The channel a page belongs to, or None when the page isn't a channel page.
+
+    The index only holds this organization's channels, so a channel id from
+    another organization never resolves here.
+    """
+    path = normalize_page_path(path)
+    for channel_id, page_path in _channel_index(organization_id).items():
+        if page_path == path:
+            return channel_id
+    return None
+
+
+def _channel_index(organization_id: uuid.UUID | str) -> dict[str, str]:
     head_sha = store.get_config(organization_id).head_sha
     index = get_safe_cache(_channel_index_cache_key(organization_id, head_sha))
     if index is None:
-        warmed = _warm_cache(organization_id)
-        head_sha, index = warmed.head_sha, warmed.channel_paths
-    return index.get(str(channel_id))
+        index = _warm_cache(organization_id).channel_paths
+    return index
 
 
 def write_page(

@@ -16,15 +16,26 @@ const {
   track,
   useFolderInstructions,
   useContextLayerFlag,
-  useChannelContextWikiPage,
+  useChannelWikiContext,
   taskInputProps,
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useFolderInstructions: vi.fn(),
   useContextLayerFlag: vi.fn(),
-  useChannelContextWikiPage: vi.fn(),
+  useChannelWikiContext: vi.fn(),
   taskInputProps: vi.fn(),
 }));
+
+// What the hook returns when the space has no wiki page, so the legacy
+// CONTEXT.md is the answer.
+const NO_WIKI_PAGE = {
+  path: undefined,
+  useLegacy: true,
+  blocked: false,
+  failed: false,
+  unavailable: false,
+  retry: () => {},
+};
 
 // TaskInput is a huge hook-heavy component; stub it down to just the surface
 // this test cares about — a button that fires onContextChipClick when wired.
@@ -85,7 +96,7 @@ vi.mock("@posthog/ui/features/feature-flags/useContextLayerFlag", () => ({
   useContextLayerFlag,
 }));
 vi.mock("@posthog/ui/features/context-wiki/hooks/useContextWiki", () => ({
-  useChannelContextWikiPage,
+  useChannelWikiContext,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@tanstack/react-query", () => ({
@@ -123,16 +134,16 @@ describe("WebsiteNewTask context panel", () => {
     track.mockReset();
     useFolderInstructions.mockReset();
     useContextLayerFlag.mockReturnValue(false);
-    useChannelContextWikiPage.mockReturnValue({ data: null });
+    useChannelWikiContext.mockReturnValue(NO_WIKI_PAGE);
     taskInputProps.mockReset();
   });
 
-  it("blocks submission while the enabled wiki page is resolving", () => {
+  it("blocks submission while the enabled wiki page is unresolved", () => {
     useContextLayerFlag.mockReturnValue(true);
-    useChannelContextWikiPage.mockReturnValue({
-      data: undefined,
-      error: null,
-      isLoading: true,
+    useChannelWikiContext.mockReturnValue({
+      ...NO_WIKI_PAGE,
+      useLegacy: false,
+      blocked: true,
     });
     useFolderInstructions.mockReturnValue({
       data: { content: "legacy body" },
@@ -143,28 +154,47 @@ describe("WebsiteNewTask context panel", () => {
     expect(taskInputProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         channelContext: undefined,
-        channelContextLoading: true,
+        channelContextBlocked: true,
       }),
     );
   });
 
-  it("does not expose legacy context when wiki resolution fails", () => {
-    useContextLayerFlag.mockReturnValue(true);
-    useChannelContextWikiPage.mockReturnValue({
-      data: undefined,
-      error: new Error("unavailable"),
-      isLoading: false,
-    });
-    useFolderInstructions.mockReturnValue({
-      data: { content: "legacy body" },
-    });
+  // The decision itself is covered in channelWikiContext.test.ts; this only
+  // proves the composer forwards it, so the person is actually told.
+  it.each([
+    [
+      "a retryable failure",
+      { blocked: true, failed: true },
+      { channelContextBlocked: true, channelContextFailed: true },
+    ],
+    [
+      "a permanent 403",
+      { unavailable: true },
+      { channelContextUnavailable: true, channelContextBlocked: false },
+    ],
+  ])(
+    "tells the person when the wiki lookup ends in %s",
+    (_label, outcome, expectedProps) => {
+      useContextLayerFlag.mockReturnValue(true);
+      useChannelWikiContext.mockReturnValue({
+        ...NO_WIKI_PAGE,
+        useLegacy: false,
+        ...outcome,
+      });
+      useFolderInstructions.mockReturnValue({
+        data: { content: "legacy body" },
+      });
 
-    renderNewTask();
+      renderNewTask();
 
-    expect(taskInputProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ channelContext: undefined }),
-    );
-  });
+      expect(taskInputProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          channelContext: undefined,
+          ...expectedProps,
+        }),
+      );
+    },
+  );
 
   it("creates the task in the channel's feed", () => {
     useFolderInstructions.mockReturnValue({ data: undefined });

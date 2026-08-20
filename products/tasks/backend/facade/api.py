@@ -6508,6 +6508,25 @@ def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, cha
     return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
 
 
+def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
+    """The channel a loop run was configured to keep current, or None.
+
+    Scoped by task rather than by team, because the caller's authority here is a
+    run token minted for exactly this task. Returns None for anything that is
+    not a loop run configured to update its context, so callers fail closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product").first()
+    if task is None or task.origin_product != Task.OriginProduct.LOOP:
+        return None
+
+    run_state = TaskRun.objects.filter(task_id=task.id).order_by("-created_at").values_list("state", flat=True).first()
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    if not (context_target.get("outputs") or {}).get("update_context"):
+        return None
+    channel_id = context_target.get("channel_id")
+    return str(channel_id) if channel_id else None
+
+
 def publish_channel_instructions(
     channel_id: str | UUID,
     team_id: int,

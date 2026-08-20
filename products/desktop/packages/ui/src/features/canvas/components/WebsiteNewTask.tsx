@@ -8,7 +8,7 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -36,7 +36,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const channel = channels.find((c) => c.id === channelId);
   const channelName = channel?.name;
   const contextLayerEnabled = useContextLayerFlag();
-  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+  const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -55,10 +55,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   // The channel's CONTEXT.md, passed to the agent as optional background so
   // tasks created here start with the shared context. Absent/empty is fine.
   const { data: instructions } = useFolderInstructions(channelId);
-  const channelContext =
-    !contextLayerEnabled || (wikiPage.data === null && !wikiPage.error)
-      ? instructions?.content
-      : undefined;
+  const channelContext = wiki.useLegacy ? instructions?.content : undefined;
 
   // Right-side preview of the CONTEXT.md, opened from the composer's chip so the
   // user can read what will be sent before submitting (mirrors the post-submit
@@ -150,8 +147,11 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
-          channelContextPath={wikiPage.data?.path}
-          channelContextLoading={contextLayerEnabled && wikiPage.isLoading}
+          channelContextPath={wiki.path}
+          channelContextBlocked={wiki.blocked}
+          channelContextFailed={wiki.failed}
+          channelContextUnavailable={wiki.unavailable}
+          onChannelContextRetry={wiki.retry}
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}

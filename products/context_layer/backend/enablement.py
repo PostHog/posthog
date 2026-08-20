@@ -46,6 +46,10 @@ def enable_context_layer(
         )
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
+    # The import lands its own commit, so the row read before it is already a
+    # head behind. Callers use this sha as `base_head`, and a stale one costs
+    # them a spurious conflict on their first write.
+    config.refresh_from_db()
     return config
 
 

@@ -15,7 +15,7 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
-import { useChannelContextWikiPage } from "../../context-wiki/hooks/useContextWiki";
+import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
@@ -96,11 +96,8 @@ export const ChannelHomeComposer = forwardRef<
 ) {
   const sessionId = `channel-home:${channelId}`;
   const contextLayerEnabled = useContextLayerFlag();
-  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
-  const effectiveChannelContext =
-    !contextLayerEnabled || (wikiPage.data === null && !wikiPage.error)
-      ? channelContext
-      : undefined;
+  const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
+  const effectiveChannelContext = wiki.useLegacy ? channelContext : undefined;
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
@@ -295,8 +292,8 @@ export const ChannelHomeComposer = forwardRef<
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
     channelContext: effectiveChannelContext,
-    channelContextPath: wikiPage.data?.path,
-    submissionBlocked: contextLayerEnabled && wikiPage.isLoading,
+    channelContextPath: wiki.path,
+    submissionBlocked: wiki.blocked,
     channelName,
     channelId,
     channelContextId: channelId,

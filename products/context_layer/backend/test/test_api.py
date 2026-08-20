@@ -19,6 +19,7 @@ from posthog.storage.object_storage import UnavailableStorage
 
 from products.context_layer.backend import enablement, store
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -81,6 +82,19 @@ class TestContextLayerAPI(APIBaseTest):
         # that is not project-nested, which is the whole reason the agent route
         # exists — without it no real sandbox token can publish at all.
         assert post(self.base_url).status_code == 403
+    def test_enable_returns_the_head_the_import_landed(self, _flag) -> None:
+        # Callers pass this straight back as `base_head`, so a sha from before
+        # the channel import costs them a conflict on their first write.
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
+            )
+
+        head = self._enable()
+
+        assert self.client.get(f"{self.base_url}/status/").json()["head_sha"] == head
 
     def test_enable_scaffolds_wiki_and_imports_channel_context(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -123,7 +137,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_channel_page_resolution_404s_when_channel_has_no_page(self, _flag) -> None:
         self._enable()
-        response = self.client.get(f"{self.base_url}/channel-pages/{self.other_team.id}/")
+        response = self.client.get(f"{self.base_url}/channel-pages/{uuid4()}/")
         assert response.status_code == 404
 
     def test_enable_is_blocked_for_orgs_with_private_projects(self, _flag) -> None:
@@ -246,6 +260,31 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
         assert page["content"] == "# From an agent\n"
 
+    def _loop_run_token(self, channel_id) -> str:  # noqa: ANN001
+        """A token shaped like the one a context-maintaining loop run carries."""
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Keep the space context current",
+            origin_product=Task.OriginProduct.LOOP,
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={
+                "config_snapshot": {
+                    "context_target": {
+                        "channel_id": str(channel_id),
+                        "outputs": {"update_context": True},
+                    }
+                }
+            },
+        )
+        return self._bearer(
+            "task:read task:write loop_context_internal:write",
+            sandbox_task_id=task.id,
+        )
+
     def _post_bundle_with_bearer(self, scope: str):
         # The project-nested agent route, with a token minted the way production
         # mints a run token: scoped to a team. The org route refuses a
@@ -271,22 +310,52 @@ class TestContextLayerAPI(APIBaseTest):
         assert self._post_bundle_with_bearer("task:write").status_code == 403
 
     def test_pages_accept_a_sandbox_run_token(self, _flag) -> None:
-        head = self._enable()
+        # Reads stay open across the wiki: it is organization-wide reference
+        # material every agent is meant to draw on.
+        self._enable()
         token = self._bearer("task:read task:write loop_context_internal:write")
         self.client.logout()
-        response = self.client.put(
+        page = self.client.get(
             f"{self.base_url}/pages/",
-            {"path": "areas/analytics.md", "content": "# Updated by loop\n", "base_head": head},
+            {"path": "AGENTS.md"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert page.status_code == 200, page.content
+
+    def test_loop_token_writes_only_the_page_configured_for_its_run(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
+            )
+        head = self._enable()
+        token = self._loop_run_token(channel.id)
+        self.client.logout()
+
+        in_scope = self.client.put(
+            f"{self.base_url}/pages/",
+            {
+                "path": "channels/growth.md",
+                # A real loop reads the page and edits in place, so the frontmatter
+                # that identifies the channel survives the write.
+                "content": f"---\nchannel_id: {channel.id}\n---\n\n# Growth\n\nRefreshed by the loop.\n",
+                "base_head": head,
+            },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        assert response.status_code == 200, response.content
-        page = self.client.get(
+        assert in_scope.status_code == 200, in_scope.content
+
+        # AGENTS.md is what every agent bootstraps from, so a loop reaching it
+        # would rewrite the whole organization's starting instructions.
+        out_of_scope = self.client.put(
             f"{self.base_url}/pages/",
-            {"path": "areas/analytics.md"},
+            {"path": "AGENTS.md", "content": "# Owned\n", "base_head": in_scope.json()["head_sha"]},
+            format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        assert page.status_code == 200
+        assert out_of_scope.status_code == 403, out_of_scope.content
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
