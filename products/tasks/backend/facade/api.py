@@ -3092,15 +3092,9 @@ def register_task_run_posthog_references(
     if run is None:
         return None
 
-    # Desktop registers the agent's citations with the creator's credentials, so
-    # creator-or-sandbox-agent callers keep agent attribution; any other caller
-    # is recorded as themselves and never plants agent-authored thread messages
-    # in a task they don't own (same binding as post_canvas_created_thread_update).
-    is_creator = (
-        acting_user_id is not None
-        and Task.objects.filter(id=run.task_id, team_id=team_id, created_by_id=acting_user_id).exists()
-    )
-    attribute_as_agent = caller_is_agent or is_creator
+    # Only the task-bound sandbox identity is a verified agent; every other
+    # caller is recorded as themselves and posts no agent-authored thread event.
+    attribute_as_agent = caller_is_agent
 
     created: list[dict[str, Any]] = []
     with transaction.atomic():

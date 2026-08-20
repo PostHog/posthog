@@ -8204,8 +8204,11 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
 
 class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.presentation.views.api.is_sandbox_agent_request", return_value=True)
     @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
-    def test_registers_idempotent_reference_artifacts_and_announces_them_once(self, _enabled: MagicMock) -> None:
+    def test_registers_idempotent_reference_artifacts_and_announces_them_once(
+        self, _enabled: MagicMock, _agent: MagicMock
+    ) -> None:
         task = self.create_task()
         run = task.create_run(environment=TaskRun.Environment.CLOUD)
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
@@ -8271,6 +8274,35 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         run.refresh_from_db()
         self.assertEqual(run.artifacts or [], [])
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_user_registered_reference_is_user_attributed_and_silent(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["uploaded_by"], "user")
+        self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
         self.assertFalse(
             TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
         )
