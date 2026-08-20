@@ -554,7 +554,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.stamphog/policy.yml',
         '.vscode/launch.json',
         'tools/phrocs/src/main.rs',
-        'tools/pr-approval-agent/policy.py',
+        'products/stamphog/packages/pr-approval-agent/policy.py',
         'common/hogvm/x.py',
         'common/storybook/x.ts',
         'common/__init__.py',
@@ -646,7 +646,7 @@ test('stamphog policy files claim the suite that validates them', () => {
     assert.deepEqual(computeTargets(['products/alpha/AGENT_APPROVALS.md'], CONTEXT), ['tools:pr-approval-agent'])
     assert.deepEqual(
         computeTargets(['.stamphog/policy.yml'], CONTEXT),
-        computeTargets(['tools/pr-approval-agent/policy.py'], CONTEXT)
+        computeTargets(['products/stamphog/packages/pr-approval-agent/policy.py'], CONTEXT)
     )
 })
 
