@@ -37,6 +37,8 @@ from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.tasks.backend.models import TaskRun, TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
@@ -87,8 +89,14 @@ def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
 
 
-def notify_task_handoff(task: Task, *, recipient: User, actor: User | None) -> None:
-    """Fire a push notification when a task is handed off to ``recipient``."""
+def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
+    """Fire a push notification when a task is handed off to ``recipient``.
+
+    ``message_id`` is the handoff announcement's thread-message id. Keying the
+    cooldown on it (not on task+recipient) lets a genuinely new handoff to the
+    same person fire — e.g. handing a task back and forth — while still
+    collapsing a retry of the same handoff.
+    """
     try:
         actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "A colleague"
         task_title = (task.title or "").strip() or "Untitled task"
@@ -96,7 +104,7 @@ def notify_task_handoff(task: Task, *, recipient: User, actor: User | None) -> N
             recipient,
             task=task,
             kind="handoff",
-            cooldown_subject=f"task_handoff:{task.id}:{recipient.id}",
+            cooldown_subject=f"task_handoff:{message_id}:{recipient.id}",
             body=f'{actor_name} handed you "{task_title}"',
             data={"taskId": str(task.id)},
         )
