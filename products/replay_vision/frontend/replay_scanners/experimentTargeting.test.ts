@@ -1,14 +1,14 @@
-import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
+import { Experiment } from '~/types'
 
 import {
-    applyExperimentVariant,
-    buildExperimentScannerQuery,
+    buildExperimentTargeting,
     experimentScannerName,
     experimentScannerParams,
     parseExperimentScannerParams,
+    prefillScannerForExperiment,
     reconcileVariantKey,
 } from './experimentTargeting'
+import type { ReplayScanner } from './types'
 
 const experiment = {
     id: 7,
@@ -71,40 +71,23 @@ describe('experimentTargeting', () => {
         expect(reconcileVariantKey(experiment, requested)).toEqual(expected)
     })
 
-    it('targets the experiment person-scoped, with the selected variant', () => {
-        const query = buildExperimentScannerQuery(experiment, 'test')
-        expect(query.experiment_exposure).toEqual({ experiment_id: 7, variant: 'test' })
-        expect(query.filter_test_accounts).toBe(true)
+    it.each([
+        ['test', { experiment_id: 7, variant: 'test' }],
+        [null, { experiment_id: 7, variant: null }],
+    ])('builds the persisted targeting for variant %j', (variantKey, expected) => {
+        expect(buildExperimentTargeting({ experiment, variantKey })).toEqual(expected)
     })
 
-    it('omits the variant when targeting all variants', () => {
-        const query = buildExperimentScannerQuery(experiment, null)
-        expect(query.experiment_exposure).toEqual({ experiment_id: 7 })
-    })
+    it('prefills targeting and test-account filtering without touching exposure in the query', () => {
+        const scanner = { name: 'Frustration score', query: { kind: 'RecordingsQuery' } } as unknown as ReplayScanner
 
-    it('never persists playlist-only query fields', () => {
-        const query = buildExperimentScannerQuery(experiment, null)
-        expect(Object.keys(query)).toEqual(
-            expect.not.arrayContaining(['date_from', 'date_to', 'order', 'session_ids', 'limit'])
-        )
-    })
+        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey: 'test' })
 
-    it('a variant change rewrites only experiment_exposure, keeping user-added filters', () => {
-        const userFilter = {
-            key: '$browser',
-            type: PropertyFilterType.Event,
-            value: ['Chrome'],
-            operator: PropertyOperator.Exact,
-        }
-        const edited = {
-            ...buildExperimentScannerQuery(experiment, 'test'),
-            properties: [userFilter],
-        } as RecordingsQuery
-
-        const updated = applyExperimentVariant(edited, { experiment, variantKey: 'control' })
-
-        expect(updated.experiment_exposure).toEqual({ experiment_id: 7, variant: 'control' })
-        expect(updated.properties).toEqual([userFilter])
+        expect(prefilled.experiment_targeting).toEqual({ experiment_id: 7, variant: 'test' })
+        expect(prefilled.query?.filter_test_accounts).toBe(true)
+        // Exposure must never enter the query blob: the API rejects it there, and access control
+        // for the experiment hangs off experiment_targeting alone.
+        expect(prefilled.query).not.toHaveProperty('experiment_exposure')
     })
 
     it.each([

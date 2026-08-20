@@ -79,6 +79,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerModel,
     ScannerProvider,
     ScannerType,
+    apply_experiment_targeting,
 )
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
@@ -199,23 +200,21 @@ class FeedbackThemesSerializer(serializers.Serializer):
 
 
 class ScannerExperimentTargetingSerializer(serializers.Serializer):
-    """The experiment a scanner's targeting watches. Metadata only; scanning never reads it."""
+    """The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+    this blob at query time, so it is the only place an experiment can enter a scanner's
+    targeting — which is what lets the write-side access check and read-side redaction cover it."""
 
     experiment_id = serializers.IntegerField(
         min_value=1,
         help_text="The experiment the scanner watches.",
     )
-    variant_keys = serializers.ListField(
-        child=serializers.CharField(max_length=400, allow_blank=False),
-        allow_empty=True,
-        max_length=50,
-        help_text="Targeted experiment variants. Empty means every variant.",
-    )
-    use_exposure_fallback = serializers.BooleanField(
-        help_text=(
-            "True when the exposure event is captured server-side and the query filters on the "
-            "`$feature/<flag_key>` property instead."
-        ),
+    variant = serializers.CharField(
+        max_length=400,
+        allow_blank=False,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Narrow to sessions of people exposed to this variant. Null means every variant.",
     )
 
 
@@ -588,6 +587,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             RecordingsQuery.model_validate(attrs["query"])
         except PydanticValidationError:
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
+        # Experiment exposure is derived from experiment_targeting at scan time, never persisted
+        # here: writable exposure inside the query blob would bypass experiment_targeting's
+        # access check and let an editor run the exposure filter under the creator's access.
+        if attrs["query"].get("experiment_exposure") is not None:
+            raise serializers.ValidationError(
+                {"query": "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."}
+            )
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
         if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
@@ -1084,11 +1090,26 @@ class EstimateRequestSerializer(serializers.Serializer):
         help_text="Proposed model; determines `credits_per_observation` in the response.",
     )
 
+    experiment_targeting = ScannerExperimentTargetingField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Proposed experiment targeting, merged into the query as its exposure filter the same "
+            "way a saved scanner derives it. The estimate then runs as the requesting user."
+        ),
+    )
+
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
             RecordingsQuery.model_validate(value)
         except PydanticValidationError:
             raise serializers.ValidationError("Recording filter is invalid.")
+        # Mirrors the scanner write path: exposure only enters through experiment_targeting.
+        if value.get("experiment_exposure") is not None:
+            raise serializers.ValidationError(
+                "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
+            )
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 
@@ -1894,11 +1915,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
-        recordings_query = RecordingsQuery.model_validate(query_dict)
+        recordings_query = apply_experiment_targeting(
+            RecordingsQuery.model_validate(query_dict), body.validated_data.get("experiment_targeting")
+        )
 
         estimate = estimate_scanner_session_volume(
             team=self.team,
             query=recordings_query,
+            # The exposure filter's access check runs as the requesting user, so a preview can't
+            # count exposed sessions of an experiment the caller is denied.
+            user=cast(User, request.user),
             sampling_mode=body.validated_data["sampling_mode"],
             budget=PREVIEW_ESTIMATE_BUDGET,
         )

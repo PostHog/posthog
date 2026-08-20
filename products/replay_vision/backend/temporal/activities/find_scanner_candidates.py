@@ -4,13 +4,14 @@ import datetime as dt
 from django.utils import timezone
 
 from pydantic import ValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import RecordingsQuery
 
 from posthog.dataclasses import frozen
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
@@ -78,8 +79,23 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     ).check_access_level_for_resource("session_recording", required_level="viewer"):
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    # Same treatment for the targeted experiment: the exposure filter runs as the creator, so a
+    # deleted creator or revoked experiment access skips the sweep (no watermark advance) instead
+    # of failing every tick until someone notices. Deferred import: the facade pulls in
+    # posthog.api, which must stay off this module's import path.
+    if scanner.experiment_targeting and scanner.experiment_targeting.get("experiment_id") is not None:
+        from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+        try:
+            validate_experiment_exposure_access(
+                scanner.team, scanner.created_by, scanner.experiment_targeting["experiment_id"]
+            )
+        except UserAccessControlError:
+            record_sweep_outcome("experiment_access_lost")
+            return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     try:
-        query = scanner.recordings_query()
+        query = scanner.targeted_recordings_query()
     except ValidationError as exc:
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
@@ -108,7 +124,15 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    fetched = candidate_query.run()
+    try:
+        fetched = candidate_query.run()
+    except DRFValidationError as exc:
+        # The targeted experiment can no longer answer for its exposed population (deleted, back
+        # to draft, group-aggregated, renamed variant). Retries can't fix any of those.
+        raise ApplicationError(
+            f"ReplayScanner {inputs.scanner_id} targets an experiment its exposure filter can't resolve: {exc}",
+            non_retryable=True,
+        ) from exc
     # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
     # Measured before exclusion, since the keyset walks what was fetched, not what survived.
     saturated = len(fetched) == limit

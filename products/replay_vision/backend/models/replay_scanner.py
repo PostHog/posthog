@@ -21,6 +21,25 @@ if TYPE_CHECKING:
 SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 
+def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None) -> "RecordingsQuery":
+    """Merge an `experiment_targeting` blob into a recordings query as its exposure filter.
+
+    Shared by the scanner (live query) and the backfill snapshot (frozen copy of the blob), so
+    the two derive the exposure filter identically. A blob without an `experiment_id` (or None)
+    leaves the query untouched.
+    """
+    from posthog.schema import RecordingsQueryExperimentExposureFilter  # noqa: PLC0415
+
+    if not targeting or targeting.get("experiment_id") is None:
+        return query
+    query = query.model_copy(deep=True)
+    query.experiment_exposure = RecordingsQueryExperimentExposureFilter(
+        experiment_id=targeting["experiment_id"],
+        variant=targeting.get("variant") or None,
+    )
+    return query
+
+
 class ScannerType(models.TextChoices):
     MONITOR = "monitor", "Monitor"
     CLASSIFIER = "classifier", "Classifier"
@@ -287,6 +306,7 @@ class ReplayScanner(UUIDModel):
         "scanner_type",
         "scanner_config",
         "query",
+        "experiment_targeting",
         "sampling_rate",
         "sampling_mode",
         "provider",
@@ -294,7 +314,7 @@ class ReplayScanner(UUIDModel):
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate", "sampling_mode"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
@@ -363,6 +383,16 @@ class ReplayScanner(UUIDModel):
         from posthog.schema import RecordingsQuery  # noqa: PLC0415
 
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
+
+    def targeted_recordings_query(self) -> "RecordingsQuery":
+        """The query every scan and estimate must run: the persisted filter plus the exposure
+        filter derived from `experiment_targeting`.
+
+        Derived here rather than persisted into `query` so the experiment can only ever enter
+        through `experiment_targeting`, the field the API access-checks on write and redacts on
+        read. The serializer rejects `experiment_exposure` inside `query` for the same reason.
+        """
+        return apply_experiment_targeting(self.recordings_query(), self.experiment_targeting)
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

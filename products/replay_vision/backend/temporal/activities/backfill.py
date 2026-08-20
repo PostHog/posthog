@@ -9,6 +9,10 @@ from django.utils import timezone
 
 import structlog
 from pydantic import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
@@ -21,6 +25,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import apply_experiment_targeting
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -161,6 +166,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
+    query = apply_experiment_targeting(query, snapshot.experiment_targeting)
 
     candidate_query = WindowedCandidateQuery(
         team=backfill.team,
@@ -181,7 +187,20 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         skip_negative_blocklists=True,
     )
     started_at = time.monotonic()
-    candidates = candidate_query.run()
+    try:
+        candidates = candidate_query.run()
+    except (PermissionDenied, DRFValidationError) as exc:
+        # The exposure filter can't run anymore: the launcher was deleted or lost experiment
+        # access, or the experiment can't answer for its exposed population (deleted, back to
+        # draft, renamed variant). No tick will ever succeed, and an active-but-stuck backfill
+        # keeps counting its unspent credits into the spend projection — so end it.
+        ReplayScannerBackfill.objects.filter(pk=backfill.pk, status__in=ACTIVE_BACKFILL_STATUSES).update(
+            status=BackfillStatus.CANCELLED, finished_at=timezone.now()
+        )
+        raise ApplicationError(
+            f"ReplayScannerBackfill {inputs.backfill_id} cancelled: its exposure filter can't run: {exc}",
+            non_retryable=True,
+        ) from exc
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session

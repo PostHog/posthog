@@ -1,14 +1,16 @@
 import { getExperimentVariants } from 'scenes/experiments/utils'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
+
+import type { ScannerExperimentTargetingApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ReplayScanner } from './types'
 
 /**
- * Experiment context a scanner is being created against. Held by replayScannerLogic for the
- * lifetime of the wizard so the Triggers step can offer variant targeting instead of raw filters.
- * A null `variantKey` means every variant of the experiment.
+ * Experiment context a scanner is being created or edited against. Held by replayScannerLogic so
+ * the Triggers step can offer variant targeting instead of raw filters. A null `variantKey` means
+ * every variant of the experiment.
  */
 export interface ExperimentScannerContext {
     experiment: Experiment
@@ -49,38 +51,17 @@ export function parseExperimentScannerParams(searchParams: Record<string, any>):
 }
 
 /**
- * The scanner `query` targeting the experiment's exposed persons. Exposure is resolved server-side
- * from the experiment (person-scoped), the same way the experiment Recordings tab resolves it, so
- * the scanner watches exactly the sessions that tab lists — including when the exposure event fires
- * server-side or in an earlier session.
+ * The scanner's persisted experiment targeting. The backend derives the person-scoped exposure
+ * filter from this field at scan time — the same resolution the experiment Recordings tab uses —
+ * so the scanner watches exactly the sessions that tab lists, including when the exposure event
+ * fires server-side or in an earlier session. The exposure filter never enters `query` directly;
+ * the API rejects it there so targeting stays behind this field's experiment access check.
  */
-export function buildExperimentScannerQuery(experiment: Experiment, variantKey: string | null): RecordingsQuery {
+export function buildExperimentTargeting(context: ExperimentScannerContext): ScannerExperimentTargetingApi {
     return {
-        kind: 'RecordingsQuery',
-        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-        experiment_exposure: {
-            experiment_id: experiment.id as number,
-            ...(variantKey ? { variant: variantKey } : {}),
-        },
-    } as RecordingsQuery
-}
-
-/**
- * Applies `variantKey` to an existing scanner query, keeping every other filter the user added.
- * Person-scoped exposure lives in `experiment_exposure`, not the filter group, so a variant change
- * only rewrites that one field.
- */
-export function applyExperimentVariant(
-    query: RecordingsQuery | null,
-    context: ExperimentScannerContext
-): RecordingsQuery {
-    return {
-        ...(query ?? { kind: 'RecordingsQuery' }),
-        experiment_exposure: {
-            experiment_id: context.experiment.id as number,
-            ...(context.variantKey ? { variant: context.variantKey } : {}),
-        },
-    } as RecordingsQuery
+        experiment_id: context.experiment.id as number,
+        variant: context.variantKey,
+    }
 }
 
 /**
@@ -102,11 +83,15 @@ export function experimentScannerName(baseName: string, experimentName: string):
     return name.slice(0, 255)
 }
 
-/** Applies the experiment context to a fresh (or freshly templated) scanner: targeted query, scoped name. */
+/** Applies the experiment context to a fresh (or freshly templated) scanner: targeting, scoped name. */
 export function prefillScannerForExperiment(scanner: ReplayScanner, context: ExperimentScannerContext): ReplayScanner {
     return {
         ...scanner,
         name: experimentScannerName(scanner.name, context.experiment.name),
-        query: buildExperimentScannerQuery(context.experiment, context.variantKey),
+        experiment_targeting: buildExperimentTargeting(context),
+        query: {
+            ...(scanner.query ?? { kind: NodeKind.RecordingsQuery }),
+            filter_test_accounts: context.experiment.exposure_criteria?.filterTestAccounts ?? false,
+        },
     }
 }

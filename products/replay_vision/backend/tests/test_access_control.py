@@ -215,8 +215,6 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                 "model": "gemini-3.7-flash",
                 "experiment_targeting": {
                     "experiment_id": experiment.id,
-                    "variant_keys": [],
-                    "use_exposure_fallback": False,
                 },
             },
             format="json",
@@ -228,7 +226,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # A scanner is viewable at a coarser grain than its targeted experiment; a viewer who can't
         # access the experiment must not learn its id or variants from the scanner payload.
         experiment = create_experiment(self.team, "hidden-flag")
-        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
         scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "viewer")
         self._set_resource_default("experiment", "none")
@@ -249,7 +247,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # not confirm a scanner targets it via the filter's match count. Distinct code path from the
         # serializer redaction above — the scanner is hidden from the list entirely, not just nulled.
         experiment = create_experiment(self.team, "hidden-flag")
-        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
         self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "viewer")
         self._set_resource_default("experiment", "none")
@@ -269,7 +267,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # The filter must resolve @current the way the viewset does, not pass the literal string to
         # the DB lookup (which 500s). The user's current team is set by the test harness.
         experiment = create_experiment(self.team, "aliased-flag")
-        targeting = {"experiment_id": experiment.id, "variant_keys": [], "use_exposure_fallback": False}
+        targeting = {"experiment_id": experiment.id}
         self._create_scanner(name="targeted", experiment_targeting=targeting)
 
         resp = self.client.get(f"/api/environments/@current/vision/scanners/?experiment_id={experiment.id}")

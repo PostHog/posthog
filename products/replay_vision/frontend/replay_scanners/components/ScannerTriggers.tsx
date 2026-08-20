@@ -93,8 +93,9 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
-// Variant selection for a scanner created from an experiment. Compiles the choice into the
-// exposure filter in the card below, so users never have to build that filter by hand.
+// Variant selection for a scanner targeting an experiment. The choice is stored as the scanner's
+// experiment targeting; the backend derives the person-scoped exposure filter from it at scan
+// time, so there is no filter in the card below to hand-edit.
 function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
     const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
@@ -127,10 +128,10 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                     size="xsmall"
                     type="secondary"
                     onClick={() => detachExperimentContext()}
-                    tooltip="Remove the experiment link and edit the recording filters directly."
+                    tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
                     data-attr="vision-experiment-targeting-detach"
                 >
-                    Edit as filters
+                    Remove targeting
                 </LemonButton>
             </div>
             <div className="max-w-160">

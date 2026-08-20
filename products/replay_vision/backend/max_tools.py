@@ -1707,7 +1707,9 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             try:
                 estimate = estimate_scanner_session_volume(
                     team=self._team,
-                    query=scanner.recordings_query(),
+                    query=scanner.targeted_recordings_query(),
+                    # The exposure filter's access check runs as whoever is asking Max.
+                    user=self._user,
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
                     budget=PREVIEW_ESTIMATE_BUDGET,

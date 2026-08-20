@@ -67,7 +67,7 @@ import {
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
-    applyExperimentVariant,
+    buildExperimentTargeting,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     reconcileVariantKey,
@@ -1518,8 +1518,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (experimentParams) {
                         delete nextParams.experiment
-                        delete nextParams.variants
-                        delete nextParams.exposure
+                        delete nextParams.variant
                     }
                     if (nextParams.goal !== undefined) {
                         delete nextParams.goal
@@ -1595,23 +1594,47 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            loadScannerSuccess: ({ scanner }) => {
+            loadScannerSuccess: async ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
+                // Rebuild the targeting card from a persisted scanner, so the variant picker and
+                // detach stay usable after save and reload. The API nulls experiment_targeting for
+                // viewers denied the experiment, so this never fetches an experiment the viewer
+                // can't see. Fails soft: without the card the scanner still edits normally.
+                const targetedExperimentId = scanner.experiment_targeting?.experiment_id
+                if (targetedExperimentId && !values.experimentContext) {
+                    try {
+                        const experiment = await api.experiments.get(targetedExperimentId)
+                        actions.setExperimentContext({
+                            experiment,
+                            variantKey: scanner.experiment_targeting?.variant ?? null,
+                        })
+                    } catch {
+                        // The card simply doesn't render; targeting stays intact on the scanner.
+                    }
+                }
             },
 
-            // The reducer has already stored the new key; recompile only the managed exposure
-            // filter so filters the user added by hand survive a variant change.
+            // The reducer has already stored the new key; targeting lives in its own field, so a
+            // variant change never touches `query` and filters the user added by hand survive.
             setExperimentVariant: () => {
                 const context = values.experimentContext
                 if (!context) {
                     return
                 }
-                actions.setScannerValue('query', applyExperimentVariant(values.scanner?.query ?? null, context))
+                actions.setScannerValue('experiment_targeting', buildExperimentTargeting(context))
+            },
+
+            // Clearing the context alone would leave the persisted targeting silently filtering to
+            // exposed persons with nothing in the Triggers UI able to show or remove it.
+            detachExperimentContext: () => {
+                if (values.scanner?.experiment_targeting) {
+                    actions.setScannerValue('experiment_targeting', null)
+                }
             },
 
             // Changing type keeps the rest of the form: it spreads `current`, so an experiment
@@ -1771,6 +1794,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
+                        // Sent alongside the query so the preview counts the same exposed-person
+                        // population the scan will, instead of every eligible session.
+                        experiment_targeting: scanner.experiment_targeting ?? null,
                         sampling_rate: scanner.sampling_rate,
                         // The proposed model prices the credit estimate.
                         model: scanner.model,
