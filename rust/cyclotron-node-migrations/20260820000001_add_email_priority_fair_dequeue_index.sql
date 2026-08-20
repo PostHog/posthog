@@ -4,11 +4,8 @@
 -- worker can serve transactional-class sends ahead of bulk/marketing-class
 -- sends while keeping the per-team interleave within each class.
 --
--- The email worker's dequeue is moving from
---     ORDER BY dequeue_seq ASC NULLS FIRST
--- to
+-- The email worker's priority dequeue orders by
 --     ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
--- (gated behind CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED in the Node worker).
 -- Leading on `priority` lets that ORDER BY be satisfied by index order, and
 -- `scheduled` as a trailing key column keeps `scheduled <= NOW()` as an
 -- `Index Cond` rather than a heap-level filter, matching the rationale for
